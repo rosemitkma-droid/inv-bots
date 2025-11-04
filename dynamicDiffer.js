@@ -622,7 +622,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'LF_Digit_Differ-Multi_Asset_Bot - Summary',
+            subject: 'DynamicDiffer-Multi_Asset_Bot - Summary',
             text: summaryText
         };
 
@@ -667,7 +667,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'LF_Digit_Differ-Multi_Asset_Bot - Loss Alert',
+            subject: 'DynamicDiffer-Multi_Asset_Bot - Loss Alert',
             text: summaryText
         };
 
@@ -685,7 +685,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'LF_Digit_Differ-Multi_Asset_Bot - Error Report',
+            subject: 'DynamicDiffer-Multi_Asset_Bot - Error Report',
             text: `An error occurred: ${errorMessage}`
         };
 
