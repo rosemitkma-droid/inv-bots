@@ -321,9 +321,9 @@ class EnhancedDigitDifferTradingBot {
         }
 
         // --- DYNAMIC PATTERN MINING ---
-        const patternLength = 2; // Look for patterns of 2 digits leading to a 3rd.
-        const minOccurrences = 3;  // The pattern must have repeated at least 3 times.
-        const lookbackWindow = 150; // Analyze the last 150 ticks for patterns.
+        const patternLength = 3; // Look for patterns of 2 digits leading to a 3rd.
+        const minOccurrences = 2;  // The pattern must have repeated at least 3 times.
+        const lookbackWindow = 1000; // Analyze the last 150 ticks for patterns.
 
         const recentHistory = history.slice(-lookbackWindow);
         const patternMap = new Map();
@@ -608,7 +608,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'GeminiDigit_Differ3-Multi_Asset_Bot - Summary',
+            subject: 'Gemini_SequenceDigit-Multi_Asset_Bot - Summary',
             text: summaryText
         };
 
@@ -653,7 +653,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'GeminiDigit_Differ3-Multi_Asset_Bot - Loss Alert',
+            subject: 'Gemini_SequenceDigit-Multi_Asset_Bot - Loss Alert',
             text: summaryText
         };
 
@@ -671,7 +671,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'GeminiDigit_Differ3-Multi_Asset_Bot - Error Report',
+            subject: 'Gemini_SequenceDigit-Multi_Asset_Bot - Error Report',
             text: `An error occurred: ${errorMessage}`
         };
 
