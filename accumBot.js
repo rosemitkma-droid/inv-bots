@@ -719,9 +719,9 @@ class EnhancedDerivTradingBot {
             const currentHours = now.getHours();
             const currentMinutes = now.getMinutes();
 
-            // Check for afternoon resume condition (11:00 AM)
-            if (this.endOfDay && currentHours === 11 && currentMinutes >= 0) {
-                console.log("It's 1:00 PM, reconnecting the bot.");
+            // Check for afternoon resume condition (7:00 AM)
+            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
+                console.log("It's 7:00 AM, reconnecting the bot.");
                 this.LossDigitsList = [];
                 this.tradeInProgress = false;
                 this.usedAssets = new Set();
@@ -776,7 +776,7 @@ class EnhancedDerivTradingBot {
             if (!this.endOfDay) {
             this.sendEmailSummary();
             }
-        }, 1800000); // 30 minutes
+        }, 21600000); // 6 Hours
     }
 
     async sendEmailSummary() {
@@ -927,21 +927,21 @@ class EnhancedDerivTradingBot {
 
     start() {
         this.connect();
-        // this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
+        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
 // Updated configuration
 const bot = new EnhancedDerivTradingBot('DMylfkyce6VyZt7', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
-    initialStake: 2.5,
+    initialStake: 1,
     multiplier: 21,
-    maxConsecutiveLosses: 2,
+    maxConsecutiveLosses: 3,
     stopLoss: 105,
-    takeProfit: 25,
+    takeProfit: 5000,
     growthRate: 0.05, // 5% growth rate
     accuTakeProfit: 0.5, // Take profit amount 
-    minTradeDelay: 120000,
-    maxTradeDelay: 300000      
+    minWaitTime: 300000, //5 Minutes
+    maxWaitTime: 2600000, //1 Hour      
 });
 bot.start();
