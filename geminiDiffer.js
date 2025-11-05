@@ -67,6 +67,7 @@ class EnhancedDigitDifferTradingBot {
         this.suspendedAssets = new Set();
         this.rStats = {};
         this.sys = 1;
+        this.knum = 2;
 
 
         // Initialize per-asset storage
@@ -321,9 +322,9 @@ class EnhancedDigitDifferTradingBot {
         }
 
         // --- DYNAMIC PATTERN MINING ---
-        const patternLength = 3; // Look for patterns of 2 digits leading to a 3rd.
-        const minOccurrences = 2;  // The pattern must have repeated at least 3 times.
-        const lookbackWindow = 1000; // Analyze the last 150 ticks for patterns.
+        const patternLength = this.knum; // Look for patterns of 2 digits leading to a 3rd.
+        const minOccurrences = this.knum === 1 ? 500 : 50;  // The pattern must have repeated at least 3 times.
+        const lookbackWindow = 5000; // Analyze the last 150 ticks for patterns.
 
         const recentHistory = history.slice(-lookbackWindow);
         const patternMap = new Map();
@@ -343,16 +344,16 @@ class EnhancedDigitDifferTradingBot {
         const lastPattern = history.slice(-patternLength).join(',');
 
         // 3. Check if this recent pattern is reliable
+        const outcomes = patternMap.get(lastPattern);
         if (patternMap.has(lastPattern)) {
-            const outcomes = patternMap.get(lastPattern);
             
             if (outcomes.length >= minOccurrences) {
                 // Check if all outcomes for this pattern are the same (high reliability)
-                const isReliable = outcomes.every(val => val === outcomes[0]);
+                const isReliable = outcomes.every(val => val >= outcomes[0]);
 
                 if (isReliable) {
                     const predictedOutcome = outcomes[0];
-                    console.log(`[${asset}] Reliable pattern '${lastPattern}' found! It consistently leads to digit ${predictedOutcome}.`);
+                    console.log(`[${asset}] Reliable pattern '${lastPattern}' found! It consistently leads to digit ${predictedOutcome}(${outcomes.length})`);
                     
                     // The predicted digit for a "differ" contract is the one we expect to appear.
                     this.placeTrade(asset, predictedOutcome);
@@ -361,7 +362,7 @@ class EnhancedDigitDifferTradingBot {
             }
         }
         
-        console.log(`[${asset}] No highly reliable sequential patterns found for '${lastPattern}'.`);
+        console.log(`[${asset}] No highly reliable sequential patterns found for '${lastPattern}'. ${outcomes[0]}(${outcomes.length})`);
     }
 
 
@@ -430,13 +431,7 @@ class EnhancedDigitDifferTradingBot {
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
             // Suspend the asset after a loss
-            // this.suspendAsset(asset);
-
-            if (this.sys === 1) {
-                this.sys = 2;
-            } else {
-                this.sys = 1;
-            }               
+            // this.suspendAsset(asset);            
 
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
         }  
@@ -453,6 +448,12 @@ class EnhancedDigitDifferTradingBot {
 
         if (!won) {
             this.sendLossEmail(asset);
+
+            //Update Filter Number
+            // this.knum++;
+            // if (this.knum = 3) {
+            //     this.knum = 1;
+            // }   
         }
 
         if(!this.endOfDay) {
@@ -690,13 +691,14 @@ class EnhancedDigitDifferTradingBot {
 }
 
 // Usage
-const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
+const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', {
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3, 
     stopLoss: 129,
     takeProfit: 5000,
-    requiredHistoryLength: 1000,
+    requiredHistoryLength: 5000,
     winProbabilityThreshold: 0.6,
     minWaitTime: 300000, //5 Minutes
     maxWaitTime: 2600000, //1 Hour
