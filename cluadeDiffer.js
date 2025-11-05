@@ -747,7 +747,8 @@ class AIWeightedEnsembleBot {
 }
 
 // Initialize and start bot
-const bot = new AIWeightedEnsembleBot('0P94g4WdSrSrzir', {
+const bot = new AIWeightedEnsembleBot('DMylfkyce6VyZt7', {
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
