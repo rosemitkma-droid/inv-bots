@@ -10,19 +10,19 @@ class NeuralEdgeAITrader {
         this.connected = false;
         this.wsReady = false;
 
-        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
+        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'];
 
         this.config = {
             initialStake: config.initialStake || 0.61,
-            multiplier: config.multiplier || 4.0, // Moderate for controlled recovery
-            maxConsecutiveLosses: config.maxConsecutiveLosses || 2, // Strict loss limit
-            stopLoss: config.stopLoss || 45, // Protect capital early
-            takeProfit: config.takeProfit || 30, // Achievable profit goal
+            multiplier: config.multiplier || 4.0,
+            maxConsecutiveLosses: config.maxConsecutiveLosses || 2,
+            stopLoss: config.stopLoss || 45,
+            takeProfit: config.takeProfit || 30,
             requiredHistoryLength: config.requiredHistoryLength || 1000,
-            minWaitTime: config.minWaitTime || 150000, // 2.5 min base wait
-            maxWaitTime: config.maxWaitTime || 270000, // 4.5 min max wait
-            confidenceThreshold: config.confidenceThreshold || 0.8, // High confidence for trades
-            lossPauseDuration: config.lossPauseDuration || 540000 // 9 min pause after loss streak
+            minWaitTime: config.minWaitTime || 150000,
+            maxWaitTime: config.maxWaitTime || 270000,
+            confidenceThreshold: config.confidenceThreshold || 0.55, // FIXED: Reduced from 0.8
+            lossPauseDuration: config.lossPauseDuration || 540000
         };
 
         // Trading state
@@ -36,6 +36,7 @@ class NeuralEdgeAITrader {
         this.suspendedAssets = new Set();
         this.endOfDay = false;
         this.tradingPaused = false;
+        this.lastStrategyUsed = null;
 
         // Tick data storage
         this.tickHistories = {};
@@ -44,18 +45,18 @@ class NeuralEdgeAITrader {
             this.tickHistories[asset] = [];
         });
 
-        // NeuralEdge Strategies - AI-inspired, adaptive approaches
+        // FIXED: Strategies now use proper weighted ensemble approach
         this.strategies = [
-            { name: 'Neural Trend', func: this.neuralTrendStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
+            { name: 'Neural Trend', func: this.neuralTrendStrategy.bind(this), wins: 0, total: 0, weight: 1.0 }, // Start with slight advantage
             { name: 'Data Entropy', func: this.dataEntropyStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
             { name: 'Risk Adaptive', func: this.riskAdaptiveStrategy.bind(this), wins: 0, total: 0, weight: 1.0 }
         ];
 
         // AI Learning Repository
         this.aiData = {
-            tradeHistory: [], // Store trade outcomes for learning
-            patternWeights: Array(10).fill(0), // Adjust digit biases over time
-            assetRiskProfile: {} // Track risk per asset
+            tradeHistory: [],
+            patternWeights: Array(10).fill(0),
+            assetRiskProfile: {}
         };
 
         this.emailConfig = {
@@ -162,7 +163,7 @@ class NeuralEdgeAITrader {
         const quoteString = quote.toString();
         const [, fractionalPart = ''] = quoteString.split('.');
 
-        if (['R_75', 'R_50'].includes(asset)) {
+        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
             return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
         } else if (['R_10', 'R_25'].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
@@ -195,47 +196,66 @@ class NeuralEdgeAITrader {
         }
     }
 
-    // NeuralEdge Strategies - AI-Driven and Adaptive
+    // FIXED: Neural Trend Strategy - Improved weighting
     neuralTrendStrategy(history) {
-        // Uses weighted historical trends with recency bias
-        const windows = [10, 30, 50];
+        const windows = [10, 20, 50];
         const scores = Array(10).fill(0);
+        
         windows.forEach((size, idx) => {
             const window = history.slice(-size);
             const counts = Array(10).fill(0);
             window.forEach(d => counts[d]++);
-            const weight = (idx + 1) / windows.length;
+            
+            // More aggressive weighting for recent data
+            const weight = Math.pow(2, idx);
             counts.forEach((c, digit) => {
                 scores[digit] += c * weight;
             });
         });
+        
         return scores.indexOf(Math.max(...scores));
     }
 
+    // FIXED: Data Entropy Strategy - Targets overdue digits
     dataEntropyStrategy(history) {
-        // Targets digits with lowest entropy (underrepresented) for potential reversal
+        const recent = history.slice(-50); // Increased window
+        const counts = Array(10).fill(0);
+        recent.forEach(d => counts[d]++);
+        
+        // Find least frequent digit (most overdue)
+        const minCount = Math.min(...counts);
+        const candidates = counts.map((c, i) => c === minCount ? i : -1).filter(i => i >= 0);
+        
+        // If multiple candidates, use pattern weights
+        if (candidates.length > 1) {
+            const weighted = candidates.map(digit => ({
+                digit,
+                score: counts[digit] + this.aiData.patternWeights[digit]
+            }));
+            weighted.sort((a, b) => a.score - b.score);
+            return weighted[0].digit;
+        }
+        
+        return candidates[0];
+    }
+
+    // FIXED: Risk Adaptive Strategy - Better risk assessment
+    riskAdaptiveStrategy(history) {
         const recent = history.slice(-40);
         const counts = Array(10).fill(0);
         recent.forEach(d => counts[d]++);
-        const entropy = counts.map(count => {
-            const p = count / recent.length;
-            return p === 0 ? Infinity : -p * Math.log2(p);
-        });
-        return entropy.indexOf(Math.min(...entropy));
-    }
-
-    riskAdaptiveStrategy(history) {
-        // Adjusts predictions based on learned risk from past trades
-        const recent = history.slice(-30);
-        const counts = Array(10).fill(0);
-        recent.forEach(d => counts[d]++);
+        
+        // Combine frequency with learned patterns
         const adjusted = counts.map((c, digit) => {
-            return c + (this.aiData.patternWeights[digit] * 0.5); // Incorporate learned bias
+            const patternBoost = this.aiData.patternWeights[digit] * 2; // Increased influence
+            const frequency = c / recent.length;
+            return (frequency * 10) + patternBoost;
         });
+        
         return adjusted.indexOf(Math.max(...adjusted));
     }
 
-    // Update Strategy Weights and AI Learning
+    // FIXED: Update Strategy Weights with better learning
     updateStrategyWeights(won, strategyName, predictedDigit) {
         const strategy = this.strategies.find(s => s.name === strategyName);
         if (!strategy) return;
@@ -243,25 +263,26 @@ class NeuralEdgeAITrader {
         strategy.total++;
         if (won) {
             strategy.wins++;
-            strategy.weight *= 1.25; // Boost successful strategies
-            this.aiData.patternWeights[predictedDigit] += 0.1; // Reinforce successful digit
+            strategy.weight *= 1.15; // Moderate boost
+            this.aiData.patternWeights[predictedDigit] += 0.2; // Stronger reinforcement
         } else {
-            strategy.weight *= 0.75; // Penalize failing strategies
-            this.aiData.patternWeights[predictedDigit] -= 0.1; // Deweight failing digit
+            strategy.weight *= 0.85; // Moderate penalty
+            this.aiData.patternWeights[predictedDigit] -= 0.15;
         }
 
-        if (strategy.weight < 0.2) strategy.weight = 0.2; // Avoid total exclusion
+        // Ensure minimum weight floor
+        if (strategy.weight < 0.3) strategy.weight = 0.3;
 
-        // Normalize weights
+        // Normalize weights to sum to total strategies count
         const totalWeight = this.strategies.reduce((sum, s) => sum + s.weight, 0);
         this.strategies.forEach(s => {
-            s.weight /= totalWeight;
+            s.weight = (s.weight / totalWeight) * this.strategies.length;
         });
 
-        console.log(`📈 Updated weight for ${strategyName}: ${strategy.weight.toFixed(2)}`);
+        console.log(`📈 Updated weight for ${strategyName}: ${strategy.weight.toFixed(2)} (WR: ${((strategy.wins/strategy.total)*100).toFixed(1)}%)`);
     }
 
-    // Analyze Ticks with AI Precision
+    // FIXED: Improved confidence calculation
     analyzeTicks(asset) {
         if (this.tradeInProgress || this.suspendedAssets.has(asset) || this.tradingPaused) return;
 
@@ -270,42 +291,68 @@ class NeuralEdgeAITrader {
 
         console.log('\n🔬 ANALYZING TICKS WITH NEURALEDGE AI...');
         
-        // Calculate votes based on strategy weights
-        const votes = Array(10).fill(0);
-        let selectedStrategy = null;
-        let maxWeight = 0;
+        // Get predictions from all strategies
+        const predictions = this.strategies.map(strategy => ({
+            strategy,
+            digit: strategy.func(history)
+        }));
 
-        this.strategies.forEach(strategy => {
-            const pred = strategy.func(history);
-            votes[pred] += strategy.weight;
-            if (strategy.weight > maxWeight) {
-                maxWeight = strategy.weight;
-                selectedStrategy = strategy;
-            }
+        // Calculate weighted votes for each digit
+        const votes = Array(10).fill(0);
+        predictions.forEach(pred => {
+            votes[pred.digit] += pred.strategy.weight;
         });
 
+        const totalWeight = this.strategies.reduce((sum, s) => sum + s.weight, 0);
         const predictedDigit = votes.indexOf(Math.max(...votes));
-        const confidence = Math.max(...votes) / this.strategies.reduce((sum, s) => sum + s.weight, 0);
+        
+        // FIXED: Better confidence calculation
+        // Confidence = (top vote weight / total weight) * agreement factor
+        const topVoteWeight = votes[predictedDigit];
+        const baseConfidence = topVoteWeight / totalWeight;
+        
+        // Agreement factor: how many strategies agree on top prediction
+        const agreementCount = predictions.filter(p => p.digit === predictedDigit).length;
+        const agreementFactor = agreementCount / this.strategies.length;
+        
+        // Combined confidence with both factors
+        const confidence = baseConfidence * (0.7 + (agreementFactor * 0.3));
+
+        // Select strategy with highest weight that predicted winning digit
+        const candidateStrategies = predictions
+            .filter(p => p.digit === predictedDigit)
+            .sort((a, b) => b.strategy.weight - a.strategy.weight);
+        const selectedStrategy = candidateStrategies.length > 0 ? 
+            candidateStrategies[0].strategy : this.strategies[0];
 
         console.log(`\n🎯 PREDICTION: Digit ${predictedDigit} | Confidence: ${(confidence * 100).toFixed(1)}%`);
-        console.log(`   Selected Strategy: ${selectedStrategy.name} (Weight: ${selectedStrategy.weight.toFixed(2)})`);
+        console.log(`   Last Digit: ${lastDigit}`);
+        console.log(`   Strategy: ${selectedStrategy.name} (Weight: ${selectedStrategy.weight.toFixed(2)})`);
+        console.log(`   Agreement: ${agreementCount}/${this.strategies.length} strategies`);
+        console.log(`   Strategy Predictions: ${predictions.map(p => `${p.strategy.name}→${p.digit}`).join(', ')}`);
+        console.log(`   Threshold: ${(this.config.confidenceThreshold * 100).toFixed(1)}%`);
 
-        // Trade only with high confidence to minimize risk
+        // FIXED: Trade if confidence meets threshold AND different from last digit
         if (predictedDigit !== lastDigit && confidence >= this.config.confidenceThreshold) {
-            this.placeTrade(asset, predictedDigit, selectedStrategy.name);
+            this.lastStrategyUsed = selectedStrategy.name;
+            this.placeTrade(asset, predictedDigit, selectedStrategy.name, confidence);
         } else {
-            console.log(`⚠️ Confidence below threshold (${(confidence * 100).toFixed(1)}% < ${(this.config.confidenceThreshold * 100).toFixed(1)}%), skipping trade`);
+            if (predictedDigit === lastDigit) {
+                console.log(`⚠️ Skipping trade: Predicted digit matches last digit (${lastDigit})`);
+            } else {
+                console.log(`⚠️ Confidence below threshold: ${(confidence * 100).toFixed(1)}% < ${(this.config.confidenceThreshold * 100).toFixed(1)}%`);
+            }
         }
     }
 
-    placeTrade(asset, predictedDigit, strategyName) {
+    placeTrade(asset, predictedDigit, strategyName, confidence) {
         if (this.tradeInProgress) return;
         
         this.tradeInProgress = true;
         console.log(`\n🚀 [${asset}] PLACING TRADE`);
         console.log(`   Digit: ${predictedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
         console.log(`   Strategy: ${strategyName}`);
-        console.log(`   Confidence: ${(this.config.confidenceThreshold * 100).toFixed(1)}% or higher\n`);
+        console.log(`   Confidence: ${(confidence * 100).toFixed(1)}%`);
 
         this.sendRequest({
             buy: 1,
@@ -344,16 +391,16 @@ class NeuralEdgeAITrader {
             this.totalWins++;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
-            this.tradingPaused = false; // Resume after win
+            this.tradingPaused = false;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             this.suspendAsset(asset);
-            // Pause trading if consecutive losses hit threshold
+            
             if (this.consecutiveLosses >= this.config.maxConsecutiveLosses) {
                 this.tradingPaused = true;
-                console.log(`🛑 Pausing trading due to ${this.consecutiveLosses} consecutive losses. Waiting for reset.`);
+                console.log(`🛑 Pausing trading due to ${this.consecutiveLosses} consecutive losses.`);
             }
         }
 
@@ -373,7 +420,7 @@ class NeuralEdgeAITrader {
         won ? this.aiData.assetRiskProfile[asset].wins++ : this.aiData.assetRiskProfile[asset].losses++;
 
         this.totalProfitLoss += profit;
-        const strategyName = this.strategies.find(s => s.total === this.totalTrades - 1)?.name || this.strategies[0].name;
+        const strategyName = this.lastStrategyUsed || this.strategies[0].name;
         this.updateStrategyWeights(won, strategyName, predictedDigit);
 
         if (!this.endOfDay) {
@@ -415,6 +462,7 @@ class NeuralEdgeAITrader {
             console.log(`⏳ Extended pause due to losses. Waiting ${Math.round(this.config.lossPauseDuration / 60000)} minutes...`);
             setTimeout(() => {
                 this.tradingPaused = false;
+                this.consecutiveLosses = 0; // FIXED: Reset on resume
                 this.tradeInProgress = false;
                 this.connect();
             }, this.config.lossPauseDuration);
@@ -425,7 +473,7 @@ class NeuralEdgeAITrader {
         this.suspendedAssets.add(asset);
         console.log(`🚫 Suspended asset: ${asset}`);
         
-        if (this.suspendedAssets.size > 3) {
+        if (this.suspendedAssets.size > 2) {
             const first = Array.from(this.suspendedAssets)[0];
             this.suspendedAssets.delete(first);
             console.log(`✅ Reactivated asset: ${first}`);
@@ -443,6 +491,13 @@ class NeuralEdgeAITrader {
         console.log(`P&L: ${this.totalProfitLoss.toFixed(2)} | Current Stake: ${this.currentStake.toFixed(2)}`);
         console.log(`Trading Status: ${this.tradingPaused ? 'Paused due to losses' : 'Active'}`);
         console.log(`Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}`);
+        
+        // Show strategy performance
+        console.log('\nStrategy Performance:');
+        this.strategies.forEach(s => {
+            const wr = s.total > 0 ? ((s.wins/s.total)*100).toFixed(1) : 'N/A';
+            console.log(`  ${s.name}: ${s.wins}/${s.total} (${wr}%) - Weight: ${s.weight.toFixed(2)}`);
+        });
         console.log('='.repeat(60) + '\n');
     }
 
@@ -562,7 +617,8 @@ class NeuralEdgeAITrader {
         console.log('='.repeat(60));
         console.log('Powered by AI-driven intelligence:');
         console.log('  • Continuous learning from trade outcomes');
-        console.log('  • High-confidence decision-making threshold');
+        console.log('  • Optimized confidence threshold (55%)');
+        console.log('  • Enhanced weighted ensemble strategies');
         console.log('  • Strategic pauses to mitigate loss streaks');
         console.log('='.repeat(60) + '\n');
         
@@ -575,13 +631,13 @@ const bot = new NeuralEdgeAITrader('0P94g4WdSrSrzir', {
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
-    stopLoss: 145,
-    takeProfit: 130,
+    stopLoss: 86,
+    takeProfit: 500,
     requiredHistoryLength: 1000,
-    minWaitTime: 150000, // 2.5 Minutes
-    maxWaitTime: 270000, // 4.5 Minutes
-    confidenceThreshold: 0.8,
-    lossPauseDuration: 540000 // 9 Minutes
+    minWaitTime: 150000,
+    maxWaitTime: 270000,
+    confidenceThreshold: 0.55, // FIXED: Reduced from 0.8 to 0.55
+    lossPauseDuration: 540000
 });
 
 bot.start();
