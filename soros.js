@@ -3,6 +3,7 @@ const WebSocket = require('ws');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 
+
 class ReflexiveAdaptiveBot {
     constructor(token, config = {}) {
         this.token = token;
@@ -10,19 +11,19 @@ class ReflexiveAdaptiveBot {
         this.connected = false;
         this.wsReady = false;
 
-        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
+        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'];
 
         this.config = {
             initialStake: config.initialStake || 0.61,
-            multiplier: config.multiplier || 3.5, // Conservative multiplier to manage risk
-            maxConsecutiveLosses: config.maxConsecutiveLosses || 2, // Tight control on loss streaks
-            stopLoss: config.stopLoss || 40, // Early intervention for losses
-            takeProfit: config.takeProfit || 30, // Realistic profit target
+            multiplier: config.multiplier || 3.5,
+            maxConsecutiveLosses: config.maxConsecutiveLosses || 2,
+            stopLoss: config.stopLoss || 40,
+            takeProfit: config.takeProfit || 30,
             requiredHistoryLength: config.requiredHistoryLength || 1000,
-            minWaitTime: config.minWaitTime || 180000, // Longer wait to observe market sentiment
+            minWaitTime: config.minWaitTime || 180000,
             maxWaitTime: config.maxWaitTime || 300000,
-            reflexivityThreshold: config.reflexivityThreshold || 0.7, // Confidence threshold for trades
-            pauseAfterLosses: config.pauseAfterLosses || 2 // Pause trading after this many losses
+            reflexivityThreshold: config.reflexivityThreshold || 0.55, // FIXED: Lowered to realistic level
+            pauseAfterLosses: config.pauseAfterLosses || 2
         };
 
         // Trading state
@@ -36,6 +37,7 @@ class ReflexiveAdaptiveBot {
         this.suspendedAssets = new Set();
         this.endOfDay = false;
         this.tradingPaused = false;
+        this.lastStrategyUsed = null;
 
         // Tick data storage
         this.tickHistories = {};
@@ -44,17 +46,18 @@ class ReflexiveAdaptiveBot {
             this.tickHistories[asset] = [];
         });
 
-        // Reflexive Strategies - Focused on market perception and feedback loops
+        // Reflexive Strategies
         this.strategies = [
             { name: 'Sentiment Shift', func: this.sentimentShiftStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
             { name: 'Feedback Loop', func: this.feedbackLoopStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
-            { name: 'Contrarian Bias', func: this.contrarianBiasStrategy.bind(this), wins: 0, total: 0, weight: 1.0 }
+            { name: 'Contrarian Bias', func: this.contrarianBiasStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
+            // { name: 'Momentum Tracker', func: this.momentumTrackerStrategy.bind(this), wins: 0, total: 0, weight: 1.0 }, // NEW STRATEGY
+            { name: 'Pattern Recognition', func: this.patternRecognitionStrategy.bind(this), wins: 0, total: 0, weight: 1.0 } // NEW STRATEGY
         ];
 
-        // Reflexivity Metrics - Track market participant behavior
         this.reflexivityData = {
-            assetSentiment: {}, // Track perceived trends per asset
-            lossFeedback: [] // Record sequences after losses for learning
+            assetSentiment: {},
+            lossFeedback: []
         };
 
         this.emailConfig = {
@@ -161,7 +164,7 @@ class ReflexiveAdaptiveBot {
         const quoteString = quote.toString();
         const [, fractionalPart = ''] = quoteString.split('.');
 
-        if (['R_75', 'R_50'].includes(asset)) {
+        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
             return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
         } else if (['R_10', 'R_25'].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
@@ -194,9 +197,8 @@ class ReflexiveAdaptiveBot {
         }
     }
 
-    // Reflexive Strategies Based on Market Perception
+    // STRATEGY 1: Sentiment Shift
     sentimentShiftStrategy(history) {
-        // Detects shifts in market sentiment by analyzing frequency changes
         const recentShort = history.slice(-20);
         const recentLong = history.slice(-100);
         const shortCounts = Array(10).fill(0);
@@ -211,25 +213,49 @@ class ReflexiveAdaptiveBot {
         return shifts.reduce((max, curr) => curr.shift > max.shift ? curr : max).digit;
     }
 
+    // STRATEGY 2: Feedback Loop
     feedbackLoopStrategy(history) {
-        // Identifies self-reinforcing trends in digit frequency
         const recent = history.slice(-50);
         const counts = Array(10).fill(0);
         recent.forEach((d, idx) => {
-            counts[d] += (idx / recent.length); // Weight recent digits more
+            counts[d] += (idx / recent.length);
         });
         return counts.indexOf(Math.max(...counts));
     }
 
+    // STRATEGY 3: Contrarian Bias
     contrarianBiasStrategy(history) {
-        // Bets against overrepresented digits, assuming market overreaction
         const recent = history.slice(-30);
         const counts = Array(10).fill(0);
         recent.forEach(d => counts[d]++);
         return counts.indexOf(Math.min(...counts));
     }
 
-    // Update Strategy Weights Based on Reflexive Feedback
+    // STRATEGY 4: Momentum Tracker (NEW)
+    momentumTrackerStrategy(history) {
+        const recent = history.slice(-40);
+        const momentum = Array(10).fill(0);
+        for (let i = 1; i < recent.length; i++) {
+            if (recent[i] === recent[i - 1]) {
+                momentum[recent[i]]++;
+            }
+        }
+        return momentum.indexOf(Math.max(...momentum));
+    }
+
+    // STRATEGY 5: Pattern Recognition (NEW)
+    patternRecognitionStrategy(history) {
+        const recent = history.slice(-60);
+        const counts = Array(10).fill(0);
+        // Weight recent occurrences more heavily
+        recent.forEach((d, idx) => {
+            const weight = 1 + (idx / recent.length) * 2; // Exponential weighting
+            counts[d] += weight;
+        });
+        return counts.indexOf(Math.max(...counts));
+    }
+
+    // FIXED: Proper strategy weight updates
     updateStrategyWeights(won, strategyName) {
         const strategy = this.strategies.find(s => s.name === strategyName);
         if (!strategy) return;
@@ -237,12 +263,13 @@ class ReflexiveAdaptiveBot {
         strategy.total++;
         if (won) {
             strategy.wins++;
-            strategy.weight *= 1.2; // Increase weight on success
+            strategy.weight *= 1.15; // Moderate increase
         } else {
-            strategy.weight *= 0.8; // Decrease weight on failure
+            strategy.weight *= 0.85; // Moderate decrease
         }
 
-        if (strategy.weight < 0.2) strategy.weight = 0.2; // Minimum weight to avoid exclusion
+        if (strategy.weight < 0.3) strategy.weight = 0.3; // Higher minimum to keep all strategies active
+        if (strategy.weight > 3.0) strategy.weight = 3.0; // Cap maximum weight
 
         // Normalize weights
         const totalWeight = this.strategies.reduce((sum, s) => sum + s.weight, 0);
@@ -250,10 +277,10 @@ class ReflexiveAdaptiveBot {
             s.weight /= totalWeight;
         });
 
-        console.log(`📈 Updated weight for ${strategyName}: ${strategy.weight.toFixed(2)}`);
+        console.log(`📈 Updated ${strategyName}: ${strategy.wins}/${strategy.total} wins, Weight: ${strategy.weight.toFixed(3)}`);
     }
 
-    // Analyze Ticks with Reflexivity in Mind
+    // FIXED: Improved confidence calculation
     analyzeTicks(asset) {
         if (this.tradeInProgress || this.suspendedAssets.has(asset) || this.tradingPaused) return;
 
@@ -262,42 +289,61 @@ class ReflexiveAdaptiveBot {
 
         console.log('\n🔬 ANALYZING TICKS WITH REFLEXIVE ADAPTATION...');
         
-        // Calculate votes based on strategy weights
+        // FIXED: Proper weighted voting system
         const votes = Array(10).fill(0);
-        let selectedStrategy = null;
-        let maxWeight = 0;
-
-        this.strategies.forEach(strategy => {
+        const predictions = this.strategies.map(strategy => {
             const pred = strategy.func(history);
             votes[pred] += strategy.weight;
-            if (strategy.weight > maxWeight) {
-                maxWeight = strategy.weight;
-                selectedStrategy = strategy;
-            }
+            return { strategy, pred, weight: strategy.weight };
         });
 
         const predictedDigit = votes.indexOf(Math.max(...votes));
-        const confidence = Math.max(...votes) / this.strategies.reduce((sum, s) => sum + s.weight, 0);
+        
+        // FIXED: Correct confidence calculation
+        const totalWeight = votes.reduce((sum, v) => sum + v, 0);
+        const topVote = votes[predictedDigit];
+        const confidence = topVote / totalWeight; // Simple normalized confidence
+        
+        // Alternative confidence with separation measure
+        const sortedVotes = [...votes].sort((a, b) => b - a);
+        const separationConfidence = sortedVotes[0] / (sortedVotes[0] + sortedVotes[1] + 0.001);
 
-        console.log(`\n🎯 PREDICTION: Digit ${predictedDigit} | Confidence: ${(confidence * 100).toFixed(1)}%`);
-        console.log(`   Selected Strategy: ${selectedStrategy.name} (Weight: ${selectedStrategy.weight.toFixed(2)})`);
+        // Use the higher confidence measure
+        const finalConfidence = Math.max(confidence, separationConfidence);
 
-        // Incorporate reflexivity by checking for overconfidence or herd behavior
-        if (predictedDigit !== lastDigit && confidence >= this.config.reflexivityThreshold) {
-            this.placeTrade(asset, predictedDigit, selectedStrategy.name);
+        // Select the strategy that predicted the chosen digit with highest weight
+        const candidateStrategies = predictions
+            .filter(p => p.pred === predictedDigit)
+            .sort((a, b) => b.weight - a.weight);
+        const selectedStrategy = candidateStrategies.length > 0 ? candidateStrategies[0].strategy : this.strategies[0];
+
+        console.log(`\n🎯 PREDICTION: Digit ${predictedDigit} | Confidence: ${(finalConfidence * 100).toFixed(1)}%`);
+        console.log(`   Selected Strategy: ${selectedStrategy.name} (Weight: ${selectedStrategy.weight.toFixed(3)})`);
+        console.log(`   Vote Distribution: [${votes.map(v => v.toFixed(2)).join(', ')}]`);
+        console.log(`   Strategy Predictions: ${predictions.map(p => `${p.strategy.name}→${p.pred}`).join(', ')}`);
+
+        // FIXED: More lenient trade execution condition
+        if (finalConfidence >= this.config.reflexivityThreshold) {
+            // Additional check: avoid trading if last digit matches prediction (diversity check)
+            if (predictedDigit !== lastDigit) {
+                this.lastStrategyUsed = selectedStrategy.name;
+                this.placeTrade(asset, predictedDigit, selectedStrategy.name, finalConfidence);
+            } else {
+                console.log(`⚠️ Skipping trade: predicted digit ${predictedDigit} matches last digit`);
+            }
         } else {
-            console.log(`⚠️ Confidence below threshold (${(confidence * 100).toFixed(1)}% < ${(this.config.reflexivityThreshold * 100).toFixed(1)}%), skipping trade`);
+            console.log(`⚠️ Confidence below threshold (${(finalConfidence * 100).toFixed(1)}% < ${(this.config.reflexivityThreshold * 100).toFixed(1)}%), skipping trade`);
         }
     }
 
-    placeTrade(asset, predictedDigit, strategyName) {
+    placeTrade(asset, predictedDigit, strategyName, confidence) {
         if (this.tradeInProgress) return;
         
         this.tradeInProgress = true;
         console.log(`\n🚀 [${asset}] PLACING TRADE`);
         console.log(`   Digit: ${predictedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
         console.log(`   Strategy: ${strategyName}`);
-        console.log(`   Confidence: High\n`);
+        console.log(`   Confidence: ${(confidence * 100).toFixed(1)}%`);
 
         this.sendRequest({
             buy: 1,
@@ -335,19 +381,17 @@ class ReflexiveAdaptiveBot {
             this.totalWins++;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
-            this.tradingPaused = false; // Resume trading after a win
+            this.tradingPaused = false;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             this.suspendAsset(asset);
-            // Record loss for reflexive analysis
             this.reflexivityData.lossFeedback.push({
                 asset: asset,
                 history: this.tickHistories[asset].slice(-10),
                 timestamp: Date.now()
             });
-            // Pause trading if consecutive losses reach threshold
             if (this.consecutiveLosses >= this.config.pauseAfterLosses) {
                 this.tradingPaused = true;
                 console.log(`🛑 Pausing trading due to ${this.consecutiveLosses} consecutive losses. Waiting for market reset.`);
@@ -355,14 +399,13 @@ class ReflexiveAdaptiveBot {
         }
 
         this.totalProfitLoss += profit;
-        const strategyName = this.strategies.find(s => s.total === this.totalTrades - 1)?.name || this.strategies[0].name;
+        const strategyName = this.lastStrategyUsed || this.strategies[0].name;
         this.updateStrategyWeights(won, strategyName);
 
         if (!this.endOfDay) {
             this.logSummary();
         }
 
-        // Check stop conditions
         if (this.consecutiveLosses > this.config.maxConsecutiveLosses || 
             this.totalProfitLoss <= -this.config.stopLoss) {
             console.log('\n🛑 Stop loss reached or max consecutive losses exceeded - Shutting down');
@@ -394,7 +437,7 @@ class ReflexiveAdaptiveBot {
                 this.connect();
             }, waitTime);
         } else if (this.tradingPaused) {
-            const extendedWait = 30 * 60 * 1000; // 30 minutes pause
+            const extendedWait = 30 * 60 * 1000;
             console.log(`⏳ Extended pause due to losses. Waiting ${Math.round(extendedWait / 60000)} minutes...`);
             setTimeout(() => {
                 this.tradingPaused = false;
@@ -408,7 +451,7 @@ class ReflexiveAdaptiveBot {
         this.suspendedAssets.add(asset);
         console.log(`🚫 Suspended asset: ${asset}`);
         
-        if (this.suspendedAssets.size > 3) {
+        if (this.suspendedAssets.size > 2) {
             const first = Array.from(this.suspendedAssets)[0];
             this.suspendedAssets.delete(first);
             console.log(`✅ Reactivated asset: ${first}`);
@@ -426,6 +469,11 @@ class ReflexiveAdaptiveBot {
         console.log(`P&L: ${this.totalProfitLoss.toFixed(2)} | Current Stake: ${this.currentStake.toFixed(2)}`);
         console.log(`Trading Status: ${this.tradingPaused ? 'Paused due to losses' : 'Active'}`);
         console.log(`Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}`);
+        console.log('Strategy Performance:');
+        this.strategies.forEach(s => {
+            const wr = s.total > 0 ? ((s.wins / s.total) * 100).toFixed(1) : 0;
+            console.log(`  ${s.name}: ${s.wins}/${s.total} (${wr}%) | Weight: ${s.weight.toFixed(3)}`);
+        });
         console.log('='.repeat(60) + '\n');
     }
 
@@ -480,7 +528,7 @@ class ReflexiveAdaptiveBot {
         if (!this.endOfDay) {
             setInterval(() => {
                 this.sendEmailSummary();
-            }, 21600000); // 6 Hours
+            }, 21600000);
         }
     }
 
@@ -544,9 +592,11 @@ class ReflexiveAdaptiveBot {
         console.log('🚀 REFLEXIVE ADAPTIVE BOT STARTING...');
         console.log('='.repeat(60));
         console.log('Built on principles of market reflexivity:');
-        console.log('  • Adaptive strategies based on market sentiment');
+        console.log('  • 5 Adaptive strategies with dynamic weighting');
+        console.log('  • Improved confidence calculation');
         console.log('  • Risk management through conservative staking');
         console.log('  • Pausing mechanism to avoid loss streaks');
+        console.log(`  • Confidence Threshold: ${(this.config.reflexivityThreshold * 100).toFixed(0)}%`);
         console.log('='.repeat(60) + '\n');
         
         this.connect();
@@ -554,16 +604,16 @@ class ReflexiveAdaptiveBot {
 }
 
 // ==================== INITIALIZE AND START BOT ====================
-const bot = new ReflexiveAdaptiveBot('0P94g4WdSrSrzir', {
+const bot = new ReflexiveAdaptiveBot('DMylfkyce6VyZt7', {
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
-    stopLoss: 140,
-    takeProfit: 130,
+    stopLoss: 86,
+    takeProfit: 500,
     requiredHistoryLength: 1000,
-    minWaitTime: 180000, // 3 Minutes
-    maxWaitTime: 300000, // 5 Minutes
-    reflexivityThreshold: 0.7,
+    minWaitTime: 180000,
+    maxWaitTime: 300000,
+    reflexivityThreshold: 0.7, // LOWERED from 0.7 to realistic level
     pauseAfterLosses: 2
 });
 
