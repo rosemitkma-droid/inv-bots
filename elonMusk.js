@@ -10,7 +10,7 @@ class HyperOpticTradingEngine {
         this.connected = false;
         this.wsReady = false;
 
-        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
+        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'];
 
         this.config = {
             initialStake: config.initialStake || 0.61,
@@ -36,6 +36,7 @@ class HyperOpticTradingEngine {
         this.suspendedAssets = new Set();
         this.endOfDay = false;
         this.tradingPaused = false;
+        this.lastStrategyUsed = null;
 
         // Tick data storage
         this.tickHistories = {};
@@ -162,7 +163,7 @@ class HyperOpticTradingEngine {
         const quoteString = quote.toString();
         const [, fractionalPart = ''] = quoteString.split('.');
 
-        if (['R_75', 'R_50'].includes(asset)) {
+        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
             return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
         } else if (['R_10', 'R_25'].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
@@ -241,21 +242,32 @@ class HyperOpticTradingEngine {
         strategy.total++;
         if (won) {
             strategy.wins++;
-            strategy.weight *= 1.3; // Aggressive boost for winning strategies
+            strategy.weight *= 1.15; // Reduced from 1.3 to prevent extreme dominance
         } else {
-            strategy.weight *= 0.7; // Sharp penalty for losses
+            strategy.weight *= 0.85; // Reduced penalty from 0.7
         }
 
-        if (strategy.weight < 0.1) strategy.weight = 0.1; // Prevent total exclusion
+        // CRITICAL FIX: Enforce minimum weight of 0.15 instead of 0.1
+        if (strategy.weight < 0.15) strategy.weight = 0.15;
 
         // Normalize weights
         const totalWeight = this.strategies.reduce((sum, s) => sum + s.weight, 0);
         this.strategies.forEach(s => {
             s.weight /= totalWeight;
+            // SECOND FIX: Enforce minimum after normalization too
+            if (s.weight < 0.10) s.weight = 0.10;
         });
 
-        console.log(`📈 Updated weight for ${strategyName}: ${strategy.weight.toFixed(2)}`);
+        // Re-normalize after enforcing minimums
+        const finalTotal = this.strategies.reduce((sum, s) => sum + s.weight, 0);
+        this.strategies.forEach(s => {
+            s.weight /= finalTotal;
+        });
+
+        console.log(`📈 Updated weight for ${strategyName}: ${strategy.weight.toFixed(3)}`);
+        console.log(`   All weights: ${this.strategies.map(s => `${s.name}: ${s.weight.toFixed(3)}`).join(', ')}`);
     }
+
 
     // Analyze Ticks with HyperOptic Precision
     analyzeTicks(asset) {
@@ -268,40 +280,48 @@ class HyperOpticTradingEngine {
         
         // Calculate votes based on strategy weights
         const votes = Array(10).fill(0);
-        let selectedStrategy = null;
-        let maxWeight = 0;
-
-        this.strategies.forEach(strategy => {
+        const predictions = this.strategies.map(strategy => {
             const pred = strategy.func(history);
             votes[pred] += strategy.weight;
-            if (strategy.weight > maxWeight) {
-                maxWeight = strategy.weight;
-                selectedStrategy = strategy;
-            }
+            return { strategy, pred };
         });
 
         const predictedDigit = votes.indexOf(Math.max(...votes));
         const confidence = Math.max(...votes) / this.strategies.reduce((sum, s) => sum + s.weight, 0);
 
+        // Select the strategy that predicted the chosen digit (break ties by highest weight)
+        const candidateStrategies = predictions
+            .filter(p => p.pred === predictedDigit)
+            .sort((a, b) => b.strategy.weight - a.strategy.weight);
+        const selectedStrategy = candidateStrategies.length > 0 ? candidateStrategies[0].strategy : this.strategies[0];
+
         console.log(`\n🎯 PREDICTION: Digit ${predictedDigit} | Confidence: ${(confidence * 100).toFixed(1)}%`);
         console.log(`   Selected Strategy: ${selectedStrategy.name} (Weight: ${selectedStrategy.weight.toFixed(2)})`);
+        console.log(`   Strategy Predictions: ${predictions.map(p => `${p.strategy.name}→${p.pred}`).join(', ')}`);
 
         // Only trade with extremely high confidence to avoid loss streaks
-        if (predictedDigit !== lastDigit && confidence >= this.config.confidenceThreshold) {
-            this.placeTrade(asset, predictedDigit, selectedStrategy.name);
+        if (predictedDigit !== lastDigit && confidence >= 0.1) {
+            this.lastStrategyUsed = selectedStrategy.name;
+            if(this.lastStrategyUsed === 'Momentum Surge' && confidence >= 1) {
+                this.placeTrade(asset, predictedDigit, selectedStrategy.name, confidence);
+            } else if(this.lastStrategyUsed === 'Pattern Breakout' && confidence >= 0.66) {
+                this.placeTrade(asset, predictedDigit, selectedStrategy.name, confidence);
+            } else if(this.lastStrategyUsed === 'Anomaly Dodge' && confidence >= 0.33) {
+                this.placeTrade(asset, predictedDigit, selectedStrategy.name, confidence);
+            }
         } else {
             console.log(`⚠️ Confidence below threshold (${(confidence * 100).toFixed(1)}% < ${(this.config.confidenceThreshold * 100).toFixed(1)}%), skipping trade`);
         }
     }
 
-    placeTrade(asset, predictedDigit, strategyName) {
+    placeTrade(asset, predictedDigit, strategyName, confidence) {
         if (this.tradeInProgress) return;
         
         this.tradeInProgress = true;
         console.log(`\n🚀 [${asset}] PLACING TRADE`);
         console.log(`   Digit: ${predictedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
         console.log(`   Strategy: ${strategyName}`);
-        console.log(`   Confidence: ${(this.config.confidenceThreshold * 100).toFixed(1)}% or higher\n`);
+        console.log(`   Confidence: ${(confidence * 100).toFixed(1)}%`);
 
         this.sendRequest({
             buy: 1,
@@ -371,7 +391,7 @@ class HyperOpticTradingEngine {
         won ? this.learningData.assetPerformance[asset].wins++ : this.learningData.assetPerformance[asset].losses++;
 
         this.totalProfitLoss += profit;
-        const strategyName = this.strategies.find(s => s.total === this.totalTrades - 1)?.name || this.strategies[0].name;
+        const strategyName = this.lastStrategyUsed || this.strategies[0].name;
         this.updateStrategyWeights(won, strategyName);
 
         if (!this.endOfDay) {
@@ -423,7 +443,7 @@ class HyperOpticTradingEngine {
         this.suspendedAssets.add(asset);
         console.log(`🚫 Suspended asset: ${asset}`);
         
-        if (this.suspendedAssets.size > 3) {
+        if (this.suspendedAssets.size > 2) {
             const first = Array.from(this.suspendedAssets)[0];
             this.suspendedAssets.delete(first);
             console.log(`✅ Reactivated asset: ${first}`);
@@ -569,16 +589,16 @@ class HyperOpticTradingEngine {
 }
 
 // ==================== INITIALIZE AND START BOT ====================
-const bot = new HyperOpticTradingEngine('0P94g4WdSrSrzir', {
+const bot = new HyperOpticTradingEngine('DMylfkyce6VyZt7', {
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
-    stopLoss: 150,
-    takeProfit: 135,
+    stopLoss: 86,
+    takeProfit: 500,
     requiredHistoryLength: 1000,
     minWaitTime: 120000, // 2 Minutes
     maxWaitTime: 240000, // 4 Minutes
-    confidenceThreshold: 0.85,
+    confidenceThreshold: 1,
     lossPauseDuration: 600000 // 10 Minutes
 });
 
