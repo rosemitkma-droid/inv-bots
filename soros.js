@@ -622,4 +622,4 @@ const bot = new ReflexiveAdaptiveBot('DMylfkyce6VyZt7', {
     pauseAfterLosses: 2
 });
 
-bot.start();
+bot.start(); 
