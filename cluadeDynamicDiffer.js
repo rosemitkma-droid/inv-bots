@@ -10,7 +10,7 @@ class HybridSuperBot {
         this.connected = false;
         this.wsReady = false;
 
-        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
+        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'];
 
         this.config = {
             initialStake: config.initialStake || 0.61,
@@ -205,7 +205,7 @@ class HybridSuperBot {
         const quoteString = quote.toString();
         const [, fractionalPart = ''] = quoteString.split('.');
 
-        if (['R_75', 'R_50'].includes(asset)) {
+        if (['R_75', 'R_50', 'RDBULL', 'RDBEAR'].includes(asset)) {
             return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
         } else if (['R_10', 'R_25'].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
@@ -820,7 +820,7 @@ class HybridSuperBot {
         this.suspendedAssets.add(asset);
         console.log(`🚫 Suspended asset: ${asset}`);
         
-        if (this.suspendedAssets.size > 3) {
+        if (this.suspendedAssets.size > 2) {
             const first = Array.from(this.suspendedAssets)[0];
             this.suspendedAssets.delete(first);
             console.log(`✅ Reactivated asset: ${first}`);
@@ -1031,8 +1031,10 @@ const bot = new HybridSuperBot('0P94g4WdSrSrzir', {
     stopLoss: 129,
     takeProfit: 5000,
     requiredHistoryLength: 1000,
-    minWaitTime: 300000, //5 Minutes
-    maxWaitTime: 2600000, //1 Hour
+    minWaitTime: 180000,
+    maxWaitTime: 300000,
+    // minWaitTime: 300000, //5 Minutes
+    // maxWaitTime: 2600000, //1 Hour
 });
 
 bot.start();
