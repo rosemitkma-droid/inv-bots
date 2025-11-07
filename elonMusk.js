@@ -295,20 +295,18 @@ class HyperOpticTradingEngine {
             .sort((a, b) => b.strategy.weight - a.strategy.weight);
         const selectedStrategy = candidateStrategies.length > 0 ? candidateStrategies[0].strategy : this.strategies[0];
 
+        // Agreement factor: how many strategies agree on top prediction
+        const agreementCount = predictions.filter(p => p.pred === predictedDigit).length;
+
         console.log(`\n🎯 PREDICTION: Digit ${predictedDigit} | Confidence: ${(confidence * 100).toFixed(1)}%`);
         console.log(`   Selected Strategy: ${selectedStrategy.name} (Weight: ${selectedStrategy.weight.toFixed(2)})`);
         console.log(`   Strategy Predictions: ${predictions.map(p => `${p.strategy.name}→${p.pred}`).join(', ')}`);
+        console.log(`   Agreement: ${agreementCount}/${this.strategies.length} strategies`);
 
         // Only trade with extremely high confidence to avoid loss streaks
-        if (predictedDigit !== lastDigit && confidence >= 0.1) {
+        if (predictedDigit !== lastDigit && confidence >= this.config.confidenceThreshold && agreementCount > 2) {
             this.lastStrategyUsed = selectedStrategy.name;
-            if(this.lastStrategyUsed === 'Momentum Surge' && confidence >= 1) {
-                this.placeTrade(asset, predictedDigit, selectedStrategy.name, confidence);
-            } else if(this.lastStrategyUsed === 'Pattern Breakout' && confidence >= 0.66) {
-                this.placeTrade(asset, predictedDigit, selectedStrategy.name, confidence);
-            } else if(this.lastStrategyUsed === 'Anomaly Dodge' && confidence >= 0.33) {
-                this.placeTrade(asset, predictedDigit, selectedStrategy.name, confidence);
-            }
+            this.placeTrade(asset, predictedDigit, selectedStrategy.name, confidence);
         } else {
             console.log(`⚠️ Confidence below threshold (${(confidence * 100).toFixed(1)}% < ${(this.config.confidenceThreshold * 100).toFixed(1)}%), skipping trade`);
         }
