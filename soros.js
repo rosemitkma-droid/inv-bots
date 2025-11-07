@@ -308,6 +308,9 @@ class ReflexiveAdaptiveBot {
         const sortedVotes = [...votes].sort((a, b) => b - a);
         const separationConfidence = sortedVotes[0] / (sortedVotes[0] + sortedVotes[1] + 0.001);
 
+        // Agreement factor: how many strategies agree on top prediction
+        const agreementCount = predictions.filter(p => p.pred === predictedDigit).length;
+
         // Use the higher confidence measure
         const finalConfidence = Math.max(confidence, separationConfidence);
 
@@ -318,14 +321,16 @@ class ReflexiveAdaptiveBot {
         const selectedStrategy = candidateStrategies.length > 0 ? candidateStrategies[0].strategy : this.strategies[0];
 
         console.log(`\n🎯 PREDICTION: Digit ${predictedDigit} | Confidence: ${(finalConfidence * 100).toFixed(1)}%`);
+        console.log(`   Last Digit: ${lastDigit}`);
         console.log(`   Selected Strategy: ${selectedStrategy.name} (Weight: ${selectedStrategy.weight.toFixed(3)})`);
-        console.log(`   Vote Distribution: [${votes.map(v => v.toFixed(2)).join(', ')}]`);
+        // console.log(`   Vote Distribution: [${votes.map(v => v.toFixed(2)).join(', ')}]`);
+        console.log(`   Agreement: ${agreementCount}/${this.strategies.length} strategies`);
         console.log(`   Strategy Predictions: ${predictions.map(p => `${p.strategy.name}→${p.pred}`).join(', ')}`);
 
         // FIXED: More lenient trade execution condition
         if (finalConfidence >= this.config.reflexivityThreshold) {
             // Additional check: avoid trading if last digit matches prediction (diversity check)
-            if (predictedDigit !== lastDigit) {
+            if (predictedDigit !== lastDigit && agreementCount > 3) {
                 this.lastStrategyUsed = selectedStrategy.name;
                 this.placeTrade(asset, predictedDigit, selectedStrategy.name, finalConfidence);
             } else {
