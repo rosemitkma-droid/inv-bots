@@ -51,7 +51,7 @@ class ReflexiveAdaptiveBot {
             { name: 'Sentiment Shift', func: this.sentimentShiftStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
             { name: 'Feedback Loop', func: this.feedbackLoopStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
             { name: 'Contrarian Bias', func: this.contrarianBiasStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
-            // { name: 'Momentum Tracker', func: this.momentumTrackerStrategy.bind(this), wins: 0, total: 0, weight: 1.0 }, // NEW STRATEGY
+            { name: 'Momentum Tracker', func: this.momentumTrackerStrategy.bind(this), wins: 0, total: 0, weight: 1.0 }, // NEW STRATEGY
             { name: 'Pattern Recognition', func: this.patternRecognitionStrategy.bind(this), wins: 0, total: 0, weight: 1.0 } // NEW STRATEGY
         ];
 
@@ -613,7 +613,7 @@ const bot = new ReflexiveAdaptiveBot('DMylfkyce6VyZt7', {
     requiredHistoryLength: 1000,
     minWaitTime: 180000,
     maxWaitTime: 300000,
-    reflexivityThreshold: 0.7, // LOWERED from 0.7 to realistic level
+    reflexivityThreshold: 0.8, // LOWERED from 0.7 to realistic level
     pauseAfterLosses: 2
 });
 
