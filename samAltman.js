@@ -330,10 +330,9 @@ class NeuralEdgeAITrader {
         console.log(`   Strategy: ${selectedStrategy.name} (Weight: ${selectedStrategy.weight.toFixed(2)})`);
         console.log(`   Agreement: ${agreementCount}/${this.strategies.length} strategies`);
         console.log(`   Strategy Predictions: ${predictions.map(p => `${p.strategy.name}→${p.digit}`).join(', ')}`);
-        console.log(`   Threshold: ${(this.config.confidenceThreshold * 100).toFixed(1)}%`);
 
         // FIXED: Trade if confidence meets threshold AND different from last digit
-        if (predictedDigit !== lastDigit && confidence >= this.config.confidenceThreshold) {
+        if (predictedDigit !== lastDigit && confidence >= this.config.confidenceThreshold && agreementCount > 1) {
             this.lastStrategyUsed = selectedStrategy.name;
             this.placeTrade(asset, predictedDigit, selectedStrategy.name, confidence);
         } else {
