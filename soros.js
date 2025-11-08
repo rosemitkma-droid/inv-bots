@@ -32,6 +32,8 @@ class ReflexiveAdaptiveBot {
         this.totalTrades = 0;
         this.totalWins = 0;
         this.totalLosses = 0;
+        this.consecutiveLosses2 = 0;
+        this.consecutiveLosses3 = 0;
         this.totalProfitLoss = 0;
         this.tradeInProgress = false;
         this.suspendedAssets = new Set();
@@ -397,6 +399,10 @@ class ReflexiveAdaptiveBot {
                 history: this.tickHistories[asset].slice(-10),
                 timestamp: Date.now()
             });
+
+            if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
+            else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
+
             if (this.consecutiveLosses >= this.config.pauseAfterLosses) {
                 this.tradingPaused = true;
                 console.log(`🛑 Pausing trading due to ${this.consecutiveLosses} consecutive losses. Waiting for market reset.`);
@@ -467,9 +473,11 @@ class ReflexiveAdaptiveBot {
         const winRate = this.totalTrades > 0 ? (this.totalWins / this.totalTrades * 100).toFixed(2) : 0;
         
         console.log('\n' + '='.repeat(60));
-        console.log('📊 REFLEXIVE ADAPTIVE BOT - TRADING SUMMARY');
+        console.log('📊 Soros REFLEXIVE ADAPTIVE BOT - TRADING SUMMARY');
         console.log('='.repeat(60));
         console.log(`Total Trades: ${this.totalTrades} | Wins: ${this.totalWins} | Losses: ${this.totalLosses}`);
+        console.log(`x2 Losses: ${this.consecutiveLosses2}`);
+        console.log(`x3 Losses: ${this.consecutiveLosses3}`);
         console.log(`Win Rate: ${winRate}% | Consecutive Losses: ${this.consecutiveLosses}`);
         console.log(`P&L: ${this.totalProfitLoss.toFixed(2)} | Current Stake: ${this.currentStake.toFixed(2)}`);
         console.log(`Trading Status: ${this.tradingPaused ? 'Paused due to losses' : 'Active'}`);
@@ -495,7 +503,7 @@ class ReflexiveAdaptiveBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Reflexive Adaptive Bot - Trading Summary',
+            subject: 'Soros Adaptive Bot - Trading Summary',
             text: `
                 REFLEXIVE ADAPTIVE BOT - FINAL SUMMARY
                 ================================
@@ -505,6 +513,8 @@ class ReflexiveAdaptiveBot {
                 Total Trades: ${this.totalTrades}
                 Wins: ${this.totalWins}
                 Losses: ${this.totalLosses}
+                x2 Losses: ${this.consecutiveLosses2}
+                x3 Losses: ${this.consecutiveLosses3}
                 Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%
                 Total P&L: ${this.totalProfitLoss.toFixed(2)}
 
@@ -546,7 +556,7 @@ class ReflexiveAdaptiveBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Reflexive Adaptive Bot - Loss Alert',
+            subject: 'Soros Adaptive Bot - Loss Alert',
             text: `
                 LOSS ALERT - TRADE SUMMARY
                 ==========================
@@ -562,6 +572,8 @@ class ReflexiveAdaptiveBot {
                 Total Trades: ${this.totalTrades}
                 Total Wins: ${this.totalWins}
                 Total Losses: ${this.totalLosses}
+                x2 Losses: ${this.consecutiveLosses2}
+                x3 Losses: ${this.consecutiveLosses3}
                 Consecutive Losses: ${this.consecutiveLosses}
                 Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
                 Total P&L: ${this.totalProfitLoss.toFixed(2)}
@@ -594,7 +606,7 @@ class ReflexiveAdaptiveBot {
 
     start() {
         console.log('\n' + '='.repeat(60));
-        console.log('🚀 REFLEXIVE ADAPTIVE BOT STARTING...');
+        console.log('🚀 SOROS ADAPTIVE BOT STARTING...');
         console.log('='.repeat(60));
         console.log('Built on principles of market reflexivity:');
         console.log('  • 5 Adaptive strategies with dynamic weighting');
@@ -616,10 +628,10 @@ const bot = new ReflexiveAdaptiveBot('DMylfkyce6VyZt7', {
     stopLoss: 86,
     takeProfit: 500,
     requiredHistoryLength: 1000,
-    minWaitTime: 180000,
-    maxWaitTime: 300000,
+    minWaitTime: 120000, // 2 Minutes
+    maxWaitTime: 300000, // 5 Minutes
     reflexivityThreshold: 0.8, // LOWERED from 0.7 to realistic level
     pauseAfterLosses: 2
 });
 
-bot.start(); 
+bot.start();
