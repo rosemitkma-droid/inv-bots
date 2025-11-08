@@ -1525,7 +1525,7 @@ class DynamicDigitDifferTradingBot extends EnhancedDigitDifferTradingBot {
 }
 
 // Usage
-const bot = new DynamicDigitDifferTradingBot('DMylfkyce6VyZt7', {
+const bot = new DynamicDigitDifferTradingBot('0P94g4WdSrSrzir', {
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
@@ -1542,3 +1542,4 @@ const bot = new DynamicDigitDifferTradingBot('DMylfkyce6VyZt7', {
 });
 
 bot.start();
+
