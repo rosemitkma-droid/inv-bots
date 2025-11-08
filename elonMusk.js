@@ -31,6 +31,8 @@ class HyperOpticTradingEngine {
         this.totalTrades = 0;
         this.totalWins = 0;
         this.totalLosses = 0;
+        this.consecutiveLosses2 = 0;
+        this.consecutiveLosses3 = 0;
         this.totalProfitLoss = 0;
         this.tradeInProgress = false;
         this.suspendedAssets = new Set();
@@ -369,6 +371,10 @@ class HyperOpticTradingEngine {
             this.consecutiveLosses++;
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             this.suspendAsset(asset);
+
+            if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
+            else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
+
             // Store loss pattern for learning
             this.learningData.lossPatterns.push({
                 digit: parseInt(contract.barrier),
@@ -452,10 +458,12 @@ class HyperOpticTradingEngine {
         const winRate = this.totalTrades > 0 ? (this.totalWins / this.totalTrades * 100).toFixed(2) : 0;
         
         console.log('\n' + '='.repeat(60));
-        console.log('📊 HYPEROPTIC TRADING ENGINE - SUMMARY');
+        console.log('📊 ElonMusk HYPEROPTIC TRADING ENGINE - SUMMARY');
         console.log('='.repeat(60));
         console.log(`Total Trades: ${this.totalTrades} | Wins: ${this.totalWins} | Losses: ${this.totalLosses}`);
         console.log(`Win Rate: ${winRate}% | Consecutive Losses: ${this.consecutiveLosses}`);
+        console.log(`x2 Losses: ${this.consecutiveLosses2}`);
+        console.log(`x3 Losses: ${this.consecutiveLosses3}`);
         console.log(`P&L: ${this.totalProfitLoss.toFixed(2)} | Current Stake: ${this.currentStake.toFixed(2)}`);
         console.log(`Trading Status: ${this.tradingPaused ? 'Paused due to losses' : 'Active'}`);
         console.log(`Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}`);
@@ -475,7 +483,7 @@ class HyperOpticTradingEngine {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'HyperOptic Trading Engine - Summary',
+            subject: 'ElonMusk HyperOptic Trading Engine - Summary',
             text: `
                 HYPEROPTIC TRADING ENGINE - FINAL SUMMARY
                 ================================
@@ -485,6 +493,8 @@ class HyperOpticTradingEngine {
                 Total Trades: ${this.totalTrades}
                 Wins: ${this.totalWins}
                 Losses: ${this.totalLosses}
+                x2 Losses: ${this.consecutiveLosses2}
+                x3 Losses: ${this.consecutiveLosses3}
                 Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%
                 Total P&L: ${this.totalProfitLoss.toFixed(2)}
 
@@ -526,7 +536,7 @@ class HyperOpticTradingEngine {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'HyperOptic Trading Engine - Loss Alert',
+            subject: 'ElonMusk HyperOptic Trading Engine - Loss Alert',
             text: `
                 LOSS ALERT - TRADE SUMMARY
                 ==========================
@@ -542,6 +552,8 @@ class HyperOpticTradingEngine {
                 Total Trades: ${this.totalTrades}
                 Total Wins: ${this.totalWins}
                 Total Losses: ${this.totalLosses}
+                x2 Losses: ${this.consecutiveLosses2}
+                x3 Losses: ${this.consecutiveLosses3}
                 Consecutive Losses: ${this.consecutiveLosses}
                 Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
                 Total P&L: ${this.totalProfitLoss.toFixed(2)}
@@ -574,7 +586,7 @@ class HyperOpticTradingEngine {
 
     start() {
         console.log('\n' + '='.repeat(60));
-        console.log('🚀 HYPEROPTIC TRADING ENGINE STARTING...');
+        console.log('🚀 ElonMusk HyperOptic Trading Engine STARTING...');
         console.log('='.repeat(60));
         console.log('Engineered for maximum performance:');
         console.log('  • Ultra-high confidence trading threshold');
@@ -595,7 +607,7 @@ const bot = new HyperOpticTradingEngine('DMylfkyce6VyZt7', {
     takeProfit: 500,
     requiredHistoryLength: 1000,
     minWaitTime: 120000, // 2 Minutes
-    maxWaitTime: 240000, // 4 Minutes
+    maxWaitTime: 300000, // 5 Minutes
     confidenceThreshold: 1,
     lossPauseDuration: 600000 // 10 Minutes
 });
