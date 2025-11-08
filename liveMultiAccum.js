@@ -762,8 +762,8 @@ const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', {
     accuTakeProfit: 0.5,
     requiredHistoryLength: 1000,
     winProbabilityThreshold: 100,
-    minWaitTime: 1000, //2 Minutes
-    maxWaitTime: 1000, //5 Minutes
+    minWaitTime: 2000, //2 Minutes
+    maxWaitTime: 2000, //5 Minutes
     // minWaitTime: 300000, //5 Minutes
     // maxWaitTime: 2600000, //1 Hour
     minOccurrencesThreshold: 1,
