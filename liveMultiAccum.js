@@ -330,7 +330,7 @@ class EnhancedDigitDifferTradingBot {
 
         this.digitCounts[asset][lastDigit]++;
 
-        console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
+        // console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
 
         if (this.tickHistories[asset].length < this.config.requiredHistoryLength) {
             console.log(`[${asset}] Waiting for more ticks. Current length: ${this.tickHistories[asset].length}`);
@@ -373,8 +373,8 @@ class EnhancedDigitDifferTradingBot {
             
             const currentDigitCount = assetState.stayedInArray[99] + 1;
             assetState.currentProposalId = response.proposal.id;
-            console.log(`filter Number: ${this.filterNum}`);
-            console.log(`Current StayedIn Digit Count: ${assetState.stayedInArray[99]} (${currentDigitCount})`);
+            // console.log(`filter Number: ${this.filterNum}`);
+            // console.log(`Current StayedIn Digit Count: ${assetState.stayedInArray[99]} (${currentDigitCount})`);
             
             // Store proposal ID to asset mapping
             this.pendingProposals.set(response.proposal.id, asset);
@@ -389,16 +389,16 @@ class EnhancedDigitDifferTradingBot {
                 .map(Number);
 
 
-            console.log('Digits that appeared once:', appearedOnceArray); 
+            // console.log('Digits that appeared once:', appearedOnceArray); 
             
             if (!assetState.tradeInProgress) {
                 
                 if (appearedOnceArray.includes(currentDigitCount) && assetState.stayedInArray[99] >= 0) {
                     assetState.tradedDigitArray.push(currentDigitCount);
                     assetState.filteredArray = appearedOnceArray;
-                    console.log("Asset", asset)
-                    console.log("Asset Array", assetState.stayedInArray)
-                    console.log("Traded Asset Array", assetState.tradedDigitArray)
+                    // console.log("Asset", asset)
+                    // console.log("Asset Array", assetState.stayedInArray)
+                    // console.log("Traded Asset Array", assetState.tradedDigitArray)
 
                     this.placeTrade(asset);
                 }
@@ -412,7 +412,7 @@ class EnhancedDigitDifferTradingBot {
         }
 
         if (this.tickHistories[asset].length < this.config.requiredHistoryLength) {
-            console.log(`[${asset}] Waiting for more ticks. Current length: ${this.tickHistories[asset].length}`);
+            // console.log(`[${asset}] Waiting for more ticks. Current length: ${this.tickHistories[asset].length}`);
             return; 
         }
 
@@ -629,8 +629,6 @@ class EnhancedDigitDifferTradingBot {
         console.log(`Total Trades Lost: ${this.totalLosses}`);
         console.log(`x2 Losses: ${this.consecutiveLosses2}`);
         console.log(`x3 Losses: ${this.consecutiveLosses3}`);
-        console.log(`x4 Losses: ${this.consecutiveLosses4}`);
-        console.log(`x5 Losses: ${this.consecutiveLosses5}`);
         console.log(`Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}`);
         console.log(`Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%`);
         console.log(`[${asset}] Predicted Asset: ${asset}`);
@@ -657,8 +655,6 @@ class EnhancedDigitDifferTradingBot {
         Total Trades Lost: ${this.totalLosses}
         x2 Losses: ${this.consecutiveLosses2}
         x3 Losses: ${this.consecutiveLosses3}
-        x4 Losses: ${this.consecutiveLosses4}
-        x5 Losses: ${this.consecutiveLosses5}
 
         Currently Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
 
@@ -686,7 +682,8 @@ class EnhancedDigitDifferTradingBot {
         const transporter = nodemailer.createTransport(this.emailConfig);
 
         const history = this.tickHistories[asset];
-        const lastFewTicks = history.slice(-20);
+        const lastFewTicks = history.slice(-10);
+        const assetState = this.assetStates[asset];
 
         const summaryText = `
         Trade Summary:
@@ -695,16 +692,17 @@ class EnhancedDigitDifferTradingBot {
         Total Trades Lost: ${this.totalLosses}
         x2 Losses: ${this.consecutiveLosses2}
         x3 Losses: ${this.consecutiveLosses3}
-        x4 Losses: ${this.consecutiveLosses4}
-        x5 Losses: ${this.consecutiveLosses5}
+
+        Analysis:
+        Asset: ${asset}
+        Filtered Array: ${assetState.filteredArray}
+        Traded ArrayNum: ${assetState.tradedDigitArray}
+        Filter Number: ${this.filterNum}
+
+        Last 10 Digits: ${lastFewTicks.join(', ')} 
 
         Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
         Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
-
-        Last Digit Analysis:
-        Asset: ${asset}
-        
-        Last 20 Digits: ${lastFewTicks.join(', ')} 
 
         Current Stake: $${this.currentStake.toFixed(2)}
 
@@ -762,8 +760,8 @@ const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', {
     accuTakeProfit: 0.5,
     requiredHistoryLength: 1000,
     winProbabilityThreshold: 100,
-    minWaitTime: 1000, //2 Minutes
-    maxWaitTime: 1000, //5 Minutes
+    minWaitTime: 2000, //2 Minutes
+    maxWaitTime: 2000, //5 Minutes
     // minWaitTime: 300000, //5 Minutes
     // maxWaitTime: 2600000, //1 Hour
     minOccurrencesThreshold: 1,
