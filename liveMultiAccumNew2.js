@@ -68,7 +68,7 @@ class EnhancedDigitDifferTradingBot {
         this.suspendedAssets = new Set();
         this.rStats = {};
         this.sys = 1;
-        this.filterNum = 13;
+        this.filterNum = 14;
         this.kLoss = 0.01;
 
         // Per-asset runtime state map
@@ -479,7 +479,7 @@ class EnhancedDigitDifferTradingBot {
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
-            this.filterNum = 13;
+            //this.filterNum = 14;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
@@ -767,7 +767,7 @@ class EnhancedDigitDifferTradingBot {
 // Usage
 const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP
-    initialStake: 50,
+    initialStake: 45,
     multiplier: 21,
     maxConsecutiveLosses: 2, 
     stopLoss: 100,
