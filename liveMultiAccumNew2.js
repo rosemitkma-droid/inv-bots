@@ -68,7 +68,7 @@ class EnhancedDigitDifferTradingBot {
         this.suspendedAssets = new Set();
         this.rStats = {};
         this.sys = 1;
-        this.filterNum = 12;
+        this.filterNum = 13;
         this.kLoss = 0.01;
 
         // Per-asset runtime state map
@@ -479,12 +479,12 @@ class EnhancedDigitDifferTradingBot {
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
-            this.filterNum = 11;
+            this.filterNum = 13;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.isWinTrade = false;
-            this.filterNum++;
+            
 
             if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
@@ -509,6 +509,8 @@ class EnhancedDigitDifferTradingBot {
             this.sendLossEmail(asset);
             //Suspend All Assets (Non-Loss)
             this.suspendAllExcept(asset);
+            //Increase Filter number after Loss
+            this.filterNum++;
         } else {
             //Reactivate All Assets (Non-Loss)
             if (this.suspendedAssets.size > 0) {
@@ -765,9 +767,9 @@ class EnhancedDigitDifferTradingBot {
 // Usage
 const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
-    initialStake: 100,
+    initialStake: 50,
     multiplier: 21,
-    maxConsecutiveLosses: 1, 
+    maxConsecutiveLosses: 2, 
     stopLoss: 100,
     takeProfit: 500,
     growthRate: 0.05,
