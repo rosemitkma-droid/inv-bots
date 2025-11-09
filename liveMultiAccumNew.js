@@ -68,7 +68,7 @@ class EnhancedDigitDifferTradingBot {
         this.suspendedAssets = new Set();
         this.rStats = {};
         this.sys = 1;
-        this.filterNum = 8;
+        this.filterNum = 9;
         this.kLoss = 0.01;
 
         // Per-asset runtime state map
@@ -479,7 +479,7 @@ class EnhancedDigitDifferTradingBot {
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
-            this.filterNum = 8;
+            this.filterNum = 9;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
