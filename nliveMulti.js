@@ -386,7 +386,7 @@ class EnhancedDigitDifferTradingBot {
         const assetState = this.assetStates[asset];
         
         // Too volatile - avoid trading
-        if (volatility > 0.88) {
+        if (volatility > 0.90) {
             console.log(`[${asset}] Market too volatile (${volatility.toFixed(2)}), skipping`);
             return false;
         }
@@ -959,7 +959,7 @@ class EnhancedDigitDifferTradingBot {
         if (!this.endOfDay) {
             setInterval(() => {
                 this.sendEmailSummary();
-            }, 21600000); // 6 Hours
+            }, 1800000); // 30 Minutes
         }
     }
 
