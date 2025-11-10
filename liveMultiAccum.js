@@ -533,21 +533,23 @@ class EnhancedDigitDifferTradingBot {
             }
             
             //New Stake System
-            if(this.sys === 1) {
-                // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-                this.currentStake = this.config.multiplier;
-                this.sys = 1;
-            } else {
-                if (this.sys === 2 && this.consecutiveLosses === 1) {
-                    this.currentStake = this.config.multiplier2;
-                    this.sysCount++;
-                } else if (this.sys === 3 && this.consecutiveLosses === 1) {
-                    this.currentStake = this.config.multiplier3; 
-                    this.sysCount++;
-                } else {
-                    this.currentStake = this.config.initialStake;
-                }
-            } 
+            // if(this.sys === 1) {
+            //     // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            //     this.currentStake = this.config.multiplier;
+            //     this.sys = 1;
+            // } else {
+            //     if (this.sys === 2 && this.consecutiveLosses === 1) {
+            //         this.currentStake = this.config.multiplier2;
+            //         this.sysCount++;
+            //     } else if (this.sys === 3 && this.consecutiveLosses === 1) {
+            //         this.currentStake = this.config.multiplier3; 
+            //         this.sysCount++;
+            //     } else {
+            //         this.currentStake = this.config.initialStake;
+            //     }
+            // } 
+
+            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
         }
 
         if(!this.endOfDay) {
