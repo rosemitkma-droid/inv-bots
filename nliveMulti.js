@@ -773,12 +773,12 @@ class EnhancedDigitDifferTradingBot {
             
             // If we're losing on a historically good asset, be less aggressive
             if (recentWinRate > 0.6) {
-                multiplierAdjustment = 0.9;
+                multiplierAdjustment = 1.0 //0.9;
                 console.log(`[${asset}] Reducing aggression - good asset having bad run`);
             }
             // If asset is performing poorly, be more conservative
             else if (recentWinRate < 0.4) {
-                multiplierAdjustment = 0.8;
+                multiplierAdjustment = 1.0 //0.8;
                 console.log(`[${asset}] Strong reduction - poor performing asset`);
             }
 
