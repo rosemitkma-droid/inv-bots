@@ -389,7 +389,7 @@ class EnhancedDigitDifferTradingBot {
                 .map(Number);
 
 
-            console.log('Digits that appeared once:', appearedOnceArray); 
+            // console.log('Digits that appeared once:', appearedOnceArray); 
             
             if (!assetState.tradeInProgress) {
                 
@@ -799,10 +799,10 @@ class EnhancedDigitDifferTradingBot {
 
 // Usage
 const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
-    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5', 'rgNedekYXvCaPeP'
-    initialStake: 100,
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5', 'rgNedekYXvCaPeP', 'Dz2V2KvRf4Uukt3'
+    initialStake: 5,
     multiplier: 21,
-    maxConsecutiveLosses: 1, 
+    maxConsecutiveLosses: 2, 
     stopLoss: 100,
     takeProfit: 500,
     growthRate: 0.05,
