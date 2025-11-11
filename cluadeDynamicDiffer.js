@@ -35,6 +35,7 @@ class HybridSuperBot {
         this.tradeInProgress = false;
         this.suspendedAssets = new Set();
         this.endOfDay = false;
+        this.isWinTrade = false;
 
         // Tick data storage
         this.tickHistories = {};
@@ -113,34 +114,38 @@ class HybridSuperBot {
         this.emailRecipient = 'kenotaru@gmail.com';
 
         this.startEmailTimer();
+
+        this.Pause = false;
     }
 
     connect() {
-        console.log('🚀 Connecting Hybrid Super Bot to Deriv API...');
-        this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+        if (!this.Pause) {
+            console.log('🚀 Connecting Hybrid Super Bot to Deriv API...');
+            this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
 
-        this.ws.on('open', () => {
-            console.log('✅ Connected to Deriv API');
-            this.connected = true;
-            this.wsReady = true;
-            this.authenticate();
-        });
+            this.ws.on('open', () => {
+                console.log('✅ Connected to Deriv API');
+                this.connected = true;
+                this.wsReady = true;
+                this.authenticate();
+            });
 
-        this.ws.on('message', (data) => {
-            const message = JSON.parse(data);
-            this.handleMessage(message);
-        });
+            this.ws.on('message', (data) => {
+                const message = JSON.parse(data);
+                this.handleMessage(message);
+            });
 
-        this.ws.on('error', (error) => {
-            console.error('WebSocket error:', error);
-            this.handleDisconnect();
-        });
+            this.ws.on('error', (error) => {
+                console.error('WebSocket error:', error);
+                this.handleDisconnect();
+            });
 
-        this.ws.on('close', () => {
-            console.log('Disconnected from Deriv API');
-            this.connected = false;
-            this.handleDisconnect();
-        });
+            this.ws.on('close', () => {
+                console.log('Disconnected from Deriv API');
+                this.connected = false;
+                this.handleDisconnect();
+            });
+        }
     }
 
     sendRequest(request) {
@@ -773,9 +778,11 @@ class HybridSuperBot {
             this.totalWins++;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
+            this.isWinTrade = true;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
+            this.isWinTrade = false;
 
             if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
@@ -786,6 +793,7 @@ class HybridSuperBot {
 
         this.totalProfitLoss += profit;
         this.updateLayerWeights(won);
+        this.Pause = true;
 
         if(!this.endOfDay) {
             this.logSummary();
@@ -822,6 +830,7 @@ class HybridSuperBot {
         if(!this.endOfDay) {
             setTimeout(() => {
                 this.tradeInProgress = false;
+                this.Pause = false;
                 this.connect();
             }, waitTime);
         }
@@ -840,13 +849,21 @@ class HybridSuperBot {
 
     checkTimeForDisconnectReconnect() {
         setInterval(() => {
+            // Always use GMT +1 time regardless of server location
             const now = new Date();
-            const currentHours = now.getHours();
-            const currentMinutes = now.getMinutes();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
 
-            // Check for afternoon resume condition (7:00 AM)
-            if (this.endOfDay && currentHours === 14 && currentMinutes >= 0) {
-                console.log("It's 7:00 AM, reconnecting the bot.");
+            // Optional: log current GMT+1 time for monitoring
+            // console.log(
+            // "Current GMT+1 time:",
+            // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
+            // );
+
+            // Check for Morning resume condition (7:00 AM GMT+1)
+            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
+                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.LossDigitsList = [];
                 this.tradeInProgress = false;
                 this.usedAssets = new Set();
@@ -855,14 +872,13 @@ class HybridSuperBot {
                 this.endOfDay = false;
                 this.tradedDigitArray = [];
                 this.tradedDigitArray2 = [];
-                this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
                 this.connect();
             }
-    
-            // Check for evening stop condition (after 5:00 PM)
+
+            // Check for evening stop condition (after 5:00 PM GMT+1)
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM after a win trade, disconnecting the bot.");
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendDisconnectResumptionEmailSummary();
                     this.Pause = true;
                     this.disconnect();
@@ -1036,12 +1052,13 @@ class HybridSuperBot {
         console.log('='.repeat(60) + '\n');
         
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
 // ==================== INITIALIZE AND START BOT ====================
-const bot = new HybridSuperBot('0P94g4WdSrSrzir', {
+const bot = new HybridSuperBot('rgNedekYXvCaPeP', {
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5', 'rgNedekYXvCaPeP', 'Dz2V2KvRf4Uukt3'
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
