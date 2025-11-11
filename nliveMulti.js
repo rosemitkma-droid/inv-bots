@@ -47,7 +47,6 @@ class EnhancedDigitDifferTradingBot {
         this.retryCount = 0;
         this.suspendedAssets = new Set();
         this.Pause = false;
-        this.todayPnL = 0;
 
         // Asset-specific data
         this.digitCounts = {};
@@ -788,7 +787,6 @@ class EnhancedDigitDifferTradingBot {
         }
 
         this.totalProfitLoss += profit;
-        this.todayPnL += profit;
         this.Pause = true;
 
         // NEW: Adaptive wait time based on market conditions and losses
@@ -899,7 +897,7 @@ class EnhancedDigitDifferTradingBot {
             const currentMinutes = now.getMinutes();
 
             // Check for afternoon resume condition (7:00 AM)
-            if (this.endOfDay && currentHours === 14 && currentMinutes >= 0) {
+            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
                 console.log("It's 7:00 AM, reconnecting the bot.");
                 this.LossDigitsList = [];
                 this.tradeInProgress = false;
@@ -909,13 +907,12 @@ class EnhancedDigitDifferTradingBot {
                 this.endOfDay = false;
                 this.tradedDigitArray = [];
                 this.tradedDigitArray2 = [];
-                this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
                 this.connect();
             }
     
             // Check for evening stop condition (after 5:00 PM)
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 0) {
+                if (currentHours >= 16 && currentMinutes >= 0) {
                     console.log("It's past 5:00 PM after a win trade, disconnecting the bot.");
                     this.sendDisconnectResumptionEmailSummary();
                     this.Pause = true;
@@ -1068,6 +1065,61 @@ class EnhancedDigitDifferTradingBot {
         }
     }
 
+    async sendDisconnectResumptionEmailSummary() {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+
+        // Calculate additional learning metrics
+        const totalFilterStats = Object.entries(this.learningSystem.filterPerformance)
+            .map(([filter, stats]) => {
+                const total = stats.wins + stats.losses;
+                const winRate = total > 0 ? (stats.wins / total * 100).toFixed(1) : 0;
+                return `Filter ${filter}: ${winRate}% (${stats.wins}W/${stats.losses}L)`;
+            })
+            .join('\n        ');
+
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+
+
+        const summaryText = `
+        Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
+
+        ==================== Trading Summary ====================
+        Total Trades: ${this.totalTrades}
+        Total Wins: ${this.totalWins}
+        Total Losses: ${this.totalLosses}
+        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+        
+        Consecutive Losses: ${this.consecutiveLosses}
+        x2 Losses: ${this.consecutiveLosses2}
+        x3 Losses: ${this.consecutiveLosses3}
+
+        Financial:
+        Current Stake: ${this.currentStake.toFixed(2)}
+        Total P/L: ${this.totalProfitLoss.toFixed(2)}
+        
+        Learning System Performance:
+        ${totalFilterStats || 'No filter data yet'}
+        
+        Asset Volatility:
+        ${this.assets.map(a => `${a}: ${(this.learningSystem.volatilityScores[a] * 100 || 0).toFixed(1)}%`).join('\n        ')}
+        =========================================================
+        `;
+
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'Enhanced Accumulator Bot - Performance Summary',
+            text: summaryText
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+        } catch (error) {
+            console.error('Error sending email:', error);
+        }
+    }
+
     async sendErrorEmail(errorMessage) {
         const transporter = nodemailer.createTransport(this.emailConfig);
         const mailOptions = {
@@ -1088,12 +1140,13 @@ class EnhancedDigitDifferTradingBot {
         console.log('🚀 Starting Enhanced Accumulator Trading Bot with Learning System');
         console.log('Features: Adaptive filters, pattern recognition, volatility analysis');
         this.connect();
+        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
 // Usage
 const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
-    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5'
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5', 'rgNedekYXvCaPeP'
     initialStake: 1,
     multiplier: 21,
     maxConsecutiveLosses: 3, 
