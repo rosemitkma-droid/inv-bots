@@ -590,13 +590,21 @@ class EnhancedDigitDifferTradingBot {
     // Check for Disconnect and Reconnect
     checkTimeForDisconnectReconnect() {
         setInterval(() => {
+            // Always use GMT +1 time regardless of server location
             const now = new Date();
-            const currentHours = now.getHours();
-            const currentMinutes = now.getMinutes();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
 
-            // Check for afternoon resume condition (7:00 AM)
+            // Optional: log current GMT+1 time for monitoring
+            // console.log(
+            // "Current GMT+1 time:",
+            // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
+            // );
+
+            // Check for Morning resume condition (7:00 AM GMT+1)
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
-                console.log("It's 7:00 AM, reconnecting the bot.");
+                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.LossDigitsList = [];
                 this.tradeInProgress = false;
                 this.usedAssets = new Set();
@@ -607,11 +615,11 @@ class EnhancedDigitDifferTradingBot {
                 this.tradedDigitArray2 = [];
                 this.connect();
             }
-    
-            // Check for evening stop condition (after 5:00 PM)
+
+            // Check for evening stop condition (after 5:00 PM GMT+1)
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 16 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM after a win trade, disconnecting the bot.");
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendDisconnectResumptionEmailSummary();
                     this.Pause = true;
                     this.disconnect();
