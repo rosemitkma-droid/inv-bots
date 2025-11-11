@@ -39,6 +39,7 @@ class HyperOpticTradingEngine {
         this.endOfDay = false;
         this.tradingPaused = false;
         this.lastStrategyUsed = null;
+        this.isWinTrade = false;
 
         // Tick data storage
         this.tickHistories = {};
@@ -360,6 +361,7 @@ class HyperOpticTradingEngine {
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
             this.tradingPaused = false; // Resume after win
+            this.isWinTrade = true;
             // Store win pattern for learning
             this.learningData.winPatterns.push({
                 digit: parseInt(contract.barrier),
@@ -371,6 +373,7 @@ class HyperOpticTradingEngine {
             this.consecutiveLosses++;
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             this.suspendAsset(asset);
+            this.isWinTrade = false;
 
             if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
@@ -433,7 +436,7 @@ class HyperOpticTradingEngine {
                 this.tradeInProgress = false;
                 this.connect();
             }, waitTime);
-        } else if (this.tradingPaused) {
+        } else if (this.tradingPaused && !this.endOfDay) {
             console.log(`⏳ Extended pause due to losses. Waiting ${Math.round(this.config.lossPauseDuration / 60000)} minutes...`);
             setTimeout(() => {
                 this.tradingPaused = false;
@@ -452,6 +455,49 @@ class HyperOpticTradingEngine {
             this.suspendedAssets.delete(first);
             console.log(`✅ Reactivated asset: ${first}`);
         }
+    }
+
+
+    // Check for Disconnect and Reconnect
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            // Always use GMT +1 time regardless of server location
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Optional: log current GMT+1 time for monitoring
+            // console.log(
+            // "Current GMT+1 time:",
+            // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
+            // );
+
+            // Check for Morning resume condition (7:00 AM GMT+1)
+            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
+                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
+                this.LossDigitsList = [];
+                this.tradeInProgress = false;
+                this.usedAssets = new Set();
+                this.RestartTrading = true;
+                this.Pause = false;
+                this.endOfDay = false;
+                this.tradedDigitArray = [];
+                this.tradedDigitArray2 = [];
+                this.connect();
+            }
+
+            // Check for evening stop condition (after 5:00 PM GMT+1)
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.sendDisconnectResumptionEmailSummary();
+                    this.Pause = true;
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+        }, 20000); // Check every 20 seconds
     }
 
     logSummary() {
@@ -486,6 +532,62 @@ class HyperOpticTradingEngine {
             subject: 'ElonMusk HyperOptic Trading Engine - Summary',
             text: `
                 HYPEROPTIC TRADING ENGINE - FINAL SUMMARY
+                ================================
+
+                Overall Performance:
+                -------------------
+                Total Trades: ${this.totalTrades}
+                Wins: ${this.totalWins}
+                Losses: ${this.totalLosses}
+                x2 Losses: ${this.consecutiveLosses2}
+                x3 Losses: ${this.consecutiveLosses3}
+                Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%
+                Total P&L: ${this.totalProfitLoss.toFixed(2)}
+
+                Strategy Performance:
+                -----------------
+                ${strategyStats}
+
+                Final Configuration:
+                -------------------
+                Current Stake: ${this.currentStake.toFixed(2)}
+                Consecutive Losses: ${this.consecutiveLosses}
+                Trading Paused: ${this.tradingPaused ? 'Yes' : 'No'}
+                Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+            `
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            console.log('📧 Summary email sent successfully');
+        } catch (error) {
+            console.error('❌ Error sending email:', error.message);
+        }
+    }
+
+    async sendDisconnectResumptionEmailSummary() {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+        
+        const strategyStats = this.strategies
+            .map(strategy => {
+                const winRate = strategy.total > 0 ? (strategy.wins / strategy.total * 100).toFixed(1) : 0;
+                return `${strategy.name}: ${strategy.wins}/${strategy.total} (${winRate}%) - Weight: ${strategy.weight.toFixed(3)}`;
+            })
+            .join('\n');
+
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+        
+
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'ElonMusk HyperOptic Trading Engine - Summary',
+            
+            text: `
+                Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
+
+                HYPEROPTIC TRADING ENGINE - SUMMARY
                 ================================
 
                 Overall Performance:
@@ -595,11 +697,13 @@ class HyperOpticTradingEngine {
         console.log('='.repeat(60) + '\n');
         
         this.connect();
+        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
 // ==================== INITIALIZE AND START BOT ====================
-const bot = new HyperOpticTradingEngine('DMylfkyce6VyZt7', {
+const bot = new HyperOpticTradingEngine('Dz2V2KvRf4Uukt3', {
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5', 'rgNedekYXvCaPeP', 'Dz2V2KvRf4Uukt3'
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
