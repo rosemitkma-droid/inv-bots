@@ -628,10 +628,10 @@ class EnhancedDigitDifferTradingBot {
             const currentMinutes = gmtPlus1Time.getUTCMinutes();
 
             // Optional: log current GMT+1 time for monitoring
-            console.log(
-            "Current GMT+1 time:",
-            gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
-            );
+            // console.log(
+            // "Current GMT+1 time:",
+            // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
+            // );
 
             // Check for Morning resume condition (7:00 AM GMT+1)
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
