@@ -68,8 +68,9 @@ class EnhancedDigitDifferTradingBot {
         this.suspendedAssets = new Set();
         this.rStats = {};
         this.sys = 1;
-        this.filterNum = 14;
+        this.filterNum = 11;
         this.kLoss = 0.01;
+        this.stopLossStake = false;
 
         // Per-asset runtime state map
         this.assetStates = {};
@@ -109,7 +110,6 @@ class EnhancedDigitDifferTradingBot {
         this.reconnectAttempts = 0;
         this.Pause = false;
 
-        this.todayPnL = 0;
     }
 
     connect() {
@@ -373,8 +373,8 @@ class EnhancedDigitDifferTradingBot {
             
             const currentDigitCount = assetState.stayedInArray[99] + 1;
             assetState.currentProposalId = response.proposal.id;
-            // console.log(`filter Number: ${this.filterNum}`);
-            // console.log(`Current StayedIn Digit Count: ${assetState.stayedInArray[99]} (${currentDigitCount})`);
+            console.log(`filter Number: ${this.filterNum}`);
+            console.log(`Current StayedIn Digit Count: ${assetState.stayedInArray[99]} (${currentDigitCount})`);
             
             // Store proposal ID to asset mapping
             this.pendingProposals.set(response.proposal.id, asset);
@@ -389,7 +389,7 @@ class EnhancedDigitDifferTradingBot {
                 .map(Number);
 
 
-            // console.log('Digits that appeared once:', appearedOnceArray); 
+            console.log('Digits that appeared once:', appearedOnceArray); 
             
             if (!assetState.tradeInProgress) {
                 
@@ -479,12 +479,12 @@ class EnhancedDigitDifferTradingBot {
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
-            //this.filterNum = 14;
+            this.filterNum = 11;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.isWinTrade = false;
-            
+            this.filterNum++;
 
             if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
@@ -496,7 +496,6 @@ class EnhancedDigitDifferTradingBot {
         }  
 
         this.totalProfitLoss += profit;	
-        this.todayPnL += profit;	
         this.Pause = true;
 
         const randomWaitTime = Math.floor(Math.random() * (this.config.maxWaitTime - this.config.minWaitTime + 1)) + this.config.minWaitTime;
@@ -509,8 +508,6 @@ class EnhancedDigitDifferTradingBot {
             this.sendLossEmail(asset);
             //Suspend All Assets (Non-Loss)
             this.suspendAllExcept(asset);
-            //Increase Filter number after Loss
-            this.filterNum++;
         } else {
             //Reactivate All Assets (Non-Loss)
             if (this.suspendedAssets.size > 0) {
@@ -522,7 +519,7 @@ class EnhancedDigitDifferTradingBot {
             this.logTradingSummary(asset);
         }
         
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss) {
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss || this.stopLossStake) {
             console.log('Stop condition reached. Stopping trading.');
             this.endOfDay = true;
             this.disconnect();
@@ -547,14 +544,6 @@ class EnhancedDigitDifferTradingBot {
                 this.connect();
             }, randomWaitTime);
         }
-    }
-
-    shouldStopTrading() {
-        if (this.endOfDay) return true;
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses) return true;
-        if (this.totalProfitLoss <= -this.config.stopLoss) return true;
-        if (this.totalProfitLoss >= this.config.takeProfit) return true;
-        return false;
     }
 
     // Add new method to handle asset suspension
@@ -606,7 +595,7 @@ class EnhancedDigitDifferTradingBot {
             const currentMinutes = now.getMinutes();
 
             // Check for afternoon resume condition (7:00 AM)
-            if (this.endOfDay && currentHours === 14 && currentMinutes >= 0) {
+            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
                 console.log("It's 7:00 AM, reconnecting the bot.");
                 this.LossDigitsList = [];
                 this.tradeInProgress = false;
@@ -616,13 +605,12 @@ class EnhancedDigitDifferTradingBot {
                 this.endOfDay = false;
                 this.tradedDigitArray = [];
                 this.tradedDigitArray2 = [];
-                this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
                 this.connect();
             }
     
             // Check for evening stop condition (after 5:00 PM)
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 0) {
+                if (currentHours >= 16 && currentMinutes >= 0) {
                     console.log("It's past 5:00 PM after a win trade, disconnecting the bot.");
                     this.sendDisconnectResumptionEmailSummary();
                     this.Pause = true;
@@ -740,6 +728,43 @@ class EnhancedDigitDifferTradingBot {
         }
     }
 
+    async sendDisconnectResumptionEmailSummary() {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+
+
+        const summaryText = `
+        Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
+
+        Trading Summary:
+        Total Trades: ${this.totalTrades}
+        Total Trades Won: ${this.totalWins}
+        Total Trades Lost: ${this.totalLosses}
+        x2 Losses: ${this.consecutiveLosses2}
+        x3 Losses: ${this.consecutiveLosses3}
+
+        Current Stake: $${this.currentStake.toFixed(2)}
+        Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
+        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+        `;
+
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'x3_nLiveAccumulator_Multi_Asset_Bot - Summary',
+            text: summaryText
+        };
+
+        try {
+            const info = await transporter.sendMail(mailOptions);
+            // console.log('Email sent:', info.messageId);
+        } catch (error) {
+            // console.error('Error sending email:', error);
+        }
+    }
+
     async sendErrorEmail(errorMessage) {
         const transporter = nodemailer.createTransport(this.emailConfig);
 
@@ -760,16 +785,16 @@ class EnhancedDigitDifferTradingBot {
 
     start() {
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
 // Usage
 const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
-    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP
-    initialStake: 45,
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5', 'rgNedekYXvCaPeP'
+    initialStake: 100,
     multiplier: 21,
-    maxConsecutiveLosses: 2, 
+    maxConsecutiveLosses: 1, 
     stopLoss: 100,
     takeProfit: 500,
     growthRate: 0.05,
