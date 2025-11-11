@@ -353,7 +353,7 @@ class EnhancedDigitDifferTradingBot {
         // console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
 
         if (this.tickHistories[asset].length < this.config.requiredHistoryLength) {
-            console.log(`[${asset}] Waiting for more ticks. Current length: ${this.tickHistories[asset].length}`);
+            // console.log(`[${asset}] Waiting for more ticks. Current length: ${this.tickHistories[asset].length}`);
             return; 
         }
 
@@ -386,19 +386,19 @@ class EnhancedDigitDifferTradingBot {
         
         // Too volatile - avoid trading
         if (volatility > 0.90) {
-            console.log(`[${asset}] Market too volatile (${volatility.toFixed(2)}), skipping`);
+            // console.log(`[${asset}] Market too volatile (${volatility.toFixed(2)}), skipping`);
             return false;
         }
         
         // Too stable - hard to profit
         if (volatility < 0.31) {
-            console.log(`[${asset}] Market too stable (${volatility.toFixed(2)}), skipping`);
+            // console.log(`[${asset}] Market too stable (${volatility.toFixed(2)}), skipping`);
             return false;
         }
 
         // Check if we've lost too much on this asset recently
         if (assetState.consecutiveLosses >= 2) {
-            console.log(`[${asset}] Too many consecutive losses on this asset, skipping`);
+            // console.log(`[${asset}] Too many consecutive losses on this asset, skipping`);
             return false;
         }
 
@@ -422,7 +422,7 @@ class EnhancedDigitDifferTradingBot {
         
         if (recentLossesWithSameCount >= 2) {
             adjustedFilter += recentLossesWithSameCount * 2;
-            console.log(`[${asset}] Adjusting filter due to recent losses at count ${currentDigitCount}: ${adjustedFilter}`);
+            // console.log(`[${asset}] Adjusting filter due to recent losses at count ${currentDigitCount}: ${adjustedFilter}`);
         }
 
         // Check filter performance history
@@ -434,7 +434,7 @@ class EnhancedDigitDifferTradingBot {
         // If this filter has poor performance, try different one
         if (winRate < 0.4 && filterStats.wins + filterStats.losses > 5) {
             adjustedFilter += 3;
-            console.log(`[${asset}] Filter ${adjustedFilter - 3} has low win rate (${(winRate*100).toFixed(1)}%), trying ${adjustedFilter}`);
+            // console.log(`[${asset}] Filter ${adjustedFilter - 3} has low win rate (${(winRate*100).toFixed(1)}%), trying ${adjustedFilter}`);
         }
 
         return adjustedFilter;
@@ -454,7 +454,7 @@ class EnhancedDigitDifferTradingBot {
             });
 
         if (similarLosses.length >= 2) {
-            console.log(`[${asset}] Dangerous pattern detected: ${similarLosses.length} similar losses recently`);
+            // console.log(`[${asset}] Dangerous pattern detected: ${similarLosses.length} similar losses recently`);
             return true;
         }
 
@@ -488,7 +488,7 @@ class EnhancedDigitDifferTradingBot {
 
         // Sort by score and return best
         candidates.sort((a, b) => b.score - a.score);
-        console.log(`Asset scores:`, candidates.map(c => `${c.asset}:${c.score.toFixed(1)}`).join(', '));
+        // console.log(`Asset scores:`, candidates.map(c => `${c.asset}:${c.score.toFixed(1)}`).join(', '));
         
         return candidates[0].asset;
     }
@@ -556,7 +556,7 @@ class EnhancedDigitDifferTradingBot {
 
         // If we've lost twice on the same digit, try different strategy
         if (sameDigitLosses >= 2) {
-            console.log(`[${asset}] Too many losses on digit count ${currentDigitCount}, seeking alternative`);
+            // console.log(`[${asset}] Too many losses on digit count ${currentDigitCount}, seeking alternative`);
             
             // Find other digit counts that appear in filtered array
             const alternatives = filteredArray.filter(d => d !== currentDigitCount);
@@ -575,7 +575,7 @@ class EnhancedDigitDifferTradingBot {
                     }
                 }
                 
-                console.log(`[${asset}] Switching from digit ${currentDigitCount} to ${bestAlt}`);
+                // console.log(`[${asset}] Switching from digit ${currentDigitCount} to ${bestAlt}`);
                 return bestAlt;
             }
         }
@@ -626,13 +626,13 @@ class EnhancedDigitDifferTradingBot {
                 .filter(digit => digitFrequency[digit] === adaptiveFilter)
                 .map(Number);
 
-            console.log(`[${asset}] Adaptive filter: ${adaptiveFilter}, Current digit: ${currentDigitCount}`);
-            console.log(`[${asset}] Filtered digits:`, appearedOnceArray);
+            // console.log(`[${asset}] Adaptive filter: ${adaptiveFilter}, Current digit: ${currentDigitCount}`);
+            // console.log(`[${asset}] Filtered digits:`, appearedOnceArray);
             
             if (!assetState.tradeInProgress) {
                 // NEW: Check for dangerous patterns
                 if (this.detectDangerousPattern(asset, currentDigitCount, stayedInArray)) {
-                    console.log(`[${asset}] Skipping trade due to dangerous pattern`);
+                    // console.log(`[${asset}] Skipping trade due to dangerous pattern`);
                     return;
                 }
 
@@ -648,7 +648,7 @@ class EnhancedDigitDifferTradingBot {
                     if (selectedDigit !== currentDigitCount) {
                         // This would require waiting for the proposal to match the alternative digit
                         // For now, we skip this trade and wait for better opportunity
-                        console.log(`[${asset}] Waiting for better opportunity with digit ${selectedDigit}`);
+                        // console.log(`[${asset}] Waiting for better opportunity with digit ${selectedDigit}`);
                         return;
                     }
 
@@ -892,13 +892,21 @@ class EnhancedDigitDifferTradingBot {
     // Check for Disconnect and Reconnect
     checkTimeForDisconnectReconnect() {
         setInterval(() => {
+            // Always use GMT +1 time regardless of server location
             const now = new Date();
-            const currentHours = now.getHours();
-            const currentMinutes = now.getMinutes();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
 
-            // Check for afternoon resume condition (7:00 AM)
+            // Optional: log current GMT+1 time for monitoring
+            // console.log(
+            // "Current GMT+1 time:",
+            // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
+            // );
+
+            // Check for Morning resume condition (7:00 AM GMT+1)
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
-                console.log("It's 7:00 AM, reconnecting the bot.");
+                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.LossDigitsList = [];
                 this.tradeInProgress = false;
                 this.usedAssets = new Set();
@@ -909,11 +917,11 @@ class EnhancedDigitDifferTradingBot {
                 this.tradedDigitArray2 = [];
                 this.connect();
             }
-    
-            // Check for evening stop condition (after 5:00 PM)
+
+            // Check for evening stop condition (after 5:00 PM GMT+1)
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 16 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM after a win trade, disconnecting the bot.");
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendDisconnectResumptionEmailSummary();
                     this.Pause = true;
                     this.disconnect();
