@@ -1484,7 +1484,7 @@ class EnhancedDigitDifferTradingBot {
 
 // ==================== USAGE & CONFIGURATION ====================
 
-const bot = new EnhancedDigitDifferTradingBot('hsj0tA0XJoIzJG5', {
+const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', {
     // API tokens: 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5', 'rgNedekYXvCaPeP'
     
     // Basic trading parameters
