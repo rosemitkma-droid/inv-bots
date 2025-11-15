@@ -1338,7 +1338,7 @@ class EnhancedDigitDifferTradingBot {
 
 
 
-const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
+const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5', 'rgNedekYXvCaPeP'
     initialStake: 1,
     multiplier: 21,
