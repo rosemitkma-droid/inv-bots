@@ -148,6 +148,7 @@ class EnhancedDigitDifferTradingBot {
             
             this.assetStates[asset] = {
                 stayedInArray: [],
+                stayedInArrayExtended: [],
                 tradedDigitArray: [],
                 filteredArray: [],
                 totalArray: [],
@@ -812,7 +813,7 @@ class EnhancedDigitDifferTradingBot {
             result: won ? 'win' : 'loss',
             digitCount,
             filterUsed,
-            arraySum: stayedInArray.reduce((a,b) => a+b, 0),
+            arraySum: Array.isArray(stayedInArray) && stayedInArray.length ? stayedInArray.reduce((a,b) => a+b, 0) : 0,
             timestamp: Date.now(),
             volatility: this.learningSystem.volatilityScores[asset],
         };
@@ -928,19 +929,74 @@ class EnhancedDigitDifferTradingBot {
 
         if (response.proposal) {
             const stayedInArray = response.proposal.contract_details.ticks_stayed_in;
+
+            // Keep the original latest-100 for compatibility
             assetState.stayedInArray = stayedInArray;
-            
-            // NEW: Perform statistical analysis on actual tick history
+
+            // Merge incoming stayedInArray into extended storage in an incremental way.
+            // Goal: append only the values that were removed from the previous 100-array
+            // (broker maintains latest 100; when a new item arrives, the oldest is removed).
+            assetState.stayedInArrayExtended = assetState.stayedInArrayExtended || [];
+
+            // If we don't have a previous 100-array, set prev and prefill the extended array
+            if (!assetState.prevStayedInArray) {
+                assetState.prevStayedInArray = stayedInArray.slice();
+
+                // Prefill extended array with the initial 100 to provide starting historical context
+                // This keeps the extended array from being empty on first run; it can be adjusted
+                // later if you prefer a different seeding strategy.
+                assetState.stayedInArrayExtended = assetState.stayedInArrayExtended || [];
+                assetState.stayedInArrayExtended = assetState.stayedInArrayExtended.concat(assetState.prevStayedInArray);
+                if (assetState.stayedInArrayExtended.length > this.config.extendedArraySize) {
+                    assetState.stayedInArrayExtended = assetState.stayedInArrayExtended.slice(-this.config.extendedArraySize);
+                }
+            } else {
+                const prev = assetState.prevStayedInArray;
+
+                // If identical, nothing changed
+                if (prev.length === stayedInArray.length && prev.every((v, i) => v === stayedInArray[i])) {
+                    // no-op
+                } else {
+                    // Try to detect how many items were removed by finding the index in prev
+                    // where the new array's first element appears. For a single-tick shift this will be 1.
+                    let shiftIndex = prev.findIndex(v => v === stayedInArray[0]);
+
+                    // If not found, fallback to assuming a single removed item (safe default)
+                    if (shiftIndex === -1) {
+                        shiftIndex = 1;
+                    }
+
+                    if (shiftIndex > 0) {
+                        const removedItems = prev.slice(0, shiftIndex);
+                        assetState.stayedInArrayExtended = assetState.stayedInArrayExtended.concat(removedItems);
+
+                        // Cap extended array to configured size
+                        if (assetState.stayedInArrayExtended.length > this.config.extendedArraySize) {
+                            assetState.stayedInArrayExtended = assetState.stayedInArrayExtended.slice(-this.config.extendedArraySize);
+                        }
+                    }
+
+                    // Update prev to current snapshot
+                    assetState.prevStayedInArray = stayedInArray.slice();
+                }
+            }
+
+            // NEW: Perform statistical analysis on actual tick history (uses extended buffer where appropriate)
             this.calculateMovingAverages(asset);
             this.calculateVolatilityMeasures(asset);
-            
-            const currentDigitCount = assetState.stayedInArray[99] + 1;
+
+            // Derive currentDigitCount from extended array latest value when available, otherwise use the 100-length array
+            const latestVal = (assetState.stayedInArrayExtended && assetState.stayedInArrayExtended.length)
+                ? assetState.stayedInArrayExtended[assetState.stayedInArrayExtended.length - 1]
+                : assetState.stayedInArray[assetState.stayedInArray.length - 1];
+            const currentDigitCount = (typeof latestVal === 'number' ? latestVal : 0) + 1;
+
             assetState.currentProposalId = response.proposal.id;
-            
             this.pendingProposals.set(response.proposal.id, asset);
 
+            // Compute digit frequency from the extended array for richer context
             const digitFrequency = {};
-            assetState.stayedInArray.forEach(digit => {
+            assetState.stayedInArrayExtended.forEach(digit => {
                 digitFrequency[digit] = (digitFrequency[digit] || 0) + 1;
             });
             assetState.digitFrequency = digitFrequency;
@@ -950,14 +1006,18 @@ class EnhancedDigitDifferTradingBot {
             const appearedOnceArray = Object.keys(digitFrequency)
                 .filter(digit => digitFrequency[digit] === adaptiveFilter)
                 .map(Number);
+
+            // console.log(`[${asset}] Stayed in Array (latest 100):`, stayedInArray);
+            console.log(`[${asset}] Stayed in Extended Array Size: ${assetState.stayedInArrayExtended.length}/${this.config.extendedArraySize}`);
+            console.log(`[${asset}] Filtered digits:`, appearedOnceArray);
             
             if (!assetState.tradeInProgress) {
-                if (appearedOnceArray.includes(currentDigitCount) && assetState.stayedInArray[99] >= 0) {
+                if (appearedOnceArray.includes(currentDigitCount) && (typeof latestVal === 'number' ? latestVal >= 0 : (assetState.stayedInArray[99] >= 0))) {
                     const selectedDigit = this.selectAlternativeDigit(
                         asset, 
                         currentDigitCount, 
                         appearedOnceArray,
-                        stayedInArray
+                        assetState.stayedInArrayExtended || stayedInArray
                     );
                     
                     if (selectedDigit !== currentDigitCount) {
@@ -967,7 +1027,7 @@ class EnhancedDigitDifferTradingBot {
                     const safetyChecksPassed = this.performSafetyChecks(
                         asset, 
                         currentDigitCount, 
-                        stayedInArray
+                        assetState.stayedInArrayExtended || stayedInArray
                     );
                     
                     if (!safetyChecksPassed) {
@@ -979,7 +1039,7 @@ class EnhancedDigitDifferTradingBot {
                     assetState.filteredArray = appearedOnceArray;
                     assetState.lastFilterUsed = adaptiveFilter;
                     
-                    this.placeTrade(asset);
+                    // this.placeTrade(asset);
                 }
             }
         }
@@ -1046,7 +1106,7 @@ class EnhancedDigitDifferTradingBot {
 
         const digitCount = assetState.tradedDigitArray[assetState.tradedDigitArray.length - 1];
         const filterUsed = assetState.lastFilterUsed || 8;
-        this.recordTradeOutcome(asset, won, digitCount, filterUsed, assetState.stayedInArray);
+        this.recordTradeOutcome(asset, won, digitCount, filterUsed, assetState.stayedInArrayExtended || assetState.stayedInArray);
 
         this.totalTrades++;
         
