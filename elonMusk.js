@@ -168,7 +168,7 @@ class HyperOpticTradingEngine {
 
         if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
             return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
-        } else if (['R_10', 'R_25'].includes(asset)) {
+        } else if (['R_10', 'R_25', '1HZ15V', '1HZ30V', '1HZ90V',].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
         } else {
             return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
@@ -482,8 +482,6 @@ class HyperOpticTradingEngine {
                 this.RestartTrading = true;
                 this.Pause = false;
                 this.endOfDay = false;
-                this.tradedDigitArray = [];
-                this.tradedDigitArray2 = [];
                 this.connect();
             }
 
@@ -574,6 +572,8 @@ class HyperOpticTradingEngine {
                 return `${strategy.name}: ${strategy.wins}/${strategy.total} (${winRate}%) - Weight: ${strategy.weight.toFixed(3)}`;
             })
             .join('\n');
+        
+        const now = new Date();
 
         const currentHours = now.getHours();
         const currentMinutes = now.getMinutes();
