@@ -62,6 +62,7 @@ class EnhancedDigitDifferTradingBot {
         // NEW: Extended historical tracking for each asset
         this.extendedStayedInArrays = {}; // Stores up to 5000 items
         this.stayedInArrayHistory = {}; // Tracks the sequence of arrays
+        this.previousStayedIn = {}; // Tracks previous array for comparison
         
         // NEW: Advanced pattern recognition system
         this.patternAnalyzer = {
@@ -117,6 +118,7 @@ class EnhancedDigitDifferTradingBot {
             // NEW: Extended array initialization
             this.extendedStayedInArrays[asset] = [];
             this.stayedInArrayHistory[asset] = [];
+            this.previousStayedIn[asset] = null;
             
             this.assetStates[asset] = {
                 stayedInArray: [],
@@ -175,89 +177,47 @@ class EnhancedDigitDifferTradingBot {
     
     /**
      * Updates the extended stayedInArray when a new proposal arrives
-     * Maintains up to 5000 historical items
+     * Uses the proven logic from nliveMulti3.js
      */
-    updateExtendedStayedInArray(asset, newStayedInArray) {
-        if (!newStayedInArray || newStayedInArray.length === 0) return;
+    updateExtendedStayedInArray(asset, stayedInArray) {
+        if (!stayedInArray || stayedInArray.length < 100) return;
         
-        const extended = this.extendedStayedInArrays[asset];
-        const assetState = this.assetStates[asset];
-        
-        // If this is the first array, just copy it
-        if (extended.length === 0) {
-            this.extendedStayedInArrays[asset] = [...newStayedInArray];
-            assetState.historicalDepth = newStayedInArray.length;
-            console.log(`[${asset}] Initialized extended array with ${newStayedInArray.length} items`);
-            return;
-        }
-        
-        // Find the difference between old and new array to identify new items
-        // The broker always returns the latest 100, so we need to detect what's new
-        const lastKnownArray = this.stayedInArrayHistory[asset].slice(-1)[0] || [];
-        
-        if (lastKnownArray.length > 0) {
-            // Find how many items shifted out (were removed from the beginning)
-            let shiftCount = 0;
-            for (let i = 0; i < lastKnownArray.length; i++) {
-                if (lastKnownArray[i] === newStayedInArray[0]) {
-                    shiftCount = i;
+        const prev = this.previousStayedIn[asset];
+        if (prev === null) {
+            // First time: initialize with first 99 as historical completed runs
+            this.extendedStayedInArrays[asset] = stayedInArray.slice(0, 99);
+        } else {
+            // Compare first 99 elements to detect reset
+            let isIncreased = true;
+            for (let i = 0; i < 99; i++) {
+                if (stayedInArray[i] !== prev[i]) {
+                    isIncreased = false;
                     break;
                 }
             }
             
-            // If market reset (new first item doesn't match any in old array), record reset
-            if (shiftCount === 0 && newStayedInArray[0] !== lastKnownArray[0]) {
-                this.recordMarketReset(asset, extended.length);
+            if (isIncreased && stayedInArray[99] === prev[99] + 1) {
+                // No reset, current run length increased - do nothing
+            } else {
+                // Reset detected, add the completed run length to extended history
+                const completed = prev[99] + 1; // Adjust based on reset timing
+                this.extendedStayedInArrays[asset].push(completed);
+                
+                // Maintain maximum length
+                if (this.extendedStayedInArrays[asset].length > this.config.extendedHistoryLength) {
+                    this.extendedStayedInArrays[asset].shift();
+                }
             }
-            
-            // Add the new items that appeared at the end
-            const newItems = newStayedInArray.slice(-(shiftCount || 1));
-            extended.push(...newItems);
-            
-            // Maintain maximum length
-            if (extended.length > this.config.extendedHistoryLength) {
-                const excess = extended.length - this.config.extendedHistoryLength;
-                extended.splice(0, excess);
-            }
-            
-            assetState.historicalDepth = extended.length;
         }
         
-        // Store this array for next comparison
-        this.stayedInArrayHistory[asset].push([...newStayedInArray]);
-        if (this.stayedInArrayHistory[asset].length > 10) {
-            this.stayedInArrayHistory[asset].shift(); // Keep last 10 arrays only
-        }
+        // Update previous for next comparison
+        this.previousStayedIn[asset] = stayedInArray.slice();
         
         // Update pattern analysis with new extended data
         this.analyzeExtendedPatterns(asset);
     }
 
-    /**
-     * Records when a market reset occurs
-     */
-    recordMarketReset(asset, position) {
-        const assetState = this.assetStates[asset];
-        const timeSinceLastReset = position - assetState.lastResetPosition;
-        
-        if (assetState.lastResetPosition >= 0) {
-            assetState.resetFrequency.push(timeSinceLastReset);
-            
-            // Keep only last 100 reset intervals
-            if (assetState.resetFrequency.length > 100) {
-                assetState.resetFrequency.shift();
-            }
-            
-            // Store in pattern analyzer
-            this.patternAnalyzer.resetPredictors[asset].shortTerm.push(timeSinceLastReset);
-            if (this.patternAnalyzer.resetPredictors[asset].shortTerm.length > 100) {
-                this.patternAnalyzer.resetPredictors[asset].shortTerm.shift();
-            }
-        }
-        
-        assetState.lastResetPosition = position;
-        console.log(`[${asset}] Market RESET detected at position ${position} (${timeSinceLastReset} ticks since last)`);
-    }
+
 
     // ========== NEW: ADVANCED PATTERN ANALYSIS ==========
     
@@ -504,8 +464,9 @@ class EnhancedDigitDifferTradingBot {
         const volatility = this.calculateVolatility(asset);
         const volRisk = volatility > 0.7 ? 1.0 : volatility < 0.3 ? 0.8 : volatility / 1.5;
         riskScore += volRisk * 0.25;
-        if (volatility > 0.7 || volatility < 0.3) {
+        if (volatility >= 0.88 || volatility < 0.3) {
             riskFactors.push(`Unfavorable volatility: ${(volatility * 100).toFixed(1)}%`);
+            return { riskScore: 1.0, riskLevel: 'HIGH', riskFactors, shouldTrade: false };
         }
         
         // Factor 3: Historical pattern risk (25% weight)
@@ -513,6 +474,7 @@ class EnhancedDigitDifferTradingBot {
         riskScore += patternRisk * 0.25;
         if (patternRisk > 0.6) {
             riskFactors.push(`Dangerous historical pattern detected`);
+            return { riskScore: 1.0, riskLevel: 'HIGH', riskFactors, shouldTrade: false };
         }
         
         // Factor 4: Safe zone analysis (20% weight)
@@ -520,6 +482,7 @@ class EnhancedDigitDifferTradingBot {
         riskScore += safeZoneRisk * 0.20;
         if (safeZoneRisk > 0.7) {
             riskFactors.push(`Outside safe trading zones`);
+            return { riskScore: 1.0, riskLevel: 'HIGH', riskFactors, shouldTrade: false };
         }
         
         return {
@@ -580,7 +543,7 @@ class EnhancedDigitDifferTradingBot {
         const extended = this.extendedStayedInArrays[asset];
         
         // Minimum history requirement
-        if (extended.length < 100) {
+        if (extended.length < 99) {
             console.log(`[${asset}] Insufficient extended history (${extended.length}/500), skipping`);
             return { trade: false, reason: 'Insufficient history' };
         }
@@ -588,9 +551,9 @@ class EnhancedDigitDifferTradingBot {
         // Comprehensive risk assessment
         const riskAssessment = this.assessTradeRisk(asset, currentDigitCount, stayedInArray);
         
-        console.log(`[${asset}] Risk Assessment: ${riskAssessment.riskLevel} (${(riskAssessment.riskScore * 100).toFixed(1)}%)`);
+        // console.log(`[${asset}] Risk Assessment: ${riskAssessment.riskLevel} (${(riskAssessment.riskScore * 100).toFixed(1)}%)`);
         if (riskAssessment.riskFactors.length > 0) {
-            console.log(`[${asset}] Risk Factors:`, riskAssessment.riskFactors);
+            // console.log(`[${asset}] Risk Factors:`, riskAssessment.riskFactors);
         }
         
         if (!riskAssessment.shouldTrade) {
@@ -688,7 +651,7 @@ class EnhancedDigitDifferTradingBot {
                     
                     this.placeTrade(asset);
                 } else {
-                    console.log(`[${asset}] ❌ TRADE REJECTED - ${decision.reason}`);
+                    // console.log(`[${asset}] ❌ TRADE REJECTED - ${decision.reason}`);
                 }
             }
         }
@@ -1318,7 +1281,45 @@ class EnhancedDigitDifferTradingBot {
                 this.Pause = false;
                 this.endOfDay = false;
                 this.tradedDigitArray = [];
-                this.tradedDigitArray2 = [];
+                this.assets.forEach(asset => {
+                    this.tickHistories[asset] = [];
+                    this.digitCounts[asset] = Array(10).fill(0);
+                    this.lastDigits[asset] = null;
+                    this.predictedDigits[asset] = null;
+                    this.lastPredictions[asset] = [];
+                    
+                    // NEW: Extended array initialization
+                    this.extendedStayedInArrays[asset] = [];
+                    this.stayedInArrayHistory[asset] = [];
+                    this.previousStayedIn[asset] = null;
+                    
+                    this.assetStates[asset] = {
+                        stayedInArray: [],
+                        tradedDigitArray: [],
+                        filteredArray: [],
+                        totalArray: [],
+                        currentProposalId: null,
+                        tradeInProgress: false,
+                        consecutiveLosses: 0,
+                        lastTradeResult: null,
+                        digitFrequency: {},
+                        // NEW: Historical context
+                        historicalDepth: 0,
+                        lastResetPosition: -1,
+                        resetFrequency: [],
+                    };
+                    
+                    // Initialize pattern recognition structures
+                    this.patternAnalyzer.resetSequences[asset] = [];
+                    this.patternAnalyzer.digitDistributions[asset] = Array(100).fill(null).map(() => ({}));
+                    this.patternAnalyzer.trendIndicators[asset] = [];
+                    this.patternAnalyzer.volatilityClusters[asset] = [];
+                    this.patternAnalyzer.resetPredictors[asset] = {
+                        shortTerm: [],  // Last 100 resets
+                        mediumTerm: [], // Last 500 resets
+                        longTerm: [],   // Last 1000 resets
+                    };
+                });
                 this.connect();
             }
 
@@ -1440,7 +1441,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Enhanced Accumulator Bot v2 - Performance Summary',
+            subject: 'Claude_Enhanced Accumulator Bot v2 - Performance Summary',
             text: summaryText
         };
 
@@ -1505,7 +1506,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: `Enhanced Accumulator Bot v2 - Loss Alert [${asset}]`,
+            subject: `Claude_Enhanced Accumulator Bot v2 - Loss Alert [${asset}]`,
             text: summaryText
         };
 
@@ -1573,7 +1574,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Enhanced Accumulator Bot v2 - Disconnect/Reconnect Summary',
+            subject: 'Claude_Enhanced Accumulator Bot v2 - Disconnect/Reconnect Summary',
             text: summaryText
         };
 
@@ -1589,7 +1590,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Enhanced Accumulator Bot v2 - Error Report',
+            subject: 'Claude_Enhanced Accumulator Bot v2 - Error Report',
             text: `An error occurred: ${errorMessage}`
         };
 
@@ -1638,7 +1639,7 @@ class EnhancedDigitDifferTradingBot {
 // USAGE EXAMPLE
 // ============================================================================
 
-const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
+const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
     // API tokens: 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5', 'rgNedekYXvCaPeP'
     
     // Trading parameters
@@ -1646,7 +1647,7 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     multiplier: 21,
     maxConsecutiveLosses: 3, 
     stopLoss: 400,
-    takeProfit: 500,
+    takeProfit: 5000,
     
     // Accumulator specific
     growthRate: 0.05,
@@ -1668,74 +1669,3 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
 });
 
 bot.start();
-
-/*
- * ============================================================================
- * KEY IMPROVEMENTS IN V2.0:
- * ============================================================================
- * 
- * 1. EXTENDED HISTORICAL TRACKING
- *    - Maintains up to 5000 historical ticks per asset
- *    - Automatically extends array as new proposals arrive
- *    - Preserves removed items from broker's 100-item window
- * 
- * 2. RESET PREDICTION SYSTEM
- *    - Tracks market reset intervals
- *    - Calculates average reset frequency
- *    - Provides reset risk scoring (0-1)
- *    - Helps avoid trades near likely reset points
- * 
- * 3. PATTERN RECOGNITION
- *    - Analyzes digit distributions at each position
- *    - Identifies trending patterns in historical data
- *    - Detects dangerous patterns that led to previous losses
- *    - Uses pattern matching to avoid repeating mistakes
- * 
- * 4. VOLATILITY ANALYSIS
- *    - Clusters volatility patterns over time
- *    - Identifies stable vs unstable market periods
- *    - Adjusts trading strategy based on volatility
- * 
- * 5. SAFE ZONE IDENTIFICATION
- *    - Analyzes which digit counts historically stable
- *    - Calculates stability ratios for each digit
- *    - Prioritizes trades in identified safe zones
- * 
- * 6. COMPREHENSIVE RISK ASSESSMENT
- *    - Multi-factor risk scoring (reset, volatility, patterns, safe zones)
- *    - Weighted risk calculation (30% reset, 25% volatility, 25% patterns, 20% safe zones)
- *    - Only trades when risk score < 0.55 (55%)
- *    - Provides detailed risk breakdown for each decision
- * 
- * 7. INTELLIGENT TRADE DECISIONS
- *    - Requires minimum 500 ticks of extended history before trading
- *    - Comprehensive pre-trade validation
- *    - Explains rejection reasons when trades are skipped
- *    - Confidence scoring for approved trades
- * 
- * 8. ENHANCED LOGGING & REPORTING
- *    - Detailed extended history statistics
- *    - Reset analysis in summaries
- *    - Risk scores and safe zone information
- *    - Email reports include extended context
- * 
- * ============================================================================
- * HOW IT WORKS:
- * ============================================================================
- * 
- * When a proposal arrives with stayedInArray:
- * 1. Bot compares new array with previous to detect changes
- * 2. Identifies items that would be removed (shifted out)
- * 3. Appends these to extended array (maintains up to 5000)
- * 4. Detects market resets (when first item changes unexpectedly)
- * 5. Records reset intervals for prediction modeling
- * 6. Analyzes extended history for patterns and trends
- * 7. Calculates comprehensive risk assessment
- * 8. Makes intelligent trade decision based on all factors
- * 
- * The bot now has much deeper market understanding and makes significantly
- * safer trade decisions by considering historical context, reset patterns,
- * volatility clustering, and statistical distributions.
- * 
- * ============================================================================
- */
