@@ -212,9 +212,9 @@ class HybridSuperBot {
         const quoteString = quote.toString();
         const [, fractionalPart = ''] = quoteString.split('.');
 
-        if (['R_75', 'R_50', 'RDBULL', 'RDBEAR'].includes(asset)) {
+        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
             return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
-        } else if (['R_10', 'R_25'].includes(asset)) {
+        } else if (['R_10', 'R_25', '1HZ15V', '1HZ30V', '1HZ90V',].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
         } else {
             return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
@@ -870,8 +870,6 @@ class HybridSuperBot {
                 this.RestartTrading = true;
                 this.Pause = false;
                 this.endOfDay = false;
-                this.tradedDigitArray = [];
-                this.tradedDigitArray2 = [];
                 this.connect();
             }
 
@@ -1030,6 +1028,56 @@ class HybridSuperBot {
         }
     }
 
+    async sendDisconnectResumptionEmailSummary() {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+
+        const now = new Date();
+
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'Cluade Dynamic Differ Hybrid Super Bot',
+            text: `
+                Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
+                ==========================
+
+                HYPEROPTIC TRADING ENGINE - SUMMARY
+                ================================
+
+                Overall Performance:
+                --------------
+                Total Trades: ${this.totalTrades}
+                Total Wins: ${this.totalWins}
+                Total Losses: ${this.totalLosses}
+                Consecutive Losses: ${this.consecutiveLosses}
+                x2 Losses: ${this.consecutiveLosses2}
+                x3 Losses: ${this.consecutiveLosses3}
+                Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+                Total P&L: ${this.totalProfitLoss.toFixed(2)}
+
+                Risk Management:
+                ---------------
+                Current Stake: ${this.currentStake.toFixed(2)}
+                Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+
+                Layer Status:
+                ------------
+                Dominant Layer: ${this.metaLayer.lastUsedLayer}
+                Quantum Mode: ${this.quantumState.mode}
+            `
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            console.log('📧 Summary email sent successfully');
+        } catch (error) {
+            console.error('Error sending loss email:', error.message);
+        }
+    }
+
     handleDisconnect() {
         this.connected = false;
         this.wsReady = false;
@@ -1063,7 +1111,7 @@ const bot = new HybridSuperBot('rgNedekYXvCaPeP', {
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
     stopLoss: 129,
-    takeProfit: 500,
+    takeProfit: 5000,
     requiredHistoryLength: 1000,
     minWaitTime: 120000, // 2 Minutes
     maxWaitTime: 300000, // 5 Minutes
