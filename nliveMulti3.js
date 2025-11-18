@@ -636,7 +636,7 @@ class EnhancedDigitDifferTradingBot {
                     // Reset detected, add the completed run length to extended history
                     const completed = prev[99] + 1; // Adjust based on reset timing
                     this.extendedStayedIn[asset].push(completed);
-                    if (this.extendedStayedIn[asset].length > 500) {
+                    if (this.extendedStayedIn[asset].length > 100) {
                         this.extendedStayedIn[asset].shift();
                     }
                 }
