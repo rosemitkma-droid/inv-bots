@@ -1281,6 +1281,65 @@ class EnhancedDigitDifferTradingBot {
                 this.Pause = false;
                 this.endOfDay = false;
                 this.tradedDigitArray = [];
+                // Asset-specific data
+                this.digitCounts = {};
+                this.tickSubscriptionIds = {};
+                this.tickHistories = {};
+                this.lastDigits = {};
+                this.predictedDigits = {};
+                this.lastPredictions = {};
+                this.assetStates = {};
+                this.pendingProposals = new Map();
+
+                // NEW: Extended historical tracking for each asset
+                this.extendedStayedInArrays = {}; // Stores up to 5000 items
+                this.stayedInArrayHistory = {}; // Tracks the sequence of arrays
+                this.previousStayedIn = {}; // Tracks previous array for comparison
+                
+                // NEW: Advanced pattern recognition system
+                this.patternAnalyzer = {
+                    // Track sequences leading to resets
+                    resetSequences: {},
+                    // Statistical distribution analysis
+                    digitDistributions: {},
+                    // Trend detection
+                    trendIndicators: {},
+                    // Volatility clustering
+                    volatilityClusters: {},
+                    // Reset prediction models
+                    resetPredictors: {},
+                };
+
+                // NEW: Enhanced learning system with historical context
+                this.learningSystem = {
+                    lossPatterns: {},
+                    failedDigitCounts: {},
+                    volatilityScores: {},
+                    filterPerformance: {},
+                    resetPatterns: {},
+                    timeWindowPerformance: [],
+                    adaptiveFilters: {},
+                    // NEW: Historical pattern matching
+                    historicalPatterns: {},
+                    // NEW: Safe zone identification
+                    safeZones: {},
+                    // NEW: Risk heat map
+                    riskHeatMap: {},
+                };
+
+                // NEW: Advanced risk management
+                this.riskManager = {
+                    maxDailyLoss: config.stopLoss * 0.7,
+                    currentSessionRisk: 0,
+                    riskPerTrade: 0.02,
+                    cooldownPeriod: 0,
+                    lastLossTime: null,
+                    consecutiveSameDigitLosses: {},
+                    // NEW: Dynamic risk scoring
+                    riskScores: {},
+                };
+
+                // Initialize per-asset structures
                 this.assets.forEach(asset => {
                     this.tickHistories[asset] = [];
                     this.digitCounts[asset] = Array(10).fill(0);
@@ -1319,7 +1378,18 @@ class EnhancedDigitDifferTradingBot {
                         mediumTerm: [], // Last 500 resets
                         longTerm: [],   // Last 1000 resets
                     };
+                    
+                    this.learningSystem.lossPatterns[asset] = [];
+                    this.learningSystem.volatilityScores[asset] = 0;
+                    this.learningSystem.adaptiveFilters[asset] = 8;
+                    this.learningSystem.historicalPatterns[asset] = [];
+                    this.learningSystem.safeZones[asset] = [];
+                    this.learningSystem.riskHeatMap[asset] = Array(100).fill(0);
+                    
+                    this.riskManager.consecutiveSameDigitLosses[asset] = {};
+                    this.riskManager.riskScores[asset] = 0.5; // Neutral risk
                 });
+                
                 this.connect();
             }
 
@@ -1608,7 +1678,7 @@ class EnhancedDigitDifferTradingBot {
         console.log('═══════════════════════════════════════════════════════════════');
         console.log('');
         console.log('✨ NEW FEATURES:');
-        console.log('   📊 Extended Historical Analysis (up to 5000 ticks)');
+        console.log('   📊 Extended Historical Analysis (up to 500 ticks)');
         console.log('   🎯 Advanced Pattern Recognition');
         console.log('   🔮 Reset Prediction Modeling');
         console.log('   🛡️  Enhanced Risk Assessment');
@@ -1655,7 +1725,7 @@ const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
     
     // History tracking
     requiredHistoryLength: 1000,
-    extendedHistoryLength: 5000, // NEW: Extended history up to 5000 ticks
+    extendedHistoryLength: 500, // NEW: Extended history up to 5000 ticks
     
     // Timing (for production, use longer wait times)
     minWaitTime: 2000,    // 2 seconds for testing
