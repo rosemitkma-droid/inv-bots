@@ -636,7 +636,7 @@ class EnhancedDigitDifferTradingBot {
                     // Reset detected, add the completed run length to extended history
                     const completed = prev[99] + 1; // Adjust based on reset timing
                     this.extendedStayedIn[asset].push(completed);
-                    if (this.extendedStayedIn[asset].length > 5000) {
+                    if (this.extendedStayedIn[asset].length > 500) {
                         this.extendedStayedIn[asset].shift();
                     }
                 }
@@ -1106,6 +1106,12 @@ class EnhancedDigitDifferTradingBot {
                     };
                     this.previousStayedIn[asset] = null;
                     this.extendedStayedIn[asset] = [];
+
+                    // Initialize learning system for each asset
+                    this.learningSystem.lossPatterns[asset] = [];
+                    this.learningSystem.volatilityScores[asset] = 0;
+                    this.learningSystem.adaptiveFilters[asset] = 8;
+                    this.riskManager.consecutiveSameDigitLosses[asset] = {};
                 });
                 this.connect();
             }
