@@ -899,7 +899,11 @@ class EnhancedDigitDifferTradingBot {
         ) + baseWaitTime;
         
         const waitTimeMinutes = Math.round(randomWaitTime / 60000);
-        this.waitTime = waitTimeMinutes;
+        if(!won) {
+            this.waitTime = waitTimeMinutes + 120000;
+        } else {
+            this.waitTime = waitTimeMinutes;
+        }
         this.waitSeconds = randomWaitTime;
 
         if(!this.endOfDay) {
