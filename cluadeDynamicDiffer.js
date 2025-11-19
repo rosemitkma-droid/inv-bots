@@ -237,8 +237,8 @@ class HybridSuperBot {
 
         console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
 
-        if (this.tickHistories[asset].length >= this.config.requiredHistoryLength && 
-            !this.tradeInProgress && 
+        if (this.tickHistories[asset].length >= this.config.requiredHistoryLength &&
+            !this.tradeInProgress &&
             !this.suspendedAssets.has(asset)) {
             this.analyzeTicks(asset);
         }
@@ -482,7 +482,7 @@ class HybridSuperBot {
     detectAscending(seq) {
         let ascending = 0;
         for (let i = 1; i < seq.length; i++) {
-            if (seq[i] > seq[i-1]) ascending++;
+            if (seq[i] > seq[i - 1]) ascending++;
         }
         return ascending / (seq.length - 1);
     }
@@ -490,7 +490,7 @@ class HybridSuperBot {
     detectDescending(seq) {
         let descending = 0;
         for (let i = 1; i < seq.length; i++) {
-            if (seq[i] < seq[i-1]) descending++;
+            if (seq[i] < seq[i - 1]) descending++;
         }
         return descending / (seq.length - 1);
     }
@@ -549,8 +549,8 @@ class HybridSuperBot {
         predictions.ensemble.votes = Array(10).fill(0);
         predictions.ensemble.votes[ensemblePred] = this.metaLayer.layerWeights.ensemble;
         const bestEnsemble = Object.entries(this.ensembleStrategies)
-            .reduce((best, [name, strat]) => strat.weight > best.weight ? { name, ...strat } : best, 
-                    { name: 'statistical', weight: 0 });
+            .reduce((best, [name, strat]) => strat.weight > best.weight ? { name, ...strat } : best,
+                { name: 'statistical', weight: 0 });
         predictions.ensemble.strategy = bestEnsemble.name;
 
         // LAYER 3: Quantum prediction
@@ -587,9 +587,9 @@ class HybridSuperBot {
                     digitCounts[digit] += score * (idx + 1) / recent.length;
                 });
             });
-            return { 
+            return {
                 digit: digitCounts.indexOf(Math.max(...digitCounts)),
-                strategy: `Superposition(${sortedPatterns.map(p => p[0].substring(0,3)).join('+')})`
+                strategy: `Superposition(${sortedPatterns.map(p => p[0].substring(0, 3)).join('+')})`
             };
         } else if (mode === 'collapsed') {
             recent.forEach(d => digitCounts[d]++);
@@ -611,7 +611,7 @@ class HybridSuperBot {
 
     calculateConsensus(predictions) {
         const totalVotes = Array(10).fill(0);
-        
+
         Object.values(predictions).forEach(layer => {
             layer.votes.forEach((vote, digit) => {
                 totalVotes[digit] += vote;
@@ -625,7 +625,7 @@ class HybridSuperBot {
         // Determine which layer contributed most
         let dominantLayer = 'rotation';
         let maxLayerVote = 0;
-        
+
         Object.entries(predictions).forEach(([layerName, layer]) => {
             if (layer.votes[winner] > maxLayerVote) {
                 maxLayerVote = layer.votes[winner];
@@ -649,7 +649,7 @@ class HybridSuperBot {
         const lastDigit = history[history.length - 1];
 
         console.log('\n🔬 ANALYZING ALL LAYERS...');
-        
+
         // Get predictions from all 3 layers
         const predictions = this.analyzeAllLayers(history);
 
@@ -679,7 +679,7 @@ class HybridSuperBot {
 
     placeTrade(asset, predictedDigit, result) {
         if (this.tradeInProgress) return;
-        
+
         this.tradeInProgress = true;
         console.log(`\n🚀 [${asset}] PLACING TRADE`);
         console.log(`   Digit: ${predictedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
@@ -716,7 +716,7 @@ class HybridSuperBot {
 
         const layer = this.metaLayer.lastUsedLayer;
         const perf = this.metaLayer.layerPerformance[layer];
-        
+
         perf.total++;
         if (won) {
             perf.wins++;
@@ -795,12 +795,12 @@ class HybridSuperBot {
         this.updateLayerWeights(won);
         this.Pause = true;
 
-        if(!this.endOfDay) {
+        if (!this.endOfDay) {
             this.logSummary();
         }
 
         // Check stop conditions
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || 
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses ||
             this.totalProfitLoss <= -this.config.stopLoss) {
             console.log('\n🛑 Stop loss reached - Shutting down');
             this.endOfDay = true;
@@ -822,12 +822,12 @@ class HybridSuperBot {
             this.sendLossEmail(asset);
         }
 
-        const waitTime = Math.floor(Math.random() * 
+        const waitTime = Math.floor(Math.random() *
             (this.config.maxWaitTime - this.config.minWaitTime + 1)) + this.config.minWaitTime;
 
         console.log(`⏳ Waiting ${Math.round(waitTime / 60000)} minutes before next trade...\n`);
 
-        if(!this.endOfDay) {
+        if (!this.endOfDay) {
             setTimeout(() => {
                 this.tradeInProgress = false;
                 this.Pause = false;
@@ -839,7 +839,7 @@ class HybridSuperBot {
     suspendAsset(asset) {
         this.suspendedAssets.add(asset);
         console.log(`🚫 Suspended asset: ${asset}`);
-        
+
         if (this.suspendedAssets.size > 2) {
             const first = Array.from(this.suspendedAssets)[0];
             this.suspendedAssets.delete(first);
@@ -888,7 +888,7 @@ class HybridSuperBot {
 
     logSummary() {
         const winRate = this.totalTrades > 0 ? (this.totalWins / this.totalTrades * 100).toFixed(2) : 0;
-        
+
         console.log('\n' + '='.repeat(60));
         console.log('📊 CLUADE DYNAMIC DIFFER HYBRID SUPER BOT - TRADING SUMMARY');
         console.log('='.repeat(60));
@@ -904,7 +904,7 @@ class HybridSuperBot {
 
     async sendEmailSummary() {
         const transporter = nodemailer.createTransport(this.emailConfig);
-        
+
         const layerStats = Object.entries(this.metaLayer.layerPerformance)
             .map(([name, perf]) => {
                 const winRate = perf.total > 0 ? (perf.wins / perf.total * 100).toFixed(1) : 0;
@@ -1098,7 +1098,7 @@ class HybridSuperBot {
         console.log('  • Layer 2 (Ensemble): 5 AI strategies');
         console.log('  • Layer 3 (Quantum): 10 pattern detectors');
         console.log('='.repeat(60) + '\n');
-        
+
         this.connect();
         this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
@@ -1113,10 +1113,10 @@ const bot = new HybridSuperBot('rgNedekYXvCaPeP', {
     stopLoss: 129,
     takeProfit: 5000,
     requiredHistoryLength: 1000,
-    minWaitTime: 120000, // 2 Minutes
-    maxWaitTime: 300000, // 5 Minutes
-    // minWaitTime: 300000, //5 Minutes
-    // maxWaitTime: 2600000, //1 Hour
+    // minWaitTime: 120000, // 2 Minutes
+    // maxWaitTime: 300000, // 5 Minutes
+    minWaitTime: 300000, //5 Minutes
+    maxWaitTime: 2600000, //1 Hour
 });
 
 bot.start();
