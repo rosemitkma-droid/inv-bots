@@ -1050,73 +1050,13 @@ class EnhancedDigitDifferTradingBot {
             // Check for Morning resume condition (7:00 AM GMT+1)
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
                 console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
-                this.LossDigitsList = [];
                 this.tradeInProgress = false;
                 this.usedAssets = new Set();
                 this.RestartTrading = true;
                 this.Pause = false;
                 this.endOfDay = false;
                 this.tradedDigitArray = [];
-                this.tradedDigitArray2 = [];
-                // Asset-specific data
-                this.digitCounts = {};
-                this.tickSubscriptionIds = {};
-                this.tickHistories = {};
-                this.lastDigits = {};
-                this.predictedDigits = {};
-                this.lastPredictions = {};
-                this.assetStates = {};
-                this.pendingProposals = new Map();
-                this.previousStayedIn = {};
-                this.extendedStayedIn = {}; // Extended historical run lengths (up to 5000)
-
-                // NEW: Advanced analytics and learning system
-                this.learningSystem = {
-                    lossPatterns: {},
-                    failedDigitCounts: {},
-                    volatilityScores: {},
-                    filterPerformance: {},
-                    resetPatterns: {},
-                    timeWindowPerformance: [],
-                    adaptiveFilters: {},
-                };
-
-                // NEW: Advanced risk management
-                this.riskManager = {
-                    maxDailyLoss: config.stopLoss * 0.7,
-                    currentSessionRisk: 0,
-                    riskPerTrade: 0.02,
-                    cooldownPeriod: 0,
-                    lastLossTime: null,
-                    consecutiveSameDigitLosses: {},
-                };
-
-                this.assets.forEach(asset => {
-                    this.tickHistories[asset] = [];
-                    this.digitCounts[asset] = Array(10).fill(0);
-                    this.lastDigits[asset] = null;
-                    this.predictedDigits[asset] = null;
-                    this.lastPredictions[asset] = [];
-                    this.assetStates[asset] = {
-                        stayedInArray: [],
-                        tradedDigitArray: [],
-                        filteredArray: [],
-                        totalArray: [],
-                        currentProposalId: null,
-                        tradeInProgress: false,
-                        consecutiveLosses: 0,
-                        lastTradeResult: null,
-                        digitFrequency: {},
-                    };
-                    this.previousStayedIn[asset] = null;
-                    this.extendedStayedIn[asset] = [];
-
-                    // Initialize learning system for each asset
-                    this.learningSystem.lossPatterns[asset] = [];
-                    this.learningSystem.volatilityScores[asset] = 0;
-                    this.learningSystem.adaptiveFilters[asset] = 8;
-                    this.riskManager.consecutiveSameDigitLosses[asset] = {};
-                });
+                
                 this.connect();
             }
 
@@ -1128,6 +1068,65 @@ class EnhancedDigitDifferTradingBot {
                     this.Pause = true;
                     this.disconnect();
                     this.endOfDay = true;
+                    // Asset-specific data
+                    this.digitCounts = {};
+                    this.tickSubscriptionIds = {};
+                    this.tickHistories = {};
+                    this.lastDigits = {};
+                    this.predictedDigits = {};
+                    this.lastPredictions = {};
+                    this.assetStates = {};
+                    this.pendingProposals = new Map();
+                    this.previousStayedIn = {};
+                    this.extendedStayedIn = {}; // Extended historical run lengths (up to 5000)
+
+                    // NEW: Advanced analytics and learning system
+                    this.learningSystem = {
+                        lossPatterns: {},
+                        failedDigitCounts: {},
+                        volatilityScores: {},
+                        filterPerformance: {},
+                        resetPatterns: {},
+                        timeWindowPerformance: [],
+                        adaptiveFilters: {},
+                    };
+
+                    // NEW: Advanced risk management
+                    this.riskManager = {
+                        maxDailyLoss: config.stopLoss * 0.7,
+                        currentSessionRisk: 0,
+                        riskPerTrade: 0.02,
+                        cooldownPeriod: 0,
+                        lastLossTime: null,
+                        consecutiveSameDigitLosses: {},
+                    };
+
+                    this.assets.forEach(asset => {
+                        this.tickHistories[asset] = [];
+                        this.digitCounts[asset] = Array(10).fill(0);
+                        this.lastDigits[asset] = null;
+                        this.predictedDigits[asset] = null;
+                        this.lastPredictions[asset] = [];
+                        this.assetStates[asset] = {
+                            stayedInArray: [],
+                            tradedDigitArray: [],
+                            filteredArray: [],
+                            totalArray: [],
+                            currentProposalId: null,
+                            tradeInProgress: false,
+                            consecutiveLosses: 0,
+                            lastTradeResult: null,
+                            digitFrequency: {},
+                        };
+                        this.previousStayedIn[asset] = null;
+                        this.extendedStayedIn[asset] = [];
+
+                        // Initialize learning system for each asset
+                        this.learningSystem.lossPatterns[asset] = [];
+                        this.learningSystem.volatilityScores[asset] = 0;
+                        this.learningSystem.adaptiveFilters[asset] = 8;
+                        this.riskManager.consecutiveSameDigitLosses[asset] = {};
+                    });
                 }
             }
         }, 20000); // Check every 20 seconds
