@@ -191,8 +191,8 @@ class HyperOpticTradingEngine {
 
         console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
 
-        if (this.tickHistories[asset].length >= this.config.requiredHistoryLength && 
-            !this.tradeInProgress && 
+        if (this.tickHistories[asset].length >= this.config.requiredHistoryLength &&
+            !this.tradeInProgress &&
             !this.suspendedAssets.has(asset) &&
             !this.tradingPaused) {
             this.analyzeTicks(asset);
@@ -280,7 +280,7 @@ class HyperOpticTradingEngine {
         const lastDigit = history[history.length - 1];
 
         console.log('\n🔬 ANALYZING TICKS WITH HYPEROPTIC PRECISION...');
-        
+
         // Calculate votes based on strategy weights
         const votes = Array(10).fill(0);
         const predictions = this.strategies.map(strategy => {
@@ -317,7 +317,7 @@ class HyperOpticTradingEngine {
 
     placeTrade(asset, predictedDigit, strategyName, confidence) {
         if (this.tradeInProgress) return;
-        
+
         this.tradeInProgress = true;
         console.log(`\n🚀 [${asset}] PLACING TRADE`);
         console.log(`   Digit: ${predictedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
@@ -406,7 +406,7 @@ class HyperOpticTradingEngine {
         }
 
         // Check stop conditions
-        if (this.consecutiveLosses > this.config.maxConsecutiveLosses || 
+        if (this.consecutiveLosses > this.config.maxConsecutiveLosses ||
             this.totalProfitLoss <= -this.config.stopLoss) {
             console.log('\n🛑 Stop loss reached or max consecutive losses exceeded - Shutting down');
             this.endOfDay = true;
@@ -429,7 +429,7 @@ class HyperOpticTradingEngine {
         }
 
         if (!this.tradingPaused && !this.endOfDay) {
-            const waitTime = Math.floor(Math.random() * 
+            const waitTime = Math.floor(Math.random() *
                 (this.config.maxWaitTime - this.config.minWaitTime + 1)) + this.config.minWaitTime;
             console.log(`⏳ Waiting ${Math.round(waitTime / 60000)} minutes before next trade...\n`);
             setTimeout(() => {
@@ -449,7 +449,7 @@ class HyperOpticTradingEngine {
     suspendAsset(asset) {
         this.suspendedAssets.add(asset);
         console.log(`🚫 Suspended asset: ${asset}`);
-        
+
         if (this.suspendedAssets.size > 2) {
             const first = Array.from(this.suspendedAssets)[0];
             this.suspendedAssets.delete(first);
@@ -500,7 +500,7 @@ class HyperOpticTradingEngine {
 
     logSummary() {
         const winRate = this.totalTrades > 0 ? (this.totalWins / this.totalTrades * 100).toFixed(2) : 0;
-        
+
         console.log('\n' + '='.repeat(60));
         console.log('📊 ElonMusk HYPEROPTIC TRADING ENGINE - SUMMARY');
         console.log('='.repeat(60));
@@ -516,7 +516,7 @@ class HyperOpticTradingEngine {
 
     async sendEmailSummary() {
         const transporter = nodemailer.createTransport(this.emailConfig);
-        
+
         const strategyStats = this.strategies
             .map(strategy => {
                 const winRate = strategy.total > 0 ? (strategy.wins / strategy.total * 100).toFixed(1) : 0;
@@ -565,25 +565,25 @@ class HyperOpticTradingEngine {
 
     async sendDisconnectResumptionEmailSummary() {
         const transporter = nodemailer.createTransport(this.emailConfig);
-        
+
         const strategyStats = this.strategies
             .map(strategy => {
                 const winRate = strategy.total > 0 ? (strategy.wins / strategy.total * 100).toFixed(1) : 0;
                 return `${strategy.name}: ${strategy.wins}/${strategy.total} (${winRate}%) - Weight: ${strategy.weight.toFixed(3)}`;
             })
             .join('\n');
-        
+
         const now = new Date();
 
         const currentHours = now.getHours();
         const currentMinutes = now.getMinutes();
-        
+
 
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
             subject: 'ElonMusk HyperOptic Trading Engine - Summary',
-            
+
             text: `
                 Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
 
@@ -695,7 +695,7 @@ class HyperOpticTradingEngine {
         console.log('  • Adaptive learning from wins and losses');
         console.log('  • Aggressive pause to dodge loss streaks');
         console.log('='.repeat(60) + '\n');
-        
+
         this.connect();
         this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
@@ -708,10 +708,12 @@ const bot = new HyperOpticTradingEngine('Dz2V2KvRf4Uukt3', {
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
     stopLoss: 86,
-    takeProfit: 500,
+    takeProfit: 5000,
     requiredHistoryLength: 1000,
-    minWaitTime: 120000, // 2 Minutes
-    maxWaitTime: 300000, // 5 Minutes
+    // minWaitTime: 120000, // 2 Minutes
+    // maxWaitTime: 300000, // 5 Minutes
+    minWaitTime: 300000, //5 Minutes
+    maxWaitTime: 2600000, //1 Hour
     confidenceThreshold: 1,
     lossPauseDuration: 600000 // 10 Minutes
 });
