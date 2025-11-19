@@ -1280,115 +1280,7 @@ class EnhancedDigitDifferTradingBot {
                 this.RestartTrading = true;
                 this.Pause = false;
                 this.endOfDay = false;
-                this.tradedDigitArray = [];
-                // Asset-specific data
-                this.digitCounts = {};
-                this.tickSubscriptionIds = {};
-                this.tickHistories = {};
-                this.lastDigits = {};
-                this.predictedDigits = {};
-                this.lastPredictions = {};
-                this.assetStates = {};
-                this.pendingProposals = new Map();
-
-                // NEW: Extended historical tracking for each asset
-                this.extendedStayedInArrays = {}; // Stores up to 5000 items
-                this.stayedInArrayHistory = {}; // Tracks the sequence of arrays
-                this.previousStayedIn = {}; // Tracks previous array for comparison
-                
-                // NEW: Advanced pattern recognition system
-                this.patternAnalyzer = {
-                    // Track sequences leading to resets
-                    resetSequences: {},
-                    // Statistical distribution analysis
-                    digitDistributions: {},
-                    // Trend detection
-                    trendIndicators: {},
-                    // Volatility clustering
-                    volatilityClusters: {},
-                    // Reset prediction models
-                    resetPredictors: {},
-                };
-
-                // NEW: Enhanced learning system with historical context
-                this.learningSystem = {
-                    lossPatterns: {},
-                    failedDigitCounts: {},
-                    volatilityScores: {},
-                    filterPerformance: {},
-                    resetPatterns: {},
-                    timeWindowPerformance: [],
-                    adaptiveFilters: {},
-                    // NEW: Historical pattern matching
-                    historicalPatterns: {},
-                    // NEW: Safe zone identification
-                    safeZones: {},
-                    // NEW: Risk heat map
-                    riskHeatMap: {},
-                };
-
-                // NEW: Advanced risk management
-                this.riskManager = {
-                    maxDailyLoss: config.stopLoss * 0.7,
-                    currentSessionRisk: 0,
-                    riskPerTrade: 0.02,
-                    cooldownPeriod: 0,
-                    lastLossTime: null,
-                    consecutiveSameDigitLosses: {},
-                    // NEW: Dynamic risk scoring
-                    riskScores: {},
-                };
-
-                // Initialize per-asset structures
-                this.assets.forEach(asset => {
-                    this.tickHistories[asset] = [];
-                    this.digitCounts[asset] = Array(10).fill(0);
-                    this.lastDigits[asset] = null;
-                    this.predictedDigits[asset] = null;
-                    this.lastPredictions[asset] = [];
-                    
-                    // NEW: Extended array initialization
-                    this.extendedStayedInArrays[asset] = [];
-                    this.stayedInArrayHistory[asset] = [];
-                    this.previousStayedIn[asset] = null;
-                    
-                    this.assetStates[asset] = {
-                        stayedInArray: [],
-                        tradedDigitArray: [],
-                        filteredArray: [],
-                        totalArray: [],
-                        currentProposalId: null,
-                        tradeInProgress: false,
-                        consecutiveLosses: 0,
-                        lastTradeResult: null,
-                        digitFrequency: {},
-                        // NEW: Historical context
-                        historicalDepth: 0,
-                        lastResetPosition: -1,
-                        resetFrequency: [],
-                    };
-                    
-                    // Initialize pattern recognition structures
-                    this.patternAnalyzer.resetSequences[asset] = [];
-                    this.patternAnalyzer.digitDistributions[asset] = Array(100).fill(null).map(() => ({}));
-                    this.patternAnalyzer.trendIndicators[asset] = [];
-                    this.patternAnalyzer.volatilityClusters[asset] = [];
-                    this.patternAnalyzer.resetPredictors[asset] = {
-                        shortTerm: [],  // Last 100 resets
-                        mediumTerm: [], // Last 500 resets
-                        longTerm: [],   // Last 1000 resets
-                    };
-                    
-                    this.learningSystem.lossPatterns[asset] = [];
-                    this.learningSystem.volatilityScores[asset] = 0;
-                    this.learningSystem.adaptiveFilters[asset] = 8;
-                    this.learningSystem.historicalPatterns[asset] = [];
-                    this.learningSystem.safeZones[asset] = [];
-                    this.learningSystem.riskHeatMap[asset] = Array(100).fill(0);
-                    
-                    this.riskManager.consecutiveSameDigitLosses[asset] = {};
-                    this.riskManager.riskScores[asset] = 0.5; // Neutral risk
-                });
+                this.tradedDigitArray = [];                
                 
                 this.connect();
             }
@@ -1400,6 +1292,114 @@ class EnhancedDigitDifferTradingBot {
                     this.Pause = true;
                     this.disconnect();
                     this.endOfDay = true;
+                    // Asset-specific data
+                    this.digitCounts = {};
+                    this.tickSubscriptionIds = {};
+                    this.tickHistories = {};
+                    this.lastDigits = {};
+                    this.predictedDigits = {};
+                    this.lastPredictions = {};
+                    this.assetStates = {};
+                    this.pendingProposals = new Map();
+
+                    // NEW: Extended historical tracking for each asset
+                    this.extendedStayedInArrays = {}; // Stores up to 5000 items
+                    this.stayedInArrayHistory = {}; // Tracks the sequence of arrays
+                    this.previousStayedIn = {}; // Tracks previous array for comparison
+                    
+                    // NEW: Advanced pattern recognition system
+                    this.patternAnalyzer = {
+                        // Track sequences leading to resets
+                        resetSequences: {},
+                        // Statistical distribution analysis
+                        digitDistributions: {},
+                        // Trend detection
+                        trendIndicators: {},
+                        // Volatility clustering
+                        volatilityClusters: {},
+                        // Reset prediction models
+                        resetPredictors: {},
+                    };
+
+                    // NEW: Enhanced learning system with historical context
+                    this.learningSystem = {
+                        lossPatterns: {},
+                        failedDigitCounts: {},
+                        volatilityScores: {},
+                        filterPerformance: {},
+                        resetPatterns: {},
+                        timeWindowPerformance: [],
+                        adaptiveFilters: {},
+                        // NEW: Historical pattern matching
+                        historicalPatterns: {},
+                        // NEW: Safe zone identification
+                        safeZones: {},
+                        // NEW: Risk heat map
+                        riskHeatMap: {},
+                    };
+
+                    // NEW: Advanced risk management
+                    this.riskManager = {
+                        maxDailyLoss: config.stopLoss * 0.7,
+                        currentSessionRisk: 0,
+                        riskPerTrade: 0.02,
+                        cooldownPeriod: 0,
+                        lastLossTime: null,
+                        consecutiveSameDigitLosses: {},
+                        // NEW: Dynamic risk scoring
+                        riskScores: {},
+                    };
+
+                    // Initialize per-asset structures
+                    this.assets.forEach(asset => {
+                        this.tickHistories[asset] = [];
+                        this.digitCounts[asset] = Array(10).fill(0);
+                        this.lastDigits[asset] = null;
+                        this.predictedDigits[asset] = null;
+                        this.lastPredictions[asset] = [];
+                        
+                        // NEW: Extended array initialization
+                        this.extendedStayedInArrays[asset] = [];
+                        this.stayedInArrayHistory[asset] = [];
+                        this.previousStayedIn[asset] = null;
+                        
+                        this.assetStates[asset] = {
+                            stayedInArray: [],
+                            tradedDigitArray: [],
+                            filteredArray: [],
+                            totalArray: [],
+                            currentProposalId: null,
+                            tradeInProgress: false,
+                            consecutiveLosses: 0,
+                            lastTradeResult: null,
+                            digitFrequency: {},
+                            // NEW: Historical context
+                            historicalDepth: 0,
+                            lastResetPosition: -1,
+                            resetFrequency: [],
+                        };
+                        
+                        // Initialize pattern recognition structures
+                        this.patternAnalyzer.resetSequences[asset] = [];
+                        this.patternAnalyzer.digitDistributions[asset] = Array(100).fill(null).map(() => ({}));
+                        this.patternAnalyzer.trendIndicators[asset] = [];
+                        this.patternAnalyzer.volatilityClusters[asset] = [];
+                        this.patternAnalyzer.resetPredictors[asset] = {
+                            shortTerm: [],  // Last 100 resets
+                            mediumTerm: [], // Last 500 resets
+                            longTerm: [],   // Last 1000 resets
+                        };
+                        
+                        this.learningSystem.lossPatterns[asset] = [];
+                        this.learningSystem.volatilityScores[asset] = 0;
+                        this.learningSystem.adaptiveFilters[asset] = 8;
+                        this.learningSystem.historicalPatterns[asset] = [];
+                        this.learningSystem.safeZones[asset] = [];
+                        this.learningSystem.riskHeatMap[asset] = Array(100).fill(0);
+                        
+                        this.riskManager.consecutiveSameDigitLosses[asset] = {};
+                        this.riskManager.riskScores[asset] = 0.5; // Neutral risk
+                    });
                 }
             }
         }, 20000);
