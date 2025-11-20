@@ -2,6 +2,15 @@ require('dotenv').config();
 const WebSocket = require('ws');
 const nodemailer = require('nodemailer');
 
+// Global Error Handlers to prevent crash
+process.on('uncaughtException', (err) => {
+    console.error('UNCAUGHT EXCEPTION:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('UNHANDLED REJECTION:', reason);
+});
+
 class EnhancedDigitDifferTradingBot {
     constructor(token, config = {}) {
         this.token = token;
@@ -152,8 +161,12 @@ class EnhancedDigitDifferTradingBot {
             });
 
             this.ws.on('message', (data) => {
-                const message = JSON.parse(data);
-                this.handleMessage(message);
+                try {
+                    const message = JSON.parse(data);
+                    this.handleMessage(message);
+                } catch (error) {
+                    console.error('Error handling WebSocket message:', error);
+                }
             });
 
             this.ws.on('error', (error) => {
@@ -651,6 +664,12 @@ class EnhancedDigitDifferTradingBot {
             assetState.currentProposalId = message.proposal.id;
             this.pendingProposals.set(message.proposal.id, asset);
 
+            // Prevent memory leak in pendingProposals
+            if (this.pendingProposals.size > 5000) {
+                const firstKey = this.pendingProposals.keys().next().value;
+                this.pendingProposals.delete(firstKey);
+            }
+
             // Calculate digit frequency (keep for compatibility, but primary analysis is now probabilistic)
             const digitFrequency = {};
             stayedInArray.forEach(digit => {
@@ -781,14 +800,6 @@ class EnhancedDigitDifferTradingBot {
         this.sendRequest(request);
         this.tradeInProgress = true;
         assetState.tradeInProgress = true;
-    }
-
-    subscribeToOpenContract(contractId) {
-        this.sendRequest({
-            proposal_open_contract: 1,
-            contract_id: contractId,
-            subscribe: 1
-        });
     }
 
     subscribeToOpenContract(contractId) {
