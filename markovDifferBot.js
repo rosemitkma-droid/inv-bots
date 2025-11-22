@@ -635,13 +635,13 @@ class MarkovDifferBot {
 const TOKEN = process.env.DERIV_TOKEN || 'DMylfkyce6VyZt7'; // Fallback to token found in geminiDiffer.js
 
 const bot = new MarkovDifferBot(TOKEN, {
-    initialStake: 2,
+    initialStake: 0.61,
     martingaleMultiplier: 11.3, // High multiplier needed for Differ (payout ~9-10%)
-    probabilityThreshold: 0.01, // Only trade if < 2% chance of hitting the digit
-    minStateSamples: 12, // Learn quickly
-    stopLoss: 200, // Stop if total loss exceeds this
-    takeProfit: 5000, // Stop if total profit exceeds this
     maxConsecutiveLosses: 3, // Suspend asset after X losses
+    stopLoss: 80, // Stop if total loss exceeds this
+    takeProfit: 5000, // Stop if total profit exceeds this
+    minStateSamples: 12, // Learn quickly
+    probabilityThreshold: 0.01, // Only trade if < 2% chance of hitting the digit
 });
 
 bot.start();
