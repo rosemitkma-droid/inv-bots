@@ -37,8 +37,11 @@ class EnhancedDigitDifferTradingBot {
             // Strategy Settings
             minStateSamples: config.minStateSamples || 15, // Min occurrences of a pattern to trust stats
             probabilityThreshold: config.probabilityThreshold || 0.01, // Trade if P(digit) < 3%
-            volatilityWindow: 20, // Ticks to calculate volatility
-            volatilityThreshold: 2.5, // Avoid trading if std dev is too high (erratic market)
+            volatilityWindow: config.volatilityWindow || 20, // Ticks to calculate volatility
+            volatilityThreshold: config.volatilityThreshold || 0.0021,
+            volatilityThreshold1: config.volatilityThreshold1 || 0.011,
+            volatilityThreshold2: config.volatilityThreshold2 || 0.06,
+            volatilityThreshold3: config.volatilityThreshold3 || 0.015,
         };
 
         this.currentStake = this.config.initialStake;
@@ -96,7 +99,8 @@ class EnhancedDigitDifferTradingBot {
                 consecutiveLosses: 0,
                 currentStake: this.config.initialStake,
                 tradeInProgress: false,
-                volatility: 0
+                volatility: 0,
+                priceHistory: []
             };
         });
 
@@ -249,6 +253,12 @@ class EnhancedDigitDifferTradingBot {
                 this.digitCounts[asset] = Array(10).fill(0);
                 this.predictedDigits[asset] = null;
                 this.lastPredictions[asset] = [];
+
+                // Reset Markov Data
+                this.assetsData[asset].markov = this.createMarkovMatrix();
+                this.assetsData[asset].stateCounts = new Array(100).fill(0);
+                this.assetsData[asset].priceHistory = []; // Store prices for volatility
+                this.assetsData[asset].volatility = 0;
             });
             this.tickSubscriptionIds = {};
             this.retryCount = 0;
@@ -309,6 +319,7 @@ class EnhancedDigitDifferTradingBot {
 
     handleTickHistory(asset, history) {
         this.tickHistories[asset] = history.prices.map(price => this.getLastDigit(price, asset));
+        this.assetsData[asset].priceHistory = history.prices.map(p => parseFloat(p));
 
         // Populate Markov Chain from history
         const digits = this.tickHistories[asset];
@@ -321,7 +332,17 @@ class EnhancedDigitDifferTradingBot {
             this.assetsData[asset].markov[stateIndex][target]++;
             this.assetsData[asset].stateCounts[stateIndex]++;
         }
-        console.log(`[${asset}] Initialized Markov Chain with ${digits.length} ticks.`);
+
+        // Calculate Initial Volatility (Normalized as % of Mean Price)
+        if (this.assetsData[asset].priceHistory.length >= this.config.volatilityWindow) {
+            const window = this.assetsData[asset].priceHistory.slice(-this.config.volatilityWindow);
+            const mean = window.reduce((a, b) => a + b, 0) / window.length;
+            const variance = window.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / window.length;
+            const stdDev = Math.sqrt(variance);
+            this.assetsData[asset].volatility = (stdDev / mean) * 100;
+        }
+
+        console.log(`[${asset}] Initialized Markov Chain with ${digits.length} ticks. Vol: ${this.assetsData[asset].volatility.toFixed(4)}%`);
     }
 
     handleTickUpdate(tick) {
@@ -331,35 +352,35 @@ class EnhancedDigitDifferTradingBot {
         this.lastDigits[asset] = lastDigit;
 
         this.tickHistories[asset].push(lastDigit);
+        this.assetsData[asset].priceHistory.push(parseFloat(tick.quote));
 
         if (this.tickHistories[asset].length > this.config.requiredHistoryLength) {
             this.tickHistories[asset].shift();
         }
+        if (this.assetsData[asset].priceHistory.length > this.config.requiredHistoryLength) {
+            this.assetsData[asset].priceHistory.shift();
+        }
 
-        // Calculate Volatility (Standard Deviation of last 20 prices)
-        if (this.tickHistories[asset].length >= this.config.volatilityWindow) {
-            const window = this.tickHistories[asset].slice(-this.config.volatilityWindow);
-            const mean = window.reduce((a, b) => a + parseFloat(b), 0) / window.length;
-            const variance = window.reduce((a, b) => a + Math.pow(parseFloat(b) - mean, 2), 0) / window.length;
-            this.tickHistories[asset].volatility = Math.sqrt(variance);
+        // Calculate Volatility (Normalized as % of Mean Price)
+        if (this.assetsData[asset].priceHistory.length >= this.config.volatilityWindow) {
+            const window = this.assetsData[asset].priceHistory.slice(-this.config.volatilityWindow);
+            const mean = window.reduce((a, b) => a + b, 0) / window.length;
+            const variance = window.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / window.length;
+            const stdDev = Math.sqrt(variance);
+            this.assetsData[asset].volatility = (stdDev / mean) * 100;
         }
 
         // Update Markov Chain
-        // We need at least 3 digits to form a State (2 digits) -> Transition (1 digit)
         const n = this.tickHistories[asset].length;
         if (n >= 3) {
             const d1 = this.tickHistories[asset][n - 3];
             const d2 = this.tickHistories[asset][n - 2];
-            const target = this.tickHistories[asset][n - 1]; // The digit that just arrived
+            const target = this.tickHistories[asset][n - 1];
 
-            const stateIndex = (d1 * 10) + d2; // e.g., 4, 8 -> 48
-
-            // Update counts
+            const stateIndex = (d1 * 10) + d2;
             this.assetsData[asset].markov[stateIndex][target]++;
             this.assetsData[asset].stateCounts[stateIndex]++;
         }
-
-        // console.log(`[${asset}] ${tick.quote} → Last 5: ${this.tickHistories[asset].slice(-5).join(', ')}`);
 
         if (this.tickHistories[asset].length < this.config.requiredHistoryLength) {
             console.log(`⏳ [${asset}] Buffering... (${this.tickHistories[asset].length}/${this.config.requiredHistoryLength})`);
@@ -421,14 +442,35 @@ class EnhancedDigitDifferTradingBot {
             }
         }
 
-        console.log(`[${asset}] ${d1}, ${d2} | Best Digit: ${bestDigit} | Lowest Prob: ${lowestProb}`);
+        console.log(`[${asset}] ${d1}, ${d2} | Best Digit: ${bestDigit} | Lowest Prob: ${lowestProb} | Volatility: ${this.assetsData[asset].volatility.toFixed(4)}`);
 
         // 5. Place Trade if Probability is Low Enough
-        if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1) {
-            console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
+        if (asset === 'R_25' || asset === 'R_10') {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold) {
+                console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
 
-            this.placeTrade(asset, bestDigit, lowestProb);
+                this.placeTrade(asset, bestDigit, lowestProb);
+            }
+        } else if (asset === 'R_50' || asset === 'R_75') {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold1) {
+                console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
+
+                this.placeTrade(asset, bestDigit, lowestProb);
+            }
+        } else if (asset === 'RDBULL' || asset === 'RDBEAR') {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold2) {
+                console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
+
+                this.placeTrade(asset, bestDigit, lowestProb);
+            }
+        } else if (asset === 'R_100') {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold3) {
+                console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
+
+                this.placeTrade(asset, bestDigit, lowestProb);
+            }
         }
+
     }
 
 
@@ -580,7 +622,7 @@ class EnhancedDigitDifferTradingBot {
         }
 
         // If there are suspended assets, reactivate the first one on win
-        if (this.suspendedAssets.size > 3) {
+        if (this.suspendedAssets.size > 1) {
             const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
             this.reactivateAsset(firstSuspendedAsset);
         }
@@ -865,6 +907,11 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     takeProfit: 5000,
     probabilityThreshold: 0.01, // Only trade if < 2% chance of hitting the digit
     minStateSamples: 10, // Learn quickly
+    volatilityWindow: 20, // Ticks to calculate volatility
+    volatilityThreshold: 0.0021, // Avoid trading if volatility > 0.0021% (erratic market) R_25, R_10: ~0.006% (Very Stable)
+    volatilityThreshold1: 0.011, // Avoid trading if volatility > 0.011% (erratic market) R_50, R_75: ~0.011% (Stable)
+    volatilityThreshold2: 0.06, // Avoid trading if volatility > 0.06% (erratic market) R_100, RDBULL, RDBEAR: ~0.06% (Stable)
+    volatilityThreshold3: 0.015, // Avoid trading if volatility > 0.015% (erratic market) R_100: ~0.015% (Stable)
     requiredHistoryLength: 2000,
     winProbabilityThreshold: 0.8,
     minWaitTime: 3000, //5 Minutes
