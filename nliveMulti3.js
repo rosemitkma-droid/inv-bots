@@ -413,25 +413,25 @@ class EnhancedDigitDifferTradingBot {
 
 
     // NEW: Pattern detection - avoid trading if similar pattern led to loss
-    detectDangerousPattern(asset, currentDigitCount, stayedInArray) {
-        const patternKey = `${asset}_${currentDigitCount}`;
-        const recentLosses = this.learningSystem.lossPatterns[asset] || [];
+    // detectDangerousPattern(asset, currentDigitCount, stayedInArray) {
+    //     const patternKey = `${asset}_${currentDigitCount}`;
+    //     const recentLosses = this.learningSystem.lossPatterns[asset] || [];
 
-        // Check if we've seen similar patterns fail recently
-        const similarLosses = recentLosses
-            .slice(-5)
-            .filter(loss => {
-                return loss.digitCount === currentDigitCount &&
-                    Math.abs(loss.arraySum - stayedInArray.reduce((a, b) => a + b, 0)) < 100;
-            });
+    //     // Check if we've seen similar patterns fail recently
+    //     const similarLosses = recentLosses
+    //         .slice(-5)
+    //         .filter(loss => {
+    //             return loss.digitCount === currentDigitCount &&
+    //                 Math.abs(loss.arraySum - stayedInArray.reduce((a, b) => a + b, 0)) < 100;
+    //         });
 
-        if (similarLosses.length >= 2) {
-            // console.log(`[${asset}] Dangerous pattern detected: ${similarLosses.length} similar losses recently`);
-            return true;
-        }
+    //     if (similarLosses.length >= 2) {
+    //         // console.log(`[${asset}] Dangerous pattern detected: ${similarLosses.length} similar losses recently`);
+    //         return true;
+    //     }
 
-        return false;
-    }
+    //     return false;
+    // }
 
     // NEW: Calculate recent win rate for an asset
     calculateAssetWinRate(asset) {
@@ -572,7 +572,7 @@ class EnhancedDigitDifferTradingBot {
     shouldTradeBasedOnSurvivalProb(asset, stayedInArray) {
         // Check market conditions first
         if (this.detectDangerousPattern(asset)) {
-            // console.log(`[${asset}] Skipping trade due to dangerous pattern`);
+            console.log(`[${asset}] Skipping trade due to dangerous pattern`);
             return false;
         }
         if (!this.isMarketConditionFavorable(asset)) {
@@ -631,16 +631,16 @@ class EnhancedDigitDifferTradingBot {
     }
 
     // MODIFIED: Integrate with new decision
-    // detectDangerousPattern(asset) {
-    //     // Existing logic, but enhanced with extended history
-    //     const history = this.extendedStayedIn[asset];
-    //     // Example: Check for frequent short runs recently
-    //     const recentShort = history.slice(-10).filter(l => l < 5).length;
-    //     if (recentShort > 5) {
-    //         return true;
-    //     }
-    //     return false;
-    // }
+    detectDangerousPattern(asset) {
+        // Existing logic, but enhanced with extended history
+        const history = this.extendedStayedIn[asset];
+        // Example: Check for frequent short runs recently
+        const recentShort = history.slice(-10).filter(l => l < 5).length;
+        if (recentShort > 5) {
+            return true;
+        }
+        return false;
+    }
 
     analyzeTicks(asset) {
         if (this.tradeInProgress) return;
