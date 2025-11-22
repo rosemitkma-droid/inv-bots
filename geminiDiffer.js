@@ -23,6 +23,8 @@ class EnhancedDigitDifferTradingBot {
         this.config = {
             initialStake: config.initialStake || 10.5,
             multiplier: config.multiplier || 11.3,
+            multiplier2: config.multiplier2 || 30,
+            multiplier3: config.multiplier3 || 100,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 5,
             stopLoss: config.stopLoss || 50,
             takeProfit: config.takeProfit || 1,
@@ -69,6 +71,8 @@ class EnhancedDigitDifferTradingBot {
         this.sys = 1;
         this.knum = 2;
         this.minOccurences = 200;
+        this.sysCount = 0;
+        this.stopLossStake = false;
 
 
         // Initialize per-asset storage
@@ -422,6 +426,18 @@ class EnhancedDigitDifferTradingBot {
             this.totalWins++;
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
+            //New Stake System
+            if (this.sys === 2) {
+                if (this.sysCount === 3) {
+                    this.sys = 1;
+                    this.sysCount = 0;
+                }
+            } else if (this.sys === 3) {
+                if (this.sysCount === 4) {
+                    this.sys = 1;
+                    this.sysCount = 0;
+                }
+            }
             this.currentStake = this.config.initialStake;
         } else {
             this.totalLosses++;
@@ -436,7 +452,7 @@ class EnhancedDigitDifferTradingBot {
             // Suspend the asset after a loss
             // this.suspendAsset(asset);            
 
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
         }
 
         this.totalProfitLoss += profit;
@@ -465,6 +481,45 @@ class EnhancedDigitDifferTradingBot {
 
         this.minOccurences = 200;
 
+        if (!won) {
+            //New Stake System
+            if (this.consecutiveLosses >= 2) {
+                if (this.sys === 1) {
+                    this.sys = 2;
+                } else if (this.sys === 2) {
+                    this.sys = 3;
+                }
+                this.sysCount = 0;
+            }
+
+            if (this.sys === 3 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier3) {
+                this.stopLossStake = true;
+            }
+
+            if (this.sys === 2 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier2) {
+                this.sys = 3;
+                this.sysCount = 0;
+            }
+
+
+            //New Stake System
+            if (this.sys === 1) {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+                // this.currentStake = this.config.multiplier;
+                this.sys = 1;
+            } else {
+                if (this.sys === 2 && this.consecutiveLosses === 1) {
+                    this.currentStake = this.config.multiplier2;
+                    this.sysCount++;
+                } else if (this.sys === 3 && this.consecutiveLosses === 1) {
+                    this.currentStake = this.config.multiplier3;
+                    this.sysCount++;
+                } else {
+                    this.currentStake = this.config.initialStake;
+                }
+            }
+        }
+
         // If there are suspended assets, reactivate the first one on win
         if (this.suspendedAssets.size > 3) {
             const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
@@ -474,7 +529,7 @@ class EnhancedDigitDifferTradingBot {
         // Suspend the asset after a trade
         this.suspendAsset(asset);
 
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss) {
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss || this.stopLossStake) {
             console.log('Stop condition reached. Stopping trading.');
             this.endOfDay = true;
             this.disconnect();
@@ -744,8 +799,10 @@ const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
     initialStake: 0.61,
     multiplier: 11.3,
-    maxConsecutiveLosses: 3,
-    stopLoss: 129,
+    multiplier2: 30,
+    multiplier3: 100,
+    maxConsecutiveLosses: 6,
+    stopLoss: 138,
     takeProfit: 5000,
     requiredHistoryLength: 5000,
     winProbabilityThreshold: 0.8,
