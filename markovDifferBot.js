@@ -327,7 +327,7 @@ class MarkovDifferBot {
         // 5. Place Trade if Probability is Low Enough
         if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1) {
             console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${data.volatility.toFixed(4)}`);
-
+            this.config.minStateSamples = totalSamples;
             this.placeTrade(asset, bestDigit, lowestProb);
         }
     }
