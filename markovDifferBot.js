@@ -636,7 +636,7 @@ const TOKEN = process.env.DERIV_TOKEN || 'DMylfkyce6VyZt7'; // Fallback to token
 
 const bot = new MarkovDifferBot(TOKEN, {
     initialStake: 2,
-    martingaleMultiplier: 3, // High multiplier needed for Differ (payout ~9-10%)
+    martingaleMultiplier: 11.3, // High multiplier needed for Differ (payout ~9-10%)
     probabilityThreshold: 0.01, // Only trade if < 2% chance of hitting the digit
     minStateSamples: 12, // Learn quickly
     stopLoss: 200, // Stop if total loss exceeds this
