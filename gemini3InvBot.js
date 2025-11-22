@@ -907,7 +907,7 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     multiplier3: 100,
     maxConsecutiveLosses: 6,
     stopLoss: 138,
-    takeProfit: 5,
+    takeProfit: 5000,
     probabilityThreshold: 0.01, // Only trade if < 2% chance of hitting the digit
     minStateSamples: 34, // Learn quickly
     volatilityWindow: 20, // Ticks to calculate volatility
