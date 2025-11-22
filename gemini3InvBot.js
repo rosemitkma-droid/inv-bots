@@ -618,7 +618,7 @@ class EnhancedDigitDifferTradingBot {
         }
 
         // If there are suspended assets, reactivate the first one on win
-        if (this.suspendedAssets.size > 2) {
+        if (this.suspendedAssets.size > 1) {
             const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
             this.reactivateAsset(firstSuspendedAsset);
         }
