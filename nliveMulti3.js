@@ -480,10 +480,10 @@ class EnhancedDigitDifferTradingBot {
 
         if (!won) {
             const key = `${asset}_${digitCount}`;
-            this.riskManager.consecutiveSameDigitLosses[key] = (this.riskManager.consecutiveSameDigitLosses[key] || 0) + 1;
+            // this.riskManager.consecutiveSameDigitLosses[key] = (this.riskManager.consecutiveSameDigitLosses[key] || 0) + 1;
         } else {
             const key = `${asset}_${digitCount}`;
-            this.riskManager.consecutiveSameDigitLosses[key] = 0;
+            // this.riskManager.consecutiveSameDigitLosses[key] = 0;
             // Relax threshold on wins
             // if (this.config.survivalThreshold > 0.98) {
             //     this.config.survivalThreshold -= 0.001;
