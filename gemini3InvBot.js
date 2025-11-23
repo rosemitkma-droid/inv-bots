@@ -548,7 +548,7 @@ class EnhancedDigitDifferTradingBot {
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
-            this.config.minStateSamples++;
+            // this.config.minStateSamples++;
 
             // Suspend the asset after a loss
             // this.suspendAsset(asset);            
@@ -579,6 +579,8 @@ class EnhancedDigitDifferTradingBot {
         if (!this.endOfDay) {
             this.logTradingSummary(asset);
         }
+
+        this.config.minStateSamples = 12;
 
         this.minOccurences = 200;
 
@@ -950,7 +952,7 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     multiplier3: 100,
     maxConsecutiveLosses: 3,
     stopLoss: 138,
-    takeProfit: 5000,
+    takeProfit: 500,
     probabilityThreshold: 0.01, // Only trade if < 2% chance of hitting the digit
     minStateSamples: 12, // Learn quickly
     volatilityWindow: 20, // Ticks to calculate volatility
