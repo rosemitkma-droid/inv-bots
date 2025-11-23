@@ -442,7 +442,7 @@ class EnhancedDigitDifferTradingBot {
 
         // 5. Place Trade if Probability is Low Enough
         if (asset === 'R_25' || asset === 'R_10') {
-            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold) {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold && totalSamples === this.config.minStateSamples) {
                 // if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold) {
                 console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
                 this.config.minStateSamples = totalSamples;
@@ -450,19 +450,19 @@ class EnhancedDigitDifferTradingBot {
             }
         }
         else if (asset === 'R_50' || asset === 'R_75') {
-            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold1) {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold1 && totalSamples === this.config.minStateSamples) {
                 console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
                 this.config.minStateSamples = totalSamples;
                 this.placeTrade(asset, bestDigit, lowestProb);
             }
         } else if (asset === 'RDBULL' || asset === 'RDBEAR') {
-            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold2) {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold2 && totalSamples === this.config.minStateSamples) {
                 console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
                 this.config.minStateSamples = totalSamples;
                 this.placeTrade(asset, bestDigit, lowestProb);
             }
         } else if (asset === 'R_100') {
-            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold3) {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold3 && totalSamples === this.config.minStateSamples) {
                 console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
                 this.config.minStateSamples = totalSamples;
                 this.placeTrade(asset, bestDigit, lowestProb);
