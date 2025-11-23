@@ -30,8 +30,11 @@ class MarkovDifferBot {
             learningPhase: config.learningPhase || 500, // Ticks to collect before trading
             minStateSamples: config.minStateSamples || 15, // Min occurrences of a pattern to trust stats
             probabilityThreshold: config.probabilityThreshold || 0.01, // Trade if P(digit) < 3%
-            volatilityWindow: 20, // Ticks to calculate volatility
-            volatilityThreshold: 2.5, // Avoid trading if std dev is too high (erratic market)
+            volatilityWindow: config.volatilityWindow || 20, // Ticks to calculate volatility
+            volatilityThreshold: config.volatilityThreshold || 0.021, // Avoid trading if std dev is too high (erratic market)
+            volatilityThreshold1: config.volatilityThreshold1 || 0.031, // Avoid trading if std dev is too high (erratic market)
+            volatilityThreshold2: config.volatilityThreshold2 || 0.09, // Avoid trading if std dev is too high (erratic market)
+            volatilityThreshold3: config.volatilityThreshold3 || 0.045, // Avoid trading if std dev is too high (erratic market)
         };
 
         // State
@@ -39,6 +42,8 @@ class MarkovDifferBot {
         this.connected = false;
         this.authorized = false;
         this.reconnectAttempts = 0;
+        this.currentStake = this.config.initialStake;
+        this.intentionalDisconnect = false;
 
         this.stats = {
             totalTrades: 0,
@@ -107,29 +112,67 @@ class MarkovDifferBot {
 ╚══════════════════════════════════════════════════════════════╝
         `);
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
+    }
+
+    restart() {
+        console.log('🔄 Restarting Bot (Fresh Start)...');
+        this.intentionalDisconnect = true; // Prevent auto-reconnect from on('close')
+        if (this.ws) {
+            this.ws.terminate(); // Force close
+        }
+        this.connected = false;
+        this.authorized = false;
+        this.tradeInProgress = false;
+
+        // Reset Asset Data (Clear History & Markov)
+        this.config.assets.forEach(asset => {
+            this.assetsData[asset] = {
+                history: [],
+                lastDigits: [],
+                markov: this.createMarkovMatrix(),
+                stateCounts: new Array(100).fill(0),
+                suspended: false,
+                consecutiveLosses: 0, // Reset consecutive losses on restart (since it's only called on win)
+                currentStake: this.config.initialStake,
+                tradeInProgress: false,
+                volatility: 0,
+                volatilityThreshold: 0
+            };
+        });
+
+        setTimeout(() => {
+            this.connect();
+        }, 2000);
     }
 
     connect() {
-        this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+        if (!this.endOfDay) {
+            this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
 
-        this.ws.on('open', () => {
-            console.log('✅ Connected to Deriv API');
-            this.authorize();
-        });
+            this.ws.on('open', () => {
+                console.log('✅ Connected to Deriv API');
+                this.intentionalDisconnect = false;
+                this.authorize();
+            });
 
-        this.ws.on('message', (data) => this.handleMessage(JSON.parse(data)));
+            this.ws.on('message', (data) => this.handleMessage(JSON.parse(data)));
 
-        this.ws.on('close', () => {
-            console.log('❌ Disconnected. Reconnecting in 5s...');
-            this.connected = false;
-            this.authorized = false;
-            setTimeout(() => this.connect(), 5000);
-        });
+            this.ws.on('close', () => {
+                if (this.intentionalDisconnect) {
+                    console.log('🔌 Intentional Disconnect. Skipping auto-reconnect.');
+                    return;
+                }
+                console.log('❌ Disconnected. Reconnecting in 5s...');
+                this.connected = false;
+                this.authorized = false;
+                setTimeout(() => this.connect(), 5000);
+            });
 
-        this.ws.on('error', (err) => {
-            console.error('⚠️ WebSocket Error:', err.message);
-        });
+            this.ws.on('error', (err) => {
+                console.error('⚠️ WebSocket Error:', err.message);
+            });
+        }
     }
 
     authorize() {
@@ -239,9 +282,10 @@ class MarkovDifferBot {
             const variance = window.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / window.length;
             const stdDev = Math.sqrt(variance);
             data.volatility = (stdDev / mean) * 100;
+            data.volatilityThreshold = data.volatility; // Set initial volatility as threshold
         }
 
-        console.log(`[${asset}] Initialized Markov Chain with ${digits.length} ticks. Vol: ${data.volatility.toFixed(4)}%`);
+        console.log(`[${asset}] Initialized Markov Chain with ${digits.length} ticks. Vol: ${data.volatility.toFixed(4)}% | Threshold: ${data.volatilityThreshold.toFixed(4)}%`);
     }
 
     processTick(asset, price, canTrade) {
@@ -252,10 +296,10 @@ class MarkovDifferBot {
         data.lastDigits.push(digit);
         data.history.push(parseFloat(price));
 
-        if (data.lastDigits.length > 2000) {
+        if (data.lastDigits.length > 500) {
             data.lastDigits.shift();
         }
-        if (data.history.length > 2000) {
+        if (data.history.length > 500) {
             data.history.shift();
         }
 
@@ -326,7 +370,13 @@ class MarkovDifferBot {
 
         // 5. Place Trade if Probability is Low Enough
         if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1) {
-            console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${data.volatility.toFixed(4)}`);
+            // Check Dynamic Volatility Threshold
+            if (data.volatility > data.volatilityThreshold) {
+                console.log(`⚠️ [${asset}] Volatility too high (${data.volatility.toFixed(4)}% > ${data.volatilityThreshold.toFixed(4)}%). Skipping.`);
+                return;
+            }
+
+            console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${data.volatility.toFixed(4)}%`);
             this.config.minStateSamples = totalSamples;
             this.placeTrade(asset, bestDigit, lowestProb);
         }
@@ -341,9 +391,9 @@ class MarkovDifferBot {
             data.tradeInProgress = true;
             const contract = {
                 buy: 1,
-                price: data.currentStake,
+                price: this.currentStake,
                 parameters: {
-                    amount: data.currentStake,
+                    amount: this.currentStake,
                     basis: 'stake',
                     contract_type: 'DIGITDIFF',
                     currency: this.config.currency,
@@ -396,14 +446,17 @@ class MarkovDifferBot {
         // Strategy Management
         if (won) {
             data.consecutiveLosses = 0;
-            data.currentStake = this.config.initialStake; // Reset stake
+            this.currentStake = this.config.initialStake; // Reset stake
 
             // Check Take Profit
             if (this.stats.profit >= this.config.takeProfit) {
                 console.log('🎉 TAKE PROFIT REACHED! Stopping bot.');
                 this.sendEmailSummary();
+                this.endOfDay = true;
                 this.stop();
             }
+
+            this.isWinTrade = true;
 
             this.isWinTrade = true;
 
@@ -419,11 +472,12 @@ class MarkovDifferBot {
             else if (data.consecutiveLosses === 5) this.stats.consecutiveLosses5++;
 
             // Martingale / Recovery
-            data.currentStake = data.currentStake * this.config.martingaleMultiplier;
+            // Martingale / Recovery
+            this.currentStake = this.currentStake * this.config.martingaleMultiplier;
             // Round to 2 decimals
-            data.currentStake = Math.round(data.currentStake * 100) / 100;
+            this.currentStake = Math.round(this.currentStake * 100) / 100;
 
-            console.log(`🔻 [${asset}] Loss #${data.consecutiveLosses}. Increasing stake to $${data.currentStake}`);
+            console.log(`🔻 [${asset}] Loss #${data.consecutiveLosses}. Increasing stake to $${this.currentStake}`);
 
             this.sendLossEmail(asset, data);
 
@@ -441,14 +495,17 @@ class MarkovDifferBot {
             }
 
             // Check Stop Loss
-            if (this.stats.profit <= -this.config.stopLoss) {
+            if (this.stats.profit <= -this.config.stopLoss || this.stats.consecutiveLosses3 >= 1) {
                 console.log('💀 STOP LOSS REACHED! Stopping bot.');
+                this.endOfDay = true;
                 this.stop();
             }
         }
 
         if (!this.endOfDay) {
             this.logTradingSummary(asset, data);
+            // Fresh Restart
+            this.restart();
         }
     }
 
@@ -494,7 +551,7 @@ class MarkovDifferBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Markov_Digit_Differ_Bot - Summary',
+            subject: 'Markov_Differ_Bot - Summary',
             text: summaryText
         };
 
@@ -533,7 +590,7 @@ class MarkovDifferBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Markov_Digit_Differ_Bot - Loss Alert',
+            subject: 'Markov_Differ_Bot - Loss Alert',
             text: summaryText
         };
 
@@ -569,7 +626,7 @@ class MarkovDifferBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Markov_Digit_Differ_Bot - Connection/Dissconnection Summary',
+            subject: 'Markov_Differ_Bot - Connection/Dissconnection Summary',
             text: summaryText
         };
 
@@ -586,7 +643,7 @@ class MarkovDifferBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Markov_Digit_Differ_Bot - Error Report',
+            subject: 'Markov_Differ_Bot - Error Report',
             text: `An error occurred: ${errorMessage}`
         };
 
@@ -607,18 +664,19 @@ class MarkovDifferBot {
             if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
                 console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
                 this.endOfDay = false;
-                this.connect();
+                this.restart();
+                // this.connect(); 
             }
 
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 17 && currentMinutes >= 0) {
+                if (currentHours >= 10 && currentMinutes >= 0) {
                     console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendDisconnectResumptionEmailSummary();
                     this.ws.close();
                     this.endOfDay = true;
                 }
             }
-        }, 20000);
+        }, 5000);
     }
 
 
@@ -642,6 +700,10 @@ const bot = new MarkovDifferBot(TOKEN, {
     takeProfit: 5000, // Stop if total profit exceeds this
     minStateSamples: 12, // Learn quickly
     probabilityThreshold: 0.01, // Only trade if < 2% chance of hitting the digit
+    volatilityThreshold: 0.021, // Avoid trading if volatility > 0.0021% (erratic market) R_25, R_10: ~0.006% (Very Stable)
+    volatilityThreshold1: 0.031, // Avoid trading if volatility > 0.011% (erratic market) R_50, R_75: ~0.011% (Stable)
+    volatilityThreshold2: 0.09, // Avoid trading if volatility > 0.06% (erratic market) R_100, RDBULL, RDBEAR: ~0.06% (Stable)
+    volatilityThreshold3: 0.045, // Avoid trading if volatility > 0.015% (erratic market) R_100: ~0.015% (Stable)
 });
 
 bot.start();
