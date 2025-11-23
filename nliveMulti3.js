@@ -1019,6 +1019,8 @@ class EnhancedDigitDifferTradingBot {
         console.log(`Total Trades Lost: ${this.totalLosses}`);
         console.log(`x2 Losses: ${this.consecutiveLosses2}`);
         console.log(`x3 Losses: ${this.consecutiveLosses3}`);
+        console.log(`x4 Losses: ${this.consecutiveLosses4}`);
+        console.log(`x5 Losses: ${this.consecutiveLosses5}`);
         console.log(`Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}`);
         console.log(`Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%`);
         console.log(`[${asset}] Predicted Asset: ${asset}`);
@@ -1064,6 +1066,8 @@ class EnhancedDigitDifferTradingBot {
         Consecutive Losses: ${this.consecutiveLosses}
         x2 Losses: ${this.consecutiveLosses2}
         x3 Losses: ${this.consecutiveLosses3}
+        x4 Losses: ${this.consecutiveLosses4}
+        x5 Losses: ${this.consecutiveLosses5}
 
         Financial:
         Current Stake: ${this.currentStake.toFixed(2)}
@@ -1176,6 +1180,8 @@ class EnhancedDigitDifferTradingBot {
         Consecutive Losses: ${this.consecutiveLosses}
         x2 Losses: ${this.consecutiveLosses2}
         x3 Losses: ${this.consecutiveLosses3}
+        x4 Losses: ${this.consecutiveLosses4}
+        x5 Losses: ${this.consecutiveLosses5}
 
         Financial:
         Current Stake: ${this.currentStake.toFixed(2)}
