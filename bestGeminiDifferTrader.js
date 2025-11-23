@@ -944,7 +944,7 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     multiplier3: 100,
     maxConsecutiveLosses: 3,
     stopLoss: 138,
-    takeProfit: 500,
+    takeProfit: 5000,
     hotWindow: 5, // Avoid digits appearing in last X ticks
     virtualWinsRequired: 2, // Wins needed to resume real trading
     dynamicVolatilityScaling: true, // Increase required wins if volatility is high
