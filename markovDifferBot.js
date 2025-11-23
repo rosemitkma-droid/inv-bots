@@ -377,8 +377,11 @@ class MarkovDifferBot {
             }
 
             console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${data.volatility.toFixed(4)}%`);
-            this.config.minStateSamples = totalSamples;
-            this.placeTrade(asset, bestDigit, lowestProb);
+            if (totalSamples === this.config.minStateSamples) {
+                this.config.minStateSamples = totalSamples;
+                this.predictedDigit = bestDigit;
+                this.placeTrade(asset, bestDigit, lowestProb);
+            }
         }
     }
 
@@ -516,7 +519,7 @@ class MarkovDifferBot {
         console.log(`x3 Losses: ${this.stats.consecutiveLosses3}`);
         console.log(`x4 Losses: ${this.stats.consecutiveLosses4}`);
         console.log(`x5 Losses: ${this.stats.consecutiveLosses5}`);
-        console.log(`Predicted Digit: ${data.predictedDigit}`);
+        console.log(`Predicted Digit: ${this.predictedDigit}`);
         console.log(`MinStateSamples: ${this.config.minStateSamples}`);
         console.log(`Total Profit/Loss Amount: ${this.stats.profit.toFixed(2)}`);
         console.log(`[${asset}] Current Stake: $${data.currentStake.toFixed(2)}`);
@@ -578,7 +581,7 @@ class MarkovDifferBot {
 
         Last Digit Analysis:
         Asset: ${asset}
-        Predicted Digit: ${data.predictedDigit}
+        Predicted Digit: ${this.predictedDigit}
         MinStateSamples: ${this.config.minStateSamples}
         Last 20 Digits: ${lastFewTicks.join(', ')} 
 
