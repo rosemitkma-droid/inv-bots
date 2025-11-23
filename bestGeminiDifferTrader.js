@@ -71,7 +71,6 @@ class EnhancedDigitDifferTradingBot {
         this.rStats = {};
         this.sys = 1;
         this.knum = 2;
-        this.minOccurences = 200;
         this.sysCount = 0;
         this.stopLossStake = false;
 
@@ -553,7 +552,6 @@ class EnhancedDigitDifferTradingBot {
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
-            // this.config.minStateSamples++;
 
             // Suspend the asset after a loss
             // this.suspendAsset(asset);            
@@ -584,10 +582,6 @@ class EnhancedDigitDifferTradingBot {
         if (!this.endOfDay) {
             this.logTradingSummary(asset);
         }
-
-        this.config.minStateSamples = 12;
-
-        this.minOccurences = 200;
 
         // if (!won) {
         //     //New Stake System
@@ -838,7 +832,6 @@ class EnhancedDigitDifferTradingBot {
         Last Digit Analysis:
         Asset: ${asset}
         predicted Digit: ${this.xDigit}
-        MinStateSamples: ${this.config.minStateSamples}
         
         Last 20 Digits: ${lastFewTicks.join(', ')} 
 
@@ -878,8 +871,6 @@ class EnhancedDigitDifferTradingBot {
         x3 Losses: ${this.consecutiveLosses3}
         x4 Losses: ${this.consecutiveLosses4}
         x5 Losses: ${this.consecutiveLosses5}
-
-        MinStateSamples: ${this.config.minStateSamples}
 
         Currently Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
 
