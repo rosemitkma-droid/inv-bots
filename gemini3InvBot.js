@@ -441,33 +441,33 @@ class EnhancedDigitDifferTradingBot {
         console.log(`[${asset}] ${d1}, ${d2} | Best Digit: ${bestDigit} | Lowest Prob: ${lowestProb} | Volatility: ${this.assetsData[asset].volatility.toFixed(4)}`);
 
         // 5. Place Trade if Probability is Low Enough
-        // if (asset === 'R_25' || asset === 'R_10') {
-        // if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold) {
-        if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold) {
-            console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
-
-            this.placeTrade(asset, bestDigit, lowestProb);
+        if (asset === 'R_25' || asset === 'R_10') {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold) {
+                // if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold) {
+                console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
+                this.config.minStateSamples = totalSamples;
+                this.placeTrade(asset, bestDigit, lowestProb);
+            }
         }
-        // } 
-        // else if (asset === 'R_50' || asset === 'R_75') {
-        //     if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold1) {
-        //         console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
-
-        //         this.placeTrade(asset, bestDigit, lowestProb);
-        //     }
-        // } else if (asset === 'RDBULL' || asset === 'RDBEAR') {
-        //     if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold2) {
-        //         console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
-
-        //         this.placeTrade(asset, bestDigit, lowestProb);
-        //     }
-        // } else if (asset === 'R_100') {
-        //     if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold3) {
-        //         console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
-
-        //         this.placeTrade(asset, bestDigit, lowestProb);
-        //     }
-        // }
+        else if (asset === 'R_50' || asset === 'R_75') {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold1) {
+                console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
+                this.config.minStateSamples = totalSamples;
+                this.placeTrade(asset, bestDigit, lowestProb);
+            }
+        } else if (asset === 'RDBULL' || asset === 'RDBEAR') {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold2) {
+                console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
+                this.config.minStateSamples = totalSamples;
+                this.placeTrade(asset, bestDigit, lowestProb);
+            }
+        } else if (asset === 'R_100') {
+            if (lowestProb <= this.config.probabilityThreshold && bestDigit !== -1 && this.assetsData[asset].volatility < this.config.volatilityThreshold3) {
+                console.log(`⚡ [${asset}] Pattern [${d1}, ${d2}] -> ? | Digit:(${bestDigit}) = ${(lowestProb * 100).toFixed(1)}% (${transitions[bestDigit]}/${totalSamples}) | Vol: ${this.assetsData[asset].volatility.toFixed(4)}`);
+                this.config.minStateSamples = totalSamples;
+                this.placeTrade(asset, bestDigit, lowestProb);
+            }
+        }
 
     }
 
@@ -622,7 +622,7 @@ class EnhancedDigitDifferTradingBot {
         // }
 
         // If there are suspended assets, reactivate the first one on win
-        if (this.suspendedAssets.size > 1) {
+        if (this.suspendedAssets.size > 0) {
             const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
             this.reactivateAsset(firstSuspendedAsset);
         }
@@ -644,6 +644,28 @@ class EnhancedDigitDifferTradingBot {
             this.disconnect();
             return;
         }
+
+        // Hard Reset: Clear History to force re-learning
+        this.history = [];
+        this.lastDigits = [];
+        this.volatility = 0;
+        this.volatilityThreshold = 0; // Will be set again by handleTickHistory or processTick
+        this.tickHistories[asset] = [];
+        this.lastDigits[asset] = null;
+        this.predictedDigits[asset] = null;
+        this.lastPredictions[asset] = [];
+        this.assetsData[asset] = {
+            history: [], // Full tick history
+            lastDigits: [], // Just the digits
+            markov: this.createMarkovMatrix(), // 100x10 matrix
+            stateCounts: new Array(100).fill(0), // Count of times each state occurred
+            suspended: false,
+            consecutiveLosses: 0,
+            // currentStake: this.config.initialStake,
+            tradeInProgress: false,
+            volatility: 0,
+            priceHistory: []
+        };
 
         // this.unsubscribeAllTicks();
         this.disconnect();
@@ -704,6 +726,27 @@ class EnhancedDigitDifferTradingBot {
                 this.RestartTrading = true;
                 this.Pause = false;
                 this.endOfDay = false;
+                // Hard Reset: Clear History to force re-learning
+                this.history = [];
+                this.lastDigits = [];
+                this.volatility = 0;
+                this.volatilityThreshold = 0; // Will be set again by handleTickHistory or processTick
+                this.tickHistories[asset] = [];
+                this.lastDigits[asset] = null;
+                this.predictedDigits[asset] = null;
+                this.lastPredictions[asset] = [];
+                this.assetsData[asset] = {
+                    history: [], // Full tick history
+                    lastDigits: [], // Just the digits
+                    markov: this.createMarkovMatrix(), // 100x10 matrix
+                    stateCounts: new Array(100).fill(0), // Count of times each state occurred
+                    suspended: false,
+                    consecutiveLosses: 0,
+                    currentStake: this.config.initialStake,
+                    tradeInProgress: false,
+                    volatility: 0,
+                    priceHistory: []
+                };
                 this.connect();
             }
 
@@ -894,31 +937,31 @@ class EnhancedDigitDifferTradingBot {
 
     start() {
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
 // Usage
 const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
-    initialStake: 2,
+    initialStake: 0.61,
     multiplier: 11.3,
     multiplier2: 30,
     multiplier3: 100,
     maxConsecutiveLosses: 3,
     stopLoss: 138,
-    takeProfit: 500,
+    takeProfit: 5000,
     probabilityThreshold: 0.01, // Only trade if < 2% chance of hitting the digit
-    minStateSamples: 34, // Learn quickly
+    minStateSamples: 12, // Learn quickly
     volatilityWindow: 20, // Ticks to calculate volatility
-    volatilityThreshold: 0.05, // Avoid trading if volatility > 0.0021% (erratic market) R_25, R_10: ~0.006% (Very Stable)
+    volatilityThreshold: 0.021, // Avoid trading if volatility > 0.0021% (erratic market) R_25, R_10: ~0.006% (Very Stable)
     volatilityThreshold1: 0.031, // Avoid trading if volatility > 0.011% (erratic market) R_50, R_75: ~0.011% (Stable)
     volatilityThreshold2: 0.09, // Avoid trading if volatility > 0.06% (erratic market) R_100, RDBULL, RDBEAR: ~0.06% (Stable)
     volatilityThreshold3: 0.045, // Avoid trading if volatility > 0.015% (erratic market) R_100: ~0.015% (Stable)
-    requiredHistoryLength: 2000,
+    requiredHistoryLength: 500,
     winProbabilityThreshold: 0.8,
-    minWaitTime: 3000, //5 Minutes
-    maxWaitTime: 2600, //1 Hour
+    minWaitTime: 2000, //5 Minutes
+    maxWaitTime: 5000, //1 Hour
 });
 
 bot.start();
