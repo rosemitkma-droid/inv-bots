@@ -460,7 +460,7 @@ class MarkovDifferBot {
         } else {
             data.consecutiveLosses++;
             this.isWinTrade = false;
-            this.config.minStateSamples++;
+            // this.config.minStateSamples++;
 
             // Update global consecutive loss counters
             if (data.consecutiveLosses === 2) this.stats.consecutiveLosses2++;
@@ -502,6 +502,7 @@ class MarkovDifferBot {
         if (!this.endOfDay) {
             this.logTradingSummary(asset, data);
             // Fresh Restart
+            this.config.minStateSamples = 12;
             this.restart();
         }
     }
