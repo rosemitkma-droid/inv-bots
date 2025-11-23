@@ -457,9 +457,6 @@ class MarkovDifferBot {
             }
 
             this.isWinTrade = true;
-
-            this.isWinTrade = true;
-
         } else {
             data.consecutiveLosses++;
             this.isWinTrade = false;
@@ -669,7 +666,7 @@ class MarkovDifferBot {
             }
 
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 10 && currentMinutes >= 0) {
+                if (currentHours >= 17 && currentMinutes >= 0) {
                     console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendDisconnectResumptionEmailSummary();
                     this.ws.close();
