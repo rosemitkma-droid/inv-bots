@@ -75,6 +75,7 @@ class EnhancedDigitDifferTradingBot {
         this.knum = 2;
         this.sysCount = 0;
         this.stopLossStake = false;
+        this.trendFilter = 0;
 
         // Ghost Protocol State
         this.ghostMode = config.virtualTrade; // true = Virtual Trading, false = Real Trading
@@ -391,20 +392,22 @@ class EnhancedDigitDifferTradingBot {
             return;
         }
 
-        this.probability = probability * 100;
-        console.log(`[${asset}] Probability: ${this.probability.toFixed(2)}%`);
+        this.probability = (probability * 100).toFixed(2);
+        console.log(`[${asset}] Probability: ${this.probability}% | Trend Filter: ${this.trendFilter}%`);
 
         // 4. Filter 3: Probability Filter
-        const isGoodTrade = this.probability < this.config.minProbability;
+        const isGoodTrade = this.probability <= this.config.minProbability;
 
         // 5. Ghost Protocol Check
-        if (isGoodTrade) {
+        if (isGoodTrade && this.probability < this.trendFilter) {
             if (this.ghostMode) {
                 this.placeVirtualTrade(asset, bestDigit, this.probability);
             } else {
                 this.placeRealTrade(asset, bestDigit, this.probability);
             }
         }
+
+        this.trendFilter = this.probability;
     }
 
 
@@ -414,7 +417,7 @@ class EnhancedDigitDifferTradingBot {
         this.tradeInProgress = true;
         this.xDigit = predictedDigit;
 
-        console.log(`🚀 [${asset}] Placing trade → Digit: ${predictedDigit} | Prob: ${lowestProb.toFixed(2)}% | Stake: $${this.currentStake}`);
+        console.log(`🚀 [${asset}] Placing trade → Digit: ${predictedDigit} | Prob: ${lowestProb}% | Stake: $${this.currentStake}`);
 
         const request = {
             buy: 1,
@@ -651,6 +654,8 @@ class EnhancedDigitDifferTradingBot {
             const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
             this.reactivateAsset(firstSuspendedAsset);
         }
+
+        this.trendFilter = 0;
 
         // Suspend the asset after a trade
         // this.suspendAsset(asset);
