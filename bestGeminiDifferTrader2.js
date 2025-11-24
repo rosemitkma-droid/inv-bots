@@ -1039,7 +1039,7 @@ class EnhancedDigitDifferTradingBot {
         ╚══════════════════════════════════════════════════════════════╝
         `);
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        // this.checkTimeForDisconnectReconnect();
     }
 }
 
@@ -1055,7 +1055,7 @@ const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
     takeProfit: 500,
     hotWindow: 5, // Avoid digits appearing in last X ticks
     virtualTrade: true, // Start Bot in Virtual Mode
-    virtualWinsRequired: 2, // Wins needed to resume real trading
+    virtualWinsRequired: 6, // Wins needed to resume real trading
     dynamicVolatilityScaling: true, // Increase required wins if volatility is high
     minProbability: 8, // Minimum probability to consider a trade
     requiredHistoryLength: 1000,
