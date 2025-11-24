@@ -30,11 +30,11 @@ class EnhancedDigitDifferTradingBot {
             reconnectInterval: config.reconnectInterval || 5000,
             minWaitTime: config.minWaitTime || 200 * 1000,
             maxWaitTime: config.maxWaitTime || 500 * 1000,
-            hotWindow: 5, // Avoid digits appearing in last X ticks
+            hotWindow: config.hotWindow || 5, // Avoid digits appearing in last X ticks
             // Ghost Protocol Settings
-            virtualWinsRequired: 2, // Wins needed to resume real trading
-            dynamicVolatilityScaling: true, // Increase required wins if volatility is high
-            minProbability: 9, // Minimum probability to consider a trade
+            virtualWinsRequired: config.virtualWinsRequired || 5, // Wins needed to resume real trading
+            dynamicVolatilityScaling: config.dynamicVolatilityScaling || true, // Increase required wins if volatility is high
+            minProbability: config.minProbability || 8.5, // Minimum probability to consider a trade
         };
 
         this.currentStake = this.config.initialStake;
@@ -393,13 +393,13 @@ class EnhancedDigitDifferTradingBot {
         console.log(`[${asset}] Probability: ${this.probability.toFixed(2)}%`);
 
         // 4. Filter 3: Probability Filter
-        const isGoodTrade = this.probability >= this.config.minProbability;
+        const isGoodTrade = this.probability < this.config.minProbability;
 
         // 5. Ghost Protocol Check
-        if (this.ghostMode) {
-            this.placeVirtualTrade(asset, bestDigit, probability);
-        } else {
-            if (isGoodTrade) {
+        if (isGoodTrade) {
+            if (this.ghostMode) {
+                this.placeVirtualTrade(asset, bestDigit, probability);
+            } else {
                 this.placeRealTrade(asset, bestDigit, probability);
             }
         }
@@ -482,7 +482,7 @@ class EnhancedDigitDifferTradingBot {
             console.log(`👻 [${asset}] Virtual WIN (${this.virtualWins}/${this.config.virtualWinsRequired})`);
 
             // Dynamic Threshold: If volatility is high (> 0.05%), require 3 wins
-            const requiredWins = this.assetsData[asset].volatility > 0.05 ? 3 : this.config.virtualWinsRequired;
+            const requiredWins = this.assetsData[asset].volatility > 0.05 ? this.config.virtualWinsRequired + 3 : this.config.virtualWinsRequired;
 
             if (this.virtualWins >= requiredWins) {
                 console.log('✨ Ghost Protocol Deactivated. Resuming REAL TRADING.');
@@ -524,7 +524,16 @@ class EnhancedDigitDifferTradingBot {
         if (won) {
             this.totalWins++;
             this.isWinTrade = true;
-            this.consecutiveLosses = 0;
+            if (this.consecutiveLosses === 1) {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+                this.consecutiveLosses = 0;
+            } else if (this.consecutiveLosses === 2) {
+                this.currentStake = Math.ceil((this.config.initialStake * this.config.multiplier) * this.config.multiplier * 100) / 100;
+                this.consecutiveLosses = 0;
+            } else {
+                this.currentStake = this.config.initialStake;
+                this.consecutiveLosses = 0;
+            }
             //New Stake System
             if (this.sys === 2) {
                 if (this.sysCount === 3) {
@@ -537,15 +546,22 @@ class EnhancedDigitDifferTradingBot {
                     this.sysCount = 0;
                 }
             }
-            this.currentStake = this.config.initialStake;
+            // this.currentStake = this.config.initialStake;
+            // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.isWinTrade = false;
 
-            // console.log(`🛡️ [${asset}] Real Loss Detected. Activating GHOST PROTOCOL.`);
-            // this.ghostMode = true;
-            // this.virtualWins = 0;
+            if (this.currentStake >= 6 && this.currentStake < 10) {
+                this.consecutiveLosses = 2;
+            } else if (this.currentStake > 10) {
+                this.consecutiveLosses = 3;
+            }
+
+            console.log(`🛡️ [${asset}] Real Loss Detected. Activating GHOST PROTOCOL.`);
+            this.ghostMode = true;
+            this.virtualWins = 0;
 
             if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
@@ -556,7 +572,8 @@ class EnhancedDigitDifferTradingBot {
             // Suspend the asset after a loss
             // this.suspendAsset(asset);            
 
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            this.currentStake = this.config.initialStake;
         }
 
         this.totalProfitLoss += profit;
@@ -629,7 +646,7 @@ class EnhancedDigitDifferTradingBot {
         }
 
         // Suspend the asset after a trade
-        this.suspendAsset(asset);
+        // this.suspendAsset(asset);
 
         if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss || this.stopLossStake) {
             console.log('Stop condition reached. Stopping trading.');
@@ -935,11 +952,11 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     multiplier3: 100,
     maxConsecutiveLosses: 3,
     stopLoss: 138,
-    takeProfit: 5000,
+    takeProfit: 500,
     hotWindow: 5, // Avoid digits appearing in last X ticks
-    virtualWinsRequired: 2, // Wins needed to resume real trading
+    virtualWinsRequired: 5, // Wins needed to resume real trading
     dynamicVolatilityScaling: true, // Increase required wins if volatility is high
-    minProbability: 9, // Minimum probability to consider a trade
+    minProbability: 8.5, // Minimum probability to consider a trade
     requiredHistoryLength: 1000,
     minWaitTime: 2000, //5 Minutes
     maxWaitTime: 5000, //1 Hour
