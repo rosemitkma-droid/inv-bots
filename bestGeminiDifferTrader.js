@@ -55,6 +55,7 @@ class EnhancedDigitDifferTradingBot {
         this.consecutiveLosses3 = 0;
         this.consecutiveLosses4 = 0;
         this.consecutiveLosses5 = 0;
+        this.kconsecutiveLosses = 0;
         this.totalProfitLoss = 0;
         this.tradeInProgress = false;
         this.predictionInProgress = false;
@@ -398,9 +399,9 @@ class EnhancedDigitDifferTradingBot {
         // 5. Ghost Protocol Check
         if (isGoodTrade) {
             if (this.ghostMode) {
-                this.placeVirtualTrade(asset, bestDigit, probability);
+                this.placeVirtualTrade(asset, bestDigit, this.probability);
             } else {
-                this.placeRealTrade(asset, bestDigit, probability);
+                this.placeRealTrade(asset, bestDigit, this.probability);
             }
         }
     }
@@ -412,7 +413,7 @@ class EnhancedDigitDifferTradingBot {
         this.tradeInProgress = true;
         this.xDigit = predictedDigit;
 
-        console.log(`🚀 [${asset}] Placing trade → Digit: ${predictedDigit} | Prob: ${lowestProb.toFixed(4)} | Stake: $${this.currentStake}`);
+        console.log(`🚀 [${asset}] Placing trade → Digit: ${predictedDigit} | Prob: ${lowestProb.toFixed(2)}% | Stake: $${this.currentStake}`);
 
         const request = {
             buy: 1,
@@ -488,7 +489,14 @@ class EnhancedDigitDifferTradingBot {
                 console.log('✨ Ghost Protocol Deactivated. Resuming REAL TRADING.');
                 this.ghostMode = false;
                 this.virtualWins = 0;
-                this.currentStake = this.config.initialStake; // Reset stake on resume
+                //Resumption Stake
+                if (this.kconsecutiveLosses === 1) {
+                    this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+                    // this.kconsecutiveLosses = 0;
+                } else if (this.kconsecutiveLosses === 2) {
+                    this.currentStake = Math.ceil((this.config.initialStake * this.config.multiplier) * this.config.multiplier * 100) / 100;
+                    // this.kconsecutiveLosses = 0;
+                }
             }
         } else {
             this.virtualWins = 0;
@@ -524,16 +532,11 @@ class EnhancedDigitDifferTradingBot {
         if (won) {
             this.totalWins++;
             this.isWinTrade = true;
-            if (this.consecutiveLosses === 1) {
-                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-                this.consecutiveLosses = 0;
-            } else if (this.consecutiveLosses === 2) {
-                this.currentStake = Math.ceil((this.config.initialStake * this.config.multiplier) * this.config.multiplier * 100) / 100;
-                this.consecutiveLosses = 0;
-            } else {
-                this.currentStake = this.config.initialStake;
-                this.consecutiveLosses = 0;
-            }
+
+            this.currentStake = this.config.initialStake;
+            this.consecutiveLosses = 0;
+            this.kconsecutiveLosses = 0;
+
             //New Stake System
             if (this.sys === 2) {
                 if (this.sysCount === 3) {
@@ -553,28 +556,27 @@ class EnhancedDigitDifferTradingBot {
             this.consecutiveLosses++;
             this.isWinTrade = false;
 
-            if (this.currentStake >= 6 && this.currentStake < 10) {
-                this.consecutiveLosses = 2;
-            } else if (this.currentStake > 10) {
-                this.consecutiveLosses = 3;
+            if (this.currentStake >= 0.35 && this.currentStake <= this.config.initialStake) {
+                this.kconsecutiveLosses = 1;
+            } else if (this.currentStake > this.config.initialStake && this.currentStake <= Math.ceil(this.config.initialStake * this.config.multiplier * 100) / 100) {
+                this.kconsecutiveLosses = 2;
+            } else if (this.currentStake > Math.ceil(this.config.initialStake * this.config.multiplier * 100) / 100) {
+                this.kconsecutiveLosses = 3;
             }
+
+            if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
+            else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
+            else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
+            else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
             console.log(`🛡️ [${asset}] Real Loss Detected. Activating GHOST PROTOCOL.`);
             this.ghostMode = true;
             this.virtualWins = 0;
 
-            // if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
-            // else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
-            // else 
-            if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
-            else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
-
-
             // Suspend the asset after a loss
             // this.suspendAsset(asset);            
 
             // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            this.currentStake = this.config.initialStake;
         }
 
         this.totalProfitLoss += profit;
@@ -587,18 +589,21 @@ class EnhancedDigitDifferTradingBot {
         this.waitTime = waitTimeMinutes;
         this.waitSeconds = randomWaitTime;
 
+
+        if (!this.endOfDay) {
+            this.logTradingSummary(asset);
+        }
+
         if (!won) {
             this.sendLossEmail(asset);
+
+            this.currentStake = this.config.initialStake;
 
             //Update Filter Number
             // this.knum++;
             // if (this.knum = 3) {
             //     this.knum = 1;
             // }   
-        }
-
-        if (!this.endOfDay) {
-            this.logTradingSummary(asset);
         }
 
         // if (!won) {
@@ -649,7 +654,7 @@ class EnhancedDigitDifferTradingBot {
         // Suspend the asset after a trade
         // this.suspendAsset(asset);
 
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss || this.stopLossStake) {
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss || this.kconsecutiveLosses >= 3) {
             console.log('Stop condition reached. Stopping trading.');
             this.endOfDay = true;
             this.disconnect();
@@ -850,6 +855,7 @@ class EnhancedDigitDifferTradingBot {
         Last Digit Analysis:
         Asset: ${asset}
         predicted Digit: ${this.xDigit}
+        Probability: ${this.probability}
         
         Last 20 Digits: ${lastFewTicks.join(', ')} 
 
@@ -951,13 +957,13 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     multiplier: 11.3,
     multiplier2: 30,
     multiplier3: 100,
-    maxConsecutiveLosses: 5,
+    maxConsecutiveLosses: 6,
     stopLoss: 138,
     takeProfit: 500,
     hotWindow: 5, // Avoid digits appearing in last X ticks
     virtualWinsRequired: 15, // Wins needed to resume real trading
     dynamicVolatilityScaling: true, // Increase required wins if volatility is high
-    minProbability: 8.5, // Minimum probability to consider a trade
+    minProbability: 8.3, // Minimum probability to consider a trade
     requiredHistoryLength: 1000,
     minWaitTime: 2000, //5 Minutes
     maxWaitTime: 5000, //1 Hour
