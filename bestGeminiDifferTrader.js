@@ -563,9 +563,10 @@ class EnhancedDigitDifferTradingBot {
             this.ghostMode = true;
             this.virtualWins = 0;
 
-            if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
-            else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
-            else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
+            // if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
+            // else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
+            // else 
+            if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
 
@@ -963,4 +964,3 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
 });
 
 bot.start();
-
