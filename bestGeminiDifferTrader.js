@@ -846,7 +846,7 @@ class EnhancedDigitDifferTradingBot {
         const lastFewTicks = this.assetsData[asset].lastDigits.slice(-20);
 
         const summaryText = `
-        Trade Summary:
+        Loss Trade Summary:
         Total Trades: ${this.totalTrades}
         Total Trades Won: ${this.totalWins}
         Total Trades Lost: ${this.totalLosses}
@@ -958,7 +958,7 @@ class EnhancedDigitDifferTradingBot {
 
 // Usage
 const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
-    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP, hsj0tA0XJoIzJG5, Dz2V2KvRf4Uukt3
     initialStake: 0.61,
     multiplier: 11.3,
     multiplier2: 30,
