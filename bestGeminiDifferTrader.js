@@ -950,7 +950,7 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     multiplier: 11.3,
     multiplier2: 30,
     multiplier3: 100,
-    maxConsecutiveLosses: 3,
+    maxConsecutiveLosses: 5,
     stopLoss: 138,
     takeProfit: 500,
     hotWindow: 5, // Avoid digits appearing in last X ticks
