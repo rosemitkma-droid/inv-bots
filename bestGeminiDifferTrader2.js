@@ -914,7 +914,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'BestGeminiDifferTrader - Summary',
+            subject: '2BestGeminiDifferTrader - Summary',
             text: summaryText
         };
 
@@ -932,7 +932,7 @@ class EnhancedDigitDifferTradingBot {
         const lastFewTicks = this.assetsData[asset].lastDigits.slice(-20);
 
         const summaryText = `
-        Trade Summary:
+        Loss Trade Summary:
         Total Trades: ${this.totalTrades}
         Total Trades Won: ${this.totalWins}
         Total Trades Lost: ${this.totalLosses}
@@ -960,7 +960,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'BestGeminiDifferTrader - Loss Alert',
+            subject: '2BestGeminiDifferTrader - Loss Alert',
             text: summaryText
         };
 
@@ -999,7 +999,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'BestGeminiDifferTrader - Connection/Dissconnection Summary',
+            subject: '2BestGeminiDifferTrader - Connection/Dissconnection Summary',
             text: summaryText
         };
 
@@ -1017,7 +1017,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'BestGeminiDifferTrader - Error Report',
+            subject: '2BestGeminiDifferTrader - Error Report',
             text: `An error occurred: ${errorMessage}`
         };
 
@@ -1045,7 +1045,7 @@ class EnhancedDigitDifferTradingBot {
 
 // Usage
 const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
-    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP, hsj0tA0XJoIzJG5, Dz2V2KvRf4Uukt3
     initialStake: 0.61,
     multiplier: 11.3,
     multiplier2: 30,
@@ -1057,7 +1057,7 @@ const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
     virtualTrade: true, // Start Bot in Virtual Mode
     virtualWinsRequired: 2, // Wins needed to resume real trading
     dynamicVolatilityScaling: true, // Increase required wins if volatility is high
-    minProbability: 8, // Minimum probability to consider a trade
+    minProbability: 8.3, // Minimum probability to consider a trade
     requiredHistoryLength: 1000,
     minWaitTime: 2000, //5 Minutes
     maxWaitTime: 5000, //1 Hour
