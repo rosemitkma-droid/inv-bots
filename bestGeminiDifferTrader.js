@@ -32,6 +32,7 @@ class EnhancedDigitDifferTradingBot {
             maxWaitTime: config.maxWaitTime || 500 * 1000,
             hotWindow: config.hotWindow || 5, // Avoid digits appearing in last X ticks
             // Ghost Protocol Settings
+            virtualTrade: config.virtualTrade || false, // true = Virtual Trading, false = Real Trading
             virtualWinsRequired: config.virtualWinsRequired || 5, // Wins needed to resume real trading
             dynamicVolatilityScaling: config.dynamicVolatilityScaling || true, // Increase required wins if volatility is high
             minProbability: config.minProbability || 8.5, // Minimum probability to consider a trade
@@ -76,7 +77,7 @@ class EnhancedDigitDifferTradingBot {
         this.stopLossStake = false;
 
         // Ghost Protocol State
-        this.ghostMode = false; // true = Virtual Trading, false = Real Trading
+        this.ghostMode = config.virtualTrade; // true = Virtual Trading, false = Real Trading
         this.virtualWins = 0;
         this.virtualLosses = 0;
 
@@ -961,9 +962,10 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     stopLoss: 138,
     takeProfit: 500,
     hotWindow: 5, // Avoid digits appearing in last X ticks
-    virtualWinsRequired: 15, // Wins needed to resume real trading
+    virtualTrade: true, // Start Bot in Virtual Mode
+    virtualWinsRequired: 2, // Wins needed to resume real trading
     dynamicVolatilityScaling: true, // Increase required wins if volatility is high
-    minProbability: 8.3, // Minimum probability to consider a trade
+    minProbability: 8, // Minimum probability to consider a trade
     requiredHistoryLength: 1000,
     minWaitTime: 2000, //5 Minutes
     maxWaitTime: 5000, //1 Hour
