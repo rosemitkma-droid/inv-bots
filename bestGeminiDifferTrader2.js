@@ -1057,7 +1057,7 @@ const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
     virtualTrade: true, // Start Bot in Virtual Mode
     virtualWinsRequired: 2, // Wins needed to resume real trading
     dynamicVolatilityScaling: true, // Increase required wins if volatility is high
-    minProbability: 8.3, // Minimum probability to consider a trade
+    minProbability: 8, // Minimum probability to consider a trade
     requiredHistoryLength: 1000,
     minWaitTime: 2000, //5 Minutes
     maxWaitTime: 5000, //1 Hour
