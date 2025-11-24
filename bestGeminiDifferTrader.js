@@ -922,7 +922,7 @@ class EnhancedDigitDifferTradingBot {
         ╚══════════════════════════════════════════════════════════════╝
         `);
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
