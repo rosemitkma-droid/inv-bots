@@ -12,8 +12,9 @@ class EnhancedDigitDifferTradingBot {
         this.wsReady = false;
 
         this.assets = config.assets || [
-            'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR',
             // '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V',
+            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR',
+            'R_100'
         ];
 
         this.config = {
@@ -650,10 +651,10 @@ class EnhancedDigitDifferTradingBot {
         // }
 
         // If there are suspended assets, reactivate the first one on win
-        if (this.suspendedAssets.size > 1) {
-            const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
-            this.reactivateAsset(firstSuspendedAsset);
-        }
+        // if (this.suspendedAssets.size > 1) {
+        //     const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
+        //     this.reactivateAsset(firstSuspendedAsset);
+        // }
 
         this.trendFilter = 0;
 
@@ -952,7 +953,7 @@ class EnhancedDigitDifferTradingBot {
         ╚══════════════════════════════════════════════════════════════╝
         `);
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
@@ -968,9 +969,9 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     takeProfit: 500,
     hotWindow: 5, // Avoid digits appearing in last X ticks
     virtualTrade: true, // Start Bot in Virtual Mode
-    virtualWinsRequired: 6, // Wins needed to resume real trading
+    virtualWinsRequired: 1, // Wins needed to resume real trading
     dynamicVolatilityScaling: true, // Increase required wins if volatility is high
-    minProbability: 8, // Minimum probability to consider a trade
+    minProbability: 7.9, // Minimum probability to consider a trade
     requiredHistoryLength: 1000,
     minWaitTime: 2000, //5 Minutes
     maxWaitTime: 5000, //1 Hour
