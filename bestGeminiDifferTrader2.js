@@ -906,7 +906,7 @@ class EnhancedDigitDifferTradingBot {
         if (!this.endOfDay) {
             setInterval(() => {
                 this.sendEmailSummary();
-            }, 21600000); // 6 Hours
+            }, 1800000); // 30 Munites
         }
     }
 
