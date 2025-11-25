@@ -688,6 +688,13 @@ class EnhancedDigitDifferTradingBot {
             // if (this.knum = 3) {
             //     this.knum = 1;
             // }   
+
+            //Suspend All Assets (Non-Loss)
+            this.suspendAllExcept(asset);
+        } else {
+            // If there are suspended assets, reactivate the first one on win
+            const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
+            this.reactivateAsset(firstSuspendedAsset);
         }
 
         // if (!won) {
@@ -728,12 +735,6 @@ class EnhancedDigitDifferTradingBot {
         //         }
         //     }
         // }
-
-        // If there are suspended assets, reactivate the first one on win
-        if (this.suspendedAssets.size > 1) {
-            const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
-            this.reactivateAsset(firstSuspendedAsset);
-        }
 
         this.trendFilter = 0;
         this.trendFilter2 = 0;
@@ -795,6 +796,24 @@ class EnhancedDigitDifferTradingBot {
     reactivateAsset(asset) {
         this.suspendedAssets.delete(asset);
         console.log(`✅ Reactivated asset: ${asset}`);
+    }
+
+    // Add new method to handle all other assets suspension
+    suspendAllExcept(asset) {
+        this.assets.forEach(a => {
+            if (a !== asset) {
+                this.suspendAsset(a);
+            }
+        });
+        this.suspendedAssets.delete(asset);
+        // console.log(`🚫 Suspended all except: ${asset}`);
+    }
+
+    // Add new method to reactivate all suspended assets
+    reactivateAllSuspended() {
+        Array.from(this.suspendedAssets).forEach(a => {
+            this.reactivateAsset(a);
+        });
     }
 
     unsubscribeAllTicks() {
@@ -1039,7 +1058,7 @@ class EnhancedDigitDifferTradingBot {
         ╚══════════════════════════════════════════════════════════════╝
         `);
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
@@ -1055,9 +1074,9 @@ const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
     takeProfit: 500,
     hotWindow: 5, // Avoid digits appearing in last X ticks
     virtualTrade: true, // Start Bot in Virtual Mode
-    virtualWinsRequired: 6, // Wins needed to resume real trading
+    virtualWinsRequired: 1, // Wins needed to resume real trading
     dynamicVolatilityScaling: true, // Increase required wins if volatility is high
-    minProbability: 8, // Minimum probability to consider a trade
+    minProbability: 7.9, // Minimum probability to consider a trade
     requiredHistoryLength: 1000,
     minWaitTime: 2000, //5 Minutes
     maxWaitTime: 5000, //1 Hour
