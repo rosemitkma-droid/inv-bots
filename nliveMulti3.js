@@ -412,27 +412,6 @@ class EnhancedDigitDifferTradingBot {
     }
 
 
-    // NEW: Pattern detection - avoid trading if similar pattern led to loss
-    // detectDangerousPattern(asset, currentDigitCount, stayedInArray) {
-    //     const patternKey = `${asset}_${currentDigitCount}`;
-    //     const recentLosses = this.learningSystem.lossPatterns[asset] || [];
-
-    //     // Check if we've seen similar patterns fail recently
-    //     const similarLosses = recentLosses
-    //         .slice(-5)
-    //         .filter(loss => {
-    //             return loss.digitCount === currentDigitCount &&
-    //                 Math.abs(loss.arraySum - stayedInArray.reduce((a, b) => a + b, 0)) < 100;
-    //         });
-
-    //     if (similarLosses.length >= 2) {
-    //         // console.log(`[${asset}] Dangerous pattern detected: ${similarLosses.length} similar losses recently`);
-    //         return true;
-    //     }
-
-    //     return false;
-    // }
-
     // NEW: Calculate recent win rate for an asset
     calculateAssetWinRate(asset) {
         const lossHistory = this.learningSystem.lossPatterns[asset] || [];
@@ -576,7 +555,7 @@ class EnhancedDigitDifferTradingBot {
             return false;
         }
         if (!this.isMarketConditionFavorable(asset)) {
-            // console.log(`[${asset}] Skipping trade due to market conditions`);
+            console.log(`[${asset}] Skipping trade due to market conditions`);
             return false;
         }
 
@@ -646,12 +625,6 @@ class EnhancedDigitDifferTradingBot {
         if (this.tradeInProgress) return;
         if (this.tickHistories[asset].length < this.config.requiredHistoryLength) return;
         if (this.suspendedAssets.has(asset)) return;
-
-        // NEW: Check market conditions before requesting proposal
-        if (!this.isMarketConditionFavorable(asset)) {
-            console.log(`[${asset}] Skipping trade due to market conditions`);
-            return;
-        }
 
         this.requestProposal(asset);
     }
