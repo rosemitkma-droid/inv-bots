@@ -1,10 +1,7 @@
 const WebSocket = require('ws');
 const fs = require('fs');
-const chalk = require('chalk');
-const figlet = require('figlet');
-const boxen = require('boxen');
-const cliProgress = require('cli-progress');
-const prompt = require('prompt-sync')();
+
+
 
 // ===================== CONFIGURATION =====================
 const CONFIG = {
@@ -20,16 +17,6 @@ const CONFIG = {
     survivalThreshold: 0.98, // 98% survival probability
     minWaitTime: 2000,
     maxWaitTime: 5000
-};
-
-// Colors for logging
-const colors = {
-    green: chalk.green,
-    red: chalk.red,
-    yellow: chalk.yellow,
-    cyan: chalk.cyan,
-    magenta: chalk.magenta,
-    white: chalk.white
 };
 
 class EnhancedAccumulatorBot {
