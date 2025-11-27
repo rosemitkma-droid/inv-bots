@@ -1,7 +1,6 @@
 const WebSocket = require('ws');
 const fs = require('fs');
-
-
+const nodemailer = require('nodemailer');
 
 // ===================== CONFIGURATION =====================
 const CONFIG = {
@@ -19,6 +18,7 @@ const CONFIG = {
     maxWaitTime: 5000
 };
 
+
 class EnhancedAccumulatorBot {
     constructor() {
         this.ws = null;
@@ -27,11 +27,28 @@ class EnhancedAccumulatorBot {
         this.totalWins = 0;
         this.totalLosses = 0;
         this.consecutiveLosses = 0;
+        this.consecutiveLosses2 = 0;
+        this.consecutiveLosses3 = 0;
+        this.consecutiveLosses4 = 0;
+        this.consecutiveLosses5 = 0;
         this.totalTrades = 0;
         this.tradeInProgress = false;
         this.currentTradeId = null;
         this.pnlHistory = [];
         this.survival = { probability: 0, confidence: 'low' };
+        this.endOfDay = false;
+        this.Pause = false;
+        this.isWinTrade = false;
+        this.currentK = 0;
+        this.emailRecipient = 'kenotaru@gmail.com';
+        this.emailConfig = {
+            service: 'gmail',
+            auth: {
+                user: 'kenzkdp2@gmail.com',
+                pass: 'jfjhtmussgfpbgpk'
+            }
+        };
+        this.startEmailTimer();
 
         // Asset data
         this.assetData = {};
@@ -56,7 +73,6 @@ class EnhancedAccumulatorBot {
     log(msg, type = 'info') {
         const timestamp = new Date().toLocaleTimeString();
         const icons = { success: '✓', error: '✗', warning: '⚠', trade: '↗', info: 'ℹ' };
-        // const colors = { success: 'green', error: 'red', warning: 'yellow', trade: 'cyan', info: 'white' };
 
         console.log(`${(`[${timestamp}]`)} ${icons[type]} ${msg}`);
     }
@@ -82,6 +98,7 @@ class EnhancedAccumulatorBot {
     }
 
     connect() {
+        if (this.endOfDay) return;
         this.printHeader();
         this.log('Connecting to Deriv WebSocket...', 'info');
 
@@ -252,7 +269,7 @@ class EnhancedAccumulatorBot {
             symbol: asset,
             growth_rate: CONFIG.growthRate,
             limit_order: {
-                take_profit: (this.currentStake / 4).toFixed(2)
+                take_profit: (this.currentStake / CONFIG.multiplier).toFixed(2)
             }
         }));
     }
@@ -286,7 +303,7 @@ class EnhancedAccumulatorBot {
         //Survival Check
         if (survival.probability >= this.riskManager.adaptiveThreshold && survival.confidence !== 'low') {
             this.printTradeDecision(asset, survival, currentK);
-            this.placeTrade(asset, msg.proposal.id, survival);
+            this.placeTrade(asset, msg.proposal.id, survival, currentK);
         }
     }
 
@@ -320,8 +337,9 @@ class EnhancedAccumulatorBot {
         console.log((`${(asset)}\n` + `KCount: ${currentK} → Survival: ${((survival.probability).toFixed(2) + '%')}\n` + `Confidence: ${survival.confidence.toUpperCase()}`));
     }
 
-    placeTrade(asset, proposalId, survival) {
+    placeTrade(asset, proposalId, survival, currentK) {
         this.tradeInProgress = true;
+        this.currentK = currentK;
         this.log(`PLACING TRADE on ${asset} | $${this.currentStake} | ${(survival.probability).toFixed(2)}%`, 'trade');
         this.ws.send(JSON.stringify({ buy: proposalId, price: this.currentStake.toFixed(2) }));
     }
@@ -349,18 +367,23 @@ class EnhancedAccumulatorBot {
         this.totalPnL += profit;
         this.pnlHistory.push(this.totalPnL);
         won ? this.totalWins++ : this.totalLosses++;
-        this.consecutiveLosses = won ? 0 : this.consecutiveLosses + 1;
 
         if (won) {
             this.log(`WON $${profit.toFixed(2)} on ${asset} | Total: $${this.totalPnL.toFixed(2)}`, 'success');
             this.currentStake = CONFIG.initialStake;
+            this.isWinTrade = true;
         } else {
             this.log(`LOST $${Math.abs(profit).toFixed(2)} on ${asset}`, 'error');
-            // if(this.consecutiveLosses === 1){
+            this.sendLossEmail(asset);
+            this.isWinTrade = false;
+            this.consecutiveLosses++;
+
+            if (this.consecutiveLosses === 1) this.consecutiveLosses2++;
+            if (this.consecutiveLosses === 2) this.consecutiveLosses3++;
+            if (this.consecutiveLosses === 3) this.consecutiveLosses4++;
+            if (this.consecutiveLosses === 4) this.consecutiveLosses5++;
+
             this.currentStake = this.currentStake * CONFIG.multiplier;
-            // }else{
-            //     this.currentStake = CONFIG.initialStake * 2.5;
-            // }
         }
 
         this.tradeInProgress = false;
@@ -370,10 +393,12 @@ class EnhancedAccumulatorBot {
         // Stop conditions
         if (this.totalPnL >= CONFIG.takeProfit) {
             this.log('TAKE PROFIT REACHED! Stopping bot.', 'success');
+            this.sendEmailSummary();
             process.exit(0);
         }
         if (this.totalPnL <= -CONFIG.stopLoss || this.consecutiveLosses >= CONFIG.maxConsecutiveLosses) {
             this.log('STOP LOSS or MAX LOSSES! Stopping.', 'error');
+            this.sendEmailSummary();
             process.exit(0);
         }
 
@@ -400,15 +425,204 @@ class EnhancedAccumulatorBot {
         });
         console.log((dist));
     }
+
+    startEmailTimer() {
+        if (!this.endOfDay) {
+            setInterval(() => {
+                this.sendEmailSummary();
+            }, 1800000); // 30 Minutes
+        }
+    }
+
+    async sendEmailSummary() {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+
+        const summaryText = `
+        ==================== Trading Summary ====================
+        Total Trades: ${this.totalTrades}
+        Total Wins: ${this.totalWins}
+        Total Losses: ${this.totalLosses}
+        Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%
+        
+        x2 Losses: ${this.consecutiveLosses2}
+        x3 Losses: ${this.consecutiveLosses3}
+        x4 Losses: ${this.consecutiveLosses4}
+        x5 Losses: ${this.consecutiveLosses5}
+
+        Financial:
+        Current Stake: ${this.currentStake.toFixed(2)}
+        Total P/L: ${this.totalPnL.toFixed(2)}
+        
+        Asset Volatility:
+        ${CONFIG.assets.map(a => `${a}: ${(this.assetData[a].volatility.short * 100 || 0).toFixed(1)}%`).join('\n        ')}
+        =========================================================
+        `;
+
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'nCluade Accumulator Bot - Performance Summary',
+            text: summaryText
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            this.log('Summary email sent.', 'info');
+        } catch (error) {
+            console.error('Error sending email:', error);
+        }
+    }
+
+    async sendLossEmail(asset) {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+        const history = this.assetData[asset].tickHistory;
+        const lastFewTicks = history.slice(-10);
+        const d = this.assetData[asset];
+
+        const summaryText = `
+        ==================== Loss Alert ====================
+        Trade Summary:
+        Total Trades: ${this.totalTrades}
+        Wins: ${this.totalWins} 
+        Losses: ${this.totalLosses}
+                
+        x2 Losses: ${this.consecutiveLosses2}
+        x3 Losses: ${this.consecutiveLosses3}
+        x4 Losses: ${this.consecutiveLosses4}
+        x5 Losses: ${this.consecutiveLosses5}
+
+        Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%
+
+        Loss Analysis for [${asset}]:
+        Asset Score: ${d.score}
+        KCount: ${this.currentK}
+        Asset Volatility: ${(d.volatility.short * 100 || 0).toFixed(1)}%
+        
+        Last 10 Digits: ${lastFewTicks.join(', ')}
+
+        Financial:
+        Total P/L: ${this.totalPnL.toFixed(2)}
+        Current Stake: ${this.currentStake.toFixed(2)}
+        
+        ====================================================
+        `;
+
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: `nCluade Accumulator Bot - Loss Alert [${asset}]`,
+            text: summaryText
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            this.log('Loss alert email sent.', 'info');
+        } catch (error) {
+            console.error('Error sending loss email:', error);
+        }
+    }
+
+    async sendDisconnectResumptionEmailSummary() {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+
+        const now = new Date();
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+
+        const summaryText = `
+        Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
+
+        ==================== Trading Summary ====================
+        Total Trades: ${this.totalTrades}
+        Total Wins: ${this.totalWins}
+        Total Losses: ${this.totalLosses}
+        Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%
+        
+        x2 Losses: ${this.consecutiveLosses2}
+        x3 Losses: ${this.consecutiveLosses3}
+        x4 Losses: ${this.consecutiveLosses4}
+        x5 Losses: ${this.consecutiveLosses5}
+
+        Financial:
+        Current Stake: ${this.currentStake.toFixed(2)}
+        Total P/L: ${this.totalPnL.toFixed(2)}
+        
+        Asset Volatility:
+        ${CONFIG.assets.map(a => `${a}: ${(this.assetData[a].volatility.short * 100 || 0).toFixed(1)}%`).join('\n        ')}
+        =========================================================
+        `;
+
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'nCluade Accumulator Bot - Performance Summary (Disconnect)',
+            text: summaryText
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            this.log('Disconnect summary email sent.', 'info');
+        } catch (error) {
+            console.error('Error sending email:', error);
+        }
+    }
+
+    async sendErrorEmail(errorMessage) {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'nCluade Accumulator Bot - Error Report',
+            text: `An error occurred: ${errorMessage}`
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            this.log('Error email sent.', 'error');
+        } catch (error) {
+            console.error('Error sending error email:', error);
+        }
+    }
+
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            // Always use GMT +1 time regardless of server location
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Check for Morning resume condition (7:00 AM GMT+1)
+            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
+                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
+                this.tradeInProgress = false;
+                this.Pause = false;
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            // Check for evening stop condition (after 5:00 PM GMT+1)
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.sendDisconnectResumptionEmailSummary();
+                    this.Pause = true;
+                    this.endOfDay = true;
+                    if (this.ws) this.ws.close();
+                }
+            }
+        }, 5000); // Check every 20 seconds
+    }
 }
 
 // ===================== START BOT =====================
 function start() {
     console.log(('Enhanced Deriv Accumulator Bot v2.0 (Node.js)\n'));
-    CONFIG.apiToken = 'Dz2V2KvRf4Uukt3'; // prompt('Enter your Deriv API Token: ', { echo: '*' });
+    CONFIG.apiToken = 'Dz2V2KvRf4Uukt3';
 
     const bot = new EnhancedAccumulatorBot();
     bot.connect();
+    bot.checkTimeForDisconnectReconnect();
 
     // Graceful shutdown
     process.on('SIGINT', () => {
