@@ -15,7 +15,7 @@ class EnhancedDigitDifferTradingBot {
             // 'RDBULL', 'RDBEAR', 
             // '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V',
             // 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
-            'R_10','R_25','R_50','R_75', 'R_100',
+            'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
             // 'R_75',
         ];
 
@@ -107,7 +107,7 @@ class EnhancedDigitDifferTradingBot {
             }
         };
         this.emailRecipient = 'kenotaru@gmail.com';
-        
+
         this.startEmailTimer();
 
         this.reconnectAttempts = 0;
@@ -170,7 +170,7 @@ class EnhancedDigitDifferTradingBot {
 
     handleApiError(error) {
         console.error('API Error:', error.message);
-        
+
         switch (error.code) {
             case 'InvalidToken':
                 console.error('Invalid token. Please check your API token and restart the bot.');
@@ -230,7 +230,7 @@ class EnhancedDigitDifferTradingBot {
             symbol: asset,
             growth_rate: this.config.growthRate,
             limit_order: {
-                take_profit: this.kLoss            
+                take_profit: this.kLoss
             }
         };
 
@@ -324,12 +324,12 @@ class EnhancedDigitDifferTradingBot {
         const lastDigit = this.getLastDigit(tick.quote, asset);
 
         this.lastDigits[asset] = lastDigit;
-  
+
         this.tickHistories[asset].push(lastDigit);
 
         if (this.tickHistories[asset].length > this.config.requiredHistoryLength) {
             this.tickHistories[asset].shift();
-        } 
+        }
 
         this.digitCounts[asset][lastDigit]++;
 
@@ -337,7 +337,7 @@ class EnhancedDigitDifferTradingBot {
 
         if (this.tickHistories[asset].length < this.config.requiredHistoryLength) {
             // console.log(`[${asset}] Waiting for more ticks. Current length: ${this.tickHistories[asset].length}`);
-            return; 
+            return;
         }
 
         if (!this.tradeInProgress) {
@@ -373,12 +373,12 @@ class EnhancedDigitDifferTradingBot {
         if (response.proposal) {
             const stayedInArray = response.proposal.contract_details.ticks_stayed_in;
             assetState.stayedInArray = stayedInArray;
-            
+
             const currentDigitCount = assetState.stayedInArray[99] + 1;
             assetState.currentProposalId = response.proposal.id;
             // console.log(`filter Number: ${this.filterNum}`);
             // console.log(`Current StayedIn Digit Count: ${assetState.stayedInArray[99]} (${currentDigitCount})`);
-            
+
             // Store proposal ID to asset mapping
             this.pendingProposals.set(response.proposal.id, asset);
 
@@ -388,14 +388,14 @@ class EnhancedDigitDifferTradingBot {
             });
 
             const appearedOnceArray = Object.keys(digitFrequency)
-                .filter(digit => digitFrequency[digit] === this.filterNum) 
+                .filter(digit => digitFrequency[digit] === this.filterNum)
                 .map(Number);
 
 
             // console.log('Digits that appeared once:', appearedOnceArray); 
-            
+
             if (!assetState.tradeInProgress) {
-                
+
                 if (appearedOnceArray.includes(currentDigitCount) && assetState.stayedInArray[99] >= 0) {
                     assetState.tradedDigitArray.push(currentDigitCount);
                     assetState.filteredArray = appearedOnceArray;
@@ -408,7 +408,7 @@ class EnhancedDigitDifferTradingBot {
             }
         }
     }
-    
+
     analyzeTicks(asset) {
         if (this.tradeInProgress) {
             return;
@@ -416,7 +416,7 @@ class EnhancedDigitDifferTradingBot {
 
         if (this.tickHistories[asset].length < this.config.requiredHistoryLength) {
             // console.log(`[${asset}] Waiting for more ticks. Current length: ${this.tickHistories[asset].length}`);
-            return; 
+            return;
         }
 
         // Don't analyze suspended assets
@@ -428,12 +428,12 @@ class EnhancedDigitDifferTradingBot {
         this.requestProposal(asset);
     }
 
-    
+
     placeTrade(asset) {
         if (this.tradeInProgress) {
             return;
         }
-       
+
         const assetState = this.assetStates[asset];
         if (!assetState || !assetState.currentProposalId) {
             console.log(`Cannot place trade. Missing proposal for asset ${asset}.`);
@@ -473,7 +473,7 @@ class EnhancedDigitDifferTradingBot {
         if (this.assetStates[asset]) {
             this.assetStates[asset].tradeInProgress = false;
         }
-        
+
         console.log(`[${asset}] Trade outcome: ${won ? '✅ WON' : '❌ LOST'}`);
 
         this.totalTrades++;
@@ -482,17 +482,17 @@ class EnhancedDigitDifferTradingBot {
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
             //New Stake System
-            if(this.sys === 2) {
-                if(this.sysCount === 5) {
+            if (this.sys === 2) {
+                if (this.sysCount === 5) {
                     this.sys = 1;
                     this.sysCount = 0;
                 }
             } else if (this.sys === 3) {
-                if(this.sysCount === 2) {
+                if (this.sysCount === 2) {
                     this.sys = 1;
                     this.sysCount = 0;
                 }
-            } 
+            }
             this.currentStake = this.config.initialStake;
             this.filterNum = 9;
         } else {
@@ -505,10 +505,12 @@ class EnhancedDigitDifferTradingBot {
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
-            
-        }  
 
-        this.totalProfitLoss += profit;	
+            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+
+        }
+
+        this.totalProfitLoss += profit;
         this.Pause = true;
 
         if (!won) {
@@ -517,40 +519,40 @@ class EnhancedDigitDifferTradingBot {
             this.suspendAllExcept(asset);
 
             //New Stake System
-            if(this.consecutiveLosses >= 2) {
-                if(this.sys === 1) {
+            if (this.consecutiveLosses >= 2) {
+                if (this.sys === 1) {
                     this.sys = 2;
                 } else if (this.sys === 2) {
                     this.sys = 3;
                 }
                 this.sysCount = 0;
             }
-            
-            if(this.sys === 2 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier2) {
+
+            if (this.sys === 2 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier2) {
                 this.sys = 3;
                 this.sysCount = 0;
             }
 
-            if(this.sys === 3 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier3) {
-                this.stopLossStake = true;
-            }
-            
+            // if (this.sys === 3 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier3) {
+            //     this.stopLossStake = true;
+            // }
+
             //New Stake System
-            if(this.sys === 1) {
-                // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-                this.currentStake = this.config.multiplier;
-                this.sys = 1;
-            } else {
-                if (this.sys === 2 && this.consecutiveLosses === 1) {
-                    this.currentStake = this.config.multiplier2;
-                    this.sysCount++;
-                } else if (this.sys === 3 && this.consecutiveLosses === 1) {
-                    this.currentStake = this.config.multiplier3; 
-                    this.sysCount++;
-                } else {
-                    this.currentStake = this.config.initialStake;
-                }
-            } 
+            // if (this.sys === 1) {
+            //     // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            //     this.currentStake = this.config.multiplier;
+            //     this.sys = 1;
+            // } else {
+            //     if (this.sys === 2 && this.consecutiveLosses === 1) {
+            //         this.currentStake = this.config.multiplier2;
+            //         this.sysCount++;
+            //     } else if (this.sys === 3 && this.consecutiveLosses === 1) {
+            //         this.currentStake = this.config.multiplier3;
+            //         this.sysCount++;
+            //     } else {
+            //         this.currentStake = this.config.initialStake;
+            //     }
+            // }
         } else {
             //Reactivate All Assets (Non-Loss)
             if (this.suspendedAssets.size > 0) {
@@ -565,10 +567,10 @@ class EnhancedDigitDifferTradingBot {
         this.waitTime = waitTimeMinutes;
         this.waitSeconds = randomWaitTime;
 
-        if(!this.endOfDay) {
+        if (!this.endOfDay) {
             this.logTradingSummary(asset);
         }
-        
+
         if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss || this.stopLossStake) {
             console.log('Stop condition reached. Stopping trading.');
             this.endOfDay = true;
@@ -587,7 +589,7 @@ class EnhancedDigitDifferTradingBot {
         // this.unsubscribeAllTicks();
         this.disconnect();
 
-        if (!this.endOfDay) {               
+        if (!this.endOfDay) {
             setTimeout(() => {
                 this.tradeInProgress = false;
                 this.Pause = false;
@@ -678,7 +680,7 @@ class EnhancedDigitDifferTradingBot {
             }
         }, 20000); // Check every 20 seconds
     }
-    
+
 
     disconnect() {
         if (this.connected) {
@@ -698,11 +700,11 @@ class EnhancedDigitDifferTradingBot {
         console.log(`Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}`);
         console.log(`Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%`);
         console.log(`[${asset}] Predicted Asset: ${asset}`);
-        console.log(`Current Stake: $${this.currentStake.toFixed(2)}`); 
+        console.log(`Current Stake: $${this.currentStake.toFixed(2)}`);
         console.log(`Currently Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}`);
         console.log(`Waiting for: ${this.waitTime} minutes (${this.waitSeconds} ms) before resubscribing...`);
     }
-    
+
     startEmailTimer() {
         if (!this.endOfDay) {
             setInterval(() => {
@@ -774,7 +776,7 @@ class EnhancedDigitDifferTradingBot {
         Current Stake: $${this.currentStake.toFixed(2)}
 
         Waiting for: ${this.waitTime} minutes before next trade...
-        `;      
+        `;
 
         const mailOptions = {
             from: this.emailConfig.auth.user,
@@ -855,12 +857,12 @@ class EnhancedDigitDifferTradingBot {
 
 // Usage
 const bot = new EnhancedDigitDifferTradingBot('hsj0tA0XJoIzJG5', {
-    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5', 'rgNedekYXvCaPeP'
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP, hsj0tA0XJoIzJG5, Dz2V2KvRf4Uukt3
     initialStake: 1,
     multiplier: 21,
     multiplier2: 100,
     multiplier3: 1000,
-    maxConsecutiveLosses: 6, 
+    maxConsecutiveLosses: 6,
     stopLoss: 100,
     takeProfit: 1500,
     growthRate: 0.05,
