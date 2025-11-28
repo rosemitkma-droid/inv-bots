@@ -778,6 +778,8 @@ class EnhancedDigitDifferTradingBot {
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
+
+            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
         }
 
         this.totalProfitLoss += profit;
@@ -809,26 +811,26 @@ class EnhancedDigitDifferTradingBot {
                 this.sysCount = 0;
             }
 
-            if (this.sys === 3 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier3) {
-                this.stopLossStake = true;
-            }
+            // if (this.sys === 3 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier3) {
+            //     this.stopLossStake = true;
+            // }
 
             //New Stake System
-            if (this.sys === 1) {
-                // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-                this.currentStake = this.config.multiplier;
-                this.sys = 1;
-            } else {
-                if (this.sys === 2 && this.consecutiveLosses === 1) {
-                    this.currentStake = this.config.multiplier2;
-                    this.sysCount++;
-                } else if (this.sys === 3 && this.consecutiveLosses === 1) {
-                    this.currentStake = this.config.multiplier3;
-                    this.sysCount++;
-                } else {
-                    this.currentStake = this.config.initialStake;
-                }
-            }
+            // if (this.sys === 1) {
+            //     // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            //     this.currentStake = this.config.multiplier;
+            //     this.sys = 1;
+            // } else {
+            //     if (this.sys === 2 && this.consecutiveLosses === 1) {
+            //         this.currentStake = this.config.multiplier2;
+            //         this.sysCount++;
+            //     } else if (this.sys === 3 && this.consecutiveLosses === 1) {
+            //         this.currentStake = this.config.multiplier3;
+            //         this.sysCount++;
+            //     } else {
+            //         this.currentStake = this.config.initialStake;
+            //     }
+            // }
         } else {
             if (this.suspendedAssets.size > 1) {
                 const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
