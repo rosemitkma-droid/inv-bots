@@ -99,7 +99,7 @@ class EnhancedAccumulatorBot {
 
     connect() {
         if (this.endOfDay) return;
-        this.printHeader();
+        // this.printHeader();
         this.log('Connecting to Deriv WebSocket...', 'info');
 
         this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
@@ -367,6 +367,7 @@ class EnhancedAccumulatorBot {
         this.totalPnL += profit;
         this.pnlHistory.push(this.totalPnL);
         won ? this.totalWins++ : this.totalLosses++;
+        this.consecutiveLosses = won ? 0 : this.consecutiveLosses + 1;
 
         if (won) {
             this.log(`WON $${profit.toFixed(2)} on ${asset} | Total: $${this.totalPnL.toFixed(2)}`, 'success');
@@ -621,6 +622,7 @@ function start() {
     CONFIG.apiToken = 'Dz2V2KvRf4Uukt3';
 
     const bot = new EnhancedAccumulatorBot();
+    bot.printHeader();
     bot.connect();
     bot.checkTimeForDisconnectReconnect();
 
