@@ -2,7 +2,7 @@
   "name": "deriv-digit-differ-bot",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "index.html",
   "dependencies": {
     "@deriv/deriv-api": "^1.0.15",
     "boxen": "^8.0.1",
@@ -20,11 +20,23 @@
     "nodemon": "^2.0.0"
   },
   "scripts": {
-    "start": "node index.js",
+    "start": "npx -y serve .",
     "test": "jest",
-    "dev": "nodemon index.js"
+    "dev": "npx -y live-server . --no-browser"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "directories": {
+    "lib": "lib"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rosemitkma-droid/inv-bots.git"
+  },
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/rosemitkma-droid/inv-bots/issues"
+  },
+  "homepage": "https://github.com/rosemitkma-droid/inv-bots#readme"
 }
