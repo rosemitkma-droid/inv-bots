@@ -807,7 +807,7 @@ class DigitEnsembleDecisionMaker {
             streak: { correct: 0, total: 0 }
         };
         this.recentDecisions = [];
-        this.confidenceThreshold = 0.80;
+        this.confidenceThreshold = 0.90;
     }
 
     selectDigitToDiffer(predictions) {
