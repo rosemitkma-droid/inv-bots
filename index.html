@@ -1,0 +1,2428 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Digit Differ Trading Bot</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        @keyframes pulse-green {
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+            }
+
+            50% {
+                box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+            }
+        }
+
+        @keyframes pulse-red {
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+
+            50% {
+                box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+            }
+        }
+
+        .pulse-green {
+            animation: pulse-green 2s infinite;
+        }
+
+        .pulse-red {
+            animation: pulse-red 2s infinite;
+        }
+
+        .digit-box {
+            transition: all 0.3s ease;
+        }
+
+        .digit-box:hover {
+            transform: scale(1.1);
+        }
+
+        .digit-hot {
+            background: linear-gradient(135deg, #f97316, #dc2626);
+        }
+
+        .digit-cold {
+            background: linear-gradient(135deg, #3b82f6, #6366f1);
+        }
+
+        .digit-neutral {
+            background: linear-gradient(135deg, #374151, #1f2937);
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+        }
+
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 3px;
+        }
+
+        .trade-win {
+            border-left: 4px solid #22c55e;
+        }
+
+        .trade-loss {
+            border-left: 4px solid #ef4444;
+        }
+
+        .asset-tab {
+            transition: all 0.2s ease;
+        }
+
+        .asset-tab.active {
+            background: linear-gradient(135deg, #3b82f6, #6366f1);
+        }
+
+        .asset-tab:not(.active):hover {
+            background: rgba(59, 130, 246, 0.3);
+        }
+
+        .asset-badge {
+            font-size: 0.65rem;
+            padding: 1px 4px;
+        }
+
+        .config-input {
+            width: 100%;
+            background-color: #1f2937;
+            border: 1px solid #4b5563;
+            border-radius: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.875rem;
+            color: #ffffff;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .config-input:focus {
+            border-color: #3b82f6;
+        }
+
+        .config-input::placeholder {
+            color: #6b7280;
+        }
+
+        /* Fix for select dropdowns - ensure text is visible */
+        .config-input option {
+            background-color: #1f2937;
+            color: #ffffff;
+            padding: 0.5rem;
+        }
+
+        .config-label {
+            display: block;
+            font-size: 0.75rem;
+            color: #9ca3af;
+            margin-bottom: 0.25rem;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-white min-h-screen">
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 px-4 sm:px-6 py-4">
+        <div class="flex flex-col sm:flex-row items-center justify-between max-w-7xl mx-auto gap-3">
+            <div class="flex items-center gap-3">
+                <div class="text-3xl">🎲</div>
+                <div>
+                    <h1
+                        class="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                        Enhanced Digit Differ Bot
+                    </h1>
+                    <p class="text-xs text-gray-400">AI-Powered Multi-Asset Trading System v2.2</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div id="connectionStatus" class="flex items-center gap-2 px-3 py-1 rounded-full bg-gray-700">
+                    <div id="statusDot" class="w-2 h-2 rounded-full bg-gray-500"></div>
+                    <span id="statusText" class="text-sm">Disconnected</span>
+                </div>
+                <div id="balanceDisplay" class="text-lg font-semibold text-green-400">$0.00</div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4 sm:p-6">
+        <!-- Control Panel -->
+        <div class="glass rounded-xl p-4 sm:p-6 mb-6 border border-gray-700">
+            <!-- Configuration Header -->
+            <div
+                class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 pb-4 border-b border-gray-700 gap-3">
+                <h2 class="text-xl font-bold flex items-center gap-2">
+                    <span>⚙️</span> Bot Configuration
+                </h2>
+                <div class="flex gap-2">
+                    <button onclick="saveSettings()"
+                        class="bg-blue-600 hover:bg-blue-500 text-white py-2 px-4 rounded-lg transition-all text-sm font-medium flex items-center gap-2 shadow-lg"
+                        title="Save Settings">
+                        <span>💾</span> <span class="hidden sm:inline">Save</span>
+                    </button>
+                    <button onclick="loadSettings()"
+                        class="bg-purple-600 hover:bg-purple-500 text-white py-2 px-4 rounded-lg transition-all text-sm font-medium flex items-center gap-2 shadow-lg"
+                        title="Load Settings">
+                        <span>📂</span> <span class="hidden sm:inline">Load</span>
+                    </button>
+                    <button onclick="clearData()"
+                        class="bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded-lg transition-all text-sm font-medium shadow-lg"
+                        title="Clear Learning Data">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+
+            <!-- Section 1: Connection & Account -->
+            <div class="mb-6">
+                <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <span>🔐</span> Connection & Account
+                </h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="config-label">API Token *</label>
+                        <input type="password" id="apiToken" placeholder="Enter your Deriv API Token"
+                            class="config-input">
+                    </div>
+                    <div>
+                        <label class="config-label">Email for Notifications</label>
+                        <input type="email" id="notificationEmail" placeholder="your@email.com" class="config-input">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 2: Trading Parameters -->
+            <div class="mb-6">
+                <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <span>📊</span> Trading Parameters
+                </h3>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                    <div>
+                        <label class="config-label">Primary Asset</label>
+                        <select id="assetSelect" class="config-input">
+                            <option value="R_10">Volatility 10</option>
+                            <option value="R_25">Volatility 25</option>
+                            <option value="R_50" selected>Volatility 50</option>
+                            <option value="R_75">Volatility 75</option>
+                            <option value="R_100">Volatility 100</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="config-label">Stake ($)</label>
+                        <input type="number" id="stakeInput" value="1" min="0.35" step="0.01" class="config-input">
+                    </div>
+                    <div>
+                        <label class="config-label">Tick Duration</label>
+                        <select id="durationSelect" class="config-input">
+                            <option value="1" selected>1 Tick</option>
+                            <option value="2">2 Ticks</option>
+                            <option value="3">3 Ticks</option>
+                            <option value="5">5 Ticks</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="config-label">Stop Loss ($)</label>
+                        <input type="number" id="stopLoss" value="10" min="1" class="config-input">
+                    </div>
+                    <div>
+                        <label class="config-label">Take Profit ($)</label>
+                        <input type="number" id="takeProfit" value="5" min="1" class="config-input">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 3: Martingale Strategy -->
+            <div class="mb-6">
+                <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <span>🎰</span> Martingale Strategy
+                </h3>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                    <div>
+                        <label class="config-label">Multiplier</label>
+                        <input type="number" id="martingaleMultiplier" value="2.2" min="1.1" max="10" step="0.1"
+                            class="config-input">
+                    </div>
+                    <div>
+                        <label class="config-label">Max Steps</label>
+                        <input type="number" id="martingaleSteps" value="5" min="1" max="20" step="1"
+                            class="config-input">
+                    </div>
+                    <div>
+                        <label class="config-label">After Max Steps</label>
+                        <select id="resetAfterMax" class="config-input">
+                            <option value="reset" selected>Reset Stake</option>
+                            <option value="stop">Stop Trading</option>
+                            <option value="continue">Continue</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="config-label">Min Confidence</label>
+                        <input type="number" id="minConfidence" value="0.12" min="0.05" max="0.5" step="0.01"
+                            class="config-input">
+                    </div>
+                    <!-- Current Step Display - Commented Out
+                    <div class="flex flex-col justify-end">
+                        <div class="bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-center">
+                            <div class="text-xs text-gray-400">Current Step</div>
+                            <div class="flex items-center justify-center gap-1">
+                                <span id="currentMartingaleStep" class="text-lg font-bold text-yellow-400">0</span>
+                                <span class="text-gray-500">/</span>
+                                <span id="maxMartingaleSteps" class="text-gray-400">5</span>
+                            </div>
+                        </div>
+                    </div>
+                    -->
+                    <!-- Hidden elements for JS compatibility -->
+                    <span id="currentMartingaleStep" class="hidden">0</span>
+                    <span id="maxMartingaleSteps" class="hidden">5</span>
+                </div>
+            </div>
+
+            <!-- Section 4: Status & Control -->
+            <div class="mb-6">
+                <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <span>🚀</span> Status & Control
+                </h3>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="bg-gray-800/70 border border-gray-600 rounded-lg p-4 flex items-center justify-between">
+                        <div>
+                            <div class="text-xs text-gray-400 mb-1">Current Stake</div>
+                            <div id="currentStakeDisplay" class="text-2xl font-bold text-yellow-400">$1.00</div>
+                        </div>
+                        <div class="text-3xl">💰</div>
+                    </div>
+                    <div class="bg-gray-800/70 border border-gray-600 rounded-lg p-4 flex items-center justify-between">
+                        <div>
+                            <div class="text-xs text-gray-400 mb-1">Bot Status</div>
+                            <div id="botStatusText" class="text-lg font-semibold text-gray-300">Ready</div>
+                        </div>
+                        <div class="text-3xl">🤖</div>
+                    </div>
+                    <div class="flex items-stretch">
+                        <button id="startBtn" onclick="toggleBot()"
+                            class="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-4 px-6 rounded-lg transition-all text-lg shadow-lg flex items-center justify-center gap-2">
+                            <span>▶</span> Start Bot
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 5: Multi-Asset Trading -->
+            <div class="p-4 bg-gray-800/50 rounded-lg border border-gray-600">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-3 gap-2">
+                    <div class="flex items-center gap-3">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" id="multiAssetEnabled"
+                                class="w-4 h-4 rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-gray-800">
+                            <span class="text-sm font-medium">Enable Multi-Asset Trading</span>
+                        </label>
+                        <span class="text-xs text-gray-500 hidden sm:inline">(Trade multiple assets
+                            simultaneously)</span>
+                    </div>
+                    <div id="activeAssetsCount" class="text-xs text-gray-400">0 assets active</div>
+                </div>
+                <div id="multiAssetOptions" class="hidden">
+                    <div class="text-xs text-gray-400 mb-2">Select assets to trade:</div>
+                    <div class="flex flex-wrap gap-2 mb-3">
+                        <label
+                            class="flex items-center gap-2 bg-gray-700 px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors">
+                            <input type="checkbox" value="R_10"
+                                class="asset-checkbox w-4 h-4 rounded bg-gray-600 border-gray-500 text-blue-500">
+                            <span class="text-sm">R_10</span>
+                            <span id="status_R_10" class="asset-badge rounded bg-gray-600 text-gray-400">--</span>
+                        </label>
+                        <label
+                            class="flex items-center gap-2 bg-gray-700 px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors">
+                            <input type="checkbox" value="R_25"
+                                class="asset-checkbox w-4 h-4 rounded bg-gray-600 border-gray-500 text-blue-500">
+                            <span class="text-sm">R_25</span>
+                            <span id="status_R_25" class="asset-badge rounded bg-gray-600 text-gray-400">--</span>
+                        </label>
+                        <label
+                            class="flex items-center gap-2 bg-gray-700 px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors">
+                            <input type="checkbox" value="R_50"
+                                class="asset-checkbox w-4 h-4 rounded bg-gray-600 border-gray-500 text-blue-500"
+                                checked>
+                            <span class="text-sm">R_50</span>
+                            <span id="status_R_50" class="asset-badge rounded bg-gray-600 text-gray-400">--</span>
+                        </label>
+                        <label
+                            class="flex items-center gap-2 bg-gray-700 px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors">
+                            <input type="checkbox" value="R_75"
+                                class="asset-checkbox w-4 h-4 rounded bg-gray-600 border-gray-500 text-blue-500">
+                            <span class="text-sm">R_75</span>
+                            <span id="status_R_75" class="asset-badge rounded bg-gray-600 text-gray-400">--</span>
+                        </label>
+                        <label
+                            class="flex items-center gap-2 bg-gray-700 px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors">
+                            <input type="checkbox" value="R_100"
+                                class="asset-checkbox w-4 h-4 rounded bg-gray-600 border-gray-500 text-blue-500">
+                            <span class="text-sm">R_100</span>
+                            <span id="status_R_100" class="asset-badge rounded bg-gray-600 text-gray-400">--</span>
+                        </label>
+                    </div>
+                    <div class="flex flex-wrap gap-4 text-xs">
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" id="parallelTrading"
+                                class="w-3 h-3 rounded bg-gray-700 border-gray-600 text-green-500">
+                            <span class="text-gray-400">Allow parallel trades</span>
+                        </label>
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" id="suspendOnLoss"
+                                class="w-3 h-3 rounded bg-gray-700 border-gray-600 text-orange-500" checked>
+                            <span class="text-gray-400">Suspend asset on loss</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Asset Tabs (for multi-asset mode) -->
+        <div id="assetTabs" class="hidden mb-4">
+            <div class="flex gap-2 flex-wrap" id="assetTabsContainer">
+                <!-- Asset tabs will be populated here -->
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+            <!-- Left Column: Live Digits & Predictions -->
+            <div class="lg:col-span-2 space-y-4 sm:space-y-6">
+                <!-- Live Tick Display -->
+                <div class="glass rounded-xl p-4 sm:p-6 border border-gray-700">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+                        <h2 class="text-lg font-semibold flex items-center gap-2">
+                            <span>📊</span> Live Market Data
+                            <span id="currentAssetDisplay" class="text-sm font-normal text-blue-400 ml-2">[R_50]</span>
+                        </h2>
+                        <div id="lastPrice" class="text-xl font-mono text-blue-400">--</div>
+                    </div>
+
+                    <!-- Last 20 Digits -->
+                    <div class="mb-4">
+                        <div class="text-sm text-gray-400 mb-2">Last 20 Digits</div>
+                        <div id="recentDigits" class="flex flex-wrap gap-2">
+                            <!-- Digits will be populated here -->
+                        </div>
+                    </div>
+
+                    <!-- Digit Frequency Distribution -->
+                    <div>
+                        <div class="text-sm text-gray-400 mb-2">Digit Distribution (Hot 🔥 / Cold ❄️)</div>
+                        <div class="grid grid-cols-10 gap-1 sm:gap-2" id="digitDistribution">
+                            <!-- Distribution bars will be here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Prediction Panel -->
+                <div class="glass rounded-xl p-4 sm:p-6 border border-gray-700">
+                    <h2 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                        <span>🧠</span> AI Prediction Engine
+                    </h2>
+
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4">
+                        <div class="bg-gray-800 rounded-lg p-3 sm:p-4 text-center">
+                            <div class="text-xs sm:text-sm text-gray-400">Statistical</div>
+                            <div id="statPrediction" class="text-xl sm:text-2xl font-bold text-orange-400">-</div>
+                            <div id="statConfidence" class="text-xs text-gray-500">--% conf</div>
+                        </div>
+                        <div class="bg-gray-800 rounded-lg p-3 sm:p-4 text-center">
+                            <div class="text-xs sm:text-sm text-gray-400">Pattern</div>
+                            <div id="patternPrediction" class="text-xl sm:text-2xl font-bold text-purple-400">-</div>
+                            <div id="patternConfidence" class="text-xs text-gray-500">--% conf</div>
+                        </div>
+                        <div class="bg-gray-800 rounded-lg p-3 sm:p-4 text-center">
+                            <div class="text-xs sm:text-sm text-gray-400">Neural Net</div>
+                            <div id="neuralPrediction" class="text-xl sm:text-2xl font-bold text-blue-400">-</div>
+                            <div id="neuralConfidence" class="text-xs text-gray-500">--% conf</div>
+                        </div>
+                        <div class="bg-gray-800 rounded-lg p-3 sm:p-4 text-center border-2 border-yellow-500">
+                            <div class="text-xs sm:text-sm text-yellow-400">Ensemble</div>
+                            <div id="ensemblePrediction" class="text-xl sm:text-2xl font-bold text-yellow-400">-</div>
+                            <div id="ensembleConfidence" class="text-xs text-gray-500">--% conf</div>
+                        </div>
+                    </div>
+
+                    <!-- Prediction Bars -->
+                    <div class="space-y-2">
+                        <div class="text-sm text-gray-400">Digit Probability Scores</div>
+                        <div id="predictionBars" class="space-y-1">
+                            <!-- Prediction bars for each digit -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade History -->
+                <div class="glass rounded-xl p-4 sm:p-6 border border-gray-700">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-semibold flex items-center gap-2">
+                            <span>📜</span> Trade History
+                        </h2>
+                        <div class="text-sm text-gray-400">
+                            Last <span id="tradeCount">0</span> trades
+                        </div>
+                    </div>
+                    <div id="tradeHistory" class="space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
+                        <div class="text-gray-500 text-center py-4">No trades yet</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Stats & Learning -->
+            <div class="space-y-4 sm:space-y-6">
+                <!-- Performance Stats -->
+                <div class="glass rounded-xl p-4 sm:p-6 border border-gray-700">
+                    <h2 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                        <span>📈</span> Performance
+                    </h2>
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Total Trades</span>
+                            <span id="totalTrades" class="text-xl font-bold">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Win Rate</span>
+                            <span id="winRate" class="text-xl font-bold text-green-400">0%</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Wins / Losses</span>
+                            <span>
+                                <span id="totalWins" class="text-green-400 font-bold">0</span>
+                                <span class="text-gray-500">/</span>
+                                <span id="totalLosses" class="text-red-400 font-bold">0</span>
+                            </span>
+                        </div>
+
+                        <!-- Consecutive Losses Section -->
+                        <div class="border-t border-gray-700 pt-3 mt-3">
+                            <div class="text-xs text-gray-500 mb-2">Consecutive Losses</div>
+                            <div class="grid grid-cols-3 gap-2 text-center">
+                                <div class="bg-gray-800 rounded-lg p-2">
+                                    <div class="text-xs text-gray-400">x2</div>
+                                    <div id="x2Losses" class="text-lg font-bold text-orange-400">0</div>
+                                </div>
+                                <div class="bg-gray-800 rounded-lg p-2">
+                                    <div class="text-xs text-gray-400">x3</div>
+                                    <div id="x3Losses" class="text-lg font-bold text-orange-500">0</div>
+                                </div>
+                                <div class="bg-gray-800 rounded-lg p-2">
+                                    <div class="text-xs text-gray-400">x4+</div>
+                                    <div id="x4Losses" class="text-lg font-bold text-red-500">0</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="border-t border-gray-700 pt-3">
+                            <div class="flex justify-between items-center">
+                                <span class="text-gray-400">Profit / Loss</span>
+                                <span id="totalPnL" class="text-2xl font-bold">$0.00</span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Current Stake</span>
+                            <span id="currentStake" class="font-bold text-yellow-400">$1.00</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Active Trades</span>
+                            <span id="activeTrades" class="font-bold text-blue-400">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Multi-Asset Status (shown when multi-asset enabled) -->
+                <div id="multiAssetStatus" class="hidden glass rounded-xl p-4 sm:p-6 border border-gray-700">
+                    <h2 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                        <span>🌐</span> Multi-Asset Status
+                    </h2>
+                    <div id="assetStatusList" class="space-y-2">
+                        <!-- Asset statuses will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Learning Metrics -->
+                <div class="glass rounded-xl p-4 sm:p-6 border border-gray-700">
+                    <h2 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                        <span>🎓</span> Learning Status
+                    </h2>
+                    <div class="space-y-3">
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-400">Observations</span>
+                                <span id="observations">0 / 50</span>
+                            </div>
+                            <div class="w-full bg-gray-700 rounded-full h-2">
+                                <div id="learningProgress" class="bg-blue-500 h-2 rounded-full transition-all"
+                                    style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Mode</span>
+                            <span id="learningMode"
+                                class="px-2 py-1 rounded text-xs bg-yellow-500/20 text-yellow-400">Learning</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Market Entropy</span>
+                            <span id="marketEntropy" class="font-mono">--</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Neural Accuracy</span>
+                            <span id="neuralAccuracy" class="font-mono">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Model Weights -->
+                <div class="glass rounded-xl p-4 sm:p-6 border border-gray-700">
+                    <h2 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                        <span>⚖️</span> Model Weights
+                    </h2>
+                    <div class="space-y-3" id="modelWeights">
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Statistical</span>
+                            <div class="flex items-center gap-2">
+                                <div class="w-20 bg-gray-700 rounded-full h-2">
+                                    <div class="bg-orange-500 h-2 rounded-full" style="width: 30%"></div>
+                                </div>
+                                <span class="text-sm">30%</span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Pattern</span>
+                            <div class="flex items-center gap-2">
+                                <div class="w-20 bg-gray-700 rounded-full h-2">
+                                    <div class="bg-purple-500 h-2 rounded-full" style="width: 25%"></div>
+                                </div>
+                                <span class="text-sm">25%</span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Neural</span>
+                            <div class="flex items-center gap-2">
+                                <div class="w-20 bg-gray-700 rounded-full h-2">
+                                    <div class="bg-blue-500 h-2 rounded-full" style="width: 25%"></div>
+                                </div>
+                                <span class="text-sm">25%</span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Streak</span>
+                            <div class="flex items-center gap-2">
+                                <div class="w-20 bg-gray-700 rounded-full h-2">
+                                    <div class="bg-green-500 h-2 rounded-full" style="width: 20%"></div>
+                                </div>
+                                <span class="text-sm">20%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Activity Log -->
+                <div class="glass rounded-xl p-4 sm:p-6 border border-gray-700">
+                    <h2 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                        <span>📋</span> Activity Log
+                    </h2>
+                    <div id="activityLog" class="space-y-2 max-h-48 overflow-y-auto scrollbar-thin text-sm">
+                        <div class="text-gray-500">Waiting to start...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="text-center py-4 text-gray-500 text-sm">
+        Enhanced Digit Differ Bot v2.2 | AI-Powered Multi-Asset Trading System
+    </footer>
+
+    <script>
+        // ============================================================================
+        // TIER 1: DIGIT STATISTICAL ENGINE
+        // ============================================================================
+        class DigitStatisticalEngine {
+            constructor() {
+                this.digitFrequencies = {};
+                this.bayesianPriors = {};
+                this.chiSquareScores = {};
+                this.entropyScores = {};
+                this.expectedFrequency = 0.1;
+            }
+
+            initAsset(asset) {
+                this.digitFrequencies[asset] = {
+                    counts: Array(10).fill(0),
+                    total: 0,
+                    recentCounts: Array(10).fill(0),
+                    recentTotal: 0
+                };
+                this.bayesianPriors[asset] = Array(10).fill(null).map(() => ({ alpha: 1, beta: 9 }));
+                this.chiSquareScores[asset] = Array(10).fill(0);
+            }
+
+            updateFrequency(asset, digit) {
+                if (!this.digitFrequencies[asset]) {
+                    this.initAsset(asset);
+                }
+
+                const freq = this.digitFrequencies[asset];
+                freq.counts[digit]++;
+                freq.total++;
+                freq.recentCounts[digit]++;
+                freq.recentTotal++;
+
+                if (freq.recentTotal > 100) {
+                    for (let i = 0; i < 10; i++) {
+                        freq.recentCounts[i] = Math.floor(freq.recentCounts[i] * 0.99);
+                    }
+                    freq.recentTotal = freq.recentCounts.reduce((a, b) => a + b, 0);
+                }
+
+                this.updateBayesian(asset, digit);
+                this.calculateChiSquare(asset);
+            }
+
+            getDigitProbabilities(asset, useRecent = true) {
+                if (!this.digitFrequencies[asset]) {
+                    return Array(10).fill(0.1);
+                }
+
+                const freq = this.digitFrequencies[asset];
+                const counts = useRecent ? freq.recentCounts : freq.counts;
+                const total = useRecent ? freq.recentTotal : freq.total;
+
+                if (total === 0) {
+                    return Array(10).fill(0.1);
+                }
+
+                return counts.map(c => c / total);
+            }
+
+            updateBayesian(asset, observedDigit) {
+                if (!this.bayesianPriors[asset]) {
+                    this.bayesianPriors[asset] = Array(10).fill(null).map(() => ({ alpha: 1, beta: 9 }));
+                }
+
+                this.bayesianPriors[asset][observedDigit].alpha += 1;
+
+                for (let i = 0; i < 10; i++) {
+                    if (i !== observedDigit) {
+                        this.bayesianPriors[asset][i].beta += 1;
+                    }
+                }
+
+                const decay = 0.999;
+                for (let i = 0; i < 10; i++) {
+                    this.bayesianPriors[asset][i].alpha = Math.max(1, this.bayesianPriors[asset][i].alpha * decay);
+                    this.bayesianPriors[asset][i].beta = Math.max(1, this.bayesianPriors[asset][i].beta * decay);
+                }
+            }
+
+            getBayesianEstimates(asset) {
+                if (!this.bayesianPriors[asset]) {
+                    return Array(10).fill({ mean: 0.1, variance: 0.01, confidence: 0 });
+                }
+
+                return this.bayesianPriors[asset].map(prior => {
+                    const { alpha, beta } = prior;
+                    const mean = alpha / (alpha + beta);
+                    const variance = (alpha * beta) / ((alpha + beta) ** 2 * (alpha + beta + 1));
+                    const confidence = alpha + beta;
+
+                    return { mean, variance, confidence };
+                });
+            }
+
+            calculateChiSquare(asset) {
+                if (!this.digitFrequencies[asset]) return;
+
+                const freq = this.digitFrequencies[asset];
+                if (freq.recentTotal < 30) return;
+
+                const expected = freq.recentTotal * this.expectedFrequency;
+
+                for (let i = 0; i < 10; i++) {
+                    const observed = freq.recentCounts[i];
+                    const chiSq = Math.pow(observed - expected, 2) / expected;
+                    const direction = observed > expected ? 1 : -1;
+                    this.chiSquareScores[asset][i] = chiSq * direction;
+                }
+            }
+
+            getHotDigits(asset, threshold = 2.0) {
+                if (!this.chiSquareScores[asset]) return [];
+
+                return this.chiSquareScores[asset]
+                    .map((score, digit) => ({ digit, score }))
+                    .filter(d => d.score > threshold)
+                    .sort((a, b) => b.score - a.score)
+                    .map(d => d.digit);
+            }
+
+            getColdDigits(asset, threshold = -2.0) {
+                if (!this.chiSquareScores[asset]) return [];
+
+                return this.chiSquareScores[asset]
+                    .map((score, digit) => ({ digit, score }))
+                    .filter(d => d.score < threshold)
+                    .sort((a, b) => a.score - b.score)
+                    .map(d => d.digit);
+            }
+
+            calculateEntropy(asset) {
+                const probs = this.getDigitProbabilities(asset, true);
+
+                let entropy = 0;
+                probs.forEach(p => {
+                    if (p > 0) {
+                        entropy -= p * Math.log2(p);
+                    }
+                });
+
+                const normalizedEntropy = entropy / Math.log2(10);
+                this.entropyScores[asset] = normalizedEntropy;
+
+                return normalizedEntropy;
+            }
+
+            getBestDigitToDiffer(asset) {
+                const probs = this.getDigitProbabilities(asset, true);
+                const bayesian = this.getBayesianEstimates(asset);
+                const hotDigits = this.getHotDigits(asset);
+
+                const scores = [];
+                for (let digit = 0; digit < 10; digit++) {
+                    let score = 0;
+                    score += probs[digit] * 40;
+                    score += bayesian[digit].mean * 30;
+
+                    if (hotDigits.includes(digit)) {
+                        score += 20;
+                    }
+
+                    const confidence = Math.min(1, bayesian[digit].confidence / 100);
+                    score *= (0.5 + 0.5 * confidence);
+
+                    scores.push({ digit, score, prob: probs[digit], bayesian: bayesian[digit].mean });
+                }
+
+                scores.sort((a, b) => b.score - a.score);
+                return scores;
+            }
+
+            exportState() {
+                return {
+                    digitFrequencies: this.digitFrequencies,
+                    bayesianPriors: this.bayesianPriors,
+                    chiSquareScores: this.chiSquareScores,
+                    entropyScores: this.entropyScores
+                };
+            }
+
+            importState(state) {
+                if (state.digitFrequencies) this.digitFrequencies = state.digitFrequencies;
+                if (state.bayesianPriors) this.bayesianPriors = state.bayesianPriors;
+                if (state.chiSquareScores) this.chiSquareScores = state.chiSquareScores;
+                if (state.entropyScores) this.entropyScores = state.entropyScores;
+            }
+        }
+
+        // ============================================================================
+        // TIER 2: DIGIT PATTERN ENGINE
+        // ============================================================================
+        class DigitPatternEngine {
+            constructor() {
+                this.transitionMatrices = {};
+                this.ngramModels = {};
+                this.streakTrackers = {};
+                this.sequenceBuffers = {};
+            }
+
+            initAsset(asset) {
+                this.transitionMatrices[asset] = {
+                    first: Array(10).fill(null).map(() => Array(10).fill(0)),
+                    second: {},
+                    totals: Array(10).fill(0)
+                };
+                this.ngramModels[asset] = {};
+                this.streakTrackers[asset] = { currentDigit: null, streakLength: 0, history: [] };
+                this.sequenceBuffers[asset] = [];
+            }
+
+            updatePatterns(asset, digit) {
+                if (!this.transitionMatrices[asset]) {
+                    this.initAsset(asset);
+                }
+
+                const buffer = this.sequenceBuffers[asset];
+
+                if (buffer.length >= 1) {
+                    const prevDigit = buffer[buffer.length - 1];
+                    this.transitionMatrices[asset].first[prevDigit][digit]++;
+                    this.transitionMatrices[asset].totals[prevDigit]++;
+                }
+
+                if (buffer.length >= 2) {
+                    const key = `${buffer[buffer.length - 2]},${buffer[buffer.length - 1]}`;
+                    if (!this.transitionMatrices[asset].second[key]) {
+                        this.transitionMatrices[asset].second[key] = Array(10).fill(0);
+                    }
+                    this.transitionMatrices[asset].second[key][digit]++;
+                }
+
+                this.updateNgrams(asset, digit);
+                this.updateStreak(asset, digit);
+
+                buffer.push(digit);
+                if (buffer.length > 100) {
+                    buffer.shift();
+                }
+            }
+
+            updateNgrams(asset, digit) {
+                const buffer = this.sequenceBuffers[asset];
+                if (!this.ngramModels[asset]) {
+                    this.ngramModels[asset] = {};
+                }
+
+                for (let n = 2; n <= 5; n++) {
+                    if (buffer.length >= n - 1) {
+                        const context = buffer.slice(-(n - 1)).join(',');
+                        const key = `${n}:${context}`;
+
+                        if (!this.ngramModels[asset][key]) {
+                            this.ngramModels[asset][key] = Array(10).fill(0);
+                        }
+                        this.ngramModels[asset][key][digit]++;
+                    }
+                }
+            }
+
+            updateStreak(asset, digit) {
+                const tracker = this.streakTrackers[asset];
+
+                if (digit === tracker.currentDigit) {
+                    tracker.streakLength++;
+                } else {
+                    if (tracker.currentDigit !== null && tracker.streakLength > 1) {
+                        tracker.history.push({
+                            digit: tracker.currentDigit,
+                            length: tracker.streakLength
+                        });
+                        if (tracker.history.length > 100) {
+                            tracker.history.shift();
+                        }
+                    }
+                    tracker.currentDigit = digit;
+                    tracker.streakLength = 1;
+                }
+            }
+
+            getTransitionProbabilities(asset, currentDigit, order = 1) {
+                if (!this.transitionMatrices[asset]) {
+                    return Array(10).fill(0.1);
+                }
+
+                if (order === 1) {
+                    const total = this.transitionMatrices[asset].totals[currentDigit];
+                    if (total === 0) return Array(10).fill(0.1);
+                    return this.transitionMatrices[asset].first[currentDigit].map(c => c / total);
+                }
+
+                const buffer = this.sequenceBuffers[asset];
+                if (buffer.length < 1) return Array(10).fill(0.1);
+
+                const key = `${buffer[buffer.length - 1]},${currentDigit}`;
+                const counts = this.transitionMatrices[asset].second[key];
+
+                if (!counts) return Array(10).fill(0.1);
+
+                const total = counts.reduce((a, b) => a + b, 0);
+                if (total === 0) return Array(10).fill(0.1);
+
+                return counts.map(c => c / total);
+            }
+
+            predictFromNgrams(asset, n = 3) {
+                const buffer = this.sequenceBuffers[asset];
+                if (!this.ngramModels[asset] || buffer.length < n - 1) {
+                    return null;
+                }
+
+                const context = buffer.slice(-(n - 1)).join(',');
+                const key = `${n}:${context}`;
+                const counts = this.ngramModels[asset][key];
+
+                if (!counts) return null;
+
+                const total = counts.reduce((a, b) => a + b, 0);
+                if (total < 5) return null;
+
+                const probs = counts.map(c => c / total);
+                const maxProb = Math.max(...probs);
+                const predictedDigit = probs.indexOf(maxProb);
+
+                return {
+                    probabilities: probs,
+                    predictedDigit,
+                    confidence: maxProb,
+                    samples: total
+                };
+            }
+
+            isDigitStreaking(asset, digit) {
+                const tracker = this.streakTrackers[asset];
+                return tracker && tracker.currentDigit === digit && tracker.streakLength >= 2;
+            }
+
+            predictNextDigits(asset) {
+                const buffer = this.sequenceBuffers[asset];
+                if (!buffer || buffer.length === 0) return null;
+
+                const currentDigit = buffer[buffer.length - 1];
+
+                const firstOrder = this.getTransitionProbabilities(asset, currentDigit, 1);
+                const secondOrder = this.getTransitionProbabilities(asset, currentDigit, 2);
+                const ngram3 = this.predictFromNgrams(asset, 3);
+                const ngram4 = this.predictFromNgrams(asset, 4);
+
+                const combined = Array(10).fill(0);
+                const weights = { first: 0.2, second: 0.3, ngram3: 0.3, ngram4: 0.2 };
+
+                for (let i = 0; i < 10; i++) {
+                    combined[i] += firstOrder[i] * weights.first;
+                    combined[i] += secondOrder[i] * weights.second;
+
+                    if (ngram3) {
+                        combined[i] += ngram3.probabilities[i] * weights.ngram3;
+                    } else {
+                        combined[i] += 0.1 * weights.ngram3;
+                    }
+
+                    if (ngram4) {
+                        combined[i] += ngram4.probabilities[i] * weights.ngram4;
+                    } else {
+                        combined[i] += 0.1 * weights.ngram4;
+                    }
+                }
+
+                const sum = combined.reduce((a, b) => a + b, 0);
+                const normalized = combined.map(p => p / sum);
+
+                return {
+                    probabilities: normalized,
+                    mostLikely: normalized.indexOf(Math.max(...normalized)),
+                    leastLikely: normalized.indexOf(Math.min(...normalized))
+                };
+            }
+
+            exportState() {
+                return {
+                    transitionMatrices: this.transitionMatrices,
+                    ngramModels: this.ngramModels,
+                    streakTrackers: this.streakTrackers,
+                    sequenceBuffers: this.sequenceBuffers
+                };
+            }
+
+            importState(state) {
+                if (state.transitionMatrices) this.transitionMatrices = state.transitionMatrices;
+                if (state.ngramModels) this.ngramModels = state.ngramModels;
+                if (state.streakTrackers) this.streakTrackers = state.streakTrackers;
+                if (state.sequenceBuffers) this.sequenceBuffers = state.sequenceBuffers;
+            }
+        }
+
+        // ============================================================================
+        // TIER 3: NEURAL NETWORK DIGIT PREDICTOR
+        // ============================================================================
+        class DigitNeuralEngine {
+            constructor(inputSize = 50, hiddenSizes = [64, 32], outputSize = 10) {
+                this.inputSize = inputSize;
+                this.hiddenSizes = hiddenSizes;
+                this.outputSize = outputSize;
+                this.learningRate = 0.01;
+                this.momentum = 0.9;
+                this.weights = {};
+                this.biases = {};
+                this.velocities = {};
+                this.trainingHistory = [];
+                this.initialized = false;
+
+                this.initializeNetwork();
+            }
+
+            initializeNetwork() {
+                const layers = [this.inputSize, ...this.hiddenSizes, this.outputSize];
+
+                for (let i = 0; i < layers.length - 1; i++) {
+                    const fanIn = layers[i];
+                    const fanOut = layers[i + 1];
+                    const scale = Math.sqrt(2.0 / (fanIn + fanOut));
+
+                    this.weights[i] = [];
+                    this.velocities[`w${i}`] = [];
+
+                    for (let j = 0; j < fanOut; j++) {
+                        this.weights[i][j] = [];
+                        this.velocities[`w${i}`][j] = [];
+
+                        for (let k = 0; k < fanIn; k++) {
+                            this.weights[i][j][k] = (Math.random() * 2 - 1) * scale;
+                            this.velocities[`w${i}`][j][k] = 0;
+                        }
+                    }
+
+                    this.biases[i] = new Array(fanOut).fill(0).map(() => (Math.random() * 2 - 1) * 0.1);
+                    this.velocities[`b${i}`] = new Array(fanOut).fill(0);
+                }
+
+                this.initialized = true;
+            }
+
+            relu(x) { return Math.max(0, x); }
+            reluDerivative(x) { return x > 0 ? 1 : 0; }
+
+            softmax(arr) {
+                const maxVal = Math.max(...arr);
+                const exps = arr.map(x => Math.exp(x - maxVal));
+                const sum = exps.reduce((a, b) => a + b, 0);
+                return exps.map(e => e / sum);
+            }
+
+            forward(input) {
+                if (input.length !== this.inputSize) {
+                    return { output: Array(10).fill(0.1), activations: [] };
+                }
+
+                const activations = [input];
+                let current = input;
+                const numLayers = Object.keys(this.weights).length;
+
+                for (let i = 0; i < numLayers; i++) {
+                    const nextLayer = [];
+                    for (let j = 0; j < this.weights[i].length; j++) {
+                        let sum = this.biases[i][j];
+                        for (let k = 0; k < current.length; k++) {
+                            sum += current[k] * this.weights[i][j][k];
+                        }
+                        nextLayer.push(i < numLayers - 1 ? this.relu(sum) : sum);
+                    }
+                    current = nextLayer;
+                    activations.push(current);
+                }
+
+                return { output: this.softmax(current), activations, rawOutput: current };
+            }
+
+            trainOnSample(input, targetDigit) {
+                const { output, activations } = this.forward(input);
+                const outputGradient = [...output];
+                outputGradient[targetDigit] -= 1;
+
+                const numLayers = Object.keys(this.weights).length;
+                let delta = outputGradient;
+
+                for (let i = numLayers - 1; i >= 0; i--) {
+                    const prevActivation = activations[i];
+                    const newDelta = [];
+
+                    for (let j = 0; j < this.weights[i].length; j++) {
+                        for (let k = 0; k < this.weights[i][j].length; k++) {
+                            const grad = delta[j] * prevActivation[k];
+                            this.velocities[`w${i}`][j][k] = this.momentum * this.velocities[`w${i}`][j][k] - this.learningRate * grad;
+                            this.weights[i][j][k] += this.velocities[`w${i}`][j][k];
+                        }
+                        this.velocities[`b${i}`][j] = this.momentum * this.velocities[`b${i}`][j] - this.learningRate * delta[j];
+                        this.biases[i][j] += this.velocities[`b${i}`][j];
+                    }
+
+                    if (i > 0) {
+                        for (let k = 0; k < this.weights[i][0].length; k++) {
+                            let sum = 0;
+                            for (let j = 0; j < this.weights[i].length; j++) {
+                                sum += delta[j] * this.weights[i][j][k];
+                            }
+                            newDelta.push(sum * this.reluDerivative(prevActivation[k]));
+                        }
+                        delta = newDelta;
+                    }
+                }
+
+                const loss = -Math.log(Math.max(output[targetDigit], 1e-10));
+                this.trainingHistory.push({
+                    loss,
+                    predicted: output.indexOf(Math.max(...output)),
+                    actual: targetDigit,
+                    correct: output.indexOf(Math.max(...output)) === targetDigit
+                });
+
+                if (this.trainingHistory.length > 1000) this.trainingHistory.shift();
+                return { loss, predicted: output.indexOf(Math.max(...output)) };
+            }
+
+            predict(input) {
+                return this.forward(input).output;
+            }
+
+            prepareFeatures(digitSequence, digitFrequencies) {
+                const features = [];
+                const recent = digitSequence.slice(-30);
+                while (recent.length < 30) recent.unshift(5);
+                recent.forEach(d => features.push(d / 9));
+
+                if (digitFrequencies && digitFrequencies.length === 10) {
+                    digitFrequencies.forEach(f => features.push(f));
+                } else {
+                    for (let i = 0; i < 10; i++) features.push(0.1);
+                }
+
+                const last3 = digitSequence.slice(-3);
+                while (last3.length < 3) last3.unshift(5);
+                last3.forEach(d => features.push(d / 9));
+
+                let streakLength = 1;
+                for (let i = digitSequence.length - 2; i >= 0 && digitSequence[i] === digitSequence[digitSequence.length - 1]; i--) {
+                    streakLength++;
+                }
+                features.push(Math.min(streakLength, 10) / 10);
+
+                while (features.length < this.inputSize) features.push(0.5);
+                return features.slice(0, this.inputSize);
+            }
+
+            getPerformanceMetrics() {
+                if (this.trainingHistory.length < 10) {
+                    return { accuracy: 0, recentLoss: 1, trend: 'insufficient_data' };
+                }
+                const recent = this.trainingHistory.slice(-100);
+                const avgLoss = recent.reduce((a, b) => a + b.loss, 0) / recent.length;
+                const correct = recent.filter(h => h.correct).length;
+                return { accuracy: correct / recent.length, recentLoss: avgLoss, trend: 'stable' };
+            }
+
+            exportWeights() {
+                return {
+                    weights: this.weights,
+                    biases: this.biases,
+                    velocities: this.velocities,
+                    trainingHistory: this.trainingHistory.slice(-500)
+                };
+            }
+
+            importWeights(state) {
+                if (state.weights) this.weights = state.weights;
+                if (state.biases) this.biases = state.biases;
+                if (state.velocities) this.velocities = state.velocities;
+                if (state.trainingHistory) this.trainingHistory = state.trainingHistory;
+                this.initialized = true;
+            }
+        }
+
+        // ============================================================================
+        // TIER 4: ENSEMBLE DIGIT DECISION MAKER
+        // ============================================================================
+        class DigitEnsembleDecisionMaker {
+            constructor() {
+                this.modelWeights = { statistical: 0.30, pattern: 0.25, neural: 0.25, streak: 0.20 };
+                this.modelPerformance = {
+                    statistical: { correct: 0, total: 0 },
+                    pattern: { correct: 0, total: 0 },
+                    neural: { correct: 0, total: 0 },
+                    streak: { correct: 0, total: 0 }
+                };
+                this.recentDecisions = [];
+                this.confidenceThreshold = 0.12;
+            }
+
+            selectDigitToDiffer(predictions) {
+                const combinedScores = Array(10).fill(0);
+                const details = {};
+
+                if (predictions.statistical) {
+                    const scores = predictions.statistical;
+                    for (let i = 0; i < 10; i++) {
+                        const scoreItem = scores.find(s => s.digit === i);
+                        if (scoreItem) combinedScores[i] += scoreItem.score * this.modelWeights.statistical;
+                    }
+                    details.statistical = scores.slice(0, 3).map(s => `${s.digit}:${s.score.toFixed(1)}`).join(', ');
+                }
+
+                if (predictions.pattern && predictions.pattern.probabilities) {
+                    for (let i = 0; i < 10; i++) {
+                        combinedScores[i] += predictions.pattern.probabilities[i] * 100 * this.modelWeights.pattern;
+                    }
+                    details.pattern = `Most likely: ${predictions.pattern.mostLikely}`;
+                }
+
+                if (predictions.neural) {
+                    for (let i = 0; i < 10; i++) {
+                        combinedScores[i] += predictions.neural[i] * 100 * this.modelWeights.neural;
+                    }
+                    const maxNeural = predictions.neural.indexOf(Math.max(...predictions.neural));
+                    details.neural = `Predicted: ${maxNeural}`;
+                }
+
+                if (predictions.streak && predictions.streak.streaking !== null) {
+                    combinedScores[predictions.streak.streaking] += 15 * this.modelWeights.streak;
+                    details.streak = `Streaking: ${predictions.streak.streaking}`;
+                }
+
+                const ranked = combinedScores.map((score, digit) => ({ digit, score })).sort((a, b) => b.score - a.score);
+                const totalScore = combinedScores.reduce((a, b) => a + b, 0);
+                const avgScore = totalScore / 10;
+                const maxScore = Math.max(...combinedScores);
+                const minScore = Math.min(...combinedScores);
+
+                // Fixed confidence calculation - always between 0 and 1
+                let confidence = 0;
+                if (avgScore > 0) {
+                    const rawConfidence = (ranked[0].score - avgScore) / avgScore;
+                    // Use sigmoid-like normalization to keep between 0 and 1
+                    confidence = Math.min(1, Math.max(0, rawConfidence / (1 + Math.abs(rawConfidence)) + 0.5));
+                }
+
+                // Secondary confidence measure based on score spread
+                const scoreSpread = maxScore - minScore;
+                const spreadConfidence = totalScore > 0 ? Math.min(1, scoreSpread / (totalScore * 0.3)) : 0;
+
+                // Blend both confidence measures and ensure it's capped at 1
+                const finalConfidence = Math.min(1, (confidence + spreadConfidence) / 2);
+
+                return {
+                    digitToDiffer: ranked[0].digit,
+                    alternativeDigit: ranked[1].digit,
+                    scores: ranked,
+                    confidence: finalConfidence,
+                    probability: totalScore > 0 ? ranked[0].score / totalScore : 0.1,
+                    shouldTrade: finalConfidence > this.confidenceThreshold,
+                    details
+                };
+            }
+
+            recordOutcome(predictions, chosenDigit, actualDigit, won) {
+                Object.entries(predictions).forEach(([model, pred]) => {
+                    if (!pred) return;
+                    let modelPredicted;
+                    if (model === 'statistical' && Array.isArray(pred)) modelPredicted = pred[0]?.digit;
+                    else if (model === 'pattern' && pred.mostLikely !== undefined) modelPredicted = pred.mostLikely;
+                    else if (model === 'neural' && Array.isArray(pred)) modelPredicted = pred.indexOf(Math.max(...pred));
+                    else if (model === 'streak' && pred.streaking !== null) modelPredicted = pred.streaking;
+
+                    if (modelPredicted !== undefined) {
+                        this.modelPerformance[model].total++;
+                        if (modelPredicted === actualDigit) this.modelPerformance[model].correct++;
+                    }
+                });
+                this.updateModelWeights();
+            }
+
+            updateModelWeights() {
+                const minSamples = 20;
+                let totalAccuracy = 0;
+                const accuracies = {};
+
+                Object.entries(this.modelPerformance).forEach(([model, perf]) => {
+                    if (perf.total >= minSamples) {
+                        accuracies[model] = perf.correct / perf.total;
+                        totalAccuracy += accuracies[model];
+                    }
+                });
+
+                if (totalAccuracy > 0 && Object.keys(accuracies).length > 0) {
+                    Object.entries(accuracies).forEach(([model, accuracy]) => {
+                        this.modelWeights[model] = Math.pow(accuracy + 0.1, 2);
+                    });
+                    const sum = Object.values(this.modelWeights).reduce((a, b) => a + b, 0);
+                    Object.keys(this.modelWeights).forEach(model => {
+                        this.modelWeights[model] /= sum;
+                    });
+                }
+            }
+
+            exportState() {
+                return { modelWeights: this.modelWeights, modelPerformance: this.modelPerformance, confidenceThreshold: this.confidenceThreshold };
+            }
+
+            importState(state) {
+                if (state.modelWeights) this.modelWeights = state.modelWeights;
+                if (state.modelPerformance) this.modelPerformance = state.modelPerformance;
+                if (state.confidenceThreshold) this.confidenceThreshold = state.confidenceThreshold;
+            }
+        }
+
+        // ============================================================================
+        // MAIN BOT CLASS - MULTI-ASSET ENABLED
+        // ============================================================================
+        class DigitDifferBot {
+            constructor() {
+                this.ws = null;
+                this.connected = false;
+                this.isRunning = false;
+                this.token = '';
+                this.notificationEmail = '';
+
+                // Multi-asset configuration
+                this.multiAssetEnabled = false;
+                this.activeAssets = ['R_50'];
+                this.selectedAsset = 'R_50';
+                this.parallelTrading = false;
+                this.suspendOnLoss = true;
+                this.suspendedAssets = new Set();
+
+                // Per-asset state
+                this.assetData = {};
+                this.assetTradesInProgress = {};
+                this.assetProposalIds = {};
+                this.assetSelectedDigits = {};
+
+                // Global trading state
+                this.currentStake = 1;
+                this.initialStake = 1;
+                this.totalTrades = 0;
+                this.totalWins = 0;
+                this.totalLosses = 0;
+                this.totalPnL = 0;
+                this.consecutiveLosses = 0;
+                this.balance = 0;
+
+                // Consecutive loss tracking
+                this.x2Losses = 0;  // Times we hit 2 consecutive losses
+                this.x3Losses = 0;  // Times we hit 3 consecutive losses
+                this.x4Losses = 0;  // Times we hit 4+ consecutive losses
+                this.maxConsecutiveLosses = 0;  // Track the max streak
+
+                // Martingale
+                this.martingaleStep = 0;
+                this.martingaleHistory = [];
+
+                // Config
+                this.config = {
+                    stopLoss: 10,
+                    takeProfit: 5,
+                    tickDuration: 1,
+                    minConfidence: 0.12,
+                    multiplier: 2.2,
+                    martingaleSteps: 5,
+                    resetAfterMax: 'reset',
+                    learningThreshold: 50
+                };
+
+                // Global data
+                this.tradeHistory = [];
+                this.lastPredictions = {};
+
+                // Shared Learning Engines
+                this.statisticalEngine = new DigitStatisticalEngine();
+                this.patternEngine = new DigitPatternEngine();
+                this.neuralEngine = new DigitNeuralEngine(50, [64, 32], 10);
+                this.ensembleDecisionMaker = new DigitEnsembleDecisionMaker();
+
+                // Learning state
+                this.observationCount = 0;
+                this.learningMode = true;
+
+                this.loadState();
+                this.setupMultiAssetUI();
+            }
+
+            setupMultiAssetUI() {
+                document.getElementById('multiAssetEnabled').addEventListener('change', (e) => {
+                    this.multiAssetEnabled = e.target.checked;
+                    document.getElementById('multiAssetOptions').classList.toggle('hidden', !e.target.checked);
+                    document.getElementById('assetTabs').classList.toggle('hidden', !e.target.checked);
+                    document.getElementById('multiAssetStatus').classList.toggle('hidden', !e.target.checked);
+
+                    if (e.target.checked) {
+                        this.updateActiveAssets();
+                        this.updateAssetTabs();
+                    }
+                });
+
+                document.querySelectorAll('.asset-checkbox').forEach(cb => {
+                    cb.addEventListener('change', () => this.updateActiveAssets());
+                });
+
+                document.getElementById('parallelTrading').addEventListener('change', (e) => {
+                    this.parallelTrading = e.target.checked;
+                });
+
+                document.getElementById('suspendOnLoss').addEventListener('change', (e) => {
+                    this.suspendOnLoss = e.target.checked;
+                });
+            }
+
+            updateActiveAssets() {
+                const checkboxes = document.querySelectorAll('.asset-checkbox:checked');
+                this.activeAssets = Array.from(checkboxes).map(cb => cb.value);
+
+                this.activeAssets.forEach(asset => {
+                    if (!this.assetData[asset]) {
+                        this.assetData[asset] = { tickHistory: [], observationCount: 0 };
+                    }
+                    this.assetTradesInProgress[asset] = false;
+                });
+
+                document.getElementById('activeAssetsCount').textContent = `${this.activeAssets.length} assets active`;
+                this.updateAssetTabs();
+                this.updateAssetStatusList();
+            }
+
+            updateAssetTabs() {
+                const container = document.getElementById('assetTabsContainer');
+                container.innerHTML = this.activeAssets.map(asset => {
+                    const isActive = asset === this.selectedAsset;
+                    const isSuspended = this.suspendedAssets.has(asset);
+                    const inProgress = this.assetTradesInProgress[asset];
+
+                    let statusIcon = '';
+                    if (isSuspended) statusIcon = '🔴';
+                    else if (inProgress) statusIcon = '🔄';
+                    else statusIcon = '🟢';
+
+                    return `
+                    <button onclick="bot.switchAsset('${asset}')" 
+                        class="asset-tab px-4 py-2 rounded-lg text-sm font-medium ${isActive ? 'active text-white' : 'bg-gray-700 text-gray-300'}">
+                        ${statusIcon} ${asset}
+                    </button>
+                `;
+                }).join('');
+            }
+
+            updateAssetStatusList() {
+                const container = document.getElementById('assetStatusList');
+                container.innerHTML = this.activeAssets.map(asset => {
+                    const data = this.assetData[asset] || { tickHistory: [] };
+                    const isSuspended = this.suspendedAssets.has(asset);
+                    const inProgress = this.assetTradesInProgress[asset];
+                    const ticks = data.tickHistory?.length || 0;
+
+                    let status = 'Ready';
+                    let statusClass = 'text-green-400';
+                    if (isSuspended) { status = 'Suspended'; statusClass = 'text-red-400'; }
+                    else if (inProgress) { status = 'Trading'; statusClass = 'text-blue-400'; }
+                    else if (ticks < 30) { status = 'Learning'; statusClass = 'text-yellow-400'; }
+
+                    const badge = document.getElementById(`status_${asset}`);
+                    if (badge) {
+                        badge.textContent = status;
+                        badge.className = `asset-badge rounded ${statusClass.replace('text-', 'bg-').replace('400', '500/30')} ${statusClass}`;
+                    }
+
+                    return `
+                    <div class="flex justify-between items-center bg-gray-800 rounded-lg px-3 py-2">
+                        <span class="font-mono">${asset}</span>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-gray-500">${ticks} ticks</span>
+                            <span class="text-xs ${statusClass}">${status}</span>
+                            ${isSuspended ? `<button onclick="bot.reactivateAsset('${asset}')" class="text-xs bg-green-600 hover:bg-green-500 px-2 py-1 rounded">Reactivate</button>` : ''}
+                        </div>
+                    </div>
+                `;
+                }).join('');
+            }
+
+            switchAsset(asset) {
+                this.selectedAsset = asset;
+                this.updateAssetTabs();
+                this.updateUIForAsset(asset);
+                document.getElementById('currentAssetDisplay').textContent = `[${asset}]`;
+            }
+
+            updateUIForAsset(asset) {
+                const data = this.assetData[asset];
+                if (!data || !data.tickHistory) return;
+
+                const recentDigits = data.tickHistory.slice(-20);
+                const container = document.getElementById('recentDigits');
+                container.innerHTML = recentDigits.map((d, i) => {
+                    const isLatest = i === recentDigits.length - 1;
+                    return `<div class="digit-box w-8 h-8 flex items-center justify-center rounded ${isLatest ? 'bg-blue-500 ring-2 ring-blue-300' : 'bg-gray-700'} font-mono font-bold">${d}</div>`;
+                }).join('');
+
+                this.updateDigitDistribution(asset);
+            }
+
+            connect() {
+                if (this.ws) this.ws.close();
+
+                this.log('Connecting to Deriv API...');
+                this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+
+                this.ws.onopen = () => {
+                    this.connected = true;
+                    this.updateConnectionStatus(true);
+                    this.log('Connected to Deriv API');
+                    this.authenticate();
+                };
+
+                this.ws.onmessage = (event) => {
+                    const message = JSON.parse(event.data);
+                    this.handleMessage(message);
+                };
+
+                this.ws.onerror = (error) => {
+                    this.log('WebSocket error', 'error');
+                    console.error(error);
+                };
+
+                this.ws.onclose = () => {
+                    this.connected = false;
+                    this.updateConnectionStatus(false);
+                    this.log('Disconnected from Deriv API');
+                    if (this.isRunning) setTimeout(() => this.connect(), 5000);
+                };
+            }
+
+            disconnect() {
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+            }
+
+            send(request) {
+                if (this.connected && this.ws) {
+                    this.ws.send(JSON.stringify(request));
+                }
+            }
+
+            authenticate() {
+                this.send({ authorize: this.token });
+            }
+
+            handleMessage(message) {
+                switch (message.msg_type) {
+                    case 'authorize':
+                        if (message.error) {
+                            this.log('Authentication failed: ' + message.error.message, 'error');
+                            this.stop();
+                            return;
+                        }
+                        this.log('Authentication successful');
+                        this.balance = parseFloat(message.authorize.balance);
+                        this.updateBalance();
+                        this.subscribeToAllAssets();
+                        break;
+
+                    case 'tick':
+                        this.handleTick(message.tick);
+                        break;
+
+                    case 'proposal':
+                        this.handleProposal(message);
+                        break;
+
+                    case 'buy':
+                        if (message.error) {
+                            this.log('Trade error: ' + message.error.message, 'error');
+                            const asset = message.echo_req?.symbol;
+                            if (asset) this.assetTradesInProgress[asset] = false;
+                            return;
+                        }
+                        this.log('Trade placed successfully');
+                        this.subscribeToContract(message.buy.contract_id);
+                        break;
+
+                    case 'proposal_open_contract':
+                        this.handleContractUpdate(message.proposal_open_contract);
+                        break;
+
+                    case 'balance':
+                        this.balance = parseFloat(message.balance.balance);
+                        this.updateBalance();
+                        break;
+                }
+            }
+
+            subscribeToAllAssets() {
+                const assets = this.multiAssetEnabled ? this.activeAssets : [document.getElementById('assetSelect').value];
+
+                assets.forEach(asset => {
+                    this.send({ ticks: asset, subscribe: 1 });
+                    if (!this.assetData[asset]) {
+                        this.assetData[asset] = { tickHistory: [], observationCount: 0 };
+                    }
+                });
+
+                this.send({ balance: 1, subscribe: 1 });
+                this.log(`Subscribed to ${assets.length} asset(s): ${assets.join(', ')}`);
+            }
+
+            handleTick(tick) {
+                const asset = tick.symbol;
+                const digit = this.getLastDigit(tick.quote, asset);
+
+                if (!this.assetData[asset]) {
+                    this.assetData[asset] = { tickHistory: [], observationCount: 0 };
+                }
+
+                const data = this.assetData[asset];
+                data.tickHistory.push(digit);
+                if (data.tickHistory.length > 200) data.tickHistory.shift();
+                data.observationCount = (data.observationCount || 0) + 1;
+
+                this.statisticalEngine.updateFrequency(asset, digit);
+                this.patternEngine.updatePatterns(asset, digit);
+                this.observationCount++;
+
+                if (this.observationCount % 5 === 0) {
+                    const features = this.neuralEngine.prepareFeatures(
+                        data.tickHistory,
+                        this.statisticalEngine.getDigitProbabilities(asset)
+                    );
+                    this.neuralEngine.trainOnSample(features, digit);
+                }
+
+                if (asset === this.selectedAsset || (!this.multiAssetEnabled && asset === document.getElementById('assetSelect').value)) {
+                    this.updateUI(tick, digit, asset);
+                }
+
+                if (this.multiAssetEnabled) {
+                    this.updateAssetStatusList();
+                }
+
+                if (this.learningMode && this.observationCount < this.config.learningThreshold) {
+                    this.updateLearningProgress();
+                    return;
+                } else if (this.learningMode) {
+                    this.learningMode = false;
+                    this.log('Learning phase complete. Trading enabled!', 'success');
+                    this.updateLearningProgress();
+                }
+
+                if (!this.learningMode) {
+                    this.updateLearningProgress();
+                }
+
+                if (this.isRunning && !this.suspendedAssets.has(asset)) {
+                    this.analyzeAndTrade(asset);
+                }
+            }
+
+            getLastDigit(quote, asset) {
+                const quoteString = quote.toString();
+                const [, fractionalPart = ''] = quoteString.split('.');
+
+                if (['R_75', 'R_50'].includes(asset)) {
+                    return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
+                } else if (['R_10', 'R_25'].includes(asset)) {
+                    return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
+                } else {
+                    return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
+                }
+            }
+
+            analyzeAndTrade(asset) {
+                const data = this.assetData[asset];
+                if (!data || data.tickHistory.length < 30) return;
+
+                if (this.assetTradesInProgress[asset]) return;
+                if (!this.parallelTrading && Object.values(this.assetTradesInProgress).some(v => v)) return;
+
+                const predictions = this.getEnsemblePredictions(asset);
+                const decision = this.ensembleDecisionMaker.selectDigitToDiffer(predictions);
+
+                this.lastPredictions[asset] = predictions;
+
+                if (asset === this.selectedAsset) {
+                    this.updatePredictionUI(predictions, decision);
+                }
+
+                if (decision.shouldTrade) {
+                    this.assetSelectedDigits[asset] = decision.digitToDiffer;
+                    this.log(`[${asset}] Trade signal: Differ from ${decision.digitToDiffer} (conf: ${(decision.confidence * 100).toFixed(1)}%)`);
+                    this.requestProposal(asset, decision.digitToDiffer);
+                }
+            }
+
+            getEnsemblePredictions(asset) {
+                const data = this.assetData[asset];
+                const predictions = {};
+
+                predictions.statistical = this.statisticalEngine.getBestDigitToDiffer(asset);
+                predictions.pattern = this.patternEngine.predictNextDigits(asset);
+
+                if (this.neuralEngine.initialized && data.tickHistory.length > 0) {
+                    const features = this.neuralEngine.prepareFeatures(
+                        data.tickHistory,
+                        this.statisticalEngine.getDigitProbabilities(asset)
+                    );
+                    predictions.neural = this.neuralEngine.predict(features);
+                }
+
+                const lastDigit = data.tickHistory[data.tickHistory.length - 1];
+                predictions.streak = {
+                    streaking: this.patternEngine.isDigitStreaking(asset, lastDigit) ? lastDigit : null
+                };
+
+                return predictions;
+            }
+
+            requestProposal(asset, barrier) {
+                this.send({
+                    proposal: 1,
+                    amount: this.currentStake.toFixed(2),
+                    basis: 'stake',
+                    contract_type: 'DIGITDIFF',
+                    currency: 'USD',
+                    symbol: asset,
+                    duration: this.config.tickDuration,
+                    duration_unit: 't',
+                    barrier: barrier
+                });
+            }
+
+            handleProposal(message) {
+                if (message.error) {
+                    this.log('Proposal error: ' + message.error.message, 'error');
+                    return;
+                }
+
+                const asset = message.echo_req?.symbol;
+                if (!asset) return;
+
+                if (message.proposal && !this.assetTradesInProgress[asset]) {
+                    this.assetProposalIds[asset] = message.proposal.id;
+                    this.placeTrade(asset);
+                }
+            }
+
+            placeTrade(asset) {
+                if (this.assetTradesInProgress[asset]) return;
+                if (!this.parallelTrading && Object.values(this.assetTradesInProgress).some(v => v)) return;
+
+                const proposalId = this.assetProposalIds[asset];
+                if (!proposalId) return;
+
+                this.send({
+                    buy: proposalId,
+                    price: this.currentStake.toFixed(2)
+                });
+
+                this.assetTradesInProgress[asset] = true;
+                this.log(`[${asset}] Placing trade: Differ from ${this.assetSelectedDigits[asset]}, Stake: $${this.currentStake.toFixed(2)}`);
+
+                if (this.multiAssetEnabled) {
+                    this.updateAssetTabs();
+                    this.updateAssetStatusList();
+                }
+            }
+
+            subscribeToContract(contractId) {
+                this.send({
+                    proposal_open_contract: 1,
+                    contract_id: contractId,
+                    subscribe: 1
+                });
+            }
+
+            handleContractUpdate(contract) {
+                if (!contract.is_sold) return;
+
+                const asset = contract.underlying;
+                const won = contract.status === 'won';
+                const profit = parseFloat(contract.profit);
+                const exitSpot = contract.exit_tick_display_value;
+                const actualDigit = this.getLastDigit(parseFloat(exitSpot), asset);
+                const selectedDigit = this.assetSelectedDigits[asset];
+
+                this.assetTradesInProgress[asset] = false;
+                this.totalTrades++;
+
+                if (won) {
+                    this.totalWins++;
+                    this.consecutiveLosses = 0;
+                    this.martingaleStep = 0;
+                    this.currentStake = this.initialStake;
+                    this.log(`[${asset}] ✅ WON: +${profit.toFixed(2)} (Digit: ${actualDigit}) | Martingale reset`, 'success');
+
+                    if (this.suspendedAssets.size > 0) {
+                        const toReactivate = this.suspendedAssets.values().next().value;
+                        this.reactivateAsset(toReactivate);
+                    }
+                } else {
+                    this.totalLosses++;
+                    this.consecutiveLosses++;
+                    this.martingaleStep++;
+
+                    // Track consecutive loss milestones
+                    if (this.consecutiveLosses === 2) {
+                        this.x2Losses++;
+                    } else if (this.consecutiveLosses === 3) {
+                        this.x3Losses++;
+                    } else if (this.consecutiveLosses === 4) {
+                        this.x4Losses++;
+                    }
+
+                    // Track max consecutive losses
+                    if (this.consecutiveLosses > this.maxConsecutiveLosses) {
+                        this.maxConsecutiveLosses = this.consecutiveLosses;
+                    }
+
+                    if (this.suspendOnLoss && this.multiAssetEnabled) {
+                        this.suspendAsset(asset);
+                    }
+
+                    if (this.martingaleStep >= this.config.martingaleSteps) {
+                        this.log(`⚠️ Max martingale steps (${this.config.martingaleSteps}) reached!`, 'warning');
+
+                        switch (this.config.resetAfterMax) {
+                            case 'stop':
+                                this.log('Stopping bot due to max martingale steps.', 'error');
+                                this.totalPnL += profit;
+                                this.updateStats();
+                                this.saveState();
+                                this.stop();
+                                return;
+                            case 'reset':
+                                this.martingaleStep = 0;
+                                this.currentStake = this.initialStake;
+                                break;
+                            case 'continue':
+                                this.currentStake = this.currentStake * this.config.multiplier;
+                                break;
+                        }
+                    } else {
+                        this.currentStake = this.currentStake * this.config.multiplier;
+                    }
+
+                    this.log(`[${asset}] ❌ LOST: -${Math.abs(profit).toFixed(2)} (Digit: ${actualDigit}) | Step ${this.martingaleStep}/${this.config.martingaleSteps}`, 'error');
+                }
+
+                this.totalPnL += profit;
+
+                this.ensembleDecisionMaker.recordOutcome(
+                    this.lastPredictions[asset] || {},
+                    selectedDigit,
+                    actualDigit,
+                    won
+                );
+
+                this.addTradeToHistory(won, profit, selectedDigit, actualDigit, asset);
+                this.updateStats();
+                this.updateMartingaleUI();
+                this.updateModelWeightsUI();
+                this.saveState();
+
+                if (this.multiAssetEnabled) {
+                    this.updateAssetTabs();
+                    this.updateAssetStatusList();
+                }
+
+                if (this.totalPnL <= -this.config.stopLoss) {
+                    this.log('Stop loss reached. Stopping bot.', 'error');
+                    this.stop();
+                    return;
+                }
+
+                if (this.totalPnL >= this.config.takeProfit) {
+                    this.log('Take profit reached. Stopping bot.', 'success');
+                    this.stop();
+                    return;
+                }
+            }
+
+            suspendAsset(asset) {
+                this.suspendedAssets.add(asset);
+                this.log(`[${asset}] Suspended due to loss`, 'warning');
+                this.updateAssetTabs();
+                this.updateAssetStatusList();
+            }
+
+            reactivateAsset(asset) {
+                this.suspendedAssets.delete(asset);
+                this.log(`[${asset}] Reactivated`, 'success');
+                this.updateAssetTabs();
+                this.updateAssetStatusList();
+            }
+
+            // UI Update Methods
+            updateUI(tick, digit, asset) {
+                document.getElementById('lastPrice').textContent = tick.quote;
+
+                const data = this.assetData[asset];
+                if (!data) return;
+
+                const recentDigits = data.tickHistory.slice(-20);
+                const container = document.getElementById('recentDigits');
+                container.innerHTML = recentDigits.map((d, i) => {
+                    const isLatest = i === recentDigits.length - 1;
+                    return `<div class="digit-box w-8 h-8 flex items-center justify-center rounded ${isLatest ? 'bg-blue-500 ring-2 ring-blue-300' : 'bg-gray-700'} font-mono font-bold">${d}</div>`;
+                }).join('');
+
+                this.updateDigitDistribution(asset);
+            }
+
+            updateDigitDistribution(asset) {
+                const probs = this.statisticalEngine.getDigitProbabilities(asset, true);
+                const hotDigits = this.statisticalEngine.getHotDigits(asset);
+                const coldDigits = this.statisticalEngine.getColdDigits(asset);
+
+                const container = document.getElementById('digitDistribution');
+                container.innerHTML = probs.map((prob, digit) => {
+                    const height = Math.max(20, prob * 400);
+                    let colorClass = 'digit-neutral';
+                    let icon = '';
+
+                    if (hotDigits.includes(digit)) { colorClass = 'digit-hot'; icon = '🔥'; }
+                    else if (coldDigits.includes(digit)) { colorClass = 'digit-cold'; icon = '❄️'; }
+
+                    return `
+                    <div class="flex flex-col items-center">
+                        <div class="text-xs mb-1">${icon}</div>
+                        <div class="w-full ${colorClass} rounded-t transition-all" style="height: ${height}px"></div>
+                        <div class="text-xs mt-1 font-mono">${digit}</div>
+                        <div class="text-xs text-gray-500">${(prob * 100).toFixed(0)}%</div>
+                    </div>
+                `;
+                }).join('');
+            }
+
+            updatePredictionUI(predictions, decision) {
+                if (predictions.statistical && predictions.statistical[0]) {
+                    document.getElementById('statPrediction').textContent = predictions.statistical[0].digit;
+                    document.getElementById('statConfidence').textContent = `${(predictions.statistical[0].prob * 100).toFixed(0)}% prob`;
+                }
+
+                if (predictions.pattern) {
+                    document.getElementById('patternPrediction').textContent = predictions.pattern.mostLikely;
+                    const conf = predictions.pattern.probabilities[predictions.pattern.mostLikely];
+                    document.getElementById('patternConfidence').textContent = `${(conf * 100).toFixed(0)}% conf`;
+                }
+
+                if (predictions.neural) {
+                    const maxIdx = predictions.neural.indexOf(Math.max(...predictions.neural));
+                    document.getElementById('neuralPrediction').textContent = maxIdx;
+                    document.getElementById('neuralConfidence').textContent = `${(predictions.neural[maxIdx] * 100).toFixed(0)}% conf`;
+                }
+
+                document.getElementById('ensemblePrediction').textContent = decision.digitToDiffer;
+                document.getElementById('ensembleConfidence').textContent = `${(decision.confidence * 100).toFixed(0)}% conf`;
+
+                this.updatePredictionBars(decision.scores);
+            }
+
+            updatePredictionBars(scores) {
+                const container = document.getElementById('predictionBars');
+                const maxScore = Math.max(...scores.map(s => s.score));
+
+                container.innerHTML = scores.slice(0, 5).map(({ digit, score }) => {
+                    const width = (score / maxScore) * 100;
+                    const isTop = digit === scores[0].digit;
+                    return `
+                    <div class="flex items-center gap-2">
+                        <div class="w-6 text-center font-mono ${isTop ? 'text-yellow-400 font-bold' : ''}">${digit}</div>
+                        <div class="flex-1 bg-gray-700 rounded-full h-3">
+                            <div class="h-3 rounded-full transition-all ${isTop ? 'bg-yellow-500' : 'bg-blue-500'}" style="width: ${width}%"></div>
+                        </div>
+                        <div class="w-12 text-right text-xs text-gray-400">${score.toFixed(1)}</div>
+                    </div>
+                `;
+                }).join('');
+            }
+
+            updateLearningProgress() {
+                const progressBar = document.getElementById('learningProgress');
+                const observationsEl = document.getElementById('observations');
+                const modeEl = document.getElementById('learningMode');
+
+                if (this.learningMode) {
+                    const displayCount = Math.min(this.observationCount, this.config.learningThreshold);
+                    const progress = Math.min(100, (displayCount / this.config.learningThreshold) * 100);
+
+                    progressBar.style.width = `${progress}%`;
+                    progressBar.classList.remove('bg-green-500');
+                    progressBar.classList.add('bg-blue-500');
+
+                    observationsEl.textContent = `${displayCount} / ${this.config.learningThreshold}`;
+
+                    modeEl.textContent = 'Learning';
+                    modeEl.className = 'px-2 py-1 rounded text-xs bg-yellow-500/20 text-yellow-400';
+                } else {
+                    progressBar.style.width = '100%';
+                    progressBar.classList.remove('bg-blue-500');
+                    progressBar.classList.add('bg-green-500');
+
+                    observationsEl.textContent = `✓ Complete`;
+
+                    modeEl.textContent = 'Trading';
+                    modeEl.className = 'px-2 py-1 rounded text-xs bg-green-500/20 text-green-400';
+                }
+            }
+
+            updateMartingaleUI() {
+                document.getElementById('currentMartingaleStep').textContent = this.martingaleStep;
+                document.getElementById('maxMartingaleSteps').textContent = this.config.martingaleSteps;
+
+                const stepEl = document.getElementById('currentMartingaleStep');
+                if (this.martingaleStep === 0) stepEl.className = 'text-lg font-bold text-green-400';
+                else if (this.martingaleStep < this.config.martingaleSteps / 2) stepEl.className = 'text-lg font-bold text-yellow-400';
+                else if (this.martingaleStep < this.config.martingaleSteps) stepEl.className = 'text-lg font-bold text-orange-400';
+                else stepEl.className = 'text-lg font-bold text-red-400';
+
+                // Update current stake display in config section
+                document.getElementById('currentStakeDisplay').textContent = `$${this.currentStake.toFixed(2)}`;
+            }
+
+            updateStats() {
+                document.getElementById('totalTrades').textContent = this.totalTrades;
+                document.getElementById('totalWins').textContent = this.totalWins;
+                document.getElementById('totalLosses').textContent = this.totalLosses;
+
+                // Update consecutive losses display
+                document.getElementById('x2Losses').textContent = this.x2Losses;
+                document.getElementById('x3Losses').textContent = this.x3Losses;
+                document.getElementById('x4Losses').textContent = this.x4Losses;
+
+                const winRate = this.totalTrades > 0 ? (this.totalWins / this.totalTrades * 100) : 0;
+                document.getElementById('winRate').textContent = winRate.toFixed(1) + '%';
+                document.getElementById('winRate').className = `text-xl font-bold ${winRate >= 50 ? 'text-green-400' : 'text-red-400'}`;
+
+                document.getElementById('totalPnL').textContent = `$${this.totalPnL.toFixed(2)}`;
+                document.getElementById('totalPnL').className = `text-2xl font-bold ${this.totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`;
+
+                document.getElementById('currentStake').textContent = `$${this.currentStake.toFixed(2)}`;
+
+                const activeTrades = Object.values(this.assetTradesInProgress).filter(v => v).length;
+                document.getElementById('activeTrades').textContent = activeTrades;
+
+                const selectedAsset = this.multiAssetEnabled ? this.selectedAsset : document.getElementById('assetSelect').value;
+                const entropy = this.statisticalEngine.calculateEntropy(selectedAsset);
+                document.getElementById('marketEntropy').textContent = (entropy * 100).toFixed(1) + '%';
+
+                const neuralMetrics = this.neuralEngine.getPerformanceMetrics();
+                document.getElementById('neuralAccuracy').textContent = (neuralMetrics.accuracy * 100).toFixed(1) + '%';
+
+                this.updateLearningProgress();
+            }
+
+            updateModelWeightsUI() {
+                const weights = this.ensembleDecisionMaker.modelWeights;
+                const container = document.getElementById('modelWeights');
+                const colors = { statistical: 'bg-orange-500', pattern: 'bg-purple-500', neural: 'bg-blue-500', streak: 'bg-green-500' };
+
+                container.innerHTML = Object.entries(weights).map(([model, weight]) => {
+                    const pct = (weight * 100).toFixed(0);
+                    return `
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-400 capitalize">${model}</span>
+                        <div class="flex items-center gap-2">
+                            <div class="w-20 bg-gray-700 rounded-full h-2">
+                                <div class="${colors[model]} h-2 rounded-full" style="width: ${pct}%"></div>
+                            </div>
+                            <span class="text-sm w-10">${pct}%</span>
+                        </div>
+                    </div>
+                `;
+                }).join('');
+            }
+
+            addTradeToHistory(won, profit, predicted, actual, asset = null) {
+                const container = document.getElementById('tradeHistory');
+                if (this.tradeHistory.length === 0) container.innerHTML = '';
+
+                this.tradeHistory.unshift({ won, profit, predicted, actual, asset, time: new Date() });
+                if (this.tradeHistory.length > 50) this.tradeHistory.pop();
+
+                document.getElementById('tradeCount').textContent = this.tradeHistory.length;
+
+                const assetLabel = asset ? `<span class="text-blue-400 text-xs">[${asset}]</span>` : '';
+                const tradeHtml = `
+                <div class="glass rounded-lg p-3 ${won ? 'trade-win' : 'trade-loss'}">
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <span class="text-lg">${won ? '✅' : '❌'}</span>
+                            ${assetLabel}
+                            <span>Differ from ${predicted}</span>
+                            <span class="text-gray-500">→</span>
+                            <span>Actual: ${actual}</span>
+                        </div>
+                        <span class="${won ? 'text-green-400' : 'text-red-400'} font-bold">
+                            ${won ? '+' : ''}$${profit.toFixed(2)}
+                        </span>
+                    </div>
+                </div>
+            `;
+
+                container.insertAdjacentHTML('afterbegin', tradeHtml);
+                while (container.children.length > 50) container.removeChild(container.lastChild);
+            }
+
+            updateConnectionStatus(connected) {
+                const dot = document.getElementById('statusDot');
+                const text = document.getElementById('statusText');
+
+                if (connected) {
+                    dot.className = 'w-2 h-2 rounded-full bg-green-500 pulse-green';
+                    text.textContent = 'Connected';
+                } else {
+                    dot.className = 'w-2 h-2 rounded-full bg-red-500';
+                    text.textContent = 'Disconnected';
+                }
+            }
+
+            updateBalance() {
+                document.getElementById('balanceDisplay').textContent = `$${this.balance.toFixed(2)}`;
+            }
+
+            log(message, type = 'info') {
+                const container = document.getElementById('activityLog');
+                const time = new Date().toLocaleTimeString();
+                const colors = { info: 'text-gray-300', success: 'text-green-400', error: 'text-red-400', warning: 'text-yellow-400' };
+
+                container.insertAdjacentHTML('afterbegin', `<div class="${colors[type]}"><span class="text-gray-500">[${time}]</span> ${message}</div>`);
+                while (container.children.length > 50) container.removeChild(container.lastChild);
+                console.log(`[${time}] ${message}`);
+            }
+
+            // State Management
+            saveState() {
+                const state = {
+                    statisticalEngine: this.statisticalEngine.exportState(),
+                    patternEngine: this.patternEngine.exportState(),
+                    neuralEngine: this.neuralEngine.exportWeights(),
+                    ensembleDecisionMaker: this.ensembleDecisionMaker.exportState(),
+                    observationCount: this.observationCount,
+                    totalTrades: this.totalTrades,
+                    totalWins: this.totalWins,
+                    totalLosses: this.totalLosses,
+                    totalPnL: this.totalPnL,
+                    x2Losses: this.x2Losses,
+                    x3Losses: this.x3Losses,
+                    x4Losses: this.x4Losses,
+                    maxConsecutiveLosses: this.maxConsecutiveLosses,
+                    tradeHistory: this.tradeHistory.slice(0, 100),
+                    assetData: this.assetData
+                };
+                localStorage.setItem('digitDifferBotState', JSON.stringify(state));
+            }
+
+            loadState() {
+                try {
+                    const saved = localStorage.getItem('digitDifferBotState');
+                    if (saved) {
+                        const state = JSON.parse(saved);
+                        this.statisticalEngine.importState(state.statisticalEngine || {});
+                        this.patternEngine.importState(state.patternEngine || {});
+                        this.neuralEngine.importWeights(state.neuralEngine || {});
+                        this.ensembleDecisionMaker.importState(state.ensembleDecisionMaker || {});
+                        this.observationCount = state.observationCount || 0;
+                        this.totalTrades = state.totalTrades || 0;
+                        this.totalWins = state.totalWins || 0;
+                        this.totalLosses = state.totalLosses || 0;
+                        this.totalPnL = state.totalPnL || 0;
+                        this.x2Losses = state.x2Losses || 0;
+                        this.x3Losses = state.x3Losses || 0;
+                        this.x4Losses = state.x4Losses || 0;
+                        this.maxConsecutiveLosses = state.maxConsecutiveLosses || 0;
+                        this.tradeHistory = state.tradeHistory || [];
+                        this.assetData = state.assetData || {};
+                        if (this.observationCount >= this.config.learningThreshold) this.learningMode = false;
+                    }
+                } catch (e) {
+                    console.error('Error loading state:', e);
+                }
+            }
+
+            clearState() {
+                localStorage.removeItem('digitDifferBotState');
+                location.reload();
+            }
+
+            // Bot Control
+            start() {
+                this.token = document.getElementById('apiToken').value.trim();
+                if (!this.token) {
+                    this.log('Please enter your API token', 'error');
+                    return;
+                }
+
+                // Get notification email
+                this.notificationEmail = document.getElementById('notificationEmail').value.trim();
+
+                this.multiAssetEnabled = document.getElementById('multiAssetEnabled').checked;
+                this.parallelTrading = document.getElementById('parallelTrading').checked;
+                this.suspendOnLoss = document.getElementById('suspendOnLoss').checked;
+
+                if (this.multiAssetEnabled) {
+                    this.updateActiveAssets();
+                    if (this.activeAssets.length === 0) {
+                        this.log('Please select at least one asset', 'error');
+                        return;
+                    }
+                    this.selectedAsset = this.activeAssets[0];
+                } else {
+                    this.activeAssets = [document.getElementById('assetSelect').value];
+                    this.selectedAsset = this.activeAssets[0];
+                }
+
+                this.initialStake = parseFloat(document.getElementById('stakeInput').value) || 1;
+                this.currentStake = this.initialStake;
+                this.config.tickDuration = parseInt(document.getElementById('durationSelect').value) || 1;
+                this.config.stopLoss = parseFloat(document.getElementById('stopLoss').value) || 10;
+                this.config.takeProfit = parseFloat(document.getElementById('takeProfit').value) || 5;
+                this.config.minConfidence = parseFloat(document.getElementById('minConfidence').value) || 0.12;
+                this.ensembleDecisionMaker.confidenceThreshold = this.config.minConfidence;
+                this.config.multiplier = parseFloat(document.getElementById('martingaleMultiplier').value) || 2.2;
+                this.config.martingaleSteps = parseInt(document.getElementById('martingaleSteps').value) || 5;
+                this.config.resetAfterMax = document.getElementById('resetAfterMax').value || 'reset';
+
+                this.martingaleStep = 0;
+                this.suspendedAssets.clear();
+                this.updateMartingaleUI();
+
+                this.isRunning = true;
+                this.connect();
+
+                document.getElementById('startBtn').textContent = '⏹ Stop Bot';
+                document.getElementById('startBtn').className = 'w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-6 rounded-lg transition-all text-lg';
+                document.getElementById('currentAssetDisplay').textContent = `[${this.selectedAsset}]`;
+
+                const mode = this.multiAssetEnabled ? `Multi-Asset (${this.activeAssets.length})` : 'Single Asset';
+                this.log(`Bot started | ${mode} | Martingale: ${this.config.multiplier}x, ${this.config.martingaleSteps} steps`, 'success');
+            }
+
+            stop() {
+                this.isRunning = false;
+                this.disconnect();
+
+                document.getElementById('startBtn').textContent = '▶ Start Bot';
+                document.getElementById('startBtn').className = 'w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-3 px-6 rounded-lg transition-all text-lg';
+
+                this.log('Bot stopped');
+                this.saveState();
+            }
+
+            toggle() {
+                if (this.isRunning) this.stop();
+                else this.start();
+            }
+        }
+
+        // ============================================================================
+        // GLOBAL INSTANCE & HANDLERS
+        // ============================================================================
+        const bot = new DigitDifferBot();
+
+        function toggleBot() { bot.toggle(); }
+        function clearData() {
+            if (confirm('Are you sure you want to clear all learning data?')) bot.clearState();
+        }
+
+        function saveSettings() {
+            const settings = {
+                apiToken: document.getElementById('apiToken').value,
+                notificationEmail: document.getElementById('notificationEmail').value,
+                asset: document.getElementById('assetSelect').value,
+                stake: document.getElementById('stakeInput').value,
+                tickDuration: document.getElementById('durationSelect').value,
+                stopLoss: document.getElementById('stopLoss').value,
+                takeProfit: document.getElementById('takeProfit').value,
+                minConfidence: document.getElementById('minConfidence').value,
+                martingaleMultiplier: document.getElementById('martingaleMultiplier').value,
+                martingaleSteps: document.getElementById('martingaleSteps').value,
+                resetAfterMax: document.getElementById('resetAfterMax').value,
+                multiAssetEnabled: document.getElementById('multiAssetEnabled').checked,
+                selectedAssets: Array.from(document.querySelectorAll('.asset-checkbox:checked')).map(cb => cb.value),
+                parallelTrading: document.getElementById('parallelTrading').checked,
+                suspendOnLoss: document.getElementById('suspendOnLoss').checked,
+                savedAt: new Date().toISOString()
+            };
+
+            localStorage.setItem('digitDifferBotSettings', JSON.stringify(settings));
+            bot.log('✅ Settings saved successfully!', 'success');
+
+            // Visual feedback
+            const btn = event.target.closest('button');
+            if (btn) {
+                const originalHTML = btn.innerHTML;
+                btn.innerHTML = '<span>✓</span> <span class="hidden sm:inline">Saved!</span>';
+                btn.classList.add('bg-green-600');
+                setTimeout(() => { btn.innerHTML = originalHTML; btn.classList.remove('bg-green-600'); }, 1500);
+            }
+        }
+
+        function loadSettings() {
+            try {
+                const saved = localStorage.getItem('digitDifferBotSettings');
+                if (!saved) { bot.log('⚠️ No saved settings found.', 'warning'); return; }
+
+                const settings = JSON.parse(saved);
+
+                if (settings.apiToken) document.getElementById('apiToken').value = settings.apiToken;
+                if (settings.notificationEmail) document.getElementById('notificationEmail').value = settings.notificationEmail;
+                if (settings.asset) document.getElementById('assetSelect').value = settings.asset;
+                if (settings.stake) document.getElementById('stakeInput').value = settings.stake;
+                if (settings.tickDuration) document.getElementById('durationSelect').value = settings.tickDuration;
+                if (settings.stopLoss) document.getElementById('stopLoss').value = settings.stopLoss;
+                if (settings.takeProfit) document.getElementById('takeProfit').value = settings.takeProfit;
+                if (settings.minConfidence) document.getElementById('minConfidence').value = settings.minConfidence;
+                if (settings.martingaleMultiplier) document.getElementById('martingaleMultiplier').value = settings.martingaleMultiplier;
+                if (settings.martingaleSteps) document.getElementById('martingaleSteps').value = settings.martingaleSteps;
+                if (settings.resetAfterMax) document.getElementById('resetAfterMax').value = settings.resetAfterMax;
+
+                // Multi-asset settings
+                if (settings.multiAssetEnabled !== undefined) {
+                    document.getElementById('multiAssetEnabled').checked = settings.multiAssetEnabled;
+                    document.getElementById('multiAssetOptions').classList.toggle('hidden', !settings.multiAssetEnabled);
+                    document.getElementById('assetTabs').classList.toggle('hidden', !settings.multiAssetEnabled);
+                    document.getElementById('multiAssetStatus').classList.toggle('hidden', !settings.multiAssetEnabled);
+                }
+                if (settings.selectedAssets) {
+                    document.querySelectorAll('.asset-checkbox').forEach(cb => {
+                        cb.checked = settings.selectedAssets.includes(cb.value);
+                    });
+                }
+                if (settings.parallelTrading !== undefined) document.getElementById('parallelTrading').checked = settings.parallelTrading;
+                if (settings.suspendOnLoss !== undefined) document.getElementById('suspendOnLoss').checked = settings.suspendOnLoss;
+
+                document.getElementById('maxMartingaleSteps').textContent = settings.martingaleSteps || '5';
+
+                bot.log(`📂 Settings loaded (saved: ${new Date(settings.savedAt).toLocaleString()})`, 'success');
+
+                // Visual feedback
+                const btn = event.target.closest('button');
+                if (btn) {
+                    const originalHTML = btn.innerHTML;
+                    btn.innerHTML = '<span>✓</span> <span class="hidden sm:inline">Loaded!</span>';
+                    btn.classList.add('bg-green-600');
+                    setTimeout(() => { btn.innerHTML = originalHTML; btn.classList.remove('bg-green-600'); }, 1500);
+                }
+            } catch (e) {
+                console.error('Error loading settings:', e);
+                bot.log('❌ Error loading settings', 'error');
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            bot.updateStats();
+            bot.updateLearningProgress();
+            if (bot.tradeHistory.length > 0) {
+                const container = document.getElementById('tradeHistory');
+                container.innerHTML = '';
+                bot.tradeHistory.forEach(trade => {
+                    bot.addTradeToHistory(trade.won, trade.profit, trade.predicted, trade.actual, trade.asset);
+                });
+            }
+        });
+    </script>
+</body>
+
+</html>
