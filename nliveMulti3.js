@@ -774,7 +774,6 @@ class EnhancedDigitDifferTradingBot {
             // NEW: Reset adaptive filters on win
             // this.learningSystem.adaptiveFilters[asset] = 8;
         } else {
-            this.totalLosses++;
             this.consecutiveLosses++;
             this.consecutiveLossesN++;
             this.isWinTrade = false;
