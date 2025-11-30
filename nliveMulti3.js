@@ -807,14 +807,14 @@ class EnhancedDigitDifferTradingBot {
                 this.currentStake = this.config.initialStake;
             }
 
-            if (this.consecutiveLossesN <= 1 || this.consecutiveLossesN > 3) {
+            if (this.consecutiveLossesN < 1 || this.consecutiveLossesN > 2) {
                 this.totalLosses++;
             } else {
                 this.rtotalLosses++;
             }
         }
 
-        if (this.consecutiveLossesN <= 1 || this.consecutiveLossesN > 3) {
+        if (this.consecutiveLossesN < 1 || this.consecutiveLossesN > 2) {
             this.totalProfitLoss += profit;
         } else {
             this.rtotalProfitLoss += profit;
