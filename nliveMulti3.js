@@ -1129,7 +1129,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok_Enhanced Accumulator Bot - Performance Summary',
+            subject: 'vGrok_Enhanced Accumulator Bot - Performance Summary',
             text: summaryText
         };
 
