@@ -3,8 +3,10 @@ const WebSocket = require('ws');
 const nodemailer = require('nodemailer');
 
 class EnhancedDigitDifferTradingBot {
-    constructor(token, config = {}) {
-        this.token = token;
+    constructor(defaultToken, alternateToken, config = {}) {
+        this.defaultToken = defaultToken;
+        this.alternateToken = alternateToken;
+        this.currentToken = defaultToken;
         this.ws = null;
         this.connected = false;
         this.wsReady = false;
@@ -14,8 +16,8 @@ class EnhancedDigitDifferTradingBot {
         this.config = {
             initialStake: config.initialStake || 10.5,
             multiplier: config.multiplier || 21,
-            multiplier2: config.multiplier2 || 100,
-            multiplier3: config.multiplier3 || 1000,
+            mainStake: config.mainStake || 1,
+            mainStake2: config.mainStake2 || 5,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 5,
             stopLoss: config.stopLoss || 50,
             takeProfit: config.takeProfit || 1,
@@ -38,11 +40,16 @@ class EnhancedDigitDifferTradingBot {
         this.totalTrades = 0;
         this.totalWins = 0;
         this.totalLosses = 0;
+        this.rtotalTrades = 0;
+        this.rtotalWins = 0;
+        this.rtotalLosses = 0;
+        this.totalProfitLoss = 0;
+        this.rtotalProfitLoss = 0;
         this.consecutiveLosses2 = 0;
         this.consecutiveLosses3 = 0;
         this.consecutiveLosses4 = 0;
         this.consecutiveLosses5 = 0;
-        this.totalProfitLoss = 0;
+        this.consecutiveLossesN = 0;
         this.tradeInProgress = false;
         this.endOfDay = false;
         this.waitTime = 0;
@@ -217,7 +224,7 @@ class EnhancedDigitDifferTradingBot {
     authenticate() {
         console.log('Attempting to authenticate...');
         this.sendRequest({
-            authorize: this.token
+            authorize: this.currentToken
         });
     }
 
@@ -736,24 +743,26 @@ class EnhancedDigitDifferTradingBot {
         const filterUsed = this.learningSystem.adaptiveFilters[asset]; // Or 8
         this.recordTradeOutcome(asset, won, digitCount, filterUsed, assetState.stayedInArray);
 
-        this.totalTrades++;
+        if (this.consecutiveLossesN < 1 || this.consecutiveLossesN > 3) {
+            this.totalTrades++;
+        } else {
+            this.rtotalTrades++;
+            if (this.sys === 2 && this.sysCount >= 100) {
+                this.sys = 1;
+                this.sysCount = 0;
+            }
+        }
 
         if (won) {
-            this.totalWins++;
+            if (this.consecutiveLossesN < 1 || this.consecutiveLossesN > 2) {
+                this.totalWins++;
+            } else {
+                this.rtotalWins++;
+            }
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
-            //New Stake System
-            if (this.sys === 2) {
-                if (this.sysCount === 5) {
-                    this.sys = 1;
-                    this.sysCount = 0;
-                }
-            } else if (this.sys === 3) {
-                if (this.sysCount === 2) {
-                    this.sys = 1;
-                    this.sysCount = 0;
-                }
-            }
+            this.consecutiveLossesN = 0;
+
 
             this.currentStake = this.config.initialStake;
 
@@ -767,6 +776,7 @@ class EnhancedDigitDifferTradingBot {
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
+            this.consecutiveLossesN++;
             this.isWinTrade = false;
 
             // Increment asset-specific loss counter
@@ -779,10 +789,38 @@ class EnhancedDigitDifferTradingBot {
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            if (this.consecutiveLossesN < 3) {
+                if (this.consecutiveLossesN <= 1) {
+                    if (this.sys === 1) {
+                        this.currentStake = this.config.mainStake;
+                    } else {
+                        this.currentStake = this.config.mainStake2;
+                        this.sysCount++;
+                    }
+                } else {
+                    this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+                    if (this.sys === 2) {
+                        this.sysCount++;
+                    }
+                }
+            } else {
+                this.sys++;
+                this.currentStake = this.config.initialStake;
+            }
+
+            if (this.consecutiveLossesN <= 1 || this.consecutiveLossesN > 3) {
+                this.totalLosses++;
+            } else {
+                this.rtotalLosses++;
+            }
         }
 
-        this.totalProfitLoss += profit;
+        if (this.consecutiveLossesN <= 1 || this.consecutiveLossesN > 3) {
+            this.totalProfitLoss += profit;
+        } else {
+            this.rtotalProfitLoss += profit;
+        }
+
         this.Pause = true;
 
         // NEW: Adaptive wait time based on market conditions and losses
@@ -795,42 +833,6 @@ class EnhancedDigitDifferTradingBot {
             //Suspend All Assets (Non-Loss)
             this.suspendAsset(asset);
             // this.suspendAllExcept(asset);
-
-            //New Stake System
-            if (this.consecutiveLosses >= 2) {
-                if (this.sys === 1) {
-                    this.sys = 2;
-                } else if (this.sys === 2) {
-                    this.sys = 3;
-                }
-                this.sysCount = 0;
-            }
-
-            if (this.sys === 2 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier2) {
-                this.sys = 3;
-                this.sysCount = 0;
-            }
-
-            // if (this.sys === 3 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier3) {
-            //     this.stopLossStake = true;
-            // }
-
-            //New Stake System
-            // if (this.sys === 1) {
-            //     // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            //     this.currentStake = this.config.multiplier;
-            //     this.sys = 1;
-            // } else {
-            //     if (this.sys === 2 && this.consecutiveLosses === 1) {
-            //         this.currentStake = this.config.multiplier2;
-            //         this.sysCount++;
-            //     } else if (this.sys === 3 && this.consecutiveLosses === 1) {
-            //         this.currentStake = this.config.multiplier3;
-            //         this.sysCount++;
-            //     } else {
-            //         this.currentStake = this.config.initialStake;
-            //     }
-            // }
         } else {
             if (this.suspendedAssets.size > 1) {
                 const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
@@ -855,9 +857,7 @@ class EnhancedDigitDifferTradingBot {
         }
 
         // Enhanced stop conditions with risk management
-        // const riskLimitReached = this.totalProfitLoss <= -this.riskManager.maxDailyLoss;
-
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss || this.stopLossStake) {
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.rtotalProfitLoss <= -this.config.stopLoss || this.sys >= 3) {
             console.log('Stop condition reached. Stopping trading.');
             this.endOfDay = true;
             this.sendEmailSummary();
@@ -865,7 +865,7 @@ class EnhancedDigitDifferTradingBot {
             return;
         }
 
-        if (this.totalProfitLoss >= this.config.takeProfit) {
+        if (this.rtotalProfitLoss >= this.config.takeProfit) {
             console.log('Take Profit Reached... Stopping trading.');
             this.endOfDay = true;
             this.sendEmailSummary();
@@ -874,6 +874,22 @@ class EnhancedDigitDifferTradingBot {
         }
 
         this.disconnect();
+
+        //Switching fro Virtual to Real Api
+        if (won) {
+            // if(this.currentToken === this.alternateToken) {
+            console.log('Switching to virtual token after a Win!');
+            // }
+            this.currentToken = this.defaultToken;
+        } else {
+            if (this.consecutiveLossesN < 3) {
+                console.log('Switching to Real Account token after a Loss!');
+                this.currentToken = this.alternateToken;
+            } else {
+                console.log('Switching to default token after x3 Losses!');
+                this.currentToken = this.defaultToken;
+            }
+        }
 
         if (!this.endOfDay) {
             setTimeout(() => {
@@ -1034,14 +1050,21 @@ class EnhancedDigitDifferTradingBot {
     }
 
     logTradingSummary(asset) {
-        console.log('Trading Summary:');
-        console.log(`Total Trades: ${this.totalTrades}`);
-        console.log(`Total Trades Won: ${this.totalWins}`);
-        console.log(`Total Trades Lost: ${this.totalLosses}`);
+        console.log(`Total vTrades: ${this.totalTrades}`);
+        console.log(`Total vTrades Won: ${this.totalWins}`);
+        console.log(`Total vTrades Lost: ${this.totalLosses}`);
+        console.log(`Total rTrades: ${this.rtotalTrades}`);
+        console.log(`Total rTrades Won: ${this.rtotalWins}`);
+        console.log(`Total rTrades Lost: ${this.rtotalLosses}`);
         console.log(`x2 Losses: ${this.consecutiveLosses2}`);
         console.log(`x3 Losses: ${this.consecutiveLosses3}`);
-        console.log(`Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}`);
-        console.log(`Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%`);
+        console.log(`x4 Losses: ${this.consecutiveLosses4}`);
+        console.log(`x5 Losses: ${this.consecutiveLosses5}`);
+        console.log(`Virtual Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}`);
+        console.log(`vWin Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%`);
+        console.log(`Real Profit/Loss Amount: ${this.rtotalProfitLoss.toFixed(2)}`);
+        console.log(`rWin Rate: ${((this.rtotalWins / this.rtotalTrades) * 100).toFixed(2)}%`);
+
         console.log(`[${asset}] Predicted Asset: ${asset}`);
         console.log(`Current Stake: $${this.currentStake.toFixed(2)}`);
         console.log(`Currently Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}`);
@@ -1056,11 +1079,11 @@ class EnhancedDigitDifferTradingBot {
     }
 
     startEmailTimer() {
-        if (!this.endOfDay) {
-            setInterval(() => {
+        setInterval(() => {
+            if (!this.endOfDay) {
                 this.sendEmailSummary();
-            }, 1800000); // 30 Minutes
-        }
+            }
+        }, 1800000); // 30 Minutes
     }
 
     async sendEmailSummary() {
@@ -1077,14 +1100,20 @@ class EnhancedDigitDifferTradingBot {
 
         const summaryText = `
         ==================== Trading Summary ====================
-        Total Trades: ${this.totalTrades}
-        Total Wins: ${this.totalWins}
-        Total Losses: ${this.totalLosses}
-        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
-        
-        Consecutive Losses: ${this.consecutiveLosses}
+        Total vTrades: ${this.totalTrades}
+        Total vTrades Won: ${this.totalWins}
+        Total vTrades Lost: ${this.totalLosses}
+        Total rTrades: ${this.rtotalTrades}
+        Total rTrades Won: ${this.rtotalWins}
+        Total rTrades Lost: ${this.rtotalLosses}
         x2 Losses: ${this.consecutiveLosses2}
         x3 Losses: ${this.consecutiveLosses3}
+        x4 Losses: ${this.consecutiveLosses4}
+        x5 Losses: ${this.consecutiveLosses5}
+        Virtual Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
+        vWin Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+        Real Profit/Loss Amount: ${this.rtotalProfitLoss.toFixed(2)}
+        rWin Rate: ${((this.rtotalWins / this.rtotalTrades) * 100).toFixed(2)}%
 
         Financial:
         Current Stake: ${this.currentStake.toFixed(2)}
@@ -1126,12 +1155,20 @@ class EnhancedDigitDifferTradingBot {
         const summaryText = `
         ==================== Loss Alert ====================
         Trade Summary:
-        Total Trades: ${this.totalTrades}
-        Wins: ${this.totalWins} | Losses: ${this.totalLosses}
-        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
-        
-        Consecutive Losses: ${this.consecutiveLosses}
-        x2: ${this.consecutiveLosses2} | x3: ${this.consecutiveLosses3}
+        Total vTrades: ${this.totalTrades}
+        Total vTrades Won: ${this.totalWins}
+        Total vTrades Lost: ${this.totalLosses}
+        Total rTrades: ${this.rtotalTrades}
+        Total rTrades Won: ${this.rtotalWins}
+        Total rTrades Lost: ${this.rtotalLosses}
+        x2 Losses: ${this.consecutiveLosses2}
+        x3 Losses: ${this.consecutiveLosses3}
+        x4 Losses: ${this.consecutiveLosses4}
+        x5 Losses: ${this.consecutiveLosses5}
+        Virtual Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
+        vWin Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+        Real Profit/Loss Amount: ${this.rtotalProfitLoss.toFixed(2)}
+        rWin Rate: ${((this.rtotalWins / this.rtotalTrades) * 100).toFixed(2)}%
 
         Loss Analysis for [${asset}]:
         Filtered Array: ${assetState.filteredArray}
@@ -1157,7 +1194,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: `Grok_Enhanced Accumulator Bot - Loss Alert [${asset}]`,
+            subject: `vGrok_Enhanced Accumulator Bot - Loss Alert [${asset}]`,
             text: summaryText
         };
 
@@ -1189,14 +1226,20 @@ class EnhancedDigitDifferTradingBot {
         Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
 
         ==================== Trading Summary ====================
-        Total Trades: ${this.totalTrades}
-        Total Wins: ${this.totalWins}
-        Total Losses: ${this.totalLosses}
-        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
-        
-        Consecutive Losses: ${this.consecutiveLosses}
+        Total vTrades: ${this.totalTrades}
+        Total vTrades Won: ${this.totalWins}
+        Total vTrades Lost: ${this.totalLosses}
+        Total rTrades: ${this.rtotalTrades}
+        Total rTrades Won: ${this.rtotalWins}
+        Total rTrades Lost: ${this.rtotalLosses}
         x2 Losses: ${this.consecutiveLosses2}
         x3 Losses: ${this.consecutiveLosses3}
+        x4 Losses: ${this.consecutiveLosses4}
+        x5 Losses: ${this.consecutiveLosses5}
+        Virtual Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
+        vWin Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+        Real Profit/Loss Amount: ${this.rtotalProfitLoss.toFixed(2)}
+        rWin Rate: ${((this.rtotalWins / this.rtotalTrades) * 100).toFixed(2)}%
 
         Financial:
         Current Stake: ${this.currentStake.toFixed(2)}
@@ -1213,7 +1256,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok_Enhanced Accumulator Bot - Performance Summary',
+            subject: 'vGrok_Enhanced Accumulator Bot - Performance Summary',
             text: summaryText
         };
 
@@ -1229,7 +1272,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok_Enhanced Accumulator Bot - Error Report',
+            subject: 'vGrok_Enhanced Accumulator Bot - Error Report',
             text: `An error occurred: ${errorMessage}`
         };
 
@@ -1244,19 +1287,19 @@ class EnhancedDigitDifferTradingBot {
         console.log('🚀 Starting Enhanced Accumulator Trading Bot with Learning System');
         console.log('Features: Adaptive filters, pattern recognition, volatility analysis');
         this.connect();
-        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
+        // this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
 // Usage
-const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', {
+const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', 'hsj0tA0XJoIzJG5', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP, hsj0tA0XJoIzJG5, Dz2V2KvRf4Uukt3
     initialStake: 1,
     multiplier: 21,
-    multiplier2: 100,
-    multiplier3: 1000,
-    maxConsecutiveLosses: 3,
-    stopLoss: 400,
+    mainStake: 2,
+    mainStake2: 5,
+    maxConsecutiveLosses: 6,
+    stopLoss: 200,
     takeProfit: 5000,
     growthRate: 0.05,
     accuTakeProfit: 0.5,
@@ -1266,7 +1309,6 @@ const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', {
     maxWaitTime: 5000, // 5 seconds for testing
     // minWaitTime: 300000, //5 Minutes
     // maxWaitTime: 2600000, //1 Hour
-    minOccurrencesThreshold: 1,
 });
 
 bot.start();
