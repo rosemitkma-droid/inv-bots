@@ -756,9 +756,12 @@ class EnhancedDigitDifferTradingBot {
         if (won) {
             if (this.consecutiveLossesN < 1 || this.consecutiveLossesN > 2) {
                 this.totalWins++;
+                this.totalProfitLoss += profit;
             } else {
                 this.rtotalWins++;
+                this.rtotalProfitLoss += profit;
             }
+
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
             this.consecutiveLossesN = 0;
@@ -807,17 +810,11 @@ class EnhancedDigitDifferTradingBot {
                 this.currentStake = this.config.initialStake;
             }
 
-            if (this.consecutiveLossesN < 1 || this.consecutiveLossesN > 2) {
+            if (this.consecutiveLossesN <= 1 || this.consecutiveLossesN > 3) {
                 this.totalLosses++;
             } else {
                 this.rtotalLosses++;
             }
-        }
-
-        if (this.consecutiveLossesN < 1 || this.consecutiveLossesN > 2) {
-            this.totalProfitLoss += profit;
-        } else {
-            this.rtotalProfitLoss += profit;
         }
 
         this.Pause = true;
@@ -889,6 +886,66 @@ class EnhancedDigitDifferTradingBot {
                 this.currentToken = this.defaultToken;
             }
         }
+
+        // Asset-specific data
+        this.digitCounts = {};
+        this.tickSubscriptionIds = {};
+        this.tickHistories = {};
+        this.lastDigits = {};
+        this.predictedDigits = {};
+        this.lastPredictions = {};
+        this.assetStates = {};
+        this.pendingProposals = new Map();
+        this.previousStayedIn = {};
+        this.extendedStayedIn = {}; // Extended historical run lengths (up to 5000)
+
+        // NEW: Advanced analytics and learning system
+        this.learningSystem = {
+            lossPatterns: {},
+            failedDigitCounts: {},
+            volatilityScores: {},
+            filterPerformance: {},
+            resetPatterns: {},
+            timeWindowPerformance: [],
+            adaptiveFilters: {},
+        };
+
+        // NEW: Advanced risk management
+        this.riskManager = {
+            // maxDailyLoss: config.stopLoss * 0.7,
+            currentSessionRisk: 0,
+            riskPerTrade: 0.02,
+            cooldownPeriod: 0,
+            lastLossTime: null,
+            consecutiveSameDigitLosses: {},
+        };
+
+        this.assets.forEach(asset => {
+            this.tickHistories[asset] = [];
+            this.digitCounts[asset] = Array(10).fill(0);
+            this.lastDigits[asset] = null;
+            this.predictedDigits[asset] = null;
+            this.lastPredictions[asset] = [];
+            this.assetStates[asset] = {
+                stayedInArray: [],
+                tradedDigitArray: [],
+                filteredArray: [],
+                totalArray: [],
+                currentProposalId: null,
+                tradeInProgress: false,
+                consecutiveLosses: 0,
+                lastTradeResult: null,
+                digitFrequency: {},
+            };
+            this.previousStayedIn[asset] = null;
+            this.extendedStayedIn[asset] = [];
+
+            // Initialize learning system for each asset
+            this.learningSystem.lossPatterns[asset] = [];
+            this.learningSystem.volatilityScores[asset] = 0;
+            this.learningSystem.adaptiveFilters[asset] = 8;
+            this.riskManager.consecutiveSameDigitLosses[asset] = {};
+        });
 
         if (!this.endOfDay) {
             setTimeout(() => {
@@ -1116,7 +1173,7 @@ class EnhancedDigitDifferTradingBot {
 
         Financial:
         Current Stake: ${this.currentStake.toFixed(2)}
-        Total P/L: ${this.totalProfitLoss.toFixed(2)}
+        Total P/L: ${this.rtotalProfitLoss.toFixed(2)}
         
         Learning System Performance:
         ${totalFilterStats || 'No filter data yet'}
@@ -1182,9 +1239,9 @@ class EnhancedDigitDifferTradingBot {
         Last 10 Digits: ${lastFewTicks.join(', ')}
 
         Financial:
-        Total P/L: ${this.totalProfitLoss.toFixed(2)}
         Current Stake: ${this.currentStake.toFixed(2)}
-        
+        Total P/L: ${this.rtotalProfitLoss.toFixed(2)}
+                
         Next Action:
         Waiting: ${this.waitTime} minutes before next trade
         ====================================================
