@@ -1,8 +1,8 @@
 /**
- * Enhanced Deriv Digit Differ Trading Bot
+ * Smart Deriv Differ Trading Bot
  * Version 2.0 - Advanced AI Learning System
  * 
- * Digit Differ: Win if the last digit of the final tick is DIFFERENT from your chosen digit
+ * Smart Differ: Win if the last digit of the final tick is DIFFERENT from your chosen digit
  * Base Win Rate: ~90% (9/10 outcomes win)
  * Strategy: Choose the digit most likely to appear, bet it will DIFFER
  * 
@@ -214,29 +214,27 @@ class DigitStatisticalEngine {
     }
 
     /**
-     * Find the best digit to bet AGAINST (LEAST likely to appear)
-     * CRITICAL FIX: We want to choose the digit LEAST likely to appear
-     * This maximizes our win rate (if digit appears 5%, we win 95%)
+     * Find the best digit to bet AGAINST (most likely to appear)
      */
     getBestDigitToDiffer(asset) {
         const probs = this.getDigitProbabilities(asset, true);
         const bayesian = this.getBayesianEstimates(asset);
-        const coldDigits = this.getColdDigits(asset);
+        const hotDigits = this.getHotDigits(asset);
 
-        // Score each digit - INVERTED LOGIC
+        // Score each digit
         const scores = [];
         for (let digit = 0; digit < 10; digit++) {
-            // FIXED: Higher score = LESS likely to appear = better to bet DIFFER
+            // Higher score = more likely to appear = better to bet DIFFER
             let score = 0;
 
-            // Invert frequency-based score (1 - prob gives lower score to hot digits)
-            score += (1 - probs[digit]) * 40;
+            // Frequency-based score
+            score += probs[digit] * 40;
 
-            // Invert Bayesian mean
-            score += (1 - bayesian[digit].mean) * 30;
+            // Bayesian mean
+            score += bayesian[digit].mean * 30;
 
-            // Cold digit bonus (opposite of hot digit)
-            if (coldDigits.includes(digit)) {
+            // Hot digit bonus
+            if (hotDigits.includes(digit)) {
                 score += 20;
             }
 
@@ -247,7 +245,7 @@ class DigitStatisticalEngine {
             scores.push({ digit, score, prob: probs[digit], bayesian: bayesian[digit].mean });
         }
 
-        // Sort by score descending (highest score = least likely to appear)
+        // Sort by score descending
         scores.sort((a, b) => b.score - a.score);
 
         return scores;
@@ -801,93 +799,78 @@ class DigitNeuralEngine {
 
 class DigitEnsembleDecisionMaker {
     constructor() {
-        this.modelWeights = {
-            statistical: 0.30,
-            pattern: 0.25,
-            neural: 0.25,
-            streak: 0.20
-        };
-
+        this.modelWeights = { statistical: 0.30, pattern: 0.25, neural: 0.25, streak: 0.20 };
         this.modelPerformance = {
             statistical: { correct: 0, total: 0 },
             pattern: { correct: 0, total: 0 },
             neural: { correct: 0, total: 0 },
             streak: { correct: 0, total: 0 }
         };
-
         this.recentDecisions = [];
-        this.confidenceThreshold = 0.50; // Minimum probability advantage to trade
+        this.confidenceThreshold = 0.85;
     }
 
-    /**
-     * Combine all model predictions to select best digit to DIFFER from
-     */
     selectDigitToDiffer(predictions) {
         const combinedScores = Array(10).fill(0);
         const details = {};
 
-        // Statistical model contribution
         if (predictions.statistical) {
             const scores = predictions.statistical;
             for (let i = 0; i < 10; i++) {
-                combinedScores[i] += scores[i].score * this.modelWeights.statistical;
+                const scoreItem = scores.find(s => s.digit === i);
+                if (scoreItem) combinedScores[i] += scoreItem.score * this.modelWeights.statistical;
             }
             details.statistical = scores.slice(0, 3).map(s => `${s.digit}:${s.score.toFixed(1)}`).join(', ');
         }
 
-        // Pattern model contribution
         if (predictions.pattern && predictions.pattern.probabilities) {
             for (let i = 0; i < 10; i++) {
-                // Higher probability = more likely to appear = better to differ from
                 combinedScores[i] += predictions.pattern.probabilities[i] * 100 * this.modelWeights.pattern;
             }
             details.pattern = `Most likely: ${predictions.pattern.mostLikely}`;
         }
 
-        // Neural model contribution
         if (predictions.neural) {
             for (let i = 0; i < 10; i++) {
                 combinedScores[i] += predictions.neural[i] * 100 * this.modelWeights.neural;
             }
             const maxNeural = predictions.neural.indexOf(Math.max(...predictions.neural));
-            details.neural = `Predicted: ${maxNeural} (${(predictions.neural[maxNeural] * 100).toFixed(1)}%)`;
+            details.neural = `Predicted: ${maxNeural}`;
         }
 
-        // Streak model contribution
-        if (predictions.streak) {
-            for (let i = 0; i < 10; i++) {
-                if (predictions.streak.streaking === i) {
-                    // Digit is streaking, might continue
-                    combinedScores[i] += 15 * this.modelWeights.streak;
-                }
-            }
-            details.streak = predictions.streak.streaking !== null ?
-                `Streaking: ${predictions.streak.streaking}` : 'No streak';
+        if (predictions.streak && predictions.streak.streaking !== null) {
+            combinedScores[predictions.streak.streaking] += 15 * this.modelWeights.streak;
+            details.streak = `Streaking: ${predictions.streak.streaking}`;
         }
 
-        // Find best digit (highest combined score = most likely to appear)
-        const ranked = combinedScores
-            .map((score, digit) => ({ digit, score }))
-            .sort((a, b) => b.score - a.score);
-
-        const bestDigit = ranked[0].digit;
-        const secondBest = ranked[1].digit;
-
-        // Calculate confidence (difference between best and average)
-        const avgScore = combinedScores.reduce((a, b) => a + b, 0) / 10;
-        const confidence = (ranked[0].score - avgScore) / avgScore;
-
-        // Probability that best digit will appear (normalized)
+        const ranked = combinedScores.map((score, digit) => ({ digit, score })).sort((a, b) => b.score - a.score);
         const totalScore = combinedScores.reduce((a, b) => a + b, 0);
-        const bestProbability = ranked[0].score / totalScore;
+        const avgScore = totalScore / 10;
+        const maxScore = Math.max(...combinedScores);
+        const minScore = Math.min(...combinedScores);
+
+        // Fixed confidence calculation - always between 0 and 1
+        let confidence = 0;
+        if (avgScore > 0) {
+            const rawConfidence = (ranked[0].score - avgScore) / avgScore;
+            // Use sigmoid-like normalization to keep between 0 and 1
+            confidence = Math.min(1, Math.max(0, rawConfidence / (1 + Math.abs(rawConfidence)) + 0.5));
+        }
+
+        // Secondary confidence measure based on score spread
+        const scoreSpread = maxScore - minScore;
+        const spreadConfidence = totalScore > 0 ? Math.min(1, scoreSpread / (totalScore * 0.3)) : 0;
+
+        // Blend both confidence measures and ensure it's capped at 1
+        const finalConfidence = Math.min(1, (confidence + spreadConfidence) / 2);
 
         return {
-            digitToDiffer: bestDigit,
-            alternativeDigit: secondBest,
+            digitToDiffer: ranked[0].digit,
+            alternativeDigit: ranked[1].digit,
             scores: ranked,
-            confidence,
-            probability: bestProbability,
-            shouldTrade: confidence > this.confidenceThreshold,
+            confidence: finalConfidence,
+            probability: totalScore > 0 ? ranked[0].score / totalScore : 0.1,
+            shouldTrade: finalConfidence > this.confidenceThreshold,
             details
         };
     }
@@ -1007,84 +990,84 @@ class DigitEnsembleDecisionMaker {
 // TIER 5: PERSISTENCE MANAGER
 // ============================================================================
 
-class DigitPersistenceManager {
-    constructor(baseDir = './digit_bot_memory') {
-        this.baseDir = baseDir;
-        this.ensureDirectory();
-    }
+// class DigitPersistenceManager {
+//     constructor(baseDir = './digit_bot_memory') {
+//         this.baseDir = baseDir;
+//         this.ensureDirectory();
+//     }
 
-    ensureDirectory() {
-        if (!fs.existsSync(this.baseDir)) {
-            fs.mkdirSync(this.baseDir, { recursive: true });
-            console.log(`📁 Created memory directory: ${this.baseDir}`);
-        }
-    }
+//     ensureDirectory() {
+//         if (!fs.existsSync(this.baseDir)) {
+//             fs.mkdirSync(this.baseDir, { recursive: true });
+//             console.log(`📁 Created memory directory: ${this.baseDir}`);
+//         }
+//     }
 
-    save(filename, data) {
-        try {
-            const filepath = path.join(this.baseDir, filename);
-            fs.writeFileSync(filepath, JSON.stringify(data, null, 2));
-            console.log(`💾 Saved: ${filename}`);
-            return true;
-        } catch (error) {
-            console.error(`Error saving ${filename}:`, error.message);
-            return false;
-        }
-    }
+//     save(filename, data) {
+//         try {
+//             const filepath = path.join(this.baseDir, filename);
+//             fs.writeFileSync(filepath, JSON.stringify(data, null, 2));
+//             console.log(`💾 Saved: ${filename}`);
+//             return true;
+//         } catch (error) {
+//             console.error(`Error saving ${filename}:`, error.message);
+//             return false;
+//         }
+//     }
 
-    load(filename) {
-        try {
-            const filepath = path.join(this.baseDir, filename);
-            if (fs.existsSync(filepath)) {
-                const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
-                console.log(`📂 Loaded: ${filename}`);
-                return data;
-            }
-            return null;
-        } catch (error) {
-            console.error(`Error loading ${filename}:`, error.message);
-            return null;
-        }
-    }
+//     load(filename) {
+//         try {
+//             const filepath = path.join(this.baseDir, filename);
+//             if (fs.existsSync(filepath)) {
+//                 const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+//                 console.log(`📂 Loaded: ${filename}`);
+//                 return data;
+//             }
+//             return null;
+//         } catch (error) {
+//             console.error(`Error loading ${filename}:`, error.message);
+//             return null;
+//         }
+//     }
 
-    saveFullState(bot) {
-        const state = {
-            timestamp: Date.now(),
-            statisticalEngine: bot.statisticalEngine.exportState(),
-            patternEngine: bot.patternEngine.exportState(),
-            neuralEngine: bot.neuralEngine.exportWeights(),
-            ensembleDecisionMaker: bot.ensembleDecisionMaker.exportState(),
-            performanceHistory: {
-                totalTrades: bot.totalTrades,
-                totalWins: bot.totalWins,
-                totalLosses: bot.totalLosses,
-                totalProfitLoss: bot.totalProfitLoss
-            },
-            digitTradeHistory: bot.digitTradeHistory.slice(-500)
-        };
+//     saveFullState(bot) {
+//         const state = {
+//             timestamp: Date.now(),
+//             statisticalEngine: bot.statisticalEngine.exportState(),
+//             patternEngine: bot.patternEngine.exportState(),
+//             neuralEngine: bot.neuralEngine.exportWeights(),
+//             ensembleDecisionMaker: bot.ensembleDecisionMaker.exportState(),
+//             performanceHistory: {
+//                 totalTrades: bot.totalTrades,
+//                 totalWins: bot.totalWins,
+//                 totalLosses: bot.totalLosses,
+//                 totalProfitLoss: bot.totalProfitLoss
+//             },
+//             digitTradeHistory: bot.digitTradeHistory.slice(-500)
+//         };
 
-        return this.save('digit_bot_state.json', state);
-    }
+//         return this.save('digit_bot_state.json', state);
+//     }
 
-    // loadFullState() {
-    //     return this.load('digit_bot_state.json');
-    // }
+//     loadFullState() {
+//         return this.load('digit_bot_state.json');
+//     }
 
-    appendPerformanceLog(entry) {
-        const logFile = 'digit_performance_log.json';
-        let log = this.load(logFile) || [];
-        log.push({ ...entry, timestamp: Date.now() });
+//     appendPerformanceLog(entry) {
+//         const logFile = 'digit_performance_log.json';
+//         let log = this.load(logFile) || [];
+//         log.push({ ...entry, timestamp: Date.now() });
 
-        if (log.length > 10000) {
-            log = log.slice(-10000);
-        }
+//         if (log.length > 10000) {
+//             log = log.slice(-10000);
+//         }
 
-        return this.save(logFile, log);
-    }
-}
+//         return this.save(logFile, log);
+//     }
+// }
 
 // ============================================================================
-// MAIN ENHANCED DIGIT DIFFER TRADING BOT
+// MAIN Smart DIFFER TRADING BOT
 // ============================================================================
 
 class EnhancedDigitDifferBot {
@@ -1097,17 +1080,17 @@ class EnhancedDigitDifferBot {
 
         this.config = {
             initialStake: config.initialStake || 10,
-            multiplier: config.multiplier || 2.5,
-            maxConsecutiveLosses: config.maxConsecutiveLosses || 5,
-            stopLoss: config.stopLoss || 50,
-            takeProfit: config.takeProfit || 20,
-            requiredHistoryLength: config.requiredHistoryLength || 200,
+            multiplier: config.multiplier || 11.3,
+            maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
+            stopLoss: config.stopLoss || 86,
+            takeProfit: config.takeProfit || 5000,
+            requiredHistoryLength: config.requiredHistoryLength || 5000,
             maxReconnectAttempts: config.maxReconnectAttempts || 10000,
             reconnectInterval: config.reconnectInterval || 5000,
             minWaitTime: config.minWaitTime || 3000,
             maxWaitTime: config.maxWaitTime || 8000,
             tickDuration: config.tickDuration || 1,
-            minConfidence: config.minConfidence || 0.10,
+            minConfidence: config.minConfidence || 0.85,
             learningModeThreshold: config.learningModeThreshold || 50,
             enableNeuralNetwork: config.enableNeuralNetwork !== false,
             enablePatternRecognition: config.enablePatternRecognition !== false,
@@ -1117,21 +1100,20 @@ class EnhancedDigitDifferBot {
         // Trading state
         this.currentStake = this.config.initialStake;
         this.consecutiveLosses = 0;
-        this.currentTradeId = null;
-        this.totalTrades = 0;
-        this.totalWins = 0;
-        this.totalLosses = 0;
-        this.consecutiveLosses = 0;
         this.consecutiveLosses2 = 0;
         this.consecutiveLosses3 = 0;
         this.consecutiveLosses4 = 0;
         this.consecutiveLosses5 = 0;
+        this.currentTradeId = null;
+        this.totalTrades = 0;
+        this.totalWins = 0;
+        this.totalLosses = 0;
         this.totalProfitLoss = 0;
         this.tradeInProgress = false;
         this.endOfDay = false;
         this.Pause = false;
-        this.selectedDigit = null;
-        this.selectedAsset = null;
+        this.Pause = false;
+        this.isWinTrade = false;
 
         // Digit-specific tracking
         this.tickHistories = {};
@@ -1144,7 +1126,7 @@ class EnhancedDigitDifferBot {
         this.patternEngine = new DigitPatternEngine();
         this.neuralEngine = new DigitNeuralEngine(50, [64, 32], 10);
         this.ensembleDecisionMaker = new DigitEnsembleDecisionMaker();
-        this.persistenceManager = new DigitPersistenceManager();
+        // this.persistenceManager = new DigitPersistenceManager();
 
         // Learning mode
         this.observationCount = 0;
@@ -1159,6 +1141,7 @@ class EnhancedDigitDifferBot {
                 currentProposalId: null,
                 tradeInProgress: false,
                 consecutiveLosses: 0,
+                selectedDigit: null
             };
             this.statisticalEngine.initAsset(asset);
             this.patternEngine.initAsset(asset);
@@ -1180,7 +1163,7 @@ class EnhancedDigitDifferBot {
         // this.loadSavedState();
 
         // Start periodic save
-        this.startPeriodicSave();
+        // this.startPeriodicSave();
 
         // Start email timer
         this.startEmailTimer();
@@ -1190,38 +1173,38 @@ class EnhancedDigitDifferBot {
     // PERSISTENCE METHODS
     // ========================================================================
 
-    loadSavedState() {
-        const state = this.persistenceManager.loadFullState();
-        if (state) {
-            console.log('📂 Loading saved learning state...');
+    // loadSavedState() {
+    //     const state = this.persistenceManager.loadFullState();
+    //     if (state) {
+    //         console.log('📂 Loading saved learning state...');
 
-            if (state.statisticalEngine) {
-                this.statisticalEngine.importState(state.statisticalEngine);
-            }
-            if (state.patternEngine) {
-                this.patternEngine.importState(state.patternEngine);
-            }
-            if (state.neuralEngine) {
-                this.neuralEngine.importWeights(state.neuralEngine);
-            }
-            if (state.ensembleDecisionMaker) {
-                this.ensembleDecisionMaker.importState(state.ensembleDecisionMaker);
-            }
-            if (state.digitTradeHistory) {
-                this.digitTradeHistory = state.digitTradeHistory;
-            }
+    //         if (state.statisticalEngine) {
+    //             this.statisticalEngine.importState(state.statisticalEngine);
+    //         }
+    //         if (state.patternEngine) {
+    //             this.patternEngine.importState(state.patternEngine);
+    //         }
+    //         if (state.neuralEngine) {
+    //             this.neuralEngine.importWeights(state.neuralEngine);
+    //         }
+    //         if (state.ensembleDecisionMaker) {
+    //             this.ensembleDecisionMaker.importState(state.ensembleDecisionMaker);
+    //         }
+    //         if (state.digitTradeHistory) {
+    //             this.digitTradeHistory = state.digitTradeHistory;
+    //         }
 
-            console.log('✅ Learning state restored successfully');
-        } else {
-            console.log('🆕 No saved state found. Starting fresh learning.');
-        }
-    }
+    //         console.log('✅ Learning state restored successfully');
+    //     } else {
+    //         console.log('🆕 No saved state found. Starting fresh learning.');
+    //     }
+    // }
 
-    startPeriodicSave() {
-        setInterval(() => {
-            this.persistenceManager.saveFullState(this);
-        }, this.config.saveInterval);
-    }
+    // startPeriodicSave() {
+    //     setInterval(() => {
+    //         this.persistenceManager.saveFullState(this);
+    //     }, this.config.saveInterval);
+    // }
 
     // ========================================================================
     // WEBSOCKET METHODS
@@ -1456,8 +1439,10 @@ class EnhancedDigitDifferBot {
             console.log(`   Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
             console.log(`   Models: ${JSON.stringify(decision.details)}`);
 
-            this.selectedDigit = decision.digitToDiffer;
-            this.selectedAsset = asset;
+            console.log(`   Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
+            console.log(`   Models: ${JSON.stringify(decision.details)}`);
+
+            this.assetStates[asset].selectedDigit = decision.digitToDiffer;
             this.requestProposal(asset, decision.digitToDiffer);
         }
     }
@@ -1534,8 +1519,8 @@ class EnhancedDigitDifferBot {
             price: this.currentStake.toFixed(2)
         };
 
-        console.log(`🚀 Placing DIGIT DIFFER trade`);
-        console.log(`   Asset: [${asset}] | Digit: ${this.selectedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
+        console.log(`🚀 Placing Smart DIFFER trade`);
+        console.log(`   Asset: [${asset}] | Digit: ${assetState.selectedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
 
         this.sendRequest(request);
         this.tradeInProgress = true;
@@ -1568,12 +1553,14 @@ class EnhancedDigitDifferBot {
             assetState.tradeInProgress = false;
         }
 
+        const predictedDigit = assetState ? assetState.selectedDigit : null;
+
         console.log(`[${asset}] Trade Result: ${won ? '✅ WON' : '❌ LOST'}`);
-        console.log(`   Predicted to differ from: ${this.selectedDigit} | Actual: ${actualDigit}`);
+        console.log(`   Predicted to differ from: ${predictedDigit} | Actual: ${actualDigit}`);
         console.log(`   Profit: $${profit.toFixed(2)}`);
 
         // Record outcome for learning
-        this.recordTradeOutcome(asset, won, this.selectedDigit, actualDigit, profit);
+        this.recordTradeOutcome(asset, won, predictedDigit, actualDigit, profit);
 
         this.totalTrades++;
 
@@ -1585,14 +1572,16 @@ class EnhancedDigitDifferBot {
             if (assetState) {
                 assetState.consecutiveLosses = 0;
             }
+            this.isWinTrade = true;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
-            this.currentStake = this.currentStake * this.config.multiplier;
+            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
 
             if (assetState) {
                 assetState.consecutiveLosses++;
             }
+            this.isWinTrade = false;
 
             // Update global consecutive loss counters
             if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
@@ -1600,13 +1589,15 @@ class EnhancedDigitDifferBot {
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
-            this.sendLossEmail(asset, actualDigit);
+            this.isWinTrade = false;
+
+            this.sendLossEmail(asset, actualDigit, predictedDigit);
         }
 
         this.totalProfitLoss += profit;
 
         // Save state
-        this.persistenceManager.saveFullState(this);
+        // this.persistenceManager.saveFullState(this);
 
         // Log summary
         this.logTradingSummary(asset);
@@ -1635,6 +1626,41 @@ class EnhancedDigitDifferBot {
         ) + this.config.minWaitTime;
 
         this.tradeInProgress = false;
+
+        this.selectedDigit = null;
+        this.selectedAsset = null;
+
+        // Digit-specific tracking
+        this.tickHistories = {};
+        this.tickSubscriptionIds = {};
+        this.assetStates = {};
+        this.digitTradeHistory = [];
+
+        // Enhanced Learning Components
+        this.statisticalEngine = new DigitStatisticalEngine();
+        this.patternEngine = new DigitPatternEngine();
+        this.neuralEngine = new DigitNeuralEngine(50, [64, 32], 10);
+        this.ensembleDecisionMaker = new DigitEnsembleDecisionMaker();
+        // this.persistenceManager = new DigitPersistenceManager();
+
+        // Learning mode
+        this.observationCount = 0;
+        this.learningMode = true;
+        this.lastPredictions = {};
+
+        // Initialize assets
+        this.assets.forEach(asset => {
+            this.tickHistories[asset] = [];
+            this.assetStates[asset] = {
+                lastDigit: null,
+                currentProposalId: null,
+                tradeInProgress: false,
+                consecutiveLosses: 0,
+                selectedDigit: null
+            };
+            this.statisticalEngine.initAsset(asset);
+            this.patternEngine.initAsset(asset);
+        });
 
         if (!this.endOfDay) {
             setTimeout(() => {
@@ -1667,13 +1693,13 @@ class EnhancedDigitDifferBot {
         }
 
         // Append to performance log
-        this.persistenceManager.appendPerformanceLog({
-            asset,
-            won,
-            predictedDigit,
-            actualDigit,
-            profit
-        });
+        // this.persistenceManager.appendPerformanceLog({
+        //     asset,
+        //     won,
+        //     predictedDigit,
+        //     actualDigit,
+        //     profit
+        // });
     }
 
     // ========================================================================
@@ -1754,39 +1780,39 @@ class EnhancedDigitDifferBot {
             .join('\n        ');
 
         const summaryText = `
-        ==================== Smart Differ Bot Summary ====================
-        
-        TRADING PERFORMANCE:
-        Total Trades: ${this.totalTrades}
-        Wins: ${this.totalWins} | Losses: ${this.totalLosses}
-        x2 Losses2: ${this.consecutiveLosses2}
-        x3 Losses3: ${this.consecutiveLosses3}
-        x4 Losses4: ${this.consecutiveLosses4}
-        x5 Losses5: ${this.consecutiveLosses5}
-        Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%
-        
-        FINANCIAL:
-        Current Stake: $${this.currentStake.toFixed(2)}
-        Total P/L: $${this.totalProfitLoss.toFixed(2)}
-        
-        AI LEARNING SYSTEM:
-        ─────────────────────────────────
-        Neural Network:
-            Accuracy: ${(neuralMetrics.accuracy * 100).toFixed(1)}%
-            Trend: ${neuralMetrics.trend}
-        
-        Model Performance:
-            ${modelPerf || 'No model data yet'}
-        
-        MARKET ANALYSIS:
-        ${this.assets.map(a => {
+    ==================== Smart Differ Bot Summary ====================
+    
+    TRADING PERFORMANCE:
+    Total Trades: ${this.totalTrades}
+    Wins: ${this.totalWins} | Losses: ${this.totalLosses}
+    x2 Losses2: ${this.consecutiveLosses2}
+    x3 Losses3: ${this.consecutiveLosses3}
+    x4 Losses4: ${this.consecutiveLosses4}
+    x5 Losses5: ${this.consecutiveLosses5}
+    Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%
+    
+    FINANCIAL:
+    Current Stake: $${this.currentStake.toFixed(2)}
+    Total P/L: $${this.totalProfitLoss.toFixed(2)}
+    
+    AI LEARNING SYSTEM:
+    ─────────────────────────────────
+    Neural Network:
+        Accuracy: ${(neuralMetrics.accuracy * 100).toFixed(1)}%
+        Trend: ${neuralMetrics.trend}
+    
+    Model Performance:
+        ${modelPerf || 'No model data yet'}
+    
+    MARKET ANALYSIS:
+    ${this.assets.map(a => {
             const entropy = this.statisticalEngine.calculateEntropy(a);
             const hotDigits = this.statisticalEngine.getHotDigits(a);
             return `${a}: Entropy=${(entropy * 100).toFixed(1)}%, Hot Digits=[${hotDigits.join(',')}]`;
         }).join('\n    ')}
-        
-        ===================================================================
-            `;
+    
+    ===================================================================
+        `;
 
         const mailOptions = {
             from: this.emailConfig.auth.user,
@@ -1811,28 +1837,28 @@ class EnhancedDigitDifferBot {
         ).join('\n        ');
 
         const summaryText = `
-        ==================== LOSS ALERT ====================
-        
-        TRADE DETAILS:
-        Asset: ${asset}
-        Predicted to differ from: ${predictedDigit}
-        Actual digit: ${actualDigit}
-        
-        CURRENT STATUS:
-        Total Trades: ${this.totalTrades}
-        Wins: ${this.totalWins} | Losses: ${this.totalLosses}
-        x2 Losses2: ${this.consecutiveLosses2}
-        x3 Losses3: ${this.consecutiveLosses3}
-        x4 Losses4: ${this.consecutiveLosses4}
-        x5 Losses5: ${this.consecutiveLosses5}
-        Current Stake: $${this.currentStake.toFixed(2)}
-        Total P/L: $${this.totalProfitLoss.toFixed(2)}
-        
-        RECENT TRADES:
-            ${recentAnalysis}
-        
-        ====================================================
-            `;
+    ==================== LOSS ALERT ====================
+    
+    TRADE DETAILS:
+    Asset: ${asset}
+    Predicted to differ from: ${predictedDigit}
+    Actual digit: ${actualDigit}
+    
+    CURRENT STATUS:
+    Total Trades: ${this.totalTrades}
+    Wins: ${this.totalWins} | Losses: ${this.totalLosses}
+    x2 Losses2: ${this.consecutiveLosses2}
+    x3 Losses3: ${this.consecutiveLosses3}
+    x4 Losses4: ${this.consecutiveLosses4}
+    x5 Losses5: ${this.consecutiveLosses5}
+    Current Stake: $${this.currentStake.toFixed(2)}
+    Total P/L: $${this.totalProfitLoss.toFixed(2)}
+    
+    RECENT TRADES:
+        ${recentAnalysis}
+    
+    ====================================================
+        `;
 
         const mailOptions = {
             from: this.emailConfig.auth.user,
@@ -1855,18 +1881,18 @@ class EnhancedDigitDifferBot {
         const currentMinutes = now.getMinutes();
 
         const summaryText = `
-            Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
-            Trading Summary:
-            Total Trades: ${this.totalTrades}
-            Total Trades Won: ${this.totalWins}
-            Total Trades Lost: ${this.totalLosses}
-            x2 Losses2: ${this.consecutiveLosses2}
-            x3 Losses3: ${this.consecutiveLosses3}
-            x4 Losses4: ${this.consecutiveLosses4}
-            x5 Losses5: ${this.consecutiveLosses5}
-            
-            Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
-            `;
+        Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
+        Trading Summary:
+        Total Trades: ${this.totalTrades}
+        Total Trades Won: ${this.totalWins}
+        Total Trades Lost: ${this.totalLosses}
+        x2 Losses2: ${this.consecutiveLosses2}
+        x3 Losses3: ${this.consecutiveLosses3}
+        x4 Losses4: ${this.consecutiveLosses4}
+        x5 Losses5: ${this.consecutiveLosses5}
+        
+        Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
+        `;
 
         const mailOptions = {
             from: this.emailConfig.auth.user,
@@ -1912,7 +1938,7 @@ class EnhancedDigitDifferBot {
 
     start() {
         console.log('═══════════════════════════════════════════════════════════');
-        console.log('  🎲 ENHANCED DIGIT DIFFER TRADING BOT v2.0');
+        console.log('  🎲 Smart Differ TRADING BOT v2.0');
         console.log('═══════════════════════════════════════════════════════════');
         console.log('');
         console.log('  📊 Contract Type: DIGIT DIFFER');
@@ -1929,12 +1955,12 @@ class EnhancedDigitDifferBot {
         console.log('    • Persistent Learning Memory');
         console.log('');
         console.log(`  🎓 Learning Mode: ${this.learningMode ? 'Active' : 'Complete'}`);
-        console.log(`  📁 Memory Directory: ./digit_bot_memory/`);
+        // console.log(`  📁 Memory Directory: ./digit_bot_memory/`);
         console.log('═══════════════════════════════════════════════════════════');
         console.log('');
 
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        // this.checkTimeForDisconnectReconnect();
     }
 }
 
@@ -1967,5 +1993,5 @@ module.exports = {
     DigitPatternEngine,
     DigitNeuralEngine,
     DigitEnsembleDecisionMaker,
-    DigitPersistenceManager
+    // DigitPersistenceManager
 };
