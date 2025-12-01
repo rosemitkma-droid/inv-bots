@@ -383,7 +383,7 @@ class EnhancedAccumulatorBot {
             if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
-            this.currentStake = this.currentStake * CONFIG.multiplier;
+            this.currentStake = Math.ceil(this.currentStake * CONFIG.multiplier * 100) / 100;
         }
 
         this.tradeInProgress = false;
