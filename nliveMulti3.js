@@ -812,8 +812,10 @@ class EnhancedDigitDifferTradingBot {
 
             if (this.consecutiveLossesN <= 1 || this.consecutiveLossesN > 3) {
                 this.totalLosses++;
+                this.totalProfitLoss += profit;
             } else {
                 this.rtotalLosses++;
+                this.rtotalProfitLoss += profit;
             }
         }
 
@@ -888,64 +890,64 @@ class EnhancedDigitDifferTradingBot {
         }
 
         // Asset-specific data
-        this.digitCounts = {};
-        this.tickSubscriptionIds = {};
-        this.tickHistories = {};
-        this.lastDigits = {};
-        this.predictedDigits = {};
-        this.lastPredictions = {};
-        this.assetStates = {};
-        this.pendingProposals = new Map();
-        this.previousStayedIn = {};
-        this.extendedStayedIn = {}; // Extended historical run lengths (up to 5000)
+        // this.digitCounts = {};
+        // this.tickSubscriptionIds = {};
+        // this.tickHistories = {};
+        // this.lastDigits = {};
+        // this.predictedDigits = {};
+        // this.lastPredictions = {};
+        // this.assetStates = {};
+        // this.pendingProposals = new Map();
+        // this.previousStayedIn = {};
+        // this.extendedStayedIn = {}; // Extended historical run lengths (up to 5000)
 
         // NEW: Advanced analytics and learning system
-        this.learningSystem = {
-            lossPatterns: {},
-            failedDigitCounts: {},
-            volatilityScores: {},
-            filterPerformance: {},
-            resetPatterns: {},
-            timeWindowPerformance: [],
-            adaptiveFilters: {},
-        };
+        // this.learningSystem = {
+        //     lossPatterns: {},
+        //     failedDigitCounts: {},
+        //     volatilityScores: {},
+        //     filterPerformance: {},
+        //     resetPatterns: {},
+        //     timeWindowPerformance: [],
+        //     adaptiveFilters: {},
+        // };
 
         // NEW: Advanced risk management
-        this.riskManager = {
-            // maxDailyLoss: config.stopLoss * 0.7,
-            currentSessionRisk: 0,
-            riskPerTrade: 0.02,
-            cooldownPeriod: 0,
-            lastLossTime: null,
-            consecutiveSameDigitLosses: {},
-        };
+        // this.riskManager = {
+        //     // maxDailyLoss: config.stopLoss * 0.7,
+        //     currentSessionRisk: 0,
+        //     riskPerTrade: 0.02,
+        //     cooldownPeriod: 0,
+        //     lastLossTime: null,
+        //     consecutiveSameDigitLosses: {},
+        // };
 
-        this.assets.forEach(asset => {
-            this.tickHistories[asset] = [];
-            this.digitCounts[asset] = Array(10).fill(0);
-            this.lastDigits[asset] = null;
-            this.predictedDigits[asset] = null;
-            this.lastPredictions[asset] = [];
-            this.assetStates[asset] = {
-                stayedInArray: [],
-                tradedDigitArray: [],
-                filteredArray: [],
-                totalArray: [],
-                currentProposalId: null,
-                tradeInProgress: false,
-                consecutiveLosses: 0,
-                lastTradeResult: null,
-                digitFrequency: {},
-            };
-            this.previousStayedIn[asset] = null;
-            this.extendedStayedIn[asset] = [];
+        // this.assets.forEach(asset => {
+        //     this.tickHistories[asset] = [];
+        //     this.digitCounts[asset] = Array(10).fill(0);
+        //     this.lastDigits[asset] = null;
+        //     this.predictedDigits[asset] = null;
+        //     this.lastPredictions[asset] = [];
+        //     this.assetStates[asset] = {
+        //         stayedInArray: [],
+        //         tradedDigitArray: [],
+        //         filteredArray: [],
+        //         totalArray: [],
+        //         currentProposalId: null,
+        //         tradeInProgress: false,
+        //         consecutiveLosses: 0,
+        //         lastTradeResult: null,
+        //         digitFrequency: {},
+        //     };
+        //     this.previousStayedIn[asset] = null;
+        //     this.extendedStayedIn[asset] = [];
 
-            // Initialize learning system for each asset
-            this.learningSystem.lossPatterns[asset] = [];
-            this.learningSystem.volatilityScores[asset] = 0;
-            this.learningSystem.adaptiveFilters[asset] = 8;
-            this.riskManager.consecutiveSameDigitLosses[asset] = {};
-        });
+        //     // Initialize learning system for each asset
+        //     this.learningSystem.lossPatterns[asset] = [];
+        //     this.learningSystem.volatilityScores[asset] = 0;
+        //     this.learningSystem.adaptiveFilters[asset] = 8;
+        //     this.riskManager.consecutiveSameDigitLosses[asset] = {};
+        // });
 
         if (!this.endOfDay) {
             setTimeout(() => {
@@ -1343,7 +1345,7 @@ class EnhancedDigitDifferTradingBot {
         console.log('🚀 Starting Enhanced Accumulator Trading Bot with Learning System');
         console.log('Features: Adaptive filters, pattern recognition, volatility analysis');
         this.connect();
-        // this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
+        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
