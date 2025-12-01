@@ -474,10 +474,7 @@ class MarkovDifferBot {
             else if (this.consecutiveLosses === 5) this.stats.consecutiveLosses5++;
 
             // Martingale / Recovery
-            // Martingale / Recovery
-            this.currentStake = this.currentStake * this.config.martingaleMultiplier;
-            // Round to 2 decimals
-            this.currentStake = Math.round(this.currentStake * 100) / 100;
+            this.currentStake = Math.ceil(this.currentStake * this.config.martingaleMultiplier * 100) / 100;
 
             console.log(`🔻 [${asset}] Loss #${this.consecutiveLosses}. Increasing stake to $${this.currentStake}`);
 
