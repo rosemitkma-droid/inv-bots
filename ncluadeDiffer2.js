@@ -1976,7 +1976,7 @@ class EnhancedDigitDifferBot {
 // RUN THE BOT
 // ============================================================================
 
-const token = '0P94g4WdSrSrzir';
+const token = 'rgNedekYXvCaPeP';
 
 const bot = new EnhancedDigitDifferBot(token, {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP, hsj0tA0XJoIzJG5, Dz2V2KvRf4Uukt3
