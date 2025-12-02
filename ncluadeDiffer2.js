@@ -1990,7 +1990,7 @@ const bot = new EnhancedDigitDifferBot(token, {
     enableNeuralNetwork: true,
     enablePatternRecognition: true,
     learningModeThreshold: 50,
-    requiredHistoryLength: 200,
+    requiredHistoryLength: 200, 
 });
 
 bot.start();
