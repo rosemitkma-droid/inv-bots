@@ -69,7 +69,7 @@ class DerivDigitDifferBot {
         this.sessionStartTime = new Date();
         this.isRunning = true;
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        // this.checkTimeForDisconnectReconnect();
     }
 
     /**
