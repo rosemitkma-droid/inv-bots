@@ -1075,7 +1075,7 @@ class EnsembleDecisionMaker {
 // ============================================================================
 
 class PersistenceManager {
-    constructor(baseDir = './bot_memory') {
+    constructor(baseDir = './bot_memory2') {
         this.baseDir = baseDir;
         this.ensureDirectory();
     }
