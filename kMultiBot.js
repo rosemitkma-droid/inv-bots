@@ -577,7 +577,7 @@ class EnhancedDigitDifferTradingBot {
         // === TRADE LOGIC: Priority 7x → 2x (Matching bot2.js) ===
         const lastDigit = last10[last10.length - 1]; // The digit we're betting continues
 
-        for (let times = 4; times >= 2; times--) {
+        for (let times = 5; times >= 3; times--) {
             if (appeared[times].length > 0) {
                 if (appeared[times].includes(currentCount) && last10[9] >= 2) {
                     console.log(`TRADE SIGNAL! Betting digit ${lastDigit} appears ${times + 1} times (currently ${times}x)`);
@@ -957,7 +957,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'kInspired Accumulator Bot - Performance Summary',
+            subject: 'Enhanced Accumulator Bot - Performance Summary',
             text: summaryText
         };
 
@@ -1110,7 +1110,7 @@ const bot = new EnhancedDigitDifferTradingBot('hsj0tA0XJoIzJG5', {
     multiplier: 21,
     maxConsecutiveLosses: 3,
     stopLoss: 400,
-    takeProfit: 500,
+    takeProfit: 5000,
     growthRate: 0.05,
     accuTakeProfit: 0.5,
     requiredHistoryLength: 1000,
