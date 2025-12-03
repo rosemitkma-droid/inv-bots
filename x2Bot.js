@@ -38,7 +38,13 @@ class DerivDigitDifferBot {
         this.totalWins = 0;
         this.totalLosses = 0;
         this.consecutiveLosses = 0;
+        this.consecutiveLosses2 = 0;
+        this.consecutiveLosses3 = 0;
+        this.consecutiveLosses4 = 0;
+        this.consecutiveLosses5 = 0;
         this.maxConsecutiveLosses = 0;
+        this.endOfDay = false;
+        this.isWinTrade = false;
 
         // Connection management
         this.reconnectAttempts = 0;
@@ -50,6 +56,9 @@ class DerivDigitDifferBot {
         // Session tracking
         this.sessionStartTime = null;
         this.isRunning = false;
+
+        // Start email timer
+        this.startSummaryEmailTimer();
     }
 
     /**
@@ -60,6 +69,7 @@ class DerivDigitDifferBot {
         this.sessionStartTime = new Date();
         this.isRunning = true;
         this.connect();
+        this.checkTimeForDisconnectReconnect();
     }
 
     /**
@@ -83,59 +93,63 @@ class DerivDigitDifferBot {
      * Connect to Deriv WebSocket API
      */
     connect() {
-        console.log('🔌 Connecting to Deriv API...');
+        if (!this.endOfDay) {
+            console.log('🔌 Connecting to Deriv API...');
 
-        this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+            this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
 
-        this.ws.on('open', () => {
-            console.log('✅ WebSocket connected');
-            this.connected = true;
-            this.reconnectAttempts = 0;
-            this.authenticate();
-        });
+            this.ws.on('open', () => {
+                console.log('✅ WebSocket connected');
+                this.connected = true;
+                this.reconnectAttempts = 0;
+                this.authenticate();
+            });
 
-        this.ws.on('message', (data) => {
-            try {
-                const message = JSON.parse(data);
-                this.handleMessage(message);
-            } catch (error) {
-                console.error('Error parsing message:', error);
-            }
-        });
+            this.ws.on('message', (data) => {
+                try {
+                    const message = JSON.parse(data);
+                    this.handleMessage(message);
+                } catch (error) {
+                    console.error('Error parsing message:', error);
+                }
+            });
 
-        this.ws.on('error', (error) => {
-            console.error('❌ WebSocket error:', error.message);
-        });
+            this.ws.on('error', (error) => {
+                console.error('❌ WebSocket error:', error.message);
+            });
 
-        this.ws.on('close', () => {
-            console.log('🔌 WebSocket disconnected');
-            this.connected = false;
-            this.authorized = false;
+            this.ws.on('close', () => {
+                console.log('🔌 WebSocket disconnected');
+                this.connected = false;
+                this.authorized = false;
 
-            if (this.isRunning) {
-                this.handleReconnect();
-            }
-        });
+                if (this.isRunning) {
+                    this.handleReconnect();
+                }
+            });
+        }
     }
 
     /**
      * Handle reconnection logic
      */
     handleReconnect() {
-        if (this.reconnectAttempts >= config.TIMING.maxReconnectAttempts) {
-            console.error('❌ Max reconnection attempts reached. Stopping bot.');
-            this.stop();
-            return;
-        }
-
-        this.reconnectAttempts++;
-        console.log(`🔄 Reconnecting in ${config.TIMING.reconnectInterval / 1000}s... (Attempt ${this.reconnectAttempts})`);
-
-        setTimeout(() => {
-            if (this.isRunning) {
-                this.connect();
+        if (!this.endOfDay) {
+            if (this.reconnectAttempts >= config.TIMING.maxReconnectAttempts) {
+                console.error('❌ Max reconnection attempts reached. Stopping bot.');
+                this.stop();
+                return;
             }
-        }, config.TIMING.reconnectInterval);
+
+            this.reconnectAttempts++;
+            console.log(`🔄 Reconnecting in ${config.TIMING.reconnectInterval / 1000}s... (Attempt ${this.reconnectAttempts})`);
+
+            setTimeout(() => {
+                if (this.isRunning) {
+                    this.connect();
+                }
+            }, config.TIMING.reconnectInterval);
+        }
     }
 
     /**
@@ -428,6 +442,7 @@ class DerivDigitDifferBot {
     executeTrade(analysis) {
         this.tradeInProgress = true;
         this.lastPredictedDigit = analysis.predictedDigit;
+        this.lastPredictionConfidence = analysis.confidence;
 
         console.log('\n');
         console.log('╔══════════════════════════════════════════════════════════╗');
@@ -499,6 +514,7 @@ class DerivDigitDifferBot {
 
         if (won) {
             this.totalWins++;
+            this.isWinTrade = true;
             this.consecutiveLosses = 0;
             this.currentStake = config.TRADING.initialStake;
 
@@ -509,8 +525,15 @@ class DerivDigitDifferBot {
             console.log('╚══════════════════════════════════════════════════════════╝');
         } else {
             this.totalLosses++;
+            this.isWinTrade = false;
             this.consecutiveLosses++;
             this.maxConsecutiveLosses = Math.max(this.maxConsecutiveLosses, this.consecutiveLosses);
+
+            // Update global consecutive loss counters
+            if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
+            else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
+            else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
+            else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
             // Apply Martingale
             const newStake = this.currentStake * config.TRADING.multiplier;
@@ -545,9 +568,11 @@ class DerivDigitDifferBot {
 
         // Cooldown before next analysis
         console.log(`\n⏳ Cooldown: ${config.TIMING.tradeCooldown / 1000}s before next analysis...`);
-        setTimeout(() => {
-            this.lastPredictedDigit = null; // Allow same digit in new session
-        }, config.TIMING.tradeCooldown);
+        if (!this.endOfDay) {
+            setTimeout(() => {
+                this.lastPredictedDigit = null; // Allow same digit in new session
+            }, config.TIMING.tradeCooldown);
+        }
     }
 
     /**
@@ -567,7 +592,10 @@ class DerivDigitDifferBot {
         console.log(`│  Win Rate:          ${winRate}%`.padEnd(58) + '│');
         console.log(`│  Total P/L:         $${this.totalProfitLoss.toFixed(2)}`.padEnd(58) + '│');
         console.log(`│  Current Stake:     $${this.currentStake.toFixed(2)}`.padEnd(58) + '│');
-        console.log(`│  Max Consec. Losses: ${this.maxConsecutiveLosses}`.padEnd(58) + '│');
+        console.log(`│  x2 Losses:         ${this.consecutiveLosses2}`.padEnd(58) + '│');
+        console.log(`│  x3 Losses:         ${this.consecutiveLosses3}`.padEnd(58) + '│');
+        console.log(`│  x4 Losses:         ${this.consecutiveLosses4}`.padEnd(58) + '│');
+        console.log(`│  x5 Losses:         ${this.consecutiveLosses5}`.padEnd(58) + '│');
         console.log('└─────────────────────────────────────────────────────────┘');
     }
 
@@ -582,24 +610,112 @@ class DerivDigitDifferBot {
         }
 
         // Check stop loss
-        if (this.totalProfitLoss <= -config.TRADING.stopLoss) {
+        if (this.totalProfitLoss <= -config.TRADING.stopLoss || this.consecutiveLosses >= config.TRADING.maxConsecutiveLosses) {
             console.log('\n⛔ STOPPING: Stop loss reached');
+            this.sendFinalSummary();
+            this.stop();
+            this.endOfDay = true;
             return true;
         }
 
         // Check take profit
         if (this.totalProfitLoss >= config.TRADING.takeProfit) {
             console.log('\n🎉 STOPPING: Take profit reached!');
-            return true;
+            this.sendFinalSummary();
+            this.stop();
+            this.endOfDay = true;
+            // return true;
         }
 
         // Check max stake
-        if (this.currentStake >= config.TRADING.maxStake) {
-            console.log('\n⛔ STOPPING: Maximum stake reached');
-            return true;
-        }
+        // if (this.currentStake >= config.TRADING.maxStake) {
+        //     console.log('\n⛔ STOPPING: Maximum stake reached');
+        //     return true;
+        // }
 
         return false;
+    }
+
+    /**
+     * Check if it's time to disconnect or reconnect
+     */
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
+                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.sendFinalSummary();
+                    this.endOfDay = true;
+                    this.stop();
+                }
+            }
+        }, 5000);
+    }
+
+    startSummaryEmailTimer() {
+        setInterval(() => {
+            if (!this.endOfDay) {
+                this.sendSummary();
+            }
+        }, 1800000);
+    }
+
+    /**
+     * Summary notification email
+     */
+    async sendSummary() {
+        if (!config.EMAIL.enabled) return;
+
+        try {
+            const transporter = nodemailer.createTransport({
+                service: config.EMAIL.service,
+                auth: {
+                    user: config.EMAIL.user,
+                    pass: config.EMAIL.pass
+                }
+            });
+
+            const duration = ((Date.now() - this.sessionStartTime.getTime()) / 60000).toFixed(1);
+            const winRate = this.totalTrades > 0
+                ? ((this.totalWins / this.totalTrades) * 100).toFixed(1)
+                : '0.0';
+
+            await transporter.sendMail({
+                from: config.EMAIL.user,
+                to: config.EMAIL.recipient,
+                subject: `x2Bot Deriv Bot - Trade Summary`,
+                text: `
+                    TRADE SUMMARY
+                    ================
+
+                    Duration: ${duration} minutes
+                    Total Trades: ${this.totalTrades}
+                    Win Rate: ${winRate}%
+                    Total P/L: $${this.totalProfitLoss.toFixed(2)}
+
+                    Stats:
+                    - Wins: ${this.totalWins}
+                    - Losses: ${this.totalLosses}
+                    - x2: ${this.consecutiveLosses2}
+                    - x3: ${this.consecutiveLosses3}
+                    - x4: ${this.consecutiveLosses4}
+                    - x5: ${this.consecutiveLosses5}
+                    `
+            });
+        } catch (error) {
+            console.error('Email error:', error.message);
+        }
     }
 
     /**
@@ -622,23 +738,29 @@ class DerivDigitDifferBot {
             await transporter.sendMail({
                 from: config.EMAIL.user,
                 to: config.EMAIL.recipient,
-                subject: `Deriv Bot - Trade Lost (${this.consecutiveLosses}x)`,
+                subject: `x2Bot Deriv Bot - Trade Lost`,
                 text: `
-TRADE LOSS NOTIFICATION
-=======================
+                TRADE LOSS NOTIFICATION
+                =======================
 
-Asset: ${this.currentAsset}
-Loss Amount: $${Math.abs(parseFloat(contract.profit)).toFixed(2)}
-Consecutive Losses: ${this.consecutiveLosses}
-Total P/L: $${this.totalProfitLoss.toFixed(2)}
-Next Stake: $${this.currentStake.toFixed(2)}
+                Asset: ${this.currentAsset}
+                Loss Amount: $${Math.abs(parseFloat(contract.profit)).toFixed(2)}
+                Consecutive Losses: ${this.consecutiveLosses}
+                Total P/L: $${this.totalProfitLoss.toFixed(2)}
+                Next Stake: $${this.currentStake.toFixed(2)}
 
-Recent Digits: ${recentDigits}
+                Prediction: ${this.lastPredictedDigit}
+                Confidence: ${this.lastPredictionConfidence.toFixed(2)}%
+                Recent Digits: ${recentDigits}
 
-Session Stats:
-- Total Trades: ${this.totalTrades}
-- Wins: ${this.totalWins}
-- Losses: ${this.totalLosses}
+                Session Stats:
+                - Total Trades: ${this.totalTrades}
+                - Wins: ${this.totalWins}
+                - Losses: ${this.totalLosses}
+                - x2: ${this.consecutiveLosses2}
+                - x3: ${this.consecutiveLosses3}
+                - x4: ${this.consecutiveLosses4}
+                - x5: ${this.consecutiveLosses5}
                 `
             });
         } catch (error) {
@@ -693,21 +815,24 @@ Session Stats:
             await transporter.sendMail({
                 from: config.EMAIL.user,
                 to: config.EMAIL.recipient,
-                subject: `Deriv Bot - Session Complete ($${this.totalProfitLoss.toFixed(2)})`,
+                subject: `x2Bot Deriv Bot - Session Complete ($${this.totalProfitLoss.toFixed(2)})`,
                 text: `
-SESSION COMPLETE
-================
+                    SESSION COMPLETE
+                    ================
 
-Duration: ${duration} minutes
-Total Trades: ${this.totalTrades}
-Win Rate: ${winRate}%
-Total P/L: $${this.totalProfitLoss.toFixed(2)}
+                    Duration: ${duration} minutes
+                    Total Trades: ${this.totalTrades}
+                    Win Rate: ${winRate}%
+                    Total P/L: $${this.totalProfitLoss.toFixed(2)}
 
-Final Stats:
-- Wins: ${this.totalWins}
-- Losses: ${this.totalLosses}
-- Max Consecutive Losses: ${this.maxConsecutiveLosses}
-                `
+                    Final Stats:
+                    - Wins: ${this.totalWins}
+                    - Losses: ${this.totalLosses}
+                    - x2: ${this.consecutiveLosses2}
+                    - x3: ${this.consecutiveLosses3}
+                    - x4: ${this.consecutiveLosses4}
+                    - x5: ${this.consecutiveLosses5}
+                    `
             });
         } catch (error) {
             console.error('Email error:', error.message);
