@@ -2439,11 +2439,11 @@ class EnhancedAccumulatorBot {
     // ========================================================================
 
     startEmailTimer() {
-        if (!this.endOfDay) {
-            setInterval(() => {
+        setInterval(() => {
+            if (!this.endOfDay) {
                 this.sendEmailSummary();
-            }, 1800000);
-        }
+            }
+        }, 1800000);
     }
 
     async sendEmailSummary() {
