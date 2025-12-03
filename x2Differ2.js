@@ -30,32 +30,32 @@ class PatternAnalyzer {
         // We want the most specific pattern that has enough data
 
         // 1. Pattern Length 3 (Sequence of 3)
-        if (history.length > 3) {
-            const pattern3 = [prevPrevDigit, prevDigit, currentDigit];
-            const analysis3 = this.findSafeDigitForPattern(history, pattern3);
-            if (analysis3 && analysis3.isSafe) {
-                bestPrediction = analysis3.digit;
-                bestConfidence = analysis3.confidence;
-                bestPatternType = 'Sequence-3';
-                bestSamples = analysis3.samples;
-            }
-        }
+        // if (history.length > 3) {
+        //     const pattern3 = [prevPrevDigit, prevDigit, currentDigit];
+        //     const analysis3 = this.findSafeDigitForPattern(history, pattern3);
+        //     if (analysis3 && analysis3.isSafe) {
+        //         bestPrediction = analysis3.digit;
+        //         bestConfidence = analysis3.confidence;
+        //         bestPatternType = 'Sequence-3';
+        //         bestSamples = analysis3.samples;
+        //     }
+        // }
 
         // 2. Pattern Length 2 (Sequence of 2) - Only override if confidence is significantly higher or we didn't find one yet
-        if (history.length > 2) {
-            const pattern2 = [prevDigit, currentDigit];
-            const analysis2 = this.findSafeDigitForPattern(history, pattern2);
+        // if (history.length > 2) {
+        //     const pattern2 = [prevDigit, currentDigit];
+        //     const analysis2 = this.findSafeDigitForPattern(history, pattern2);
 
-            if (analysis2 && analysis2.isSafe) {
-                // If we already have a prediction, only switch if this one has MUCH more data
-                if (!bestPrediction || (analysis2.confidence > bestConfidence)) {
-                    bestPrediction = analysis2.digit;
-                    bestConfidence = analysis2.confidence;
-                    bestPatternType = 'Sequence-2';
-                    bestSamples = analysis2.samples;
-                }
-            }
-        }
+        //     if (analysis2 && analysis2.isSafe) {
+        //         // If we already have a prediction, only switch if this one has MUCH more data
+        //         if (!bestPrediction || (analysis2.confidence > bestConfidence)) {
+        //             bestPrediction = analysis2.digit;
+        //             bestConfidence = analysis2.confidence;
+        //             bestPatternType = 'Sequence-2';
+        //             bestSamples = analysis2.samples;
+        //         }
+        //     }
+        // }
 
         // 3. Pattern Length 1 (Last Digit) - Hardest to find 0 occurrences, but strongest if found
         if (history.length > 1) {
@@ -110,6 +110,10 @@ class PatternAnalyzer {
             }
         }
 
+        console.log('Pattern:', pattern, 'Length:', patternLen);
+        console.log('Next Digit Counts:', nextDigitCounts);
+        console.log('Total Occurrences:', totalOccurrences);
+
         if (totalOccurrences < this.minSamples) {
             return null;
         }
@@ -117,10 +121,12 @@ class PatternAnalyzer {
         // Identify digits that have NEVER appeared after this pattern
         const safeDigits = [];
         for (let d = 0; d < 10; d++) {
-            if (nextDigitCounts[d] === 0) {
+            if (nextDigitCounts[d] <= 36) {
                 safeDigits.push(d);
             }
         }
+
+        console.log('Safe Digits:', safeDigits);
 
         if (safeDigits.length > 0) {
             // If multiple safe digits, pick the one that is "coldest" (appeared longest ago in general)
@@ -134,6 +140,10 @@ class PatternAnalyzer {
             else if (totalOccurrences >= 50) confidence = 98;
             else if (totalOccurrences >= 30) confidence = 95;
             else confidence = 90;
+
+            console.log('Best Digit:', bestDigit);
+
+            console.log('Confidence:', confidence);
 
             return {
                 isSafe: true,
@@ -863,10 +873,9 @@ const bot = new EnhancedDerivTradingBot('hsj0tA0XJoIzJG5', {
     initialStake: 0.61,
     multiplier: 11.3,
     maxStake: 127,
-    maxConsecutiveLosses: 4,
+    maxConsecutiveLosses: 3,
     stopLoss: 400,
     takeProfit: 2000,
 });
 
 bot.start();
-
