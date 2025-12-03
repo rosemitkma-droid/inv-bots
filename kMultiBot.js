@@ -957,7 +957,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Enhanced Accumulator Bot - Performance Summary',
+            subject: 'kInspired Accumulator Bot - Performance Summary',
             text: summaryText
         };
 
