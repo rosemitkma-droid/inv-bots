@@ -1636,8 +1636,8 @@ class EnhancedDigitDifferBot {
 
         this.tradeInProgress = false;
 
-        // this.selectedDigit = null;
-        // this.selectedAsset = null;
+        this.selectedDigit = null;
+        this.selectedAsset = null;
 
         // Digit-specific tracking
         this.tickHistories = {};
@@ -1646,10 +1646,10 @@ class EnhancedDigitDifferBot {
         this.digitTradeHistory = [];
 
         // Enhanced Learning Components
-        // this.statisticalEngine = new DigitStatisticalEngine();
-        // this.patternEngine = new DigitPatternEngine();
-        // this.neuralEngine = new DigitNeuralEngine(50, [64, 32], 10);
-        // this.ensembleDecisionMaker = new DigitEnsembleDecisionMaker();
+        this.statisticalEngine = new DigitStatisticalEngine();
+        this.patternEngine = new DigitPatternEngine();
+        this.neuralEngine = new DigitNeuralEngine(50, [64, 32], 10);
+        this.ensembleDecisionMaker = new DigitEnsembleDecisionMaker();
         // this.persistenceManager = new DigitPersistenceManager();
 
         // Learning mode
@@ -1664,10 +1664,10 @@ class EnhancedDigitDifferBot {
                 lastDigit: null,
                 currentProposalId: null,
                 tradeInProgress: false,
-                // consecutiveLosses: 0,
+                consecutiveLosses: 0,
             };
-            // this.statisticalEngine.initAsset(asset);
-            // this.patternEngine.initAsset(asset);
+            this.statisticalEngine.initAsset(asset);
+            this.patternEngine.initAsset(asset);
         });
 
         if (!this.endOfDay) {
