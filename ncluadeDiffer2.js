@@ -1098,7 +1098,7 @@ class EnhancedDigitDifferBot {
         this.config = {
             initialStake: config.initialStake || 10,
             multiplier: config.multiplier || 2.5,
-            maxConsecutiveLosses: config.maxConsecutiveLosses || 5,
+            maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
             stopLoss: config.stopLoss || 50,
             takeProfit: config.takeProfit || 20,
             requiredHistoryLength: config.requiredHistoryLength || 200,
@@ -1636,8 +1636,8 @@ class EnhancedDigitDifferBot {
 
         this.tradeInProgress = false;
 
-        this.selectedDigit = null;
-        this.selectedAsset = null;
+        // this.selectedDigit = null;
+        // this.selectedAsset = null;
 
         // Digit-specific tracking
         this.tickHistories = {};
@@ -1646,10 +1646,10 @@ class EnhancedDigitDifferBot {
         this.digitTradeHistory = [];
 
         // Enhanced Learning Components
-        this.statisticalEngine = new DigitStatisticalEngine();
-        this.patternEngine = new DigitPatternEngine();
-        this.neuralEngine = new DigitNeuralEngine(50, [64, 32], 10);
-        this.ensembleDecisionMaker = new DigitEnsembleDecisionMaker();
+        // this.statisticalEngine = new DigitStatisticalEngine();
+        // this.patternEngine = new DigitPatternEngine();
+        // this.neuralEngine = new DigitNeuralEngine(50, [64, 32], 10);
+        // this.ensembleDecisionMaker = new DigitEnsembleDecisionMaker();
         // this.persistenceManager = new DigitPersistenceManager();
 
         // Learning mode
@@ -1664,10 +1664,10 @@ class EnhancedDigitDifferBot {
                 lastDigit: null,
                 currentProposalId: null,
                 tradeInProgress: false,
-                consecutiveLosses: 0,
+                // consecutiveLosses: 0,
             };
-            this.statisticalEngine.initAsset(asset);
-            this.patternEngine.initAsset(asset);
+            // this.statisticalEngine.initAsset(asset);
+            // this.patternEngine.initAsset(asset);
         });
 
         if (!this.endOfDay) {
@@ -1983,14 +1983,17 @@ const bot = new EnhancedDigitDifferBot(token, {
     initialStake: 0.61,
     multiplier: 11.3,
     stopLoss: 86,
+    maxConsecutiveLosses: 3,
     takeProfit: 5000,
     tickDuration: 1,
     minConfidence: 0.90,
     assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
     enableNeuralNetwork: true,
     enablePatternRecognition: true,
-    learningModeThreshold: 50,
-    requiredHistoryLength: 200, 
+    learningModeThreshold: 500,
+    requiredHistoryLength: 5000,
+    minWaitTime: 2000,
+    maxWaitTime: 5000,
 });
 
 bot.start();
