@@ -1653,9 +1653,9 @@ class EnhancedDigitDifferBot {
         // this.persistenceManager = new DigitPersistenceManager();
 
         // Learning mode
-        // this.observationCount = 0;
-        // this.learningMode = true;
-        // this.lastPredictions = {};
+        this.observationCount = 0;
+        this.learningMode = true;
+        this.lastPredictions = {};
 
         // Initialize assets
         this.assets.forEach(asset => {
