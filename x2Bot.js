@@ -428,9 +428,11 @@ class DerivDigitDifferBot {
         console.log(`│  History Length:    ${summary.historyLength.toString().padEnd(36)}│`);
         console.log(`│  Current Digit:     ${summary.currentDigit.toString().padEnd(36)}│`);
         console.log(`│  Confidence:        ${summary.confidence.padEnd(36)}│`);
-        console.log(`│  Repetition Rate:   ${summary.repetitionRate.padEnd(36)}│`);
-        console.log(`│  Recent Rep Rate:   ${summary.recentRepRate.padEnd(36)}│`);
+        console.log(`│  Repetition Rate:   ${summary.repetitionRate.toString().padEnd(36)}│`);
+        console.log(`│  Recent Rep Rate:   ${summary.recentRepRate.toString().padEnd(36)}│`);
+        console.log(`│  Self Rep Rate:     ${summary.selfRepRate.toString().padEnd(36)}│`);
         console.log(`│  Non-Rep Streak:    ${summary.nonRepStreak.toString().padEnd(36)}│`);
+        console.log(`│  Max Non-Rep Streak: ${summary.maxNonRepStreak.toString().padEnd(36)}│`);
         console.log(`│  Should Trade:      ${(summary.shouldTrade ? '✅ YES' : '❌ NO').padEnd(36)}│`);
         console.log(`│  Reason:            ${summary.reason.substring(0, 36).padEnd(36)}│`);
         console.log('└─────────────────────────────────────────────────────────┘');
