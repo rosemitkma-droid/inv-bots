@@ -20,8 +20,8 @@ module.exports = {
     // Analysis Thresholds - CRITICAL for trade decisions
     ANALYSIS: {
         minHistoryLength: 5000,       // Minimum ticks before trading
-        minConfidence: 0.80,          // Minimum confidence to trade (92%)
-        maxRepetitionRate: 0.85,      // Max acceptable repetition rate (8%)
+        minConfidence: 0.90,          // Minimum confidence to trade (92%)
+        maxRepetitionRate: 0.8,      // Max acceptable repetition rate (8%)
         minNonRepStreak: 11,           // Minimum consecutive non-repetitions
         minSampleSize: 500,           // Minimum samples for digit analysis
     },
