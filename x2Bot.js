@@ -733,7 +733,7 @@ class DerivDigitDifferBot {
                 }
             });
 
-            const recentDigits = this.tickHistory.slice(-20).join(', ');
+            const recentDigits = this.tickHistory.slice(-10).join(', ');
 
             await transporter.sendMail({
                 from: config.EMAIL.user,
