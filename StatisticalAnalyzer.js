@@ -438,7 +438,7 @@ class StatisticalAnalyzer {
         }
 
         // 5. Digit-specific repetition rate must be low
-        if (digitStats.selfRepRate > 0.12) {
+        if (digitStats.selfRepRate > cfg.selfRepetitionRate) {
             return false;
         }
 
@@ -480,11 +480,14 @@ class StatisticalAnalyzer {
             if (repetitionStats.overallRate > this.config.maxRepetitionRate) {
                 return `Repetition rate too high: ${(repetitionStats.overallRate * 100).toFixed(1)}%`;
             }
+            if (digitStats.selfRepRate > this.config.selfRepetitionRate) {
+                return `Digit self-rep rate too high: ${(digitStats.selfRepRate * 100).toFixed(1)}%`;
+            }
+            if (repetitionStats.recentRate > this.config.recentRepetitionRate) {
+                return `Digit recent rate too high: ${(repetitionStats.recentRate * 100).toFixed(1)}%`;
+            }
             if (repetitionStats.currentNonRepStreak < this.config.minNonRepStreak) {
                 return `Non-rep streak too short: ${repetitionStats.currentNonRepStreak}`;
-            }
-            if (digitStats.selfRepRate > 0.12) {
-                return `Digit self-rep rate too high: ${(digitStats.selfRepRate * 100).toFixed(1)}%`;
             }
             return 'Conditions not met';
         }
@@ -514,7 +517,9 @@ class StatisticalAnalyzer {
                 ? (analysis.details.repetitionStats.recentRate * 100).toFixed(2) + '%'
                 : 'N/A',
             nonRepStreak: analysis.details?.repetitionStats?.currentNonRepStreak || 0,
-            reason: analysis.reason
+            reason: analysis.reason,
+            maxNonRepStreak: analysis.details?.repetitionStats?.maxNonRepStreak || 0,
+            selfRepRate: (analysis.details?.digitStats?.selfRepRate * 100).toFixed(2) + '%' || 'N/A',
         };
     }
 }
