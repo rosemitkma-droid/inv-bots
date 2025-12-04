@@ -616,7 +616,9 @@ class EnhancedDerivTradingBot {
             return;
         }
 
-        this.disconnect();
+        this.unsubscribeFromTicks(() => {
+            this.disconnect();
+        });
 
         //Reset Analysis
         this.patternAnalyzer = new PatternAnalyzer();// Advanced pattern analyzer
@@ -656,32 +658,25 @@ class EnhancedDerivTradingBot {
     checkTimeForDisconnectReconnect() {
         setInterval(() => {
             const now = new Date();
-            const currentHours = now.getHours();
-            const currentMinutes = now.getMinutes();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
 
-            // Check for morning resume condition (8:00 AM)
-            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
-                console.log("It's 8:00 AM, reconnecting the bot.");
-                this.LossDigitsList = [];
-                this.tradeInProgress = false;
-                this.usedAssets = new Set();
-                this.RestartTrading = true;
-                this.Pause = false;
+            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
+                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
                 this.endOfDay = false;
                 this.connect();
             }
 
-            // Check for evening stop condition (after 8:00 PM)
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours === 17 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM after a win trade, disconnecting the bot.");
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendDisconnectResumptionEmailSummary();
-                    this.Pause = true;
                     this.disconnect();
                     this.endOfDay = true;
                 }
             }
-        }, 20000);
+        }, 5000);
     }
 
     disconnect() {
@@ -753,7 +748,7 @@ class EnhancedDerivTradingBot {
 
     async sendLossEmail() {
         const transporter = nodemailer.createTransport(this.emailConfig);
-        const klastDigits = this.tickHistory.slice(-20);
+        const klastDigits = this.tickHistory.slice(-10);
 
         const summaryText = `
         LOSS ALERT - DETAILED ANALYSIS
