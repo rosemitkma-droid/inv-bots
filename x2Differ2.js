@@ -121,7 +121,7 @@ class PatternAnalyzer {
         // Identify digits that have NEVER appeared after this pattern
         const safeDigits = [];
         for (let d = 0; d < 10; d++) {
-            if (nextDigitCounts[d] <= 36) {
+            if (nextDigitCounts[d] <= 33) {
                 safeDigits.push(d);
             }
         }
