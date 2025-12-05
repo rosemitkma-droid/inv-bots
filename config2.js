@@ -30,8 +30,8 @@ module.exports = {
     },
 
     // Assets to trade (synthetic indices) - ALL traded concurrently
-    // ASSETS: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
-    ASSETS: ['R_10', 'R_75', 'R_100', 'RDBEAR', 'RDBULL'],
+    // ASSETS: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBEAR', 'RDBULL'],
+    ASSETS: ['RDBULL'],
 
     // Email notifications (optional)
     EMAIL: {
