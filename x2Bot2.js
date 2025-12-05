@@ -188,7 +188,7 @@ class AssetHandler {
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
             // this.consecutiveLossesN = 0;
-            this.currentStake = config.TRADING.initialStake;
+            // this.currentStake = config.TRADING.initialStake;
         } else {
             this.losses++;
             this.isWinTrade = false;
@@ -202,7 +202,7 @@ class AssetHandler {
             // else if (this.consecutiveLossesN === 5) this.consecutiveLosses5++;
 
             // Apply Martingale
-            this.currentStake = Math.ceil(this.currentStake * config.TRADING.multiplier * 100) / 100;
+            // this.currentStake = Math.ceil(this.currentStake * config.TRADING.multiplier * 100) / 100;
             // this.shouldStopGlobal();
         }
 
@@ -699,6 +699,8 @@ class MultiAssetDerivBot {
             this.globalStats.totalWins++;
             this.consecutiveLossesN = 0;
 
+            this.currentStake = config.TRADING.initialStake;
+
             console.log('\n');
             console.log('╔════════════════════════════════════════════════════════════════╗');
             console.log(`║                     ✅ [${asset.symbol}] TRADE WON ✅                      ║`);
@@ -729,6 +731,8 @@ class MultiAssetDerivBot {
             else if (this.consecutiveLossesN === 3) this.consecutiveLosses3++;
             else if (this.consecutiveLossesN === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLossesN === 5) this.consecutiveLosses5++;
+
+            this.currentStake = Math.ceil(this.currentStake * config.TRADING.multiplier * 100) / 100;
         }
 
         // Log summaries
@@ -870,7 +874,7 @@ class MultiAssetDerivBot {
                     - Total Trades: ${this.globalStats.totalTrades}
                     - Total P/L: $${this.globalStats.totalProfitLoss.toFixed(2)}
                     Loss Amount: $${Math.abs(parseFloat(contract.profit)).toFixed(2)}
-                    - Losses: ${this.globalStats.totalLosses}
+                    Total Losses: ${this.globalStats.totalLosses}
                     x2: ${this.consecutiveLosses2}
                     x3: ${this.consecutiveLosses3}
                     x4: ${this.consecutiveLosses4}
