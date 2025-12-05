@@ -29,7 +29,7 @@ module.exports = {
     },
 
     // Assets to trade (synthetic indices)
-    ASSETS: ['R_100'],
+    ASSETS: ['RDBEAR'],
 
     // Email notifications (optional)
     EMAIL: {
