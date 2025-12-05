@@ -841,7 +841,7 @@ class MultiAssetDerivBot {
             await transporter.sendMail({
                 from: config.EMAIL.user,
                 to: config.EMAIL.recipient,
-                subject: `x2Deriv Multi-Asset Bot - [${asset.symbol}] Trade Lost`,
+                subject: `Multix2Bot - [${asset.symbol}] Trade Lost`,
                 text: `
                     TRADE LOSS NOTIFICATION
                     =======================
@@ -935,7 +935,7 @@ class MultiAssetDerivBot {
             await transporter.sendMail({
                 from: config.EMAIL.user,
                 to: config.EMAIL.recipient,
-                subject: `x2Deriv Multi-Asset Bot - Session Complete`,
+                subject: `Multix2Bot - Session Complete`,
                 text: `
                     SESSION COMPLETE - MULTI-ASSET BOT
                     ==================================
@@ -992,7 +992,7 @@ class MultiAssetDerivBot {
             await transporter.sendMail({
                 from: config.EMAIL.user,
                 to: config.EMAIL.recipient,
-                subject: `x2Deriv Multi-Asset Bot - Trade Summary`,
+                subject: `Multix2Bot - Trade Summary`,
                 text: `
                     TRADE SUMMARY - MULTI-ASSET BOT
                     ==================================
