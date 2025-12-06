@@ -448,6 +448,7 @@ class EnhancedDigitDifferTradingBot {
         this.waitTime = 0;
         this.waitSeconds = 0;
         this.isWinTrade = false;
+        this.excludedDigits = [];
         this.retryCount = 0;
         // this.startTime = null;
         this.isExcluded = [];
@@ -735,6 +736,8 @@ class EnhancedDigitDifferTradingBot {
         const history = this.tickHistories[asset];
         if (history.length < 100) return;
 
+        if (this.suspendedAssets.has(asset)) return;
+
         // Get pattern analysis
         const analysis = this.patternAnalyzer.analyze(history);
         const analysis2 = this.patternAnalyzer2.analyze(history);
@@ -753,7 +756,7 @@ class EnhancedDigitDifferTradingBot {
 
             // Trade if confidence is high enough
             // We set a high bar for "100% certainty"
-            if (this.sys !== 1 && confidence >= 98 && analysis.samples >= 500 && this.tickHistories[asset][this.tickHistories[asset].length - 1] !== predictedDigit) {
+            if (this.sys !== 1 && confidence >= 98 && analysis.samples >= 500 && this.tickHistories[asset][this.tickHistories[asset].length - 1] !== predictedDigit && !this.excludedDigits.includes(predictedDigit)) {
                 console.log(`Pattern Found: [${analysis.patternType}] -> Predict NOT ${analysis.predictedDigit} (Conf: ${analysis.confidence}%, Samples: ${analysis.samples})`);
                 // ▼▼▼ VOLATILITY FILTER ▼▼▼
                 const recentDigits = history.slice(-5);
@@ -770,7 +773,7 @@ class EnhancedDigitDifferTradingBot {
                 this.totalOccurences = analysis.samples;
                 this.arraySamples = arraySamples;
                 this.placeTrade(asset, predictedDigit, confidence);
-            } else if (this.sys !== 2 && confidence2 >= 98 && analysis2.samples >= 500 && this.tickHistories[asset][this.tickHistories[asset].length - 1] !== predictedDigit2) {
+            } else if (this.sys !== 2 && confidence2 >= 98 && analysis2.samples >= 500 && this.tickHistories[asset][this.tickHistories[asset].length - 1] !== predictedDigit2 && !this.excludedDigits.includes(predictedDigit2)) {
                 console.log(`Pattern Found2: [${analysis2.patternType}] -> Predict NOT ${analysis2.predictedDigit} (Conf: ${analysis2.confidence}%, Samples: ${analysis2.samples})`);
                 // ▼▼▼ VOLATILITY FILTER ▼▼▼
                 const recentDigits = history.slice(-5);
@@ -853,10 +856,12 @@ class EnhancedDigitDifferTradingBot {
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
+            this.excludedDigits = [];
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.isWinTrade = false;
+            this.excludedDigits.push(this.xDigit);
 
             if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
@@ -889,9 +894,11 @@ class EnhancedDigitDifferTradingBot {
         }
 
         // If there are suspended assets, reactivate the first one on win
-        if (this.suspendedAssets.size > 1) {
-            const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
-            this.reactivateAsset(firstSuspendedAsset);
+        if (won) {
+            if (this.suspendedAssets.size > 1) {
+                const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
+                this.reactivateAsset(firstSuspendedAsset);
+            }
         }
 
         this.patternAnalyzer = new PatternAnalyzer();// Advanced pattern analyzer
@@ -1073,7 +1080,7 @@ class EnhancedDigitDifferTradingBot {
         const transporter = nodemailer.createTransport(this.emailConfig);
 
         const history = this.tickHistories[asset];
-        const lastFewTicks = history.slice(-20);
+        const lastFewTicks = history.slice(-10);
 
         const summaryText = `
         Trade Summary:
@@ -1094,9 +1101,12 @@ class EnhancedDigitDifferTradingBot {
         Volatility: ${this.volatility}
         Total Occurences: ${this.totalOccurences}
         Array Samples: [${this.arraySamples}]
-        System: ${this.system}
+        System: ${this.sys}
         
-        Last 20 Digits: ${lastFewTicks.join(', ')} 
+        Last 10 Digits: ${lastFewTicks.join(', ')} 
+
+        Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+        Excluded Digits: ${this.excludedDigits.join(', ')}
 
         Current Stake: $${this.currentStake.toFixed(2)}
 
