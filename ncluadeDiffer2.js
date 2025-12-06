@@ -1586,6 +1586,7 @@ class EnhancedDigitDifferTradingBot {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.isWinTrade = false;
+            this.excludedDigits.push(this.xDigit);
 
             if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
@@ -1616,9 +1617,11 @@ class EnhancedDigitDifferTradingBot {
         }
 
         // If there are suspended assets, reactivate the first one on win
-        if (this.suspendedAssets.size > 1) {
-            const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
-            this.reactivateAsset(firstSuspendedAsset);
+        if (won) {
+            if (this.suspendedAssets.size > 1) {
+                const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
+                this.reactivateAsset(firstSuspendedAsset);
+            }
         }
 
         // Suspend the asset after a trade
@@ -1886,6 +1889,9 @@ class EnhancedDigitDifferTradingBot {
         Probability: ${this.probability}%
         
         Last 10 Digits: ${lastFewTicks.join(', ')} 
+
+        Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+        Excluded Digits: ${this.excludedDigits.join(', ')}
 
         Current Stake: $${this.currentStake.toFixed(2)}
 
