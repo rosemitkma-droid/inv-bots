@@ -15,7 +15,7 @@ module.exports = {
         stopLoss: 86,                // Maximum total loss before stopping (all assets)
         takeProfit: 5000,               // Target profit before stopping (all assets)
         maxStake: 100,                // Maximum allowed stake per asset
-        maxConcurrentTrades: 5,       // Max trades running at same time
+        maxConcurrentTrades: 7,       // Max trades running at same time
     },
 
     // Analysis Thresholds - CRITICAL for trade decisions
@@ -30,8 +30,8 @@ module.exports = {
     },
 
     // Assets to trade (synthetic indices) - ALL traded concurrently
-    // ASSETS: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBEAR', 'RDBULL'],
-    ASSETS: ['RDBULL'],
+    ASSETS: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBEAR', 'RDBULL'],
+    // ASSETS: ['RDBULL'],
 
     // Email notifications (optional)
     EMAIL: {
