@@ -1586,6 +1586,7 @@ class EnhancedDigitDifferTradingBot {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.isWinTrade = false;
+            this.excludedDigits.push(this.xDigit);
 
             if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
@@ -1616,10 +1617,15 @@ class EnhancedDigitDifferTradingBot {
         }
 
         // If there are suspended assets, reactivate the first one on win
-        if (this.suspendedAssets.size > 1) {
-            const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
-            this.reactivateAsset(firstSuspendedAsset);
+        if (won) {
+            if (this.suspendedAssets.size > 1) {
+                const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
+                this.reactivateAsset(firstSuspendedAsset);
+            }
         }
+
+        // Suspend the asset after a trade
+        // this.suspendAsset(asset);
 
         if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss) {
             console.log('Stop condition reached. Stopping trading.');
@@ -1845,7 +1851,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'ncluadeDiffer - Summary',
+            subject: 'ncluadeDiffer2 - Summary',
             text: summaryText
         };
 
@@ -1884,6 +1890,9 @@ class EnhancedDigitDifferTradingBot {
         
         Last 10 Digits: ${lastFewTicks.join(', ')} 
 
+        Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+        Excluded Digits: ${this.excludedDigits.join(', ')}
+
         Current Stake: $${this.currentStake.toFixed(2)}
 
         Waiting for: ${this.waitTime} minutes before next trade...
@@ -1892,7 +1901,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'ncluadeDiffer - Loss Alert',
+            subject: 'ncluadeDiffer2 - Loss Alert',
             text: summaryText
         };
 
@@ -1931,7 +1940,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'ncluadeDiffer - Connection/Dissconnection Summary',
+            subject: 'ncluadeDiffer2 - Connection/Dissconnection Summary',
             text: summaryText
         };
 
@@ -1949,7 +1958,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'ncluadeDiffer - Error Report',
+            subject: 'ncluadeDiffer2 - Error Report',
             text: `An error occurred: ${errorMessage}`
         };
 
@@ -1989,7 +1998,7 @@ class EnhancedDigitDifferTradingBot {
 }
 
 // Usage
-const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
+const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
@@ -1998,8 +2007,8 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     minConfidence: 0.90,
     enableNeuralNetwork: true,
     enablePatternRecognition: true,
-    learningModeThreshold: 50,
-    requiredHistoryLength: 200,
+    learningModeThreshold: 500,
+    requiredHistoryLength: 5000,
     minWaitTime: 2000, //5 Minutes
     maxWaitTime: 5000, //1 Hour
 });
