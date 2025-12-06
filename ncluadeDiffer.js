@@ -1,8 +1,8 @@
 /**
- * Smart Deriv Differ Trading Bot
+ * Enhanced Deriv Digit Differ Trading Bot
  * Version 2.0 - Advanced AI Learning System
  * 
- * Smart Differ: Win if the last digit of the final tick is DIFFERENT from your chosen digit
+ * Digit Differ: Win if the last digit of the final tick is DIFFERENT from your chosen digit
  * Base Win Rate: ~90% (9/10 outcomes win)
  * Strategy: Choose the digit most likely to appear, bet it will DIFFER
  * 
@@ -820,14 +820,14 @@ class DigitEnsembleDecisionMaker {
                 const scoreItem = scores.find(s => s.digit === i);
                 if (scoreItem) combinedScores[i] += scoreItem.score * this.modelWeights.statistical;
             }
-            details.statistical = scores.slice(0, 3).map(s => `${s.digit}:${s.score.toFixed(1)}`).join(', ');
+            details.statistical = scores[0].digit;
         }
 
         if (predictions.pattern && predictions.pattern.probabilities) {
             for (let i = 0; i < 10; i++) {
                 combinedScores[i] += predictions.pattern.probabilities[i] * 100 * this.modelWeights.pattern;
             }
-            details.pattern = `Most likely: ${predictions.pattern.mostLikely}`;
+            details.pattern = `least likely: ${predictions.pattern.leastLikely}`;
         }
 
         if (predictions.neural) {
@@ -838,10 +838,10 @@ class DigitEnsembleDecisionMaker {
             details.neural = `Predicted: ${maxNeural}`;
         }
 
-        if (predictions.streak && predictions.streak.streaking !== null) {
-            combinedScores[predictions.streak.streaking] += 15 * this.modelWeights.streak;
-            details.streak = `Streaking: ${predictions.streak.streaking}`;
-        }
+        // if (predictions.streak && predictions.streak.streaking !== null) {
+        //     combinedScores[predictions.streak.streaking] += 15 * this.modelWeights.streak;
+        //     details.streak = `Streaking: ${predictions.streak.streaking}`;
+        // }
 
         const ranked = combinedScores.map((score, digit) => ({ digit, score })).sort((a, b) => b.score - a.score);
         const totalScore = combinedScores.reduce((a, b) => a + b, 0);
@@ -987,133 +987,77 @@ class DigitEnsembleDecisionMaker {
 }
 
 // ============================================================================
-// TIER 5: PERSISTENCE MANAGER
+// MAIN ENHANCED DIGIT DIFFER TRADING BOT
 // ============================================================================
-
-// class DigitPersistenceManager {
-//     constructor(baseDir = './digit_bot_memory') {
-//         this.baseDir = baseDir;
-//         this.ensureDirectory();
-//     }
-
-//     ensureDirectory() {
-//         if (!fs.existsSync(this.baseDir)) {
-//             fs.mkdirSync(this.baseDir, { recursive: true });
-//             console.log(`📁 Created memory directory: ${this.baseDir}`);
-//         }
-//     }
-
-//     save(filename, data) {
-//         try {
-//             const filepath = path.join(this.baseDir, filename);
-//             fs.writeFileSync(filepath, JSON.stringify(data, null, 2));
-//             console.log(`💾 Saved: ${filename}`);
-//             return true;
-//         } catch (error) {
-//             console.error(`Error saving ${filename}:`, error.message);
-//             return false;
-//         }
-//     }
-
-//     load(filename) {
-//         try {
-//             const filepath = path.join(this.baseDir, filename);
-//             if (fs.existsSync(filepath)) {
-//                 const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
-//                 console.log(`📂 Loaded: ${filename}`);
-//                 return data;
-//             }
-//             return null;
-//         } catch (error) {
-//             console.error(`Error loading ${filename}:`, error.message);
-//             return null;
-//         }
-//     }
-
-//     saveFullState(bot) {
-//         const state = {
-//             timestamp: Date.now(),
-//             statisticalEngine: bot.statisticalEngine.exportState(),
-//             patternEngine: bot.patternEngine.exportState(),
-//             neuralEngine: bot.neuralEngine.exportWeights(),
-//             ensembleDecisionMaker: bot.ensembleDecisionMaker.exportState(),
-//             performanceHistory: {
-//                 totalTrades: bot.totalTrades,
-//                 totalWins: bot.totalWins,
-//                 totalLosses: bot.totalLosses,
-//                 totalProfitLoss: bot.totalProfitLoss
-//             },
-//             digitTradeHistory: bot.digitTradeHistory.slice(-500)
-//         };
-
-//         return this.save('digit_bot_state.json', state);
-//     }
-
-//     loadFullState() {
-//         return this.load('digit_bot_state.json');
-//     }
-
-//     appendPerformanceLog(entry) {
-//         const logFile = 'digit_performance_log.json';
-//         let log = this.load(logFile) || [];
-//         log.push({ ...entry, timestamp: Date.now() });
-
-//         if (log.length > 10000) {
-//             log = log.slice(-10000);
-//         }
-
-//         return this.save(logFile, log);
-//     }
-// }
-
-// ============================================================================
-// MAIN Smart DIFFER TRADING BOT
-// ============================================================================
-
-class EnhancedDigitDifferBot {
+class EnhancedDigitDifferTradingBot {
     constructor(token, config = {}) {
         this.token = token;
+
         this.ws = null;
         this.connected = false;
         this.wsReady = false;
-        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
+
+        this.assets = config.assets || [
+            // 'R_10','R_25','R_50','R_75', 'R_100', 
+            // 'RDBULL', 'RDBEAR', 
+            // '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V',
+            // 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
+            'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR',
+            // 'R_75',
+        ];
 
         this.config = {
-            initialStake: config.initialStake || 10,
+            initialStake: config.initialStake || 10.5,
             multiplier: config.multiplier || 11.3,
-            maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
-            stopLoss: config.stopLoss || 86,
-            takeProfit: config.takeProfit || 5000,
-            requiredHistoryLength: config.requiredHistoryLength || 5000,
+            maxConsecutiveLosses: config.maxConsecutiveLosses || 5,
+            stopLoss: config.stopLoss || 50,
+            takeProfit: config.takeProfit || 1,
+            requiredHistoryLength: config.requiredHistoryLength || 200,
+            winProbabilityThreshold: config.winProbabilityThreshold || 100,
             maxReconnectAttempts: config.maxReconnectAttempts || 10000,
             reconnectInterval: config.reconnectInterval || 5000,
-            minWaitTime: config.minWaitTime || 3000,
-            maxWaitTime: config.maxWaitTime || 8000,
-            tickDuration: config.tickDuration || 1,
-            minConfidence: config.minConfidence || 0.85,
+            minWaitTime: config.minWaitTime || 200 * 1000,
+            maxWaitTime: config.maxWaitTime || 500 * 1000,
+            minConfidence: config.minConfidence || 0.10,
             learningModeThreshold: config.learningModeThreshold || 50,
             enableNeuralNetwork: config.enableNeuralNetwork !== false,
             enablePatternRecognition: config.enablePatternRecognition !== false,
             saveInterval: config.saveInterval || 300000,
         };
 
-        // Trading state
         this.currentStake = this.config.initialStake;
         this.consecutiveLosses = 0;
+        this.currentTradeId = null;
+        this.digitCounts = {};
+        this.tickSubscriptionIds = {};
+        this.tickHistories = {};
+        this.tickHistories2 = {};
+        this.lastDigits = {};
+        this.lastDigits2 = {};
+        this.predictedDigits = {};
+        this.lastPredictions = {};
+        this.totalTrades = 0;
+        this.totalWins = 0;
+        this.totalLosses = 0;
         this.consecutiveLosses2 = 0;
         this.consecutiveLosses3 = 0;
         this.consecutiveLosses4 = 0;
         this.consecutiveLosses5 = 0;
-        this.currentTradeId = null;
-        this.totalTrades = 0;
-        this.totalWins = 0;
-        this.totalLosses = 0;
         this.totalProfitLoss = 0;
         this.tradeInProgress = false;
+        this.predictionInProgress = false;
         this.endOfDay = false;
-        this.Pause = false;
-        this.Pause = false;
+        this.lastPredictionOutcome = null;
+        this.waitTime = 0;
+        this.waitSeconds = 0;
         this.isWinTrade = false;
+        this.retryCount = 0;
+        // this.startTime = null;
+        this.isExcluded = [];
+        // Add new property to track suspended assets
+        this.suspendedAssets = new Set();
+        this.rStats = {};
+        this.sys = null;
 
         // Digit-specific tracking
         this.tickHistories = {};
@@ -1133,21 +1077,26 @@ class EnhancedDigitDifferBot {
         this.learningMode = true;
         this.lastPredictions = {};
 
-        // Initialize assets
+        // Initialize per-asset storage
         this.assets.forEach(asset => {
             this.tickHistories[asset] = [];
+            this.lastDigits[asset] = null;
+            this.predictedDigits[asset] = null;
+            this.lastPredictions[asset] = [];
+
             this.assetStates[asset] = {
                 lastDigit: null,
                 currentProposalId: null,
                 tradeInProgress: false,
                 consecutiveLosses: 0,
-                selectedDigit: null
             };
+
             this.statisticalEngine.initAsset(asset);
             this.patternEngine.initAsset(asset);
         });
 
-        // Email Configuration
+
+        //Email Configuration
         this.emailConfig = {
             service: 'gmail',
             auth: {
@@ -1157,17 +1106,20 @@ class EnhancedDigitDifferBot {
         };
         this.emailRecipient = 'kenotaru@gmail.com';
 
-        this.reconnectAttempts = 0;
-
         // Load saved state
         // this.loadSavedState();
 
         // Start periodic save
         // this.startPeriodicSave();
 
-        // Start email timer
         this.startEmailTimer();
+
+        this.reconnectAttempts = 0;
+        this.Pause = false;
+
+        this.todayPnL = 0;
     }
+
 
     // ========================================================================
     // PERSISTENCE METHODS
@@ -1206,12 +1158,8 @@ class EnhancedDigitDifferBot {
     //     }, this.config.saveInterval);
     // }
 
-    // ========================================================================
-    // WEBSOCKET METHODS
-    // ========================================================================
-
     connect() {
-        if (!this.endOfDay) {
+        if (!this.Pause) {
             console.log('Attempting to connect to Deriv API...');
             this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
 
@@ -1230,13 +1178,15 @@ class EnhancedDigitDifferBot {
 
             this.ws.on('error', (error) => {
                 console.error('WebSocket error:', error);
-                this.handleDisconnect();
+                if (!this.Pause) {
+                    this.handleDisconnect();
+                }
             });
 
             this.ws.on('close', () => {
                 console.log('Disconnected from Deriv API');
                 this.connected = false;
-                if (!this.endOfDay) {
+                if (!this.Pause) {
                     this.handleDisconnect();
                 }
             });
@@ -1247,9 +1197,10 @@ class EnhancedDigitDifferBot {
         if (this.connected && this.wsReady) {
             this.ws.send(JSON.stringify(request));
         } else if (this.connected && !this.wsReady) {
+            console.log('WebSocket not ready. Queueing request...');
             setTimeout(() => this.sendRequest(request), this.config.reconnectInterval);
         } else {
-            console.error('Not connected to Deriv API.');
+            console.error('Not connected to Deriv API. Unable to send request:', request);
         }
     }
 
@@ -1257,38 +1208,87 @@ class EnhancedDigitDifferBot {
         this.connected = false;
         this.wsReady = false;
         if (this.reconnectAttempts < this.config.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            console.log(`Reconnecting (${this.reconnectAttempts}/${this.config.maxReconnectAttempts})...`);
+            console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.config.maxReconnectAttempts})...`);
             setTimeout(() => this.connect(), this.config.reconnectInterval);
+        }
+        this.tradeInProgress = false;
+        this.predictionInProgress = false;
+        this.assets.forEach(asset => {
+            this.tickHistories[asset] = [];
+            this.tickHistories2[asset] = [];
+            this.digitCounts[asset] = Array(10).fill(0);
+            this.predictedDigits[asset] = null;
+            this.lastPredictions[asset] = [];
+            this.lastDigits[asset] = null;
+            this.assetStates[asset] = {
+                lastDigit: null,
+                currentProposalId: null,
+                tradeInProgress: false,
+                // consecutiveLosses: 0,
+            };
+        });
+        this.tickSubscriptionIds = {};
+        this.retryCount = 0;
+
+        //unsubscribe from all assets
+        this.unsubscribeAllTicks();
+
+        //unsubscribe from all assets
+        this.assets.forEach(asset => {
+            this.unsubscribeFromTicks(asset);
+        });
+    }
+
+    handleApiError(error) {
+        console.error('API Error:', error.message);
+
+        switch (error.code) {
+            case 'InvalidToken':
+                console.error('Invalid token. Please check your API token and restart the bot.');
+                this.sendErrorEmail('Invalid API token');
+                this.disconnect();
+                break;
+            case 'RateLimit':
+                console.log('Rate limit reached. Waiting before next request...');
+                setTimeout(() => this.initializeSubscriptions(), 60000);
+                break;
+            case 'MarketIsClosed':
+                console.log('Market is closed. Waiting for market to open...');
+                setTimeout(() => this.initializeSubscriptions(), 3600000);
+                break;
+            default:
+                console.log('Encountered an error. Continuing operation...');
+                this.initializeSubscriptions();
         }
     }
 
     authenticate() {
-        console.log('Authenticating...');
-        this.sendRequest({ authorize: this.token });
-    }
-
-    subscribeToTicks(asset) {
+        console.log('Attempting to authenticate...');
         this.sendRequest({
-            ticks: asset,
-            subscribe: 1
+            authorize: this.token
         });
     }
 
     subscribeToTickHistory(asset) {
-        this.sendRequest({
+        const request = {
             ticks_history: asset,
             adjust_start_time: 1,
             count: this.config.requiredHistoryLength,
             end: 'latest',
             start: 1,
             style: 'ticks'
-        });
+        };
+        this.sendRequest(request);
+        // console.log(`Requested tick history for asset: ${asset}`);
     }
 
-    // ========================================================================
-    // MESSAGE HANDLERS
-    // ========================================================================
+    subscribeToTicks(asset) {
+        const request = {
+            ticks: asset,
+            subscribe: 1
+        };
+        this.sendRequest(request);
+    }
 
     handleMessage(message) {
         if (message.msg_type === 'authorize') {
@@ -1298,23 +1298,37 @@ class EnhancedDigitDifferBot {
                 return;
             }
             console.log('Authentication successful');
+
             this.tradeInProgress = false;
+            this.predictionInProgress = false;
+            this.assets.forEach(asset => {
+                this.tickHistories[asset] = [];
+                this.tickHistories2[asset] = [];
+                this.digitCounts[asset] = Array(10).fill(0);
+                this.predictedDigits[asset] = null;
+                this.lastPredictions[asset] = [];
+                this.lastDigits[asset] = null;
+                this.assetStates[asset] = {
+                    lastDigit: null,
+                    currentProposalId: null,
+                    tradeInProgress: false,
+                    // consecutiveLosses: 0,
+                };
+            });
+            this.tickSubscriptionIds = {};
+            this.retryCount = 0;
             this.initializeSubscriptions();
 
         } else if (message.msg_type === 'history') {
             const asset = message.echo_req.ticks_history;
             this.handleTickHistory(asset, message.history);
-
         } else if (message.msg_type === 'tick') {
             if (message.subscription) {
                 const asset = message.tick.symbol;
                 this.tickSubscriptionIds[asset] = message.subscription.id;
+                // console.log(`Subscribed to ticks for ${asset}. Subscription ID: ${this.tickSubscriptionIds[asset]}`);
             }
             this.handleTickUpdate(message.tick);
-
-        } else if (message.msg_type === 'proposal') {
-            this.handleProposal(message);
-
         } else if (message.msg_type === 'buy') {
             if (message.error) {
                 console.error('Error placing trade:', message.error.message);
@@ -1324,25 +1338,17 @@ class EnhancedDigitDifferBot {
             console.log('Trade placed successfully');
             this.currentTradeId = message.buy.contract_id;
             this.subscribeToOpenContract(this.currentTradeId);
-
         } else if (message.msg_type === 'proposal_open_contract') {
             if (message.error) {
                 console.error('Error receiving contract update:', message.error.message);
                 return;
             }
             this.handleContractUpdate(message.proposal_open_contract);
-
+        } else if (message.msg_type === 'forget') {
+            // console.log('Successfully unsubscribed from ticks');
         } else if (message.error) {
             this.handleApiError(message.error);
         }
-    }
-
-    initializeSubscriptions() {
-        console.log('Initializing subscriptions for all assets...');
-        this.assets.forEach(asset => {
-            this.subscribeToTickHistory(asset);
-            this.subscribeToTicks(asset);
-        });
     }
 
     getLastDigit(quote, asset) {
@@ -1351,99 +1357,135 @@ class EnhancedDigitDifferBot {
 
         if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
             return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
-        } else if (['R_10', 'R_25', '1HZ15V', '1HZ30V', '1HZ90V'].includes(asset)) {
+        } else if (['R_10', 'R_25', '1HZ15V', '1HZ30V', '1HZ90V',].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
         } else {
             return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
         }
     }
 
-    handleTickHistory(asset, history) {
-        const digits = history.prices.map(price => this.getLastDigit(price, asset));
-        this.tickHistories[asset] = digits;
+    initializeSubscriptions() {
+        console.log('Initializing subscriptions for all assets...');
+        //unsubscribe from all assets
+        this.assets.forEach(asset => {
+            this.unsubscribeFromTicks(asset);
+        });
 
+        this.assets.forEach(asset => {
+            this.subscribeToTickHistory(asset);
+            this.subscribeToTicks(asset);
+        });
+    }
+
+    handleTickHistory(asset, history) {
+        this.tickHistories[asset] = history.prices.map(price => this.getLastDigit(price, asset));
+        // console.log(`Received tick history for asset: ${asset}. Length: ${this.tickHistories[asset].length}`);
         // Update learning engines with historical data
-        digits.forEach(digit => {
+        this.tickHistories[asset].forEach(digit => {
             this.statisticalEngine.updateFrequency(asset, digit);
             this.patternEngine.updatePatterns(asset, digit);
         });
-
-        console.log(`[${asset}] Loaded ${digits.length} historical ticks`);
     }
 
     handleTickUpdate(tick) {
         const asset = tick.symbol;
-        const digit = this.getLastDigit(tick.quote, asset);
+        const lastDigit = this.getLastDigit(tick.quote, asset);
 
-        // Update history
-        this.tickHistories[asset].push(digit);
+        this.lastDigits[asset] = lastDigit;
+
+        this.tickHistories[asset].push(lastDigit);
+
         if (this.tickHistories[asset].length > this.config.requiredHistoryLength) {
             this.tickHistories[asset].shift();
         }
 
         // Update learning engines
-        this.statisticalEngine.updateFrequency(asset, digit);
-        this.patternEngine.updatePatterns(asset, digit);
+        this.statisticalEngine.updateFrequency(asset, lastDigit);
+        this.patternEngine.updatePatterns(asset, lastDigit);
         this.observationCount++;
 
         // Update asset state
-        this.assetStates[asset].lastDigit = digit;
+        this.assetStates[asset].lastDigit = lastDigit;
 
-        // Train neural network periodically
-        if (this.config.enableNeuralNetwork && this.observationCount % 5 === 0) {
-            const features = this.neuralEngine.prepareFeatures(
-                this.tickHistories[asset],
-                this.statisticalEngine.getDigitProbabilities(asset)
-            );
-            this.neuralEngine.trainOnSample(features, digit);
-        }
+        console.log(`[${asset}] ${tick.quote} → Last 5: ${this.tickHistories[asset].slice(-5).join(', ')}`);
 
-        // Check if still in learning mode
-        if (this.learningMode && this.observationCount < this.config.learningModeThreshold) {
-            if (this.observationCount % 10 === 0) {
-                console.log(`🎓 Learning mode: ${this.observationCount}/${this.config.learningModeThreshold} observations`);
-            }
+        if (this.tickHistories[asset].length < this.config.requiredHistoryLength) {
+            console.log(`⏳ [${asset}] Buffering... (${this.tickHistories[asset].length}/${this.config.requiredHistoryLength})`);
             return;
-        } else if (this.learningMode) {
-            console.log('✅ Learning phase complete. Trading enabled.');
-            this.learningMode = false;
         }
 
-        // Analyze for trading opportunity
         if (!this.tradeInProgress) {
-            this.analyzeAndTrade(asset);
+            // Train neural network periodically
+            if (this.config.enableNeuralNetwork && this.observationCount % 5 === 0) {
+                const features = this.neuralEngine.prepareFeatures(
+                    this.tickHistories[asset],
+                    this.statisticalEngine.getDigitProbabilities(asset)
+                );
+                this.neuralEngine.trainOnSample(features, lastDigit);
+            }
+
+            // Check if still in learning mode
+            if (this.learningMode && this.observationCount < this.config.learningModeThreshold) {
+                if (this.observationCount % 10 === 0) {
+                    console.log(`🎓 Learning mode: ${this.observationCount}/${this.config.learningModeThreshold} observations`);
+                }
+                return;
+            } else if (this.learningMode) {
+                console.log('✅ Learning phase complete. Trading enabled.');
+                this.learningMode = false;
+            }
+
+            // Analyze ticks
+            this.analyzeTicks(asset);
         }
     }
 
-    // ========================================================================
-    // TRADING ANALYSIS
-    // ========================================================================
-
-    analyzeAndTrade(asset) {
+    // ========= 🎯 CORE LOGIC: ADAPTIVE MEAN-REVERSION DIGIT SELECTOR =========
+    analyzeTicks(asset) {
         if (this.tradeInProgress) return;
-        if (this.tickHistories[asset].length < this.config.requiredHistoryLength) return;
 
+        const history = this.tickHistories[asset];
+        if (history.length < 100) return;
+
+        // Get pattern analysis
         // Get predictions from all models
         const predictions = this.getEnsemblePredictions(asset);
 
         // Make decision
         const decision = this.ensembleDecisionMaker.selectDigitToDiffer(predictions);
 
-        // Store for later analysis
-        this.lastPredictions[asset] = predictions;
+        if (this.consecutiveLosses > 0) {
+            if (decision.shouldTrade && decision.digitToDiffer !== 0 && decision.digitToDiffer !== 9 && decision.digitToDiffer !== this.tickHistories[asset].slice(-1)[0] && decision.confidence > 0.92) {
+                // Store for later analysis
+                this.lastPredictions[asset] = decision.digitToDiffer;
+                console.log(`[${asset}] 🎯 TRADE SIGNAL`);
+                console.log(`   Digit to DIFFER from: ${decision.digitToDiffer}`);
+                console.log(`   Probability: ${(decision.probability * 100).toFixed(1)}%`);
+                console.log(`   Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
+                console.log(`   Models: ${JSON.stringify(decision.details)}`);
 
-        if (decision.shouldTrade) {
-            console.log(`[${asset}] 🎯 TRADE SIGNAL`);
-            console.log(`   Digit to DIFFER from: ${decision.digitToDiffer}`);
-            console.log(`   Probability: ${(decision.probability * 100).toFixed(1)}%`);
-            console.log(`   Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
-            console.log(`   Models: ${JSON.stringify(decision.details)}`);
+                this.xDigit = decision.digitToDiffer;
+                this.confidence = (decision.confidence * 100).toFixed(1);
+                this.probability = (decision.probability * 100).toFixed(1);
 
-            console.log(`   Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
-            console.log(`   Models: ${JSON.stringify(decision.details)}`);
+                this.placeTrade(asset, this.xDigit, this.confidence, this.probability);
+            }
+        } else {
+            if (decision.shouldTrade && decision.digitToDiffer !== 0 && decision.digitToDiffer !== 9 && decision.digitToDiffer !== this.tickHistories[asset].slice(-1)[0] && decision.confidence >= 0.86) {
+                // Store for later analysis
+                this.lastPredictions[asset] = decision.digitToDiffer;
+                console.log(`[${asset}] 🎯 TRADE SIGNAL`);
+                console.log(`   Digit to DIFFER from: ${decision.digitToDiffer}`);
+                console.log(`   Probability: ${(decision.probability * 100).toFixed(1)}%`);
+                console.log(`   Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
+                console.log(`   Models: ${JSON.stringify(decision.details)}`);
 
-            this.assetStates[asset].selectedDigit = decision.digitToDiffer;
-            this.requestProposal(asset, decision.digitToDiffer);
+                this.xDigit = decision.digitToDiffer;
+                this.confidence = (decision.confidence * 100).toFixed(1);
+                this.probability = (decision.probability * 100).toFixed(1);
+
+                this.placeTrade(asset, this.xDigit, this.confidence, this.probability);
+            }
         }
     }
 
@@ -1466,73 +1508,47 @@ class EnhancedDigitDifferBot {
         }
 
         // Streak model
-        const lastDigit = this.assetStates[asset].lastDigit;
-        predictions.streak = {
-            streaking: this.patternEngine.isDigitStreaking(asset, lastDigit) ? lastDigit : null
-        };
+        // const lastDigit = this.assetStates[asset].lastDigit;
+        // predictions.streak = {
+        //     streaking: this.patternEngine.isDigitStreaking(asset, lastDigit) ? lastDigit : null
+        // };
 
         return predictions;
     }
 
-    requestProposal(asset, barrier) {
-        const proposal = {
-            proposal: 1,
-            amount: this.currentStake.toFixed(2),
-            basis: 'stake',
-            contract_type: 'DIGITDIFF',
-            currency: 'USD',
-            symbol: asset,
-            duration: this.config.tickDuration,
-            duration_unit: 't',
-            barrier: barrier
-        };
 
-        this.sendRequest(proposal);
-    }
 
-    handleProposal(message) {
-        if (message.error) {
-            console.error('Proposal error:', message.error.message);
-            return;
-        }
-
-        if (message.proposal && !this.tradeInProgress) {
-            const proposalId = message.proposal.id;
-            const asset = message.echo_req.symbol;
-
-            this.assetStates[asset].currentProposalId = proposalId;
-            this.placeTrade(asset);
-        }
-    }
-
-    placeTrade(asset) {
+    placeTrade(asset, predictedDigit, confidence, probability) {
         if (this.tradeInProgress) return;
 
-        const assetState = this.assetStates[asset];
-        if (!assetState || !assetState.currentProposalId) {
-            console.log(`Cannot place trade. Missing proposal for asset ${asset}.`);
-            return;
-        }
-
-        const request = {
-            buy: assetState.currentProposalId,
-            price: this.currentStake.toFixed(2)
-        };
-
-        console.log(`🚀 Placing Smart DIFFER trade`);
-        console.log(`   Asset: [${asset}] | Digit: ${assetState.selectedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
-
-        this.sendRequest(request);
         this.tradeInProgress = true;
-        assetState.tradeInProgress = true;
+        this.xDigit = predictedDigit;
+
+        console.log(`🚀 [${asset}] Placing trade → Digit: ${predictedDigit} | Confidence: ${confidence}% | Probability: ${probability}% | Stake: $${this.currentStake}`);
+        const request = {
+            buy: 1,
+            price: this.currentStake,
+            parameters: {
+                amount: this.currentStake,
+                basis: 'stake',
+                contract_type: 'DIGITDIFF',
+                currency: 'USD',
+                duration: 1,
+                duration_unit: 't',
+                symbol: asset,
+                barrier: predictedDigit.toString(),
+            }
+        };
+        this.sendRequest(request);
     }
 
     subscribeToOpenContract(contractId) {
-        this.sendRequest({
+        const request = {
             proposal_open_contract: 1,
             contract_id: contractId,
             subscribe: 1
-        });
+        };
+        this.sendRequest(request);
     }
 
     handleContractUpdate(contract) {
@@ -1547,125 +1563,89 @@ class EnhancedDigitDifferBot {
         const profit = parseFloat(contract.profit);
         const exitSpot = contract.exit_tick_display_value;
         const actualDigit = this.getLastDigit(parseFloat(exitSpot), asset);
+        this.actualDigit = actualDigit;
 
-        const assetState = this.assetStates[asset];
-        if (assetState) {
-            assetState.tradeInProgress = false;
-        }
-
-        const predictedDigit = assetState ? assetState.selectedDigit : null;
-
-        console.log(`[${asset}] Trade Result: ${won ? '✅ WON' : '❌ LOST'}`);
-        console.log(`   Predicted to differ from: ${predictedDigit} | Actual: ${actualDigit}`);
-        console.log(`   Profit: $${profit.toFixed(2)}`);
+        console.log(`[${asset}] Trade outcome: ${won ? '✅ WON' : '❌ LOST'}`);
+        console.log(`   Predicted to differ from: ${this.xDigit} | Actual: ${actualDigit}`);
 
         // Record outcome for learning
-        this.recordTradeOutcome(asset, won, predictedDigit, actualDigit, profit);
+        this.recordTradeOutcome(asset, won, this.xDigit, actualDigit, profit);
 
         this.totalTrades++;
 
         if (won) {
             this.totalWins++;
+            this.isWinTrade = true;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
-
-            if (assetState) {
-                assetState.consecutiveLosses = 0;
-            }
-            this.isWinTrade = true;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-
-            if (assetState) {
-                assetState.consecutiveLosses++;
-            }
             this.isWinTrade = false;
 
-            // Update global consecutive loss counters
             if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
-            this.isWinTrade = false;
-
-            this.sendLossEmail(asset, actualDigit, predictedDigit);
+            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
         }
 
         this.totalProfitLoss += profit;
+        this.todayPnL += profit;
+        this.Pause = true;
 
-        // Save state
-        // this.persistenceManager.saveFullState(this);
+        const randomWaitTime = Math.floor(Math.random() * (this.config.maxWaitTime - this.config.minWaitTime + 1)) + this.config.minWaitTime;
+        const waitTimeMinutes = Math.round(randomWaitTime / 60000);
 
-        // Log summary
-        this.logTradingSummary(asset);
+        this.waitTime = waitTimeMinutes;
+        this.waitSeconds = randomWaitTime;
 
-        // Check stop conditions
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses ||
-            this.totalProfitLoss <= -this.config.stopLoss) {
-            console.log('Stop loss reached. Stopping trading.');
+        if (!this.endOfDay) {
+            this.logTradingSummary(asset);
+        }
+
+        if (!won) {
+            this.sendLossEmail(asset);
+            // Suspend the asset after a trade
+            this.suspendAsset(asset);
+        } else {
+            this.sys = null;
+        }
+
+        // If there are suspended assets, reactivate the first one on win
+        if (this.suspendedAssets.size > 1) {
+            const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
+            this.reactivateAsset(firstSuspendedAsset);
+        }
+
+        // Suspend the asset after a trade
+        // this.suspendAsset(asset);
+
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss) {
+            console.log('Stop condition reached. Stopping trading.');
             this.endOfDay = true;
-            this.sendEmailSummary();
             this.disconnect();
             return;
         }
 
         if (this.totalProfitLoss >= this.config.takeProfit) {
-            console.log('Take profit reached. Stopping trading.');
+            console.log('Take Profit Reached... Stopping trading.');
             this.endOfDay = true;
             this.sendEmailSummary();
             this.disconnect();
             return;
         }
 
-        // Wait before next trade
-        const waitTime = Math.floor(
-            Math.random() * (this.config.maxWaitTime - this.config.minWaitTime + 1)
-        ) + this.config.minWaitTime;
-
-        this.tradeInProgress = false;
-
-        this.selectedDigit = null;
-        this.selectedAsset = null;
-
-        // Digit-specific tracking
-        this.tickHistories = {};
-        this.tickSubscriptionIds = {};
-        this.assetStates = {};
-        this.digitTradeHistory = [];
-
-        // Enhanced Learning Components
-        this.statisticalEngine = new DigitStatisticalEngine();
-        this.patternEngine = new DigitPatternEngine();
-        this.neuralEngine = new DigitNeuralEngine(50, [64, 32], 10);
-        this.ensembleDecisionMaker = new DigitEnsembleDecisionMaker();
-        // this.persistenceManager = new DigitPersistenceManager();
-
-        // Learning mode
-        // this.observationCount = 0;
-        // this.learningMode = true;
-        // this.lastPredictions = {};
-
-        // Initialize assets
-        this.assets.forEach(asset => {
-            this.tickHistories[asset] = [];
-            this.assetStates[asset] = {
-                lastDigit: null,
-                currentProposalId: null,
-                tradeInProgress: false,
-                consecutiveLosses: 0,
-                selectedDigit: null
-            };
-            this.statisticalEngine.initAsset(asset);
-            this.patternEngine.initAsset(asset);
-        });
+        // this.unsubscribeAllTicks();
+        this.disconnect();
 
         if (!this.endOfDay) {
             setTimeout(() => {
                 this.tradeInProgress = false;
-            }, waitTime);
+                this.Pause = false;
+                this.connect();
+            }, randomWaitTime);
         }
     }
 
@@ -1702,30 +1682,81 @@ class EnhancedDigitDifferBot {
         // });
     }
 
-    // ========================================================================
-    // UTILITY METHODS
-    // ========================================================================
+    // Add new method to handle asset suspension
+    suspendAsset(asset) {
+        this.suspendedAssets.add(asset);
+        console.log(`🚫 Suspended asset: ${asset}`);
+    }
 
-    handleApiError(error) {
-        console.error('API Error:', error.message);
+    // Add new method to reactivate asset
+    reactivateAsset(asset) {
+        this.suspendedAssets.delete(asset);
+        console.log(`✅ Reactivated asset: ${asset}`);
+    }
 
-        switch (error.code) {
-            case 'InvalidToken':
-                console.error('Invalid token.');
-                this.disconnect();
-                break;
-            case 'RateLimit':
-                console.log('Rate limit. Waiting...');
-                setTimeout(() => this.initializeSubscriptions(), 60000);
-                break;
-            case 'MarketIsClosed':
-                console.log('Market closed.');
-                setTimeout(() => this.initializeSubscriptions(), 3600000);
-                break;
-            default:
-                this.initializeSubscriptions();
+    unsubscribeAllTicks() {
+        Object.values(this.tickSubscriptionIds).forEach(subId => {
+            const request = {
+                forget: subId
+            };
+            this.sendRequest(request);
+            // console.log(`Unsubscribing from ticks with ID: ${subId}`);
+        });
+        this.tickSubscriptionIds = {};
+    }
+
+    unsubscribeFromTicks(asset) {
+        const subId = this.tickSubscriptionIds[asset];
+        if (subId) {
+            const request = {
+                forget: subId
+            };
+            this.sendRequest(request);
+            // console.log(`Unsubscribing from ticks for ${asset}. Subscription ID: ${subId}`);
+            delete this.tickSubscriptionIds[asset];
         }
     }
+
+    // Check for Disconnect and Reconnect
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            // Always use GMT +1 time regardless of server location
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Optional: log current GMT+1 time for monitoring
+            // console.log(
+            // "Current GMT+1 time:",
+            // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
+            // );
+
+            // Check for Morning resume condition (7:00 AM GMT+1)
+            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
+                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
+                this.LossDigitsList = [];
+                this.tradeInProgress = false;
+                this.usedAssets = new Set();
+                this.RestartTrading = true;
+                this.Pause = false;
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            // Check for evening stop condition (after 5:00 PM GMT+1)
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.sendDisconnectResumptionEmailSummary();
+                    this.Pause = true;
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+        }, 5000); // Check every 5 seconds
+    }
+
 
     disconnect() {
         if (this.connected) {
@@ -1738,35 +1769,33 @@ class EnhancedDigitDifferBot {
         const neuralMetrics = this.neuralEngine.getPerformanceMetrics();
         const ensemblePerf = this.ensembleDecisionMaker.getPerformanceSummary();
 
-        console.log('═══════════════════════════════════════════════════════════');
-        console.log('              Smart DIFFER TRADING SUMMARY');
-        console.log('═══════════════════════════════════════════════════════════');
+        console.log('Trading Summary:');
         console.log(`Total Trades: ${this.totalTrades}`);
-        console.log(`Wins: ${this.totalWins} | Losses: ${this.totalLosses}`);
-        console.log(`Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%`);
-        console.log(`Total P/L: $${this.totalProfitLoss.toFixed(2)}`);
-        console.log(`x2 Losses2: ${this.consecutiveLosses2}`);
-        console.log(`x3 Losses3: ${this.consecutiveLosses3}`);
-        console.log(`x4 Losses4: ${this.consecutiveLosses4}`);
-        console.log(`x5 Losses5: ${this.consecutiveLosses5}`);
+        console.log(`Total Trades Won: ${this.totalWins}`);
+        console.log(`Total Trades Lost: ${this.totalLosses}`);
+        console.log(`x2 Losses: ${this.consecutiveLosses2}`);
+        console.log(`x3 Losses: ${this.consecutiveLosses3}`);
+        console.log(`x4 Losses: ${this.consecutiveLosses4}`);
+        console.log(`x5 Losses: ${this.consecutiveLosses5}`);
+        console.log(`Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}`);
+        console.log(`Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%`);
+        console.log(`[${asset}] Predicted Digit: ${this.xDigit}`);
+        console.log(`[${asset}] Confidence: ${this.confidence}%`);
+        console.log(`[${asset}] Probability: ${this.probability}%`);
         console.log(`Current Stake: $${this.currentStake.toFixed(2)}`);
-        console.log('───────────────────────────────────────────────────────────');
         console.log(`[${asset}] Market Entropy: ${(entropy * 100).toFixed(1)}%`);
         console.log(`Neural Accuracy: ${(neuralMetrics.accuracy * 100).toFixed(1)}% | Trend: ${neuralMetrics.trend}`);
         console.log(`Confidence Threshold: ${ensemblePerf.confidenceThreshold}`);
-        console.log('═══════════════════════════════════════════════════════════');
+        console.log(`Currently Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}`);
+        console.log(`Waiting for: ${this.waitTime} minutes (${this.waitSeconds} ms) before resubscribing...`);
     }
-
-    // ========================================================================
-    // EMAIL METHODS
-    // ========================================================================
 
     startEmailTimer() {
         setInterval(() => {
             if (!this.endOfDay) {
                 this.sendEmailSummary();
             }
-        }, 1800000);
+        }, 1800000); // 30 Minutes
     }
 
     async sendEmailSummary() {
@@ -1780,97 +1809,99 @@ class EnhancedDigitDifferBot {
             .join('\n        ');
 
         const summaryText = `
-    ==================== Smart Differ Bot Summary ====================
-    
-    TRADING PERFORMANCE:
-    Total Trades: ${this.totalTrades}
-    Wins: ${this.totalWins} | Losses: ${this.totalLosses}
-    x2 Losses2: ${this.consecutiveLosses2}
-    x3 Losses3: ${this.consecutiveLosses3}
-    x4 Losses4: ${this.consecutiveLosses4}
-    x5 Losses5: ${this.consecutiveLosses5}
-    Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%
-    
-    FINANCIAL:
-    Current Stake: $${this.currentStake.toFixed(2)}
-    Total P/L: $${this.totalProfitLoss.toFixed(2)}
-    
-    AI LEARNING SYSTEM:
-    ─────────────────────────────────
-    Neural Network:
-        Accuracy: ${(neuralMetrics.accuracy * 100).toFixed(1)}%
-        Trend: ${neuralMetrics.trend}
-    
-    Model Performance:
-        ${modelPerf || 'No model data yet'}
-    
-    MARKET ANALYSIS:
-    ${this.assets.map(a => {
+        ncluadeDiffer2 Trading Summary:
+        Total Trades: ${this.totalTrades}
+        Total Trades Won: ${this.totalWins}
+        Total Trades Lost: ${this.totalLosses}
+        x2 Losses: ${this.consecutiveLosses2}
+        x3 Losses: ${this.consecutiveLosses3}
+        x4 Losses: ${this.consecutiveLosses4}
+        x5 Losses: ${this.consecutiveLosses5}
+
+        Currently Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+
+        Current Stake: $${this.currentStake.toFixed(2)}
+        Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
+        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+
+        AI LEARNING SYSTEM:
+        ─────────────────────────────────
+        Neural Network:
+            Accuracy: ${(neuralMetrics.accuracy * 100).toFixed(1)}%
+            Trend: ${neuralMetrics.trend}
+        
+        Model Performance:
+            ${modelPerf || 'No model data yet'}
+        
+        MARKET ANALYSIS:
+        ${this.assets.map(a => {
             const entropy = this.statisticalEngine.calculateEntropy(a);
             const hotDigits = this.statisticalEngine.getHotDigits(a);
             return `${a}: Entropy=${(entropy * 100).toFixed(1)}%, Hot Digits=[${hotDigits.join(',')}]`;
         }).join('\n    ')}
-    
-    ===================================================================
+        
+        ===================================================================
         `;
 
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Smart Differ Bot - Performance Summary',
+            subject: 'ncluadeDiffer - Summary',
             text: summaryText
         };
 
         try {
-            await transporter.sendMail(mailOptions);
+            const info = await transporter.sendMail(mailOptions);
+            // console.log('Email sent:', info.messageId);
         } catch (error) {
-            console.error('Error sending email:', error);
+            // console.error('Error sending email:', error);
         }
     }
 
-    async sendLossEmail(asset, actualDigit, predictedDigit) {
+    async sendLossEmail(asset) {
         const transporter = nodemailer.createTransport(this.emailConfig);
 
-        const recentTrades = this.digitTradeHistory.slice(-10);
-        const recentAnalysis = recentTrades.map(t =>
-            `${t.won ? '✅' : '❌'} Predicted: ${t.predictedDigit}, Actual: ${t.actualDigit}`
-        ).join('\n        ');
+        const history = this.tickHistories[asset];
+        const lastFewTicks = history.slice(-10);
 
         const summaryText = `
-    ==================== LOSS ALERT ====================
-    
-    TRADE DETAILS:
-    Asset: ${asset}
-    Predicted to differ from: ${predictedDigit}
-    Actual digit: ${actualDigit}
-    
-    CURRENT STATUS:
-    Total Trades: ${this.totalTrades}
-    Wins: ${this.totalWins} | Losses: ${this.totalLosses}
-    x2 Losses2: ${this.consecutiveLosses2}
-    x3 Losses3: ${this.consecutiveLosses3}
-    x4 Losses4: ${this.consecutiveLosses4}
-    x5 Losses5: ${this.consecutiveLosses5}
-    Current Stake: $${this.currentStake.toFixed(2)}
-    Total P/L: $${this.totalProfitLoss.toFixed(2)}
-    
-    RECENT TRADES:
-        ${recentAnalysis}
-    
-    ====================================================
+        Trade Summary:
+        Total Trades: ${this.totalTrades}
+        Total Trades Won: ${this.totalWins}
+        Total Trades Lost: ${this.totalLosses}
+        x2 Losses: ${this.consecutiveLosses2}
+        x3 Losses: ${this.consecutiveLosses3}
+        x4 Losses: ${this.consecutiveLosses4}
+        x5 Losses: ${this.consecutiveLosses5}
+
+        Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
+        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+
+        Last Digit Analysis:
+        Asset: ${asset}
+        predicted Digit: ${this.xDigit} | actual Digit: ${this.actualDigit}
+        Confidence: ${this.confidence}%
+        Probability: ${this.probability}%
+        
+        Last 10 Digits: ${lastFewTicks.join(', ')} 
+
+        Current Stake: $${this.currentStake.toFixed(2)}
+
+        Waiting for: ${this.waitTime} minutes before next trade...
         `;
 
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: `Smart Differ Bot - Loss Alert [${asset}]`,
+            subject: 'ncluadeDiffer - Loss Alert',
             text: summaryText
         };
 
         try {
-            await transporter.sendMail(mailOptions);
+            const info = await transporter.sendMail(mailOptions);
+            // console.log('Loss email sent:', info.messageId);
         } catch (error) {
-            console.error('Error sending loss email:', error);
+            // console.error('Error sending loss email:', error);
         }
     }
 
@@ -1882,63 +1913,58 @@ class EnhancedDigitDifferBot {
 
         const summaryText = `
         Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
-        Trading Summary:
+
         Total Trades: ${this.totalTrades}
         Total Trades Won: ${this.totalWins}
         Total Trades Lost: ${this.totalLosses}
-        x2 Losses2: ${this.consecutiveLosses2}
-        x3 Losses3: ${this.consecutiveLosses3}
-        x4 Losses4: ${this.consecutiveLosses4}
-        x5 Losses5: ${this.consecutiveLosses5}
-        
+        x2 Losses: ${this.consecutiveLosses2}
+        x3 Losses: ${this.consecutiveLosses3}
+        x4 Losses: ${this.consecutiveLosses4}
+        x5 Losses: ${this.consecutiveLosses5}
+
+        Currently Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+
+        Current Stake: $${this.currentStake.toFixed(2)}
         Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
+        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
         `;
 
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Smart Differ Bot - Connection/Disconnection Summary',
+            subject: 'ncluadeDiffer - Connection/Dissconnection Summary',
             text: summaryText
         };
 
         try {
-            await transporter.sendMail(mailOptions);
+            const info = await transporter.sendMail(mailOptions);
+            // console.log('Email sent:', info.messageId);
         } catch (error) {
-            console.error('Error sending email:', error);
+            // console.error('Error sending email:', error);
         }
     }
 
-    checkTimeForDisconnectReconnect() {
-        setInterval(() => {
-            const now = new Date();
-            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
-            const currentHours = gmtPlus1Time.getUTCHours();
-            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+    async sendErrorEmail(errorMessage) {
+        const transporter = nodemailer.createTransport(this.emailConfig);
 
-            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
-                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
-                this.endOfDay = false;
-                this.connect();
-            }
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'ncluadeDiffer - Error Report',
+            text: `An error occurred: ${errorMessage}`
+        };
 
-            if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 17 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
-                    this.sendDisconnectResumptionEmailSummary();
-                    this.disconnect();
-                    this.endOfDay = true;
-                }
-            }
-        }, 5000);
+        try {
+            const info = await transporter.sendMail(mailOptions);
+            // console.log('Error email sent:', info.messageId);
+        } catch (error) {
+            // console.error('Error sending error email:', error);
+        }
     }
-
-    // ========================================================================
-    // START METHOD
-    // ========================================================================
 
     start() {
         console.log('═══════════════════════════════════════════════════════════');
-        console.log('  🎲 Smart Differ TRADING BOT v2.0');
+        console.log('  🎲 ENHANCED DIGIT DIFFER TRADING BOT v2.0');
         console.log('═══════════════════════════════════════════════════════════');
         console.log('');
         console.log('  📊 Contract Type: DIGIT DIFFER');
@@ -1958,40 +1984,26 @@ class EnhancedDigitDifferBot {
         // console.log(`  📁 Memory Directory: ./digit_bot_memory/`);
         console.log('═══════════════════════════════════════════════════════════');
         console.log('');
-
         this.connect();
         this.checkTimeForDisconnectReconnect();
     }
 }
 
-// ============================================================================
-// RUN THE BOT
-// ============================================================================
-
-const token = '0P94g4WdSrSrzir';
-
-const bot = new EnhancedDigitDifferBot(token, {
-    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP, hsj0tA0XJoIzJG5, Dz2V2KvRf4Uukt3
+// Usage
+const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     initialStake: 0.61,
     multiplier: 11.3,
-    stopLoss: 86,
+    maxConsecutiveLosses: 3,
+    stopLoss: 129,
     takeProfit: 5000,
-    tickDuration: 1,
     minConfidence: 0.90,
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
     enableNeuralNetwork: true,
     enablePatternRecognition: true,
     learningModeThreshold: 50,
     requiredHistoryLength: 200,
+    minWaitTime: 2000, //5 Minutes
+    maxWaitTime: 5000, //1 Hour
 });
 
 bot.start();
 
-module.exports = {
-    EnhancedDigitDifferBot,
-    DigitStatisticalEngine,
-    DigitPatternEngine,
-    DigitNeuralEngine,
-    DigitEnsembleDecisionMaker,
-    // DigitPersistenceManager
-};
