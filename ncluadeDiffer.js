@@ -1624,9 +1624,6 @@ class EnhancedDigitDifferTradingBot {
             }
         }
 
-        // Suspend the asset after a trade
-        // this.suspendAsset(asset);
-
         if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss) {
             console.log('Stop condition reached. Stopping trading.');
             this.endOfDay = true;
@@ -1851,7 +1848,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'ncluadeDiffer2 - Summary',
+            subject: 'ncluadeDiffer - Summary',
             text: summaryText
         };
 
@@ -1901,7 +1898,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'ncluadeDiffer2 - Loss Alert',
+            subject: 'ncluadeDiffer - Loss Alert',
             text: summaryText
         };
 
@@ -1940,7 +1937,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'ncluadeDiffer2 - Connection/Dissconnection Summary',
+            subject: 'ncluadeDiffer - Connection/Dissconnection Summary',
             text: summaryText
         };
 
@@ -1958,7 +1955,7 @@ class EnhancedDigitDifferTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'ncluadeDiffer2 - Error Report',
+            subject: 'ncluadeDiffer - Error Report',
             text: `An error occurred: ${errorMessage}`
         };
 
@@ -1998,7 +1995,7 @@ class EnhancedDigitDifferTradingBot {
 }
 
 // Usage
-const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
+const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
@@ -2007,8 +2004,8 @@ const bot = new EnhancedDigitDifferTradingBot('rgNedekYXvCaPeP', {
     minConfidence: 0.90,
     enableNeuralNetwork: true,
     enablePatternRecognition: true,
-    learningModeThreshold: 500,
-    requiredHistoryLength: 5000,
+    learningModeThreshold: 50,
+    requiredHistoryLength: 200,
     minWaitTime: 2000, //5 Minutes
     maxWaitTime: 5000, //1 Hour
 });
