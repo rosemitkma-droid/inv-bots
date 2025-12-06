@@ -1058,6 +1058,7 @@ class EnhancedDigitDifferTradingBot {
         this.suspendedAssets = new Set();
         this.rStats = {};
         this.sys = null;
+        this.excludedDigits = [];
 
         // Digit-specific tracking
         this.tickHistories = {};
@@ -1447,6 +1448,8 @@ class EnhancedDigitDifferTradingBot {
         const history = this.tickHistories[asset];
         if (history.length < 100) return;
 
+        if (this.suspendedAssets.has(asset)) return;
+
         // Get pattern analysis
         // Get predictions from all models
         const predictions = this.getEnsemblePredictions(asset);
@@ -1455,7 +1458,7 @@ class EnhancedDigitDifferTradingBot {
         const decision = this.ensembleDecisionMaker.selectDigitToDiffer(predictions);
 
         if (this.consecutiveLosses > 0) {
-            if (decision.shouldTrade && decision.digitToDiffer !== 0 && decision.digitToDiffer !== 9 && decision.digitToDiffer !== this.tickHistories[asset].slice(-1)[0] && decision.confidence > 0.92) {
+            if (decision.shouldTrade && decision.digitToDiffer !== 0 && decision.digitToDiffer !== 9 && decision.digitToDiffer !== this.tickHistories[asset].slice(-1)[0] && decision.confidence > 0.92 && !this.excludedDigits.includes(decision.digitToDiffer)) {
                 // Store for later analysis
                 this.lastPredictions[asset] = decision.digitToDiffer;
                 console.log(`[${asset}] 🎯 TRADE SIGNAL`);
@@ -1471,7 +1474,7 @@ class EnhancedDigitDifferTradingBot {
                 this.placeTrade(asset, this.xDigit, this.confidence, this.probability);
             }
         } else {
-            if (decision.shouldTrade && decision.digitToDiffer !== 0 && decision.digitToDiffer !== 9 && decision.digitToDiffer !== this.tickHistories[asset].slice(-1)[0] && decision.confidence >= 0.86) {
+            if (decision.shouldTrade && decision.digitToDiffer !== 0 && decision.digitToDiffer !== 9 && decision.digitToDiffer !== this.tickHistories[asset].slice(-1)[0] && decision.confidence >= 0.86 && !this.excludedDigits.includes(decision.digitToDiffer)) {
                 // Store for later analysis
                 this.lastPredictions[asset] = decision.digitToDiffer;
                 console.log(`[${asset}] 🎯 TRADE SIGNAL`);
@@ -1578,6 +1581,7 @@ class EnhancedDigitDifferTradingBot {
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
+            this.excludedDigits = [];
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
@@ -1609,8 +1613,6 @@ class EnhancedDigitDifferTradingBot {
             this.sendLossEmail(asset);
             // Suspend the asset after a trade
             this.suspendAsset(asset);
-        } else {
-            this.sys = null;
         }
 
         // If there are suspended assets, reactivate the first one on win
@@ -1618,9 +1620,6 @@ class EnhancedDigitDifferTradingBot {
             const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
             this.reactivateAsset(firstSuspendedAsset);
         }
-
-        // Suspend the asset after a trade
-        // this.suspendAsset(asset);
 
         if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss) {
             console.log('Stop condition reached. Stopping trading.');
