@@ -1204,6 +1204,6 @@ const bot = new EnhancedDigitDifferTradingBot('hsj0tA0XJoIzJG5', {
     maxWaitTime: 5000, //1 Hour
     minOccurrencesThreshold: 1,
 });
-
+ 
 bot.start();
 
