@@ -699,6 +699,25 @@ class EnhancedDigitDifferTradingBot {
             console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.config.maxReconnectAttempts})...`);
             setTimeout(() => this.connect(), this.config.reconnectInterval);
         }
+
+        this.tradeInProgress = false;
+        this.predictionInProgress = false;
+        this.assets.forEach(asset => {
+            this.tickHistories[asset] = [];
+            this.tickHistories2[asset] = [];
+            this.digitCounts[asset] = Array(10).fill(0);
+            this.predictedDigits[asset] = null;
+            this.lastPredictions[asset] = [];
+        });
+        this.tickSubscriptionIds = {};
+
+        //unsubscribe from all assets
+        this.unsubscribeAllTicks();
+
+        //unsubscribe from all assets
+        this.assets.forEach(asset => {
+            this.unsubscribeFromTicks(asset);
+        });
     }
 
     handleApiError(error) {
@@ -821,6 +840,13 @@ class EnhancedDigitDifferTradingBot {
 
     initializeSubscriptions() {
         console.log('Initializing subscriptions for all assets...');
+
+        //unsubscribe from all assets
+        this.assets.forEach(asset => {
+            this.unsubscribeFromTicks(asset);
+        });
+
+        //subscribe to all assets
         this.assets.forEach(asset => {
             this.subscribeToTickHistory(asset);
             this.subscribeToTicks(asset);
@@ -1027,6 +1053,18 @@ class EnhancedDigitDifferTradingBot {
             // console.log(`Unsubscribing from ticks with ID: ${subId}`);
         });
         this.tickSubscriptionIds = {};
+    }
+
+    unsubscribeFromTicks(asset) {
+        const subId = this.tickSubscriptionIds[asset];
+        if (subId) {
+            const request = {
+                forget: subId
+            };
+            this.sendRequest(request);
+            // console.log(`Unsubscribing from ticks for asset: ${asset}`);
+            delete this.tickSubscriptionIds[asset];
+        }
     }
 
     // Check for Disconnect and Reconnect
