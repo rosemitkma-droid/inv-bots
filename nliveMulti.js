@@ -184,6 +184,37 @@ class EnhancedDigitDifferTradingBot {
             console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.config.maxReconnectAttempts})...`);
             setTimeout(() => this.connect(), this.config.reconnectInterval);
         }
+
+        this.tradeInProgress = false;
+        this.predictionInProgress = false;
+        this.assets.forEach(asset => {
+            this.tickHistories[asset] = [];
+            this.digitCounts[asset] = Array(10).fill(0);
+            this.lastDigits[asset] = null;
+            this.predictedDigits[asset] = null;
+            this.lastPredictions[asset] = [];
+            this.assetStates[asset] = {
+                stayedInArray: [],
+                tradedDigitArray: [],
+                filteredArray: [],
+                totalArray: [],
+                currentProposalId: null,
+                tradeInProgress: false,
+                consecutiveLosses: 0,
+                lastTradeResult: null,
+                digitFrequency: {},
+            };
+        });
+        this.survivalNum = null;
+        this.tickSubscriptionIds = {};
+
+        //unsubscribe from all assets
+        this.unsubscribeAllTicks();
+
+        //unsubscribe from all assets
+        this.assets.forEach(asset => {
+            this.unsubscribeFromTicks(asset);
+        });
     }
 
     handleApiError(error) {
@@ -269,8 +300,20 @@ class EnhancedDigitDifferTradingBot {
             this.assets.forEach(asset => {
                 this.tickHistories[asset] = [];
                 this.digitCounts[asset] = Array(10).fill(0);
+                this.lastDigits[asset] = null;
                 this.predictedDigits[asset] = null;
                 this.lastPredictions[asset] = [];
+                this.assetStates[asset] = {
+                    stayedInArray: [],
+                    tradedDigitArray: [],
+                    filteredArray: [],
+                    totalArray: [],
+                    currentProposalId: null,
+                    tradeInProgress: false,
+                    consecutiveLosses: 0,
+                    lastTradeResult: null,
+                    digitFrequency: {},
+                };
             });
             this.tickSubscriptionIds = {};
             this.retryCount = 0;
@@ -325,6 +368,10 @@ class EnhancedDigitDifferTradingBot {
 
     initializeSubscriptions() {
         console.log('Initializing subscriptions for all assets...');
+        //unsubscribe from all assets
+        this.assets.forEach(asset => {
+            this.unsubscribeFromTicks(asset);
+        });
         this.assets.forEach(asset => {
             this.subscribeToTickHistory(asset);
             this.subscribeToTicks(asset);
@@ -887,6 +934,18 @@ class EnhancedDigitDifferTradingBot {
             // console.log(`Unsubscribing from ticks with ID: ${subId}`);
         });
         this.tickSubscriptionIds = {};
+    }
+
+    unsubscribeFromTicks(asset) {
+        const subId = this.tickSubscriptionIds[asset];
+        if (subId) {
+            const request = {
+                forget: subId
+            };
+            this.sendRequest(request);
+            // console.log(`Unsubscribing from ticks for ${asset}. Subscription ID: ${subId}`);
+            delete this.tickSubscriptionIds[asset];
+        }
     }
 
     // Check for Disconnect and Reconnect
