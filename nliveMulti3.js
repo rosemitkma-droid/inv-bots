@@ -1065,6 +1065,7 @@ class EnhancedDigitDifferTradingBot {
             const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
             const currentHours = gmtPlus1Time.getUTCHours();
             const currentMinutes = gmtPlus1Time.getUTCMinutes();
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 
             // Optional: log current GMT+1 time for monitoring
             // console.log(
@@ -1072,7 +1073,18 @@ class EnhancedDigitDifferTradingBot {
             // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
             // );
 
-            // Check for Morning resume condition (7:00 AM GMT+1)
+            // Check if it's Sunday - no trading on Sundays
+            if (currentDay === 0) {
+                if (!this.endOfDay) {
+                    console.log("It's Sunday, disconnecting the bot. No trading on Sundays.");
+                    this.Pause = true;
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Skip all other checks on Sunday
+            }
+
+            // Check for Morning resume condition (7:00 AM GMT+1) - but not on Sunday
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
                 console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.tradeInProgress = false;
@@ -1144,7 +1156,7 @@ class EnhancedDigitDifferTradingBot {
                 this.connect();
             }
 
-            // Check for evening stop condition (after 5:00 PM GMT+1) 17
+            // Check for evening stop condition (after 5:00 PM GMT+1)
             if (this.isWinTrade && !this.endOfDay) {
                 if (currentHours >= 17 && currentMinutes >= 0) {
                     console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
@@ -1154,7 +1166,7 @@ class EnhancedDigitDifferTradingBot {
                     this.endOfDay = true;
                 }
             }
-        }, 20000); // Check every 20 seconds
+        }, 5000); // Check every 5 seconds
     }
 
 
