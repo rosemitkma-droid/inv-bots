@@ -2396,17 +2396,38 @@ class EnhancedAccumulatorBot {
 
     checkTimeForDisconnectReconnect() {
         setInterval(() => {
+            // Always use GMT +1 time regardless of server location
             const now = new Date();
-            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
             const currentHours = gmtPlus1Time.getUTCHours();
             const currentMinutes = gmtPlus1Time.getUTCMinutes();
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 
+            // Optional: log current GMT+1 time for monitoring
+            // console.log(
+            // "Current GMT+1 time:",
+            // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
+            // );
+
+            // Check if it's Sunday - no trading on Sundays
+            if (currentDay === 0) {
+                if (!this.endOfDay) {
+                    console.log("It's Sunday, disconnecting the bot. No trading on Sundays.");
+                    this.Pause = true;
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Skip all other checks on Sunday
+            }
+
+            // Check for Morning resume condition (7:00 AM GMT+1) - but not on Sunday
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
                 console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.resetForNewDay();
                 this.connect();
             }
 
+            // Check for evening stop condition (after 5:00 PM GMT+1)
             if (this.isWinTrade && !this.endOfDay) {
                 if (currentHours >= 17 && currentMinutes >= 0) {
                     console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
@@ -2416,7 +2437,7 @@ class EnhancedAccumulatorBot {
                     this.endOfDay = true;
                 }
             }
-        }, 20000);
+        }, 5000); // Check every 5 seconds
     }
 
     resetForNewDay() {
