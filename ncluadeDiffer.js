@@ -252,6 +252,46 @@ class DigitStatisticalEngine {
     }
 
     /**
+     * Find the best digit to bet AGAINST (LEAST likely to appear)
+     * CRITICAL FIX: We want to choose the digit LEAST likely to appear
+     * This maximizes our win rate (if digit appears 5%, we win 95%)
+     */
+    // getBestDigitToDiffer(asset) {
+    //     const probs = this.getDigitProbabilities(asset, true);
+    //     const bayesian = this.getBayesianEstimates(asset);
+    //     const coldDigits = this.getColdDigits(asset);
+
+    //     // Score each digit - INVERTED LOGIC
+    //     const scores = [];
+    //     for (let digit = 0; digit < 10; digit++) {
+    //         // FIXED: Higher score = LESS likely to appear = better to bet DIFFER
+    //         let score = 0;
+
+    //         // Invert frequency-based score (1 - prob gives lower score to hot digits)
+    //         score += (1 - probs[digit]) * 40;
+
+    //         // Invert Bayesian mean
+    //         score += (1 - bayesian[digit].mean) * 30;
+
+    //         // Cold digit bonus (opposite of hot digit)
+    //         if (coldDigits.includes(digit)) {
+    //             score += 20;
+    //         }
+
+    //         // Confidence adjustment
+    //         const confidence = Math.min(1, bayesian[digit].confidence / 100);
+    //         score *= (0.5 + 0.5 * confidence);
+
+    //         scores.push({ digit, score, prob: probs[digit], bayesian: bayesian[digit].mean });
+    //     }
+
+    //     // Sort by score descending (highest score = least likely to appear)
+    //     scores.sort((a, b) => b.score - a.score);
+
+    //     return scores;
+    // }
+
+    /**
      * Export state for persistence
      */
     exportState() {
@@ -827,7 +867,8 @@ class DigitEnsembleDecisionMaker {
             for (let i = 0; i < 10; i++) {
                 combinedScores[i] += predictions.pattern.probabilities[i] * 100 * this.modelWeights.pattern;
             }
-            details.pattern = `least likely: ${predictions.pattern.leastLikely}`;
+            // details.pattern = `least likely: ${predictions.pattern.leastLikely}`;
+            details.pattern = `Most likely: ${predictions.pattern.mostLikely}`;
         }
 
         if (predictions.neural) {
@@ -838,10 +879,10 @@ class DigitEnsembleDecisionMaker {
             details.neural = `Predicted: ${maxNeural}`;
         }
 
-        // if (predictions.streak && predictions.streak.streaking !== null) {
-        //     combinedScores[predictions.streak.streaking] += 15 * this.modelWeights.streak;
-        //     details.streak = `Streaking: ${predictions.streak.streaking}`;
-        // }
+        if (predictions.streak && predictions.streak.streaking !== null) {
+            combinedScores[predictions.streak.streaking] += 15 * this.modelWeights.streak;
+            details.streak = `Streaking: ${predictions.streak.streaking}`;
+        }
 
         const ranked = combinedScores.map((score, digit) => ({ digit, score })).sort((a, b) => b.score - a.score);
         const totalScore = combinedScores.reduce((a, b) => a + b, 0);
@@ -1231,6 +1272,42 @@ class EnhancedDigitDifferTradingBot {
         this.tickSubscriptionIds = {};
         this.retryCount = 0;
 
+        // Digit-specific tracking
+        this.tickHistories = {};
+        this.tickSubscriptionIds = {};
+        this.assetStates = {};
+        this.digitTradeHistory = [];
+
+        // Enhanced Learning Components
+        this.statisticalEngine = new DigitStatisticalEngine();
+        this.patternEngine = new DigitPatternEngine();
+        this.neuralEngine = new DigitNeuralEngine(50, [64, 32], 10);
+        this.ensembleDecisionMaker = new DigitEnsembleDecisionMaker();
+        // this.persistenceManager = new DigitPersistenceManager();
+
+        // Learning mode
+        this.observationCount = 0;
+        this.learningMode = true;
+        this.lastPredictions = {};
+
+        // Initialize per-asset storage
+        this.assets.forEach(asset => {
+            this.tickHistories[asset] = [];
+            this.lastDigits[asset] = null;
+            this.predictedDigits[asset] = null;
+            this.lastPredictions[asset] = [];
+
+            this.assetStates[asset] = {
+                lastDigit: null,
+                currentProposalId: null,
+                tradeInProgress: false,
+                consecutiveLosses: 0,
+            };
+
+            this.statisticalEngine.initAsset(asset);
+            this.patternEngine.initAsset(asset);
+        });
+
         //unsubscribe from all assets
         this.unsubscribeAllTicks();
 
@@ -1318,6 +1395,43 @@ class EnhancedDigitDifferTradingBot {
             });
             this.tickSubscriptionIds = {};
             this.retryCount = 0;
+
+            // Digit-specific tracking
+            this.tickHistories = {};
+            this.tickSubscriptionIds = {};
+            this.assetStates = {};
+            this.digitTradeHistory = [];
+
+            // Enhanced Learning Components
+            this.statisticalEngine = new DigitStatisticalEngine();
+            this.patternEngine = new DigitPatternEngine();
+            this.neuralEngine = new DigitNeuralEngine(50, [64, 32], 10);
+            this.ensembleDecisionMaker = new DigitEnsembleDecisionMaker();
+            // this.persistenceManager = new DigitPersistenceManager();
+
+            // Learning mode
+            this.observationCount = 0;
+            this.learningMode = true;
+            this.lastPredictions = {};
+
+            // Initialize per-asset storage
+            this.assets.forEach(asset => {
+                this.tickHistories[asset] = [];
+                this.lastDigits[asset] = null;
+                this.predictedDigits[asset] = null;
+                this.lastPredictions[asset] = [];
+
+                this.assetStates[asset] = {
+                    lastDigit: null,
+                    currentProposalId: null,
+                    tradeInProgress: false,
+                    consecutiveLosses: 0,
+                };
+
+                this.statisticalEngine.initAsset(asset);
+                this.patternEngine.initAsset(asset);
+            });
+
             this.initializeSubscriptions();
 
         } else if (message.msg_type === 'history') {
@@ -1457,39 +1571,40 @@ class EnhancedDigitDifferTradingBot {
         // Make decision
         const decision = this.ensembleDecisionMaker.selectDigitToDiffer(predictions);
 
-        if (this.consecutiveLosses > 0) {
-            if (decision.shouldTrade && decision.digitToDiffer !== 0 && decision.digitToDiffer !== 9 && decision.digitToDiffer !== this.tickHistories[asset].slice(-1)[0] && decision.confidence > 0.92 && !this.excludedDigits.includes(decision.digitToDiffer)) {
-                // Store for later analysis
-                this.lastPredictions[asset] = decision.digitToDiffer;
-                console.log(`[${asset}] 🎯 TRADE SIGNAL`);
-                console.log(`   Digit to DIFFER from: ${decision.digitToDiffer}`);
-                console.log(`   Probability: ${(decision.probability * 100).toFixed(1)}%`);
-                console.log(`   Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
-                console.log(`   Models: ${JSON.stringify(decision.details)}`);
+        // if (this.consecutiveLosses > 0) {
+        if (decision.shouldTrade && decision.digitToDiffer !== this.tickHistories[asset].slice(-1)[0] && decision.confidence > 0.99 && !this.excludedDigits.includes(decision.digitToDiffer)) {
+            // Store for later analysis
+            this.lastPredictions[asset] = decision.digitToDiffer;
+            console.log(`[${asset}] 🎯 TRADE SIGNAL`);
+            console.log(`   Digit to DIFFER from: ${decision.digitToDiffer}`);
+            console.log(`   Probability: ${(decision.probability * 100).toFixed(1)}%`);
+            console.log(`   Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
+            console.log(`   Models: ${JSON.stringify(decision.details)}`);
 
-                this.xDigit = decision.digitToDiffer;
-                this.confidence = (decision.confidence * 100).toFixed(1);
-                this.probability = (decision.probability * 100).toFixed(1);
+            this.xDigit = decision.digitToDiffer;
+            this.confidence = (decision.confidence * 100).toFixed(1);
+            this.probability = (decision.probability * 100).toFixed(1);
 
-                this.placeTrade(asset, this.xDigit, this.confidence, this.probability);
-            }
-        } else {
-            if (decision.shouldTrade && decision.digitToDiffer !== 0 && decision.digitToDiffer !== 9 && decision.digitToDiffer !== this.tickHistories[asset].slice(-1)[0] && decision.confidence >= 0.86 && !this.excludedDigits.includes(decision.digitToDiffer)) {
-                // Store for later analysis
-                this.lastPredictions[asset] = decision.digitToDiffer;
-                console.log(`[${asset}] 🎯 TRADE SIGNAL`);
-                console.log(`   Digit to DIFFER from: ${decision.digitToDiffer}`);
-                console.log(`   Probability: ${(decision.probability * 100).toFixed(1)}%`);
-                console.log(`   Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
-                console.log(`   Models: ${JSON.stringify(decision.details)}`);
-
-                this.xDigit = decision.digitToDiffer;
-                this.confidence = (decision.confidence * 100).toFixed(1);
-                this.probability = (decision.probability * 100).toFixed(1);
-
-                this.placeTrade(asset, this.xDigit, this.confidence, this.probability);
-            }
+            this.placeTrade(asset, this.xDigit, this.confidence, this.probability);
         }
+        // } 
+        // else {
+        //     if (decision.shouldTrade && decision.digitToDiffer !== this.tickHistories[asset].slice(-1)[0] && decision.confidence >= 0.89 && !this.excludedDigits.includes(decision.digitToDiffer)) {
+        //         // Store for later analysis
+        //         this.lastPredictions[asset] = decision.digitToDiffer;
+        //         console.log(`[${asset}] 🎯 TRADE SIGNAL`);
+        //         console.log(`   Digit to DIFFER from: ${decision.digitToDiffer}`);
+        //         console.log(`   Probability: ${(decision.probability * 100).toFixed(1)}%`);
+        //         console.log(`   Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
+        //         console.log(`   Models: ${JSON.stringify(decision.details)}`);
+
+        //         this.xDigit = decision.digitToDiffer;
+        //         this.confidence = (decision.confidence * 100).toFixed(1);
+        //         this.probability = (decision.probability * 100).toFixed(1);
+
+        //         this.placeTrade(asset, this.xDigit, this.confidence, this.probability);
+        //     }
+        // }
     }
 
     getEnsemblePredictions(asset) {
@@ -1511,10 +1626,10 @@ class EnhancedDigitDifferTradingBot {
         }
 
         // Streak model
-        // const lastDigit = this.assetStates[asset].lastDigit;
-        // predictions.streak = {
-        //     streaking: this.patternEngine.isDigitStreaking(asset, lastDigit) ? lastDigit : null
-        // };
+        const lastDigit = this.assetStates[asset].lastDigit;
+        predictions.streak = {
+            streaking: this.patternEngine.isDigitStreaking(asset, lastDigit) ? lastDigit : null
+        };
 
         return predictions;
     }
@@ -1727,6 +1842,7 @@ class EnhancedDigitDifferTradingBot {
             const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
             const currentHours = gmtPlus1Time.getUTCHours();
             const currentMinutes = gmtPlus1Time.getUTCMinutes();
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 
             // Optional: log current GMT+1 time for monitoring
             // console.log(
@@ -1734,7 +1850,18 @@ class EnhancedDigitDifferTradingBot {
             // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
             // );
 
-            // Check for Morning resume condition (7:00 AM GMT+1)
+            // Check if it's Sunday - no trading on Sundays
+            if (currentDay === 0) {
+                if (!this.endOfDay) {
+                    console.log("It's Sunday, disconnecting the bot. No trading on Sundays.");
+                    this.Pause = true;
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Skip all other checks on Sunday
+            }
+
+            // Check for Morning resume condition (7:00 AM GMT+1) - but not on Sunday
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
                 console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.LossDigitsList = [];
@@ -1743,6 +1870,8 @@ class EnhancedDigitDifferTradingBot {
                 this.RestartTrading = true;
                 this.Pause = false;
                 this.endOfDay = false;
+                this.tradedDigitArray = [];
+                this.tradedDigitArray2 = [];
                 this.connect();
             }
 
@@ -2012,3 +2141,12 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
 
 bot.start();
 
+
+module.exports = {
+    EnhancedDigitDifferTradingBot,
+    DigitStatisticalEngine,
+    DigitPatternEngine,
+    DigitNeuralEngine,
+    DigitEnsembleDecisionMaker,
+    // DigitPersistenceManager
+};
