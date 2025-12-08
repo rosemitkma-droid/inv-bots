@@ -773,7 +773,7 @@ class EnhancedDigitDifferTradingBot {
                 this.totalOccurences = analysis.samples;
                 this.arraySamples = arraySamples;
                 this.placeTrade(asset, predictedDigit, confidence);
-            } else if (this.sys !== 2 && confidence2 >= 98 && analysis2.samples >= 500 && this.tickHistories[asset][this.tickHistories[asset].length - 1] !== predictedDigit2 && !this.excludedDigits.includes(predictedDigit2)) {
+            } else if (this.sys !== 2 && confidence2 >= 98 && analysis2.samples >= 490 && this.tickHistories[asset][this.tickHistories[asset].length - 1] !== predictedDigit2 && !this.excludedDigits.includes(predictedDigit2)) {
                 console.log(`Pattern Found2: [${analysis2.patternType}] -> Predict NOT ${analysis2.predictedDigit} (Conf: ${analysis2.confidence}%, Samples: ${analysis2.samples})`);
                 // ▼▼▼ VOLATILITY FILTER ▼▼▼
                 const recentDigits = history.slice(-5);
