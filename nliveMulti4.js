@@ -1487,24 +1487,7 @@ class EnhancedAccumulatorBot {
 
         this.tradeInProgress = false;
         this.predictionInProgress = false;
-        this.assets.forEach(asset => {
-            this.tickHistories[asset] = [];
-            this.digitCounts[asset] = Array(10).fill(0);
-            this.lastDigits[asset] = null;
-            this.predictedDigits[asset] = null;
-            this.lastPredictions[asset] = [];
-            this.assetStates[asset] = {
-                stayedInArray: [],
-                tradedDigitArray: [],
-                filteredArray: [],
-                totalArray: [],
-                currentProposalId: null,
-                tradeInProgress: false,
-                consecutiveLosses: 0,
-                lastTradeResult: null,
-                digitFrequency: {},
-            };
-        });
+        this.resetForNewDay();
         this.survivalNum = null;
         this.tickSubscriptionIds = {};
 
@@ -1598,24 +1581,7 @@ class EnhancedAccumulatorBot {
 
             this.tradeInProgress = false;
             this.predictionInProgress = false;
-            this.assets.forEach(asset => {
-                this.tickHistories[asset] = [];
-                this.digitCounts[asset] = Array(10).fill(0);
-                this.lastDigits[asset] = null;
-                this.predictedDigits[asset] = null;
-                this.lastPredictions[asset] = [];
-                this.assetStates[asset] = {
-                    stayedInArray: [],
-                    tradedDigitArray: [],
-                    filteredArray: [],
-                    totalArray: [],
-                    currentProposalId: null,
-                    tradeInProgress: false,
-                    consecutiveLosses: 0,
-                    lastTradeResult: null,
-                    digitFrequency: {},
-                };
-            });
+            this.resetForNewDay();
             this.survivalNum = null;
             this.tickSubscriptionIds = {};
             this.retryCount = 0;
@@ -2231,17 +2197,17 @@ class EnhancedAccumulatorBot {
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
 
-            if (this.sys === 2) {
-                if (this.sysCount === 5) {
-                    this.sys = 1;
-                    this.sysCount = 0;
-                }
-            } else if (this.sys === 3) {
-                if (this.sysCount === 2) {
-                    this.sys = 1;
-                    this.sysCount = 0;
-                }
-            }
+            // if (this.sys === 2) {
+            //     if (this.sysCount === 5) {
+            //         this.sys = 1;
+            //         this.sysCount = 0;
+            //     }
+            // } else if (this.sys === 3) {
+            //     if (this.sysCount === 2) {
+            //         this.sys = 1;
+            //         this.sysCount = 0;
+            //     }
+            // }
 
             this.currentStake = this.config.initialStake;
 
@@ -2275,19 +2241,19 @@ class EnhancedAccumulatorBot {
             this.sendLossEmail(asset);
             this.suspendAsset(asset);
 
-            if (this.consecutiveLosses >= 2) {
-                if (this.sys === 1) {
-                    this.sys = 2;
-                } else if (this.sys === 2) {
-                    this.sys = 3;
-                }
-                this.sysCount = 0;
-            }
+            // if (this.consecutiveLosses >= 2) {
+            //     if (this.sys === 1) {
+            //         this.sys = 2;
+            //     } else if (this.sys === 2) {
+            //         this.sys = 3;
+            //     }
+            //     this.sysCount = 0;
+            // }
 
-            if (this.sys === 2 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier2) {
-                this.sys = 3;
-                this.sysCount = 0;
-            }
+            // if (this.sys === 2 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier2) {
+            //     this.sys = 3;
+            //     this.sysCount = 0;
+            // }
         } else {
             if (this.suspendedAssets.size > 1) {
                 const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
@@ -2339,6 +2305,97 @@ class EnhancedAccumulatorBot {
                 this.connect();
             }, randomWaitTime);
         }
+    }
+
+    //Reset
+    resetForNewDay() {
+        // Asset-specific data
+        this.digitCounts = {};
+        this.tickSubscriptionIds = {};
+        this.tickHistories = {};
+        this.lastDigits = {};
+        this.predictedDigits = {};
+        this.lastPredictions = {};
+        this.assetStates = {};
+        this.pendingProposals = new Map();
+        this.previousStayedIn = {};
+        this.extendedStayedIn = {};
+
+        // ====================================================================
+        // ENHANCED LEARNING COMPONENTS
+        // ====================================================================
+
+        // Tier 1: Statistical Engine
+        this.statisticalEngine = new StatisticalEngine();
+
+        // Tier 2: Pattern Engine
+        this.patternEngine = new PatternEngine();
+
+        // Tier 3: Neural Engine
+        this.neuralEngine = new NeuralEngine(60, [32, 16], 1);
+
+        // Tier 4: Ensemble Decision Maker
+        this.ensembleDecisionMaker = new EnsembleDecisionMaker();
+
+        // Tier 5: Persistence Manager
+        // this.persistenceManager = new PersistenceManager();
+
+        // Learning mode counter
+        // this.observationCount = 0;
+        // this.learningMode = true;
+
+        // Legacy learning system (enhanced)
+        // this.learningSystem = {
+        //     lossPatterns: {},
+        //     failedDigitCounts: {},
+        //     volatilityScores: {},
+        //     filterPerformance: {},
+        //     resetPatterns: {},
+        //     timeWindowPerformance: [],
+        //     adaptiveFilters: {},
+        //     predictionAccuracy: {},
+        // };
+
+        // Risk manager (preserved as requested)
+        // this.riskManager = {
+        //     currentSessionRisk: 0,
+        //     riskPerTrade: 0.02,
+        //     cooldownPeriod: 0,
+        //     lastLossTime: null,
+        //     consecutiveSameDigitLosses: {},
+        // };
+
+        // Initialize assets
+        this.assets.forEach(asset => {
+            this.tickHistories[asset] = [];
+            this.digitCounts[asset] = Array(10).fill(0);
+            this.lastDigits[asset] = null;
+            this.predictedDigits[asset] = null;
+            this.lastPredictions[asset] = [];
+            this.assetStates[asset] = {
+                stayedInArray: [],
+                tradedDigitArray: [],
+                filteredArray: [],
+                totalArray: [],
+                currentProposalId: null,
+                tradeInProgress: false,
+                consecutiveLosses: 0,
+                lastTradeResult: null,
+                digitFrequency: {},
+            };
+            this.previousStayedIn[asset] = null;
+            this.extendedStayedIn[asset] = [];
+
+            // Initialize learning components per asset
+            // this.learningSystem.lossPatterns[asset] = [];
+            // this.learningSystem.volatilityScores[asset] = 0;
+            // this.learningSystem.adaptiveFilters[asset] = 8;
+            // this.learningSystem.predictionAccuracy[asset] = { correct: 0, total: 0 };
+            // this.riskManager.consecutiveSameDigitLosses[asset] = {};
+
+            // Initialize statistical engine
+            this.statisticalEngine.initBayesianPrior(asset);
+        });
     }
 
     // ========================================================================
@@ -2438,38 +2495,6 @@ class EnhancedAccumulatorBot {
                 }
             }
         }, 5000); // Check every 5 seconds
-    }
-
-    resetForNewDay() {
-        this.tradeInProgress = false;
-        this.Pause = false;
-        this.endOfDay = false;
-
-        // Reset asset-specific data but keep learning!
-        this.assets.forEach(asset => {
-            this.tickHistories[asset] = [];
-            this.digitCounts[asset] = Array(10).fill(0);
-            this.lastDigits[asset] = null;
-            this.predictedDigits[asset] = null;
-            this.lastPredictions[asset] = [];
-            this.assetStates[asset] = {
-                stayedInArray: [],
-                tradedDigitArray: [],
-                filteredArray: [],
-                totalArray: [],
-                currentProposalId: null,
-                tradeInProgress: false,
-                consecutiveLosses: 0,
-                lastTradeResult: null,
-                digitFrequency: {},
-            };
-            this.previousStayedIn[asset] = null;
-            // Keep extendedStayedIn for persistent learning!
-        });
-
-        this.tickSubscriptionIds = {};
-        this.pendingProposals = new Map();
-        this.suspendedAssets = new Set();
     }
 
     disconnect() {
@@ -2754,7 +2779,6 @@ const bot = new EnhancedAccumulatorBot(token, {
     initialStake: 1,
     stopLoss: 400,
     takeProfit: 5000,
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
     enableNeuralNetwork: true,
     enablePatternRecognition: true,
     learningModeThreshold: 100,
