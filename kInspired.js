@@ -632,8 +632,9 @@ class EnhancedDigitDifferTradingBot {
 
         // for (let times = 3; times >= 2; times--) {
         if (appeared[2].length > 0) {
-            if (appeared[2].includes(currentCount) && appeared[2].length > 1 && last10[9] >= 2) {
+            if (appeared[2].includes(currentCount) && appeared[2].length > 1 && last10[9] >= 2 && last10[0] !== lastDigit + 1 && last10[1] !== lastDigit + 1) {
                 console.log(`TRADE SIGNAL! Betting digit ${lastDigit + 1} appears 2 times (currently 2x)`);
+                console.log(`TRADE SIGNAL! Betting digit ${last10[0]} ${last10[1]}`);
 
                 assetState.tradedDigitArray.push(currentCount);
                 assetState.filteredArray = appeared[2];
@@ -818,7 +819,12 @@ class EnhancedDigitDifferTradingBot {
 
         const waitTimeMinutes = Math.round(randomWaitTime / 60000);
         this.waitTime = waitTimeMinutes;
-        this.waitSeconds = randomWaitTime;
+        if (this.consecutiveLosses > 0) {
+            this.waitSeconds = randomWaitTime + 138000;
+        }
+        else {
+            this.waitSeconds = randomWaitTime;
+        }
 
         if (!this.endOfDay) {
             this.logTradingSummary(asset);
