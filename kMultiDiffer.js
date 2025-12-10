@@ -8,6 +8,7 @@ class PatternAnalyzer {
     constructor() {
         this.minSamples = 20; // Minimum historical occurrences required to form a reliable pattern
         this.maxPatternLength = 3; // Look at patterns up to 3 digits long
+        this.dCount = 78;
     }
 
     analyze(history) {
@@ -128,7 +129,7 @@ class PatternAnalyzer {
         // Identify digits that have NEVER appeared after this pattern
         const safeDigits = [];
         for (let d = 0; d < 10; d++) {
-            if (nextDigitCounts[d] >= 75) {//>=66
+            if (nextDigitCounts[d] >= this.dCount) {//>=66
                 safeDigits.push(d);
             }
         }
@@ -196,199 +197,6 @@ class PatternAnalyzer {
     }
 }
 
-class PatternAnalyzer2 {
-    constructor() {
-        this.minSamples = 20; // Minimum historical occurrences required to form a reliable pattern
-        this.maxPatternLength = 3; // Look at patterns up to 3 digits long
-    }
-
-    analyze(history) {
-        // Need enough history
-        if (!history || history.length < 50) {
-            return { shouldTrade: false, confidence: 0 };
-        }
-
-        // We prioritize patterns based on specificity (length) and sample size.
-        // A pattern of length 2 with 50 samples and 0 occurrences of digit X is very strong.
-        // A pattern of length 1 with 500 samples and 0 occurrences of digit X is even stronger (but rare).
-
-        const currentDigit = history[history.length - 1];
-        const prevDigit = history[history.length - 2];
-        const prevPrevDigit = history[history.length - 3];
-
-        let bestPrediction = null;
-        let bestConfidence = 0;
-        let bestPatternType = '';
-        let bestSamples = 0;
-        let arraySamples = [];
-
-        // Check patterns from length 3 down to 1
-        // We want the most specific pattern that has enough data
-
-        // 1. Pattern Length 3 (Sequence of 3)
-        // if (history.length > 3) {
-        //     const pattern3 = [prevPrevDigit, prevDigit, currentDigit];
-        //     const analysis3 = this.findSafeDigitForPattern(history, pattern3);
-        //     if (analysis3 && analysis3.isSafe) {
-        //         bestPrediction = analysis3.digit;
-        //         bestConfidence = analysis3.confidence;
-        //         bestPatternType = 'Sequence-3';
-        //         bestSamples = analysis3.samples;
-        //     }
-        // }
-
-        // 2. Pattern Length 2 (Sequence of 2) - Only override if confidence is significantly higher or we didn't find one yet
-        // if (history.length > 2) {
-        //     const pattern2 = [prevDigit, currentDigit];
-        //     const analysis2 = this.findSafeDigitForPattern(history, pattern2);
-
-        //     if (analysis2 && analysis2.isSafe) {
-        //         // If we already have a prediction, only switch if this one has MUCH more data
-        //         if (!bestPrediction || (analysis2.confidence > bestConfidence)) {
-        //             bestPrediction = analysis2.digit;
-        //             bestConfidence = analysis2.confidence;
-        //             bestPatternType = 'Sequence-2';
-        //             bestSamples = analysis2.samples;
-        //         }
-        //     }
-        // }
-
-        // 3. Pattern Length 1 (Last Digit) - Hardest to find 0 occurrences, but strongest if found
-        if (history.length > 1) {
-            const pattern1 = [currentDigit];
-            const analysis1 = this.findSafeDigitForPattern(history, pattern1);
-
-            if (analysis1 && analysis1.isSafe) {
-                if (!bestPrediction || (analysis1.confidence > bestConfidence)) {
-                    bestPrediction = analysis1.digit;
-                    bestConfidence = analysis1.confidence;
-                    bestPatternType = 'Sequence-1';
-                    bestSamples = analysis1.samples;
-                    arraySamples = analysis1.arraySamples;
-                }
-            }
-        }
-
-        if (bestPrediction !== null) {
-            return {
-                shouldTrade: true,
-                predictedDigit: bestPrediction,
-                confidence: bestConfidence,
-                patternType: bestPatternType,
-                samples: bestSamples,
-                arraySamples: arraySamples
-            };
-        }
-
-        return { shouldTrade: false, confidence: 0 };
-    }
-
-    findSafeDigitForPattern(history, pattern) {
-        const patternLen = pattern.length;
-        const nextDigitCounts = Array(10).fill(0);
-        let totalOccurrences = 0;
-        let arraySamples = [];
-
-        // Scan history for this pattern
-        // Stop before the last element because we need to see what comes *after*
-        for (let i = 0; i < history.length - patternLen; i++) {
-            let match = true;
-            for (let j = 0; j < patternLen; j++) {
-                if (history[i + j] !== pattern[j]) {
-                    match = false;
-                    break;
-                }
-            }
-
-            if (match) {
-                const nextDigit = history[i + patternLen];
-                if (nextDigit !== undefined) {
-                    nextDigitCounts[nextDigit]++;
-                    totalOccurrences++;
-                }
-            }
-        }
-
-        // console.log('Pattern2:', pattern, 'Length:', patternLen);
-        // console.log('Next Digit Counts2:', nextDigitCounts);
-        // console.log('Total Occurrences2:', totalOccurrences);
-
-        if (totalOccurrences < this.minSamples) {
-            return null;
-        }
-
-        // Identify digits that have NEVER appeared after this pattern
-        const safeDigits = [];
-        for (let d = 0; d < 10; d++) {
-            if (nextDigitCounts[d] <= 32) {//<= 36
-                safeDigits.push(d);
-            }
-        }
-
-        // console.log('Safe Digits:', safeDigits);
-
-        if (safeDigits.length > 0) {
-            // If multiple safe digits, pick the one that is "coldest" (appeared longest ago in general)
-            const bestDigit = this.findColdestDigit(history, safeDigits);
-
-            // Calculate confidence based on sample size
-            // If we have 100 samples and 0 occurrences, that's 99% confidence.
-            // If we have 20 samples, that's maybe 85% confidence.
-            let confidence = 0;
-            if (totalOccurrences >= 100) confidence = 99.9;
-            else if (totalOccurrences >= 50) confidence = 98;
-            else if (totalOccurrences >= 30) confidence = 95;
-            else confidence = 90;
-
-            arraySamples = nextDigitCounts;
-
-            // console.log('Best Digit:', bestDigit);
-
-            // console.log('Confidence:', confidence);
-
-            return {
-                isSafe: true,
-                digit: bestDigit,
-                confidence: confidence,
-                samples: totalOccurrences,
-                arraySamples: arraySamples
-            };
-        }
-
-        return { isSafe: false };
-    }
-
-    findColdestDigit(history, candidates) {
-        let bestDigit = candidates[0];
-        let maxGap = -1;
-
-        for (const digit of candidates) {
-            let gap = 0;
-            // Count backwards from end of history
-            for (let i = history.length - 1; i >= 0; i--) {
-                if (history[i] === digit) {
-                    break;
-                }
-                gap++;
-            }
-            if (gap > maxGap) {
-                maxGap = gap;
-                bestDigit = digit;
-            }
-        }
-        return bestDigit;
-    }
-
-    analyzeHistory(history) {
-        // Helper for logging
-        const analysis = this.analyze(history);
-        if (analysis.shouldTrade) {
-            // console.log(`Pattern Found: [${analysis.patternType}] -> Predict NOT ${analysis.predictedDigit} (Conf: ${analysis.confidence}%, Samples: ${analysis.samples})`);
-        }
-    }
-}
-
-
 class EnhancedDigitDifferTradingBot {
     constructor(token, config = {}) {
         this.token = token;
@@ -419,7 +227,7 @@ class EnhancedDigitDifferTradingBot {
             minWaitTime: config.minWaitTime || 200 * 1000,
             maxWaitTime: config.maxWaitTime || 500 * 1000,
             volatilityThreshold: config.volatilityThreshold || 2, // std dev of last 5 digits
-            volatilityThreshold2: config.volatilityThreshold2 || 1.5,
+            volatilityThreshold2: config.volatilityThreshold2 || 1,
         };
 
         this.currentStake = this.config.initialStake;
@@ -456,8 +264,7 @@ class EnhancedDigitDifferTradingBot {
         this.suspendedAssets = new Set();
         this.rStats = {};
         this.sys = null;
-        this.patternAnalyzer = new PatternAnalyzer();// Advanced pattern analyzer
-        this.patternAnalyzer2 = new PatternAnalyzer2();// Advanced pattern analyzer
+        this.patternAnalyzer = new PatternAnalyzer(20, 3, 77);// Advanced pattern analyzer
         this.volatility = 0;
         this.totalOccurences = 0;
 
@@ -721,7 +528,6 @@ class EnhancedDigitDifferTradingBot {
             // Update pattern analyzer with new history
             if (!this.tradeInProgress) {
                 this.patternAnalyzer.analyzeHistory(this.tickHistories[asset]);
-                this.patternAnalyzer2.analyzeHistory(this.tickHistories[asset]);
             }
 
             // Analyze ticks
@@ -740,28 +546,24 @@ class EnhancedDigitDifferTradingBot {
 
         // Get pattern analysis
         const analysis = this.patternAnalyzer.analyze(history);
-        const analysis2 = this.patternAnalyzer2.analyze(history);
 
         if (analysis.shouldTrade) {
             const confidence = analysis.confidence;
-            const confidence2 = analysis2.confidence;
             const predictedDigit = analysis.predictedDigit;
-            const predictedDigit2 = analysis2.predictedDigit;
             const arraySamples = analysis.arraySamples;
 
             console.log('Array Samples:', arraySamples);
 
             // console.log(`Pattern Analysis: Type=${analysis.patternType}, Target=${predictedDigit}, Conf=${confidence.toFixed(1)}%, Samples=${analysis.samples}`);
-            // console.log(`Pattern Analysis 2: Type=${analysis2.patternType}, Target=${predictedDigit2}, Conf=${confidence2.toFixed(1)}%, Samples=${analysis2.samples}`);
 
             // Trade if confidence is high enough
             // We set a high bar for "100% certainty"
-            if (this.sys !== 1 && confidence >= 98 && analysis.samples >= 500 && this.tickHistories[asset][this.tickHistories[asset].length - 1] !== predictedDigit && !this.excludedDigits.includes(predictedDigit)) {
+            if (confidence >= 98 && analysis.samples >= 500 && this.tickHistories[asset][this.tickHistories[asset].length - 1] !== predictedDigit && !this.excludedDigits.includes(predictedDigit)) {
                 console.log(`Pattern Found: [${analysis.patternType}] -> Predict NOT ${analysis.predictedDigit} (Conf: ${analysis.confidence}%, Samples: ${analysis.samples})`);
                 // ▼▼▼ VOLATILITY FILTER ▼▼▼
                 const recentDigits = history.slice(-5);
                 const volStdDev = this.standardDeviation(recentDigits);
-                if (volStdDev > this.config.volatilityThreshold && volStdDev < this.config.volatilityThreshold2) {
+                if (volStdDev > this.config.volatilityThreshold2 && volStdDev < this.config.volatilityThreshold) {
                     console.log(`🔇 [${asset}] High volatility (${volStdDev.toFixed(2)}). Skipping trade.`);
                     return;
                 }
@@ -773,23 +575,6 @@ class EnhancedDigitDifferTradingBot {
                 this.totalOccurences = analysis.samples;
                 this.arraySamples = arraySamples;
                 this.placeTrade(asset, predictedDigit, confidence);
-            } else if (this.sys !== 2 && confidence2 >= 98 && analysis2.samples >= 490 && this.tickHistories[asset][this.tickHistories[asset].length - 1] !== predictedDigit2 && !this.excludedDigits.includes(predictedDigit2)) {
-                console.log(`Pattern Found2: [${analysis2.patternType}] -> Predict NOT ${analysis2.predictedDigit} (Conf: ${analysis2.confidence}%, Samples: ${analysis2.samples})`);
-                // ▼▼▼ VOLATILITY FILTER ▼▼▼
-                const recentDigits = history.slice(-5);
-                const volStdDev = this.standardDeviation(recentDigits);
-                if (volStdDev > this.config.volatilityThreshold && volStdDev < this.config.volatilityThreshold2) {
-                    console.log(`🔇 [${asset}] High volatility (${volStdDev.toFixed(2)}). Skipping trade.`);
-                    return;
-                }
-                console.log(`🔇 [${asset}] volatility (${volStdDev.toFixed(2)})`);
-                this.xDigit = predictedDigit2;
-                this.confidenceThreshold = confidence2;
-                this.sys = 2;
-                this.volatility = volStdDev;
-                this.totalOccurences = analysis2.samples;
-                this.arraySamples = arraySamples;
-                this.placeTrade(asset, predictedDigit2, confidence2);
             }
         }
     }
@@ -902,7 +687,6 @@ class EnhancedDigitDifferTradingBot {
         }
 
         this.patternAnalyzer = new PatternAnalyzer();// Advanced pattern analyzer
-        this.patternAnalyzer2 = new PatternAnalyzer2();// Advanced pattern analyzer
 
         // Suspend the asset after a trade
         // this.suspendAsset(asset);
