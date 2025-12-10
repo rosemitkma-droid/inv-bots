@@ -2471,8 +2471,8 @@ class EnhancedAccumulatorBot {
                 if (!this.endOfDay) {
                     console.log("It's Sunday, disconnecting the bot. No trading on Sundays.");
                     this.Pause = true;
-                    this.disconnect();
                     this.endOfDay = true;
+                    this.disconnect();  
                 }
                 return; // Skip all other checks on Sunday
             }
@@ -2481,6 +2481,9 @@ class EnhancedAccumulatorBot {
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
                 console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.resetForNewDay();
+                this.RestartTrading = true;
+                this.Pause = false;
+                this.endOfDay = false;
                 this.connect();
             }
 
