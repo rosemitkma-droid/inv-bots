@@ -844,7 +844,7 @@ class EnhancedDigitDifferTradingBot {
             // Longer wait after losses to let market conditions change
             baseWaitTime = this.config.minWaitTime + (this.consecutiveLosses * 60000); // +1min per loss
             this.sendLossEmail(asset);
-            this.suspendAllExcept(asset);
+            // this.suspendAllExcept(asset);
         } else {
             if (this.suspendedAssets.size > 0) {
                 this.reactivateAllSuspended();
