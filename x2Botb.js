@@ -476,6 +476,9 @@ class StatisticalAnalyzer {
             if (confidence < this.config.minConfidence) {
                 return `Confidence too low: ${(confidence * 100).toFixed(1)}% < ${(this.config.minConfidence * 100).toFixed(1)}%`;
             }
+            if (confidence > this.config.maxConfidence) {
+                return `Confidence too High: ${(confidence * 100).toFixed(1)}% > ${(this.config.maxConfidence * 100).toFixed(1)}%`;
+            }
             if (repetitionStats.overallRate > this.config.maxRepetitionRate) {
                 return `Repetition rate too high: ${(repetitionStats.overallRate * 100).toFixed(1)}%`;
             }
@@ -532,7 +535,7 @@ class EnhancedDerivTradingBot {
         this.connected = false;
         this.assets = [
             // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR', '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V', 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
-            'RDBEAR'
+            'RDBULL'
         ];
 
         this.config = {
@@ -543,10 +546,11 @@ class EnhancedDerivTradingBot {
             // Analysis Thresholds - CRITICAL for trade decisions
             ANALYSIS: {
                 minHistoryLength: config.ANALYSIS.minHistoryLength || 5000,       // Minimum ticks before trading
-                minConfidence: config.ANALYSIS.minConfidence || 0.8,          // Minimum confidence to trade (92%)
-                maxRepetitionRate: config.ANALYSIS.maxRepetitionRate || 0.10,      // Max acceptable repetition rate (10%)
-                recentRepetitionRate: config.ANALYSIS.recentRepetitionRate || 0.08,     // Maximum recent repetition rate (8%)
-                selfRepetitionRate: config.ANALYSIS.selfRepetitionRate || 0.08,     // Maximum self-repetition rate (8%)
+                minConfidence: config.ANALYSIS.minConfidence || 0.2,          // Minimum confidence to trade (92%)
+                minConfidence: config.ANALYSIS.maxConfidence || 0.2,          // Maximum confidence to trade (92%)
+                maxRepetitionRate: config.ANALYSIS.maxRepetitionRate || 0.02,      // Max acceptable repetition rate (10%)
+                recentRepetitionRate: config.ANALYSIS.recentRepetitionRate || 0.02,     // Maximum recent repetition rate (8%)
+                selfRepetitionRate: config.ANALYSIS.selfRepetitionRate || 0.02,     // Maximum self-repetition rate (8%)
                 minNonRepStreak: config.ANALYSIS.minNonRepStreak || 6,           // Minimum consecutive non-repetitions
                 minSampleSize: config.ANALYSIS.minSampleSize || 500,           // Minimum samples for digit analysis 
             },
@@ -667,8 +671,8 @@ class EnhancedDerivTradingBot {
             this.tradeInProgress = false;
             this.lastDigitsList = [];
             this.tickHistory = [];
-            this.unsubscribeFromTicks(this.currentAsset);
-            this.subscribeToTickHistory(this.currentAsset);
+            // this.unsubscribeFromTicks(this.currentAsset);
+            // this.subscribeToTickHistory(this.currentAsset);
         }
     }
 
@@ -793,11 +797,11 @@ class EnhancedDerivTradingBot {
             this.usedAssets = new Set();
         }
 
-        if (this.RestartTrading) {
-            let availableAssets = this.assets.filter(asset => !this.usedAssets.has(asset));
-            this.currentAsset = availableAssets[Math.floor(Math.random() * availableAssets.length)];
-            this.usedAssets.add(this.currentAsset);
-        }
+        // if (this.RestartTrading) {
+        let availableAssets = this.assets.filter(asset => !this.usedAssets.has(asset));
+        this.currentAsset = availableAssets[Math.floor(Math.random() * availableAssets.length)];
+        this.usedAssets.add(this.currentAsset);
+        // }
         console.log(`Selected asset: ${this.currentAsset}`);
 
         this.unsubscribeFromTicks(() => {
@@ -831,11 +835,6 @@ class EnhancedDerivTradingBot {
         }
     }
 
-    applyChaosTheory() {
-        return this.chaosDetector.analyzeChaos(this.tickHistory);
-    }
-
-
     analyzeTicksEnhanced() {
         if (this.tradeInProgress) {
             return;
@@ -844,12 +843,13 @@ class EnhancedDerivTradingBot {
         // Get analysis
         const analysis = this.analyzer.analyze(this.tickHistory);
 
-        console.log(`Analyzed: ${analysis.predictedDigit} | ${analysis.confidence.toFixed(2)}%`);
+        console.log(`Analyzed: ${analysis.predictedDigit} | ${analysis.confidence.toFixed(2)}% (${analysis.shouldTrade})`);
+        console.log(`Reason: ${analysis.reason}`);
 
         if (!analysis.shouldTrade) return null;
 
         // Additional check: Don't trade same digit consecutively
-        if (analysis.predictedDigit === this.lastPredictedDigit) {
+        if (analysis.predictedDigit === this.xDigit) {
             return null;
         }
 
@@ -858,8 +858,10 @@ class EnhancedDerivTradingBot {
             return null;
         }
 
+        const confidence = analysis.confidence.toFixed(2);
+
         this.xDigit = analysis.predictedDigit;
-        this.winProbNumber = analysis.confidence.toFixed(2);
+        this.winProbNumber = confidence;
 
         this.placeTrade(this.xDigit, this.winProbNumber);
     }
@@ -979,7 +981,7 @@ class EnhancedDerivTradingBot {
         this.disconnect();
 
         if (!this.endOfDay) {
-            this.waitTime = Math.floor(Math.random() * (1000 - 5000 + 1)) + 1000;
+            this.waitTime = Math.floor(Math.random() * (5000 - 1000 + 1)) + 1000;
             console.log(`⏳ Waiting ${Math.round(this.waitTime / 1000)} seconds before next trade...\n`);
             setTimeout(() => {
                 this.Pause = false;
@@ -1002,11 +1004,9 @@ class EnhancedDerivTradingBot {
                 if (message.msg_type === 'forget' && message.forget === this.tickSubscriptionId) {
                     console.log(`Unsubscribed from ticks successfully`);
                     this.tickSubscriptionId = null;
-                    if (callback) callback();
+                    // if (callback) callback();
                 }
             });
-        } else {
-            if (callback) callback();
         }
     }
 
@@ -1238,7 +1238,7 @@ class EnhancedDerivTradingBot {
 
     start() {
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
@@ -1254,10 +1254,11 @@ const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
     // Analysis Thresholds - CRITICAL for trade decisions
     ANALYSIS: {
         minHistoryLength: 5000,       // Minimum ticks before trading
-        minConfidence: 0.7,          // Minimum confidence to trade (92%)
-        maxRepetitionRate: 0.6,      // Max acceptable repetition rate (10%)
-        recentRepetitionRate: 0.06,     // Maximum recent repetition rate (8%)
-        selfRepetitionRate: 0.06,     // Maximum self-repetition rate (8%)
+        minConfidence: 0.6,          // Minimum confidence to trade (92%)
+        maxConfidence: 0.7,          // Maximum confidence to trade (92%)
+        maxRepetitionRate: 0.4,      // Max acceptable repetition rate (10%)
+        recentRepetitionRate: 0.02,     // Maximum recent repetition rate (8%)
+        selfRepetitionRate: 0.10,     // Maximum self-repetition rate (8%)
         minNonRepStreak: 6,           // Minimum consecutive non-repetitions
         minSampleSize: 500,           // Minimum samples for digit analysis 
     },
