@@ -1255,9 +1255,9 @@ const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
     ANALYSIS: {
         minHistoryLength: 5000,       // Minimum ticks before trading
         minConfidence: 0.7,          // Minimum confidence to trade (92%)
-        maxRepetitionRate: 0.10,      // Max acceptable repetition rate (10%)
-        recentRepetitionRate: 0.08,     // Maximum recent repetition rate (8%)
-        selfRepetitionRate: 0.08,     // Maximum self-repetition rate (8%)
+        maxRepetitionRate: 0.6,      // Max acceptable repetition rate (10%)
+        recentRepetitionRate: 0.06,     // Maximum recent repetition rate (8%)
+        selfRepetitionRate: 0.06,     // Maximum self-repetition rate (8%)
         minNonRepStreak: 6,           // Minimum consecutive non-repetitions
         minSampleSize: 500,           // Minimum samples for digit analysis 
     },
