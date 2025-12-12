@@ -10,7 +10,10 @@ class HybridSuperBot {
         this.connected = false;
         this.wsReady = false;
 
-        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'];
+        this.assets = config.assets || [
+            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
+            'R_10',
+        ];
 
         this.config = {
             initialStake: config.initialStake || 0.61,
@@ -788,7 +791,7 @@ class HybridSuperBot {
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
 
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            this.suspendAsset(asset);
+            // this.suspendAsset(asset);
         }
 
         this.totalProfitLoss += profit;
@@ -854,6 +857,7 @@ class HybridSuperBot {
             const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
             const currentHours = gmtPlus1Time.getUTCHours();
             const currentMinutes = gmtPlus1Time.getUTCMinutes();
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 
             // Optional: log current GMT+1 time for monitoring
             // console.log(
@@ -861,7 +865,18 @@ class HybridSuperBot {
             // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
             // );
 
-            // Check for Morning resume condition (7:00 AM GMT+1)
+            // Check if it's Sunday - no trading on Sundays
+            if (currentDay === 0) {
+                if (!this.endOfDay) {
+                    console.log("It's Sunday, disconnecting the bot. No trading on Sundays.");
+                    this.Pause = true;
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Skip all other checks on Sunday
+            }
+
+            // Check for Morning resume condition (7:00 AM GMT+1) - but not on Sunday
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
                 console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.LossDigitsList = [];
@@ -883,7 +898,7 @@ class HybridSuperBot {
                     this.endOfDay = true;
                 }
             }
-        }, 20000); // Check every 20 seconds
+        }, 5000); // Check every 5 seconds
     }
 
     logSummary() {
@@ -1115,8 +1130,8 @@ const bot = new HybridSuperBot('rgNedekYXvCaPeP', {
     requiredHistoryLength: 1000,
     // minWaitTime: 120000, // 2 Minutes
     // maxWaitTime: 300000, // 5 Minutes
-    minWaitTime: 300000, //5 Minutes
-    maxWaitTime: 2600000, //1 Hour
+    minWaitTime: 1000, //5 Minutes
+    maxWaitTime: 5000, //1 Hour
 });
 
 bot.start();
