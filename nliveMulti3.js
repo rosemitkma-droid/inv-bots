@@ -875,7 +875,7 @@ class EnhancedDigitDifferTradingBot {
             baseWaitTime = this.config.minWaitTime //+ (this.consecutiveLosses * 60000); // +1min per loss
             this.sendLossEmail(asset);
             //Suspend All Assets (Non-Loss)
-            this.suspendAsset(asset);
+            // this.suspendAsset(asset);
             // this.suspendAllExcept(asset);
         } else {
             if (this.suspendedAssets.size > 1) {
