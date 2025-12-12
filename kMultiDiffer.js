@@ -673,7 +673,7 @@ class EnhancedDigitDifferTradingBot {
         if (!won) {
             this.sendLossEmail(asset);
             // Suspend the asset after a trade
-            this.suspendAsset(asset);
+            // this.suspendAsset(asset);
         } else {
             this.sys = null;
         }
