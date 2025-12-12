@@ -2240,7 +2240,7 @@ class EnhancedAccumulatorBot {
         if (!won) {
             baseWaitTime = this.config.minWaitTime;
             this.sendLossEmail(asset);
-            this.suspendAsset(asset);
+            // this.suspendAsset(asset);
 
             // if (this.consecutiveLosses >= 2) {
             //     if (this.sys === 1) {
