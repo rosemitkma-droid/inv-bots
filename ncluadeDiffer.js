@@ -1728,7 +1728,7 @@ class EnhancedDigitDifferTradingBot {
         if (!won) {
             this.sendLossEmail(asset);
             // Suspend the asset after a trade
-            this.suspendAsset(asset);
+            // this.suspendAsset(asset);
         }
 
         // If there are suspended assets, reactivate the first one on win
