@@ -735,8 +735,8 @@ class EnhancedDerivTradingBot {
             this.tradeInProgress = false;
             this.lastDigitsList = [];
             this.tickHistory = [];
-            this.unsubscribeFromTicks(this.currentAsset);
-            this.subscribeToTickHistory(this.currentAsset);
+            // this.unsubscribeFromTicks(this.currentAsset);
+            // this.subscribeToTickHistory(this.currentAsset);
 
             this.startTrading();
 
