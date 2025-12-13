@@ -9,7 +9,7 @@ class EnhancedDerivTradingBot {
         this.connected = false;
         this.assets = [
             // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR', '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V', 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
-            'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR',
+            'R_75',
         ];
 
         this.config = {
@@ -17,38 +17,7 @@ class EnhancedDerivTradingBot {
             multiplier: config.multiplier,
             maxConsecutiveLosses: config.maxConsecutiveLosses,
             takeProfit: config.takeProfit,
-            // Martingale Settings
-            useMartingale: config.useMartingale !== undefined ? config.useMartingale : true,
-            martingaleMultiplier: config.martingaleMultiplier || 2.2,
-            martingaleResetOnWin: config.martingaleResetOnWin !== undefined ? config.martingaleResetOnWin : true,
-            
-            // Strategy Settings
-            strategy: config.strategy || 'hybrid', // 'frequency', 'streak', 'cooldown', 'pattern', 'hybrid'
-            historySize: config.historySize || 100,
-            minTicksBeforeTrading: config.minTicksBeforeTrading || 15,
-            
-            // Frequency Strategy
-            frequencyThreshold: config.frequencyThreshold || 0.15, // 15% above expected
-            
-            // Streak Strategy
-            streakThreshold: config.streakThreshold || 4, // Trigger after 4 consecutive same digits
-            
-            // Cooldown Strategy
-            cooldownPeriod: config.cooldownPeriod || 3,
-            
-            // Hybrid Strategy Weights
-            weights: {
-                frequency: config.weights?.frequency || 0.01,
-                streak: config.weights?.streak || 0.01,
-                cooldown: config.weights?.cooldown || 0.23,
-                pattern: config.weights?.pattern || 0.75
-            },
-            hybridThreshold: config.hybridThreshold || 0.40, // Minimum combined score
-            
-            // Trading Hours (optional)
-            enableTradingHours: config.enableTradingHours || false,
-            tradingStartHour: config.tradingStartHour || 8,
-            tradingEndHour: config.tradingEndHour || 22,
+            STRATEGY: 'smart' //args.strategy || 'smart' // Options: smart, hotDigit, coldDigit, pattern, classic
         };
 
         // Initialize existing properties
@@ -75,7 +44,7 @@ class EnhancedDerivTradingBot {
         this.RestartTrading = true;
         this.endOfDay = false;
         // this.requiredHistoryLength = Math.floor(Math.random() * 4981) + 20; //Random history length (20 to 5000)
-        this.requiredHistoryLength = 1000; // Fixed history length for consistency
+        this.requiredHistoryLength = 100; // Fixed history length for consistency
         this.kCount = false;
         this.kCountNum = 0;
         this.kLoss = 0;
@@ -314,6 +283,8 @@ class EnhancedDerivTradingBot {
         }
 
         console.log(`Recent tick History: ${this.tickHistory.slice(-5).join(', ')}`);
+        // console.log('Digits:', this.tickHistory[this.tickHistory.length - 1], '|', this.tickHistory[this.tickHistory.length - 2], '|', this.tickHistory[this.tickHistory.length - 3])
+        console.log('Digits:', this.tickHistory[this.tickHistory.length - 1])
 
         // Enhanced logging
         if (!this.tradeInProgress) {
@@ -321,325 +292,113 @@ class EnhancedDerivTradingBot {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // STRATEGY 1: FREQUENCY ANALYSIS
-    // ═══════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Analyzes digit frequency and returns the most overrepresented digit
-     * Logic: Bet DIFFER on digits appearing more than expected (>10%)
-     */
-    analyzeFrequency(windowSize = 30) {
-        if (this.tickHistory.length < windowSize) {
-            return { digit: null, confidence: 0, frequencies: [] };
+    getDigitFrequency() {
+        const recentDigits = this.tickHistory.slice(0, 50);
+        const freq = new Array(10).fill(0);
+        recentDigits.forEach(d => freq[d]++);
+        
+        let hotDigit = 0, coldDigit = 0;
+        let maxCount = freq[0], minCount = freq[0];
+        
+        for (let i = 0; i < 10; i++) {
+            if (freq[i] > maxCount) { maxCount = freq[i]; hotDigit = i; }
+            if (freq[i] < minCount) { minCount = freq[i]; coldDigit = i; }
         }
         
-        const recentDigits = this.tickHistory.slice(-windowSize);
-        const frequencies = new Array(10).fill(0);
-        
-        // Count frequencies
-        recentDigits.forEach(digit => {
-            frequencies[digit]++;
-        });
-        
-        // Calculate percentages and find most frequent
-        const expectedFreq = windowSize / 10; // 10% expected for each digit
-        let maxExcess = 0;
-        let targetDigit = null;
-        
-        const frequencyData = frequencies.map((count, digit) => {
-            const percentage = (count / windowSize) * 100;
-            const excess = count - expectedFreq;
-            const excessRatio = excess / expectedFreq;
-            
-            if (excessRatio > maxExcess && excessRatio >= this.config.frequencyThreshold) {
-                maxExcess = excessRatio;
-                targetDigit = digit;
-            }
-            
-            return {
-                digit,
-                count,
-                percentage: percentage.toFixed(2),
-                excess: excess.toFixed(2),
-                excessRatio: excessRatio.toFixed(3)
-            };
-        });
-        
-        return {
-            digit: targetDigit,
-            confidence: Math.min(maxExcess / 0.5, 1), // Normalize to 0-1
-            frequencies: frequencyData,
-            windowSize
-        };
+        return { freq, hotDigit, coldDigit, maxCount, minCount };
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // STRATEGY 2: STREAK DETECTION
-    // ═══════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Detects consecutive digit streaks
-     * Logic: After a digit appears N times in a row, bet DIFFER on it
-     */
-    detectStreak() {
-        if (this.tickHistory.length < 2) {
-            return { digit: null, streakLength: 0, confidence: 0 };
+    detectPattern() {
+        if (this.tickHistory.length < 20) {
+            return { barrier: this.tickHistory[this.tickHistory.length - 1], confidence: 60, signal: 'Insufficient data for pattern' };
         }
         
+        // Check for digit that just repeated
+        if (this.tickHistory[this.tickHistory.length - 1] === this.tickHistory[this.tickHistory.length - 2]) {
+            return { 
+                barrier: this.tickHistory[this.tickHistory.length - 1], 
+                confidence: 80, 
+                signal: `Digit ${this.tickHistory[this.tickHistory.length - 1]} repeated - Very likely to differ now!` 
+            };
+        }
+        
+        // Check for alternating pattern
+        // if (lastDigits.length >= 4) {
+            // if (this.tickHistory[this.tickHistory.length - 1] === this.tickHistory[this.tickHistory.length - 2] && this.tickHistory[this.tickHistory.length - 1] === this.tickHistory[this.tickHistory.length - 3]) {
+            //     return { 
+            //         barrier: this.tickHistory[this.tickHistory.length - 1], 
+            //         confidence: 80, 
+            //         signal: `Alternating pattern detected` 
+            //     };
+            // }
+        // }
+                
+        return { barrier: this.tickHistory[this.tickHistory.length - 1], confidence: 60, signal: 'No strong pattern - using last digit' };
+    }
+    
+
+    analyzeAndPredict() {
+        if (this.tickHistory.length < 10) {
+            return { barrier: this.tickHistory[this.tickHistory.length - 1] || 0, confidence: 50, signal: 'Collecting data...' };
+        }
+        
+        const { freq, hotDigit, coldDigit } = this.getDigitFrequency();
         const lastDigit = this.tickHistory[this.tickHistory.length - 1];
-        let streakLength = 1;
         
-        // Count consecutive appearances
-        for (let i = this.tickHistory.length - 2; i >= 0; i--) {
-            if (this.tickHistory[i] === lastDigit) {
-                streakLength++;
-            } else {
+        let barrier, confidence, signal;
+        
+        switch(this.config.STRATEGY) {
+            case 'smart':
+                const lastDigitFreq = freq[lastDigit];
+                const avgFreq = this.tickHistory.slice(0, 50).length / 10;
+                
+                // if (lastDigitFreq > avgFreq * 1.3) {
+                //     barrier = lastDigit;
+                //     confidence = 80 + Math.min(15, (lastDigitFreq - avgFreq) * 5);
+                //     signal = `Hot digit ${lastDigit} detected - High probability it differs`;
+                // } else 
+                if (lastDigitFreq < avgFreq * 0.7) {
+                    barrier = hotDigit;
+                    confidence = 85;
+                    signal = `Using hot digit ${hotDigit} as barrier (safer)`;
+                } else {
+                    barrier = null;
+                    confidence = 0;
+                    signal = `No Prediction - Digit frequencies are balanced`;
+                } 
                 break;
-            }
-        }
-        
-        // Calculate confidence based on streak length
-        // Longer streaks = higher confidence that it will break
-        let confidence = 0;
-        if (streakLength >= this.config.streakThreshold) {
-            // Probability of continuing streak decreases exponentially
-            // P(4th same) = 10%, P(5th same) = 10%, etc.
-            confidence = 1 - Math.pow(0.1, streakLength - this.config.streakThreshold + 1);
-            confidence = Math.min(confidence, 0.95);
-        }
-        
-        return {
-            digit: streakLength >= this.config.streakThreshold ? lastDigit : null,
-            streakLength,
-            confidence
-        };
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // STRATEGY 3: COOLDOWN STRATEGY
-    // ═══════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Identifies digits that appeared recently (cooldown period)
-     * Logic: Digits that just appeared are less likely to appear again immediately
-     */
-    analyzeCooldown() {
-        if (this.tickHistory.length < this.config.cooldownPeriod) {
-            return { digit: null, confidence: 0, recentDigits: [] };
-        }
-        
-        const cooldownPeriod = this.config.cooldownPeriod;
-        const recentDigits = this.tickHistory.slice(-cooldownPeriod);
-        const lastDigit = recentDigits[recentDigits.length - 1];
-        
-        // Count how many times each digit appeared in cooldown period
-        const recentCounts = new Array(10).fill(0);
-        recentDigits.forEach(d => recentCounts[d]++);
-        
-        // Find digit with most appearances in cooldown period
-        let maxCount = 0;
-        let targetDigit = null;
-        
-        for (let i = 0; i < 10; i++) {
-            if (recentCounts[i] > maxCount) {
-                maxCount = recentCounts[i];
-                targetDigit = i;
-            }
-        }
-        
-        // Calculate confidence
-        const confidence = maxCount > 1 ? Math.min((maxCount - 1) / cooldownPeriod, 0.8) : 0;
-        
-        return {
-            digit: confidence > 0.2 ? targetDigit : null,
-            confidence,
-            recentDigits: recentDigits,
-            counts: recentCounts
-        };
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // STRATEGY 4: PATTERN RECOGNITION
-    // ═══════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Detects recurring patterns in digit sequences
-     * Logic: If pattern ABC keeps appearing, after AB, bet DIFFER on C
-     */
-    detectPattern(patternLength = 3) {
-        if (this.tickHistory.length < patternLength * 3) {
-            return { digit: null, confidence: 0, pattern: null };
-        }
-        
-        const history = this.tickHistory;
-        const currentPattern = history.slice(-patternLength + 1).join('');
-        
-        // Look for this pattern in history
-        let matchCount = 0;
-        let followingDigits = new Array(10).fill(0);
-        
-        for (let i = 0; i < history.length - patternLength; i++) {
-            const pattern = history.slice(i, i + patternLength - 1).join('');
-            if (pattern === currentPattern) {
-                matchCount++;
-                const followingDigit = history[i + patternLength - 1];
-                followingDigits[followingDigit]++;
-            }
-        }
-        
-        if (matchCount < 2) {
-            return { digit: null, confidence: 0, pattern: currentPattern };
-        }
-        
-        // Find most common following digit
-        let maxFollow = 0;
-        let predictedDigit = null;
-        
-        for (let i = 0; i < 10; i++) {
-            if (followingDigits[i] > maxFollow) {
-                maxFollow = followingDigits[i];
-                predictedDigit = i;
-            }
-        }
-        
-        // Bet DIFFER on the predicted digit
-        const confidence = matchCount >= 3 ? Math.min(maxFollow / matchCount, 0.7) : 0;
-        
-        return {
-            digit: confidence > 0.3 ? predictedDigit : null,
-            confidence,
-            pattern: currentPattern,
-            matchCount,
-            followingDigits
-        };
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // STRATEGY 5: HYBRID SCORING SYSTEM
-    // ═══════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Combines all strategies using weighted scoring
-     * Returns the digit with highest combined score
-     */
-    analyzeHybrid() {
-        const weights = this.config.weights;
-        const digitScores = new Array(10).fill(0);
-        const digitConfidences = new Array(10).fill(0).map(() => ({}));
-        
-        // Get signals from each strategy
-        const frequencyResult = this.analyzeFrequency();
-        const streakResult = this.detectStreak();
-        const cooldownResult = this.analyzeCooldown();
-        const patternResult = this.detectPattern();
-        
-        // Apply frequency score
-        if (frequencyResult.digit !== null) {
-            digitScores[frequencyResult.digit] += weights.frequency * frequencyResult.confidence;
-            digitConfidences[frequencyResult.digit].frequency = frequencyResult.confidence;
-        }
-        
-        // Apply streak score
-        if (streakResult.digit !== null) {
-            digitScores[streakResult.digit] += weights.streak * streakResult.confidence;
-            digitConfidences[streakResult.digit].streak = streakResult.confidence;
-        }
-        
-        // Apply cooldown score
-        if (cooldownResult.digit !== null) {
-            digitScores[cooldownResult.digit] += weights.cooldown * cooldownResult.confidence;
-            digitConfidences[cooldownResult.digit].cooldown = cooldownResult.confidence;
-        }
-        
-        // Apply pattern score
-        if (patternResult.digit !== null) {
-            digitScores[patternResult.digit] += weights.pattern * patternResult.confidence;
-            digitConfidences[patternResult.digit].pattern = patternResult.confidence;
-        }
-        
-        // Find highest scoring digit
-        let maxScore = 0;
-        let targetDigit = null;
-        
-        for (let i = 0; i < 10; i++) {
-            if (digitScores[i] > maxScore) {
-                maxScore = digitScores[i];
-                targetDigit = i;
-            }
-        }
-        
-        // Only return if score exceeds threshold
-        const meetsThreshold = maxScore >= this.config.hybridThreshold;
-        
-        return {
-            digit: meetsThreshold ? targetDigit : null,
-            score: maxScore,
-            scores: digitScores.map((score, digit) => ({ digit, score: score.toFixed(4) })),
-            confidences: digitConfidences,
-            signals: {
-                frequency: frequencyResult,
-                streak: streakResult,
-                cooldown: cooldownResult,
-                pattern: patternResult
-            },
-            meetsThreshold
-        };
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // MAIN DECISION ENGINE
-    // ═══════════════════════════════════════════════════════════════════════
-    
-    /**
-     * Main method to get trading signal
-     * Returns digit to bet DIFFER on, or null if no trade
-     */
-    getTradeSignal() {
-        if (this.tickHistory.length < this.config.minTicksBeforeTrading) {
-            return {
-                shouldTrade: false,
-                reason: `Waiting for more data (${this.tickHistory.length}/${this.config.minTicksBeforeTrading} ticks)`
-            };
-        }
-        
-        let result;
-        
-        switch (this.config.strategy) {
-            case 'frequency':
-                result = this.analyzeFrequency();
+                
+            case 'hotDigit':
+                barrier = hotDigit;
+                confidence = 60 + Math.min(20, freq[hotDigit] * 2);
+                signal = `Betting hot digit ${hotDigit} will differ`;
                 break;
-            case 'streak':
-                result = this.detectStreak();
+                
+            case 'coldDigit':
+                barrier = coldDigit;
+                confidence = 55;
+                signal = `Cold digit ${coldDigit} play - Higher risk`;
                 break;
-            case 'cooldown':
-                result = this.analyzeCooldown();
-                break;
+                
             case 'pattern':
-                result = this.detectPattern();
+                const pattern = this.detectPattern();
+                barrier = pattern.barrier;
+                confidence = pattern.confidence;
+                signal = pattern.signal;
                 break;
-            case 'hybrid':
+                
+            case 'classic':
             default:
-                result = this.analyzeHybrid();
-                break;
+                barrier = lastDigit;
+                confidence = 80;
+                signal = `Classic: Betting ${lastDigit} differs`;
         }
         
-        if (result.digit === null) {
-            return {
-                shouldTrade: false,
-                reason: 'No clear signal',
-                analysis: result
-            };
-        }
+        console.log(`${signal} | Barrier: ${barrier} | Confidence: ${Math.round(confidence)}%`, 'analysis');
         
-        return {
-            shouldTrade: true,
-            digit: result.digit,
-            confidence: result.confidence || result.score,
-            analysis: result,
-            stake: this.currentStake
-        };
+        return { barrier, confidence, signal };
     }
+
 
 
     analyzeTicksEnhanced() {
@@ -648,20 +407,20 @@ class EnhancedDerivTradingBot {
         }
 
         // Chaos theory application
-        const analysis = this.getTradeSignal();
+        const analysis = this.analyzeAndPredict();
 
         
-        console.log(`Analysis:`, analysis.reason || 'Trade signal generated');
-        console.log('PredictedDigit:', analysis.digit, 'Confidence:', (analysis.confidence * 100).toFixed(2) + '%');
+        console.log(`Trade Analysis:`, analysis.signal);
+        console.log('PredictedDigit:', analysis.barrier, 'Confidence:', analysis.confidence.toFixed(2) + '%');
 
         this.lastDigit = this.tickHistory[this.tickHistory.length - 1];
 
         if (
-            analysis.shouldTrade
+            analysis.barrier && analysis.confidence >= 80
         ) {
 
-            this.xDigit = analysis.digit;
-            this.winProbNumber = (analysis.confidence * 100).toFixed(2);
+            this.xDigit = analysis.barrier;
+            this.winProbNumber = analysis.confidence.toFixed(2);
 
             this.placeTrade(this.xDigit, this.winProbNumber);
         }
@@ -785,7 +544,7 @@ class EnhancedDerivTradingBot {
         this.disconnect();
 
         if (!this.endOfDay) {
-            this.waitTime = Math.floor(Math.random() * (1000 - 1000 + 1)) + 10000;
+            this.waitTime = Math.floor(Math.random() * (1000 - 1000 + 1)) + 1000;
             console.log(`⏳ Waiting ${Math.round(this.waitTime / 1000)} seconds before next trade...\n`);
             setTimeout(() => {
                 this.Pause = false;
@@ -928,7 +687,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok Deriv Differ Bot - Trading Summary',
+            subject: 'Grok Deriv Deriv Differ Bot - Trading Summary',
             text: summaryText
         };
 
@@ -976,7 +735,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok Deriv Bot - Loss Alert',
+            subject: 'Grok Deriv Deriv Bot - Loss Alert',
             text: summaryText
         };
 
@@ -993,7 +752,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok Deriv Bot - Error Report',
+            subject: 'Grok Deriv Deriv Bot - Error Report',
             text: `An error occurred in the trading bot: ${errorMessage}`
         };
 
@@ -1034,7 +793,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok Deriv Bot - Status Update',
+            subject: 'Grok Deriv Deriv Bot - Status Update',
             text: summaryText
         };
 
@@ -1047,13 +806,13 @@ class EnhancedDerivTradingBot {
 
     start() {
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        // this.checkTimeForDisconnectReconnect();
     }
 }
 
 // Usage
 const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
-    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir','Dz2V2KvRf4Uukt3'
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
     initialStake: 0.61,
     multiplier: 11.3,
     maxStake: 127,
