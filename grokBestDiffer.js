@@ -1052,8 +1052,8 @@ class EnhancedDerivTradingBot {
 }
 
 // Usage
-const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
-    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
+const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir','Dz2V2KvRf4Uukt3'
     initialStake: 0.61,
     multiplier: 11.3,
     maxStake: 127,
