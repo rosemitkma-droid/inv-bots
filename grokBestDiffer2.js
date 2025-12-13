@@ -17,7 +17,6 @@ class EnhancedDerivTradingBot {
             multiplier: config.multiplier,
             maxConsecutiveLosses: config.maxConsecutiveLosses,
             takeProfit: config.takeProfit,
-            STRATEGY: 'pattern' //args.strategy || 'smart' // Options: smart, hotDigit, coldDigit, pattern, classic
         };
 
         // Initialize existing properties
@@ -43,7 +42,6 @@ class EnhancedDerivTradingBot {
         this.Pause = false;
         this.RestartTrading = true;
         this.endOfDay = false;
-        // this.requiredHistoryLength = Math.floor(Math.random() * 4981) + 20; //Random history length (20 to 5000)
         this.requiredHistoryLength = 100; // Fixed history length for consistency
         this.kCount = false;
         this.kCountNum = 0;
@@ -248,23 +246,20 @@ class EnhancedDerivTradingBot {
     }
 
     tradeNextAsset() {
-        if (this.usedAssets.size === this.assets.length) {
-            this.usedAssets = new Set();
+            if (this.RestartTrading) {
+                let availableAssets = this.assets.filter(asset => !this.usedAssets.has(asset));
+                this.currentAsset = availableAssets[Math.floor(Math.random() * availableAssets.length)];
+                // this.usedAssets.add(this.currentAsset);
+            
+            console.log(`Selected asset: ${this.currentAsset}`);
+
+            this.unsubscribeFromTicks(() => {
+                this.subscribeToTickHistory(this.currentAsset);
+                this.subscribeToTicks(this.currentAsset);
+            });
+
+            this.RestartTrading = false;
         }
-
-        if (this.RestartTrading) {
-            let availableAssets = this.assets.filter(asset => !this.usedAssets.has(asset));
-            this.currentAsset = availableAssets[Math.floor(Math.random() * availableAssets.length)];
-            this.usedAssets.add(this.currentAsset);
-        }
-        console.log(`Selected asset: ${this.currentAsset}`);
-
-        this.unsubscribeFromTicks(() => {
-            this.subscribeToTickHistory(this.currentAsset);
-            this.subscribeToTicks(this.currentAsset);
-        });
-
-        this.RestartTrading = false;
     }
 
     handleTickHistory(history) {
@@ -292,142 +287,25 @@ class EnhancedDerivTradingBot {
         }
     }
 
-    getDigitFrequency() {
-        const recentDigits = this.tickHistory.slice(0, 50);
-        const freq = new Array(10).fill(0);
-        recentDigits.forEach(d => freq[d]++);
-        
-        let hotDigit = 0, coldDigit = 0;
-        let maxCount = freq[0], minCount = freq[0];
-        
-        for (let i = 0; i < 10; i++) {
-            if (freq[i] > maxCount) { maxCount = freq[i]; hotDigit = i; }
-            if (freq[i] < minCount) { minCount = freq[i]; coldDigit = i; }
-        }
-        
-        return { freq, hotDigit, coldDigit, maxCount, minCount };
-    }
-
-    detectPattern() {
-        if (this.tickHistory.length < 20) {
-            return { barrier: this.tickHistory[this.tickHistory.length - 1], confidence: 60, signal: 'Insufficient data for pattern' };
-        }
-        
-        // Check for digit that just repeated
-        if (this.tickHistory[this.tickHistory.length - 1] === this.tickHistory[this.tickHistory.length - 2]) {
-            return { 
-                barrier: this.tickHistory[this.tickHistory.length - 1], 
-                confidence: 80, 
-                signal: `Digit ${this.tickHistory[this.tickHistory.length - 1]} repeated - Very likely to differ now!` 
-            };
-        }
-        
-        // Check for alternating pattern
-        // if (lastDigits.length >= 4) {
-            // if (this.tickHistory[this.tickHistory.length - 1] === this.tickHistory[this.tickHistory.length - 2] && this.tickHistory[this.tickHistory.length - 1] === this.tickHistory[this.tickHistory.length - 3]) {
-            //     return { 
-            //         barrier: this.tickHistory[this.tickHistory.length - 1], 
-            //         confidence: 80, 
-            //         signal: `Alternating pattern detected` 
-            //     };
-            // }
-        // }
-                
-        return { barrier: this.tickHistory[this.tickHistory.length - 1], confidence: 60, signal: 'No strong pattern - using last digit' };
-    }
-    
-
-    analyzeAndPredict() {
-        if (this.tickHistory.length < 10) {
-            return { barrier: this.tickHistory[this.tickHistory.length - 1] || 0, confidence: 50, signal: 'Collecting data...' };
-        }
-        
-        const { freq, hotDigit, coldDigit } = this.getDigitFrequency();
-        const lastDigit = this.tickHistory[this.tickHistory.length - 1];
-        
-        let barrier, confidence, signal;
-        
-        switch(this.config.STRATEGY) {
-            case 'smart':
-                const lastDigitFreq = freq[lastDigit];
-                const avgFreq = this.tickHistory.slice(0, 50).length / 10;
-                
-                // if (lastDigitFreq > avgFreq * 1.3) {
-                //     barrier = lastDigit;
-                //     confidence = 80 + Math.min(15, (lastDigitFreq - avgFreq) * 5);
-                //     signal = `Hot digit ${lastDigit} detected - High probability it differs`;
-                // } else 
-                if (lastDigitFreq < avgFreq * 0.7) {
-                    barrier = hotDigit;
-                    confidence = 85;
-                    signal = `Using hot digit ${hotDigit} as barrier (safer)`;
-                } else {
-                    barrier = null;
-                    confidence = 0;
-                    signal = `No Prediction - Digit frequencies are balanced`;
-                } 
-                break;
-                
-            case 'hotDigit':
-                barrier = hotDigit;
-                confidence = 60 + Math.min(20, freq[hotDigit] * 2);
-                signal = `Betting hot digit ${hotDigit} will differ`;
-                break;
-                
-            case 'coldDigit':
-                barrier = coldDigit;
-                confidence = 55;
-                signal = `Cold digit ${coldDigit} play - Higher risk`;
-                break;
-                
-            case 'pattern':
-                const pattern = this.detectPattern();
-                barrier = pattern.barrier;
-                confidence = pattern.confidence;
-                signal = pattern.signal;
-                break;
-                
-            case 'classic':
-            default:
-                barrier = lastDigit;
-                confidence = 80;
-                signal = `Classic: Betting ${lastDigit} differs`;
-        }
-        
-        console.log(`${signal} | Barrier: ${barrier} | Confidence: ${Math.round(confidence)}%`, 'analysis');
-        
-        return { barrier, confidence, signal };
-    }
-
-
-
     analyzeTicksEnhanced() {
-        if (this.tradeInProgress || this.tickHistory.length < 20) {
+        if (this.tradeInProgress) {
             return;
         }
 
-        // Chaos theory application
-        const analysis = this.analyzeAndPredict();
-
-        
-        console.log(`Trade Analysis:`, analysis.signal);
-        console.log('PredictedDigit:', analysis.barrier, 'Confidence:', analysis.confidence.toFixed(2) + '%');
-
         this.lastDigit = this.tickHistory[this.tickHistory.length - 1];
+        this.lastDigit2 = this.tickHistory[this.tickHistory.length - 2];
 
-        if (
-            analysis.barrier && analysis.confidence >= 80
-        ) {
+        if(this.lastDigit === this.lastDigit2){
+            console.log('Last two digits are the same, Trade is being Executed!.');
 
-            this.xDigit = analysis.barrier;
-            this.winProbNumber = analysis.confidence.toFixed(2);
+            this.xDigit = this.lastDigit;
 
-            this.placeTrade(this.xDigit, this.winProbNumber);
+            this.placeTrade(this.xDigit);
         }
     }
 
 
-    placeTrade(predictedDigit, confidence) {
+    placeTrade(predictedDigit) {
         if (this.tradeInProgress) {
             return;
         }
@@ -435,7 +313,7 @@ class EnhancedDerivTradingBot {
         this.tradeInProgress = true;
 
         console.log(`\n PLACING TRADE`);
-        console.log(`Digit: ${predictedDigit} (${confidence}%)`);
+        console.log(`Digit: ${predictedDigit}`);
         console.log(`Stake: $${this.currentStake.toFixed(2)}`);
 
         const request = {
@@ -509,13 +387,13 @@ class EnhancedDerivTradingBot {
 
         this.totalProfitLoss += profit;
 
-        if (!won) {
-            this.sendLossEmail();
-        }
+        // if (!won) {
+        //     this.sendLossEmail();
+        // }
 
-        this.Pause = true;
+        // this.Pause = true;
 
-        this.RestartTrading = true;
+        // this.RestartTrading = true;
 
         if (!this.endOfDay) {
             this.logTradingSummary();
@@ -541,16 +419,19 @@ class EnhancedDerivTradingBot {
             return;
         }
 
-        this.disconnect();
+        // this.disconnect();
 
         if (!this.endOfDay) {
-            this.waitTime = Math.floor(Math.random() * (1000 - 1000 + 1)) + 1000;
+            this.waitTime = Math.floor(Math.random() * (1000 - 1000 + 1)) + 500;
             console.log(`⏳ Waiting ${Math.round(this.waitTime / 1000)} seconds before next trade...\n`);
-            setTimeout(() => {
+            // setTimeout(() => {
                 this.Pause = false;
                 this.kTrade = false;
-                this.connect();
-            }, this.waitTime);
+                // this.tickHistory = [];
+                // this.LossDigitsList = [];
+                this.tradeInProgress = false;
+                // this.connect();
+            // }, this.waitTime);
         }
     }
 
@@ -606,10 +487,6 @@ class EnhancedDerivTradingBot {
                 console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.LossDigitsList = [];
                 this.tickHistory = [];
-                this.regimCount = 0;
-                this.kChaos = null;
-                this.scanChaos = false;
-                this.requiredHistoryLength = Math.floor(Math.random() * 4981) + 20; //Random
                 this.tradeInProgress = false;
                 this.RestartTrading = true;
                 this.Pause = false;
@@ -646,7 +523,6 @@ class EnhancedDerivTradingBot {
         console.log(`Total P/L: $${this.totalProfitLoss.toFixed(2)}`);
         console.log(`Current Stake: $${this.currentStake.toFixed(2)}`);
         console.log('Predicted Digit:', this.xDigit);
-        console.log('Percentage:', this.winProbNumber), '%';
         console.log('═══════════════════════════════════════\n');
     }
 
@@ -806,19 +682,19 @@ class EnhancedDerivTradingBot {
 
     start() {
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        // this.checkTimeForDisconnectReconnect();
     }
 }
 
 // Usage
-const bot = new EnhancedDerivTradingBot('DMylfkyce6VyZt7', {
+const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
-    initialStake: 0.61,
-    multiplier: 11.3,
+    initialStake: 1,
+    multiplier: 2.2,
+    maxConsecutiveLosses: 8,
     maxStake: 127,
-    maxConsecutiveLosses: 3,
-    stopLoss: 127,
-    takeProfit: 100,
+    stopLoss: 70,
+    takeProfit: 5000,
 });
 
 bot.start();
