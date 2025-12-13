@@ -535,7 +535,7 @@ class EnhancedDerivTradingBot {
         this.connected = false;
         this.assets = [
             // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR', '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V', 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
-            'RDBULL'
+            'R_25'
         ];
 
         this.config = {
@@ -660,7 +660,7 @@ class EnhancedDerivTradingBot {
     }
 
     handleDisconnect() {
-        if (!this.Pause) {
+        if (!this.endOfDay) {
             this.connected = false;
             this.wsReady = false;
             if (this.reconnectAttempts < this.maxReconnectAttempts) {
@@ -671,8 +671,6 @@ class EnhancedDerivTradingBot {
             this.tradeInProgress = false;
             this.lastDigitsList = [];
             this.tickHistory = [];
-            // this.unsubscribeFromTicks(this.currentAsset);
-            // this.subscribeToTickHistory(this.currentAsset);
         }
     }
 
@@ -739,8 +737,6 @@ class EnhancedDerivTradingBot {
             this.tradeInProgress = false;
             this.lastDigitsList = [];
             this.tickHistory = [];
-            // this.unsubscribeFromTicks(this.currentAsset);
-            // this.subscribeToTickHistory(this.currentAsset);
 
             this.startTrading();
 
@@ -849,14 +845,14 @@ class EnhancedDerivTradingBot {
         if (!analysis.shouldTrade) return null;
 
         // Additional check: Don't trade same digit consecutively
-        if (analysis.predictedDigit === this.xDigit) {
-            return null;
-        }
+        // if (analysis.predictedDigit === this.xDigit) {
+        //     return null;
+        // }
 
 
-        if (this.excludedDigits.includes(analysis.predictedDigit)) {
-            return null;
-        }
+        // if (this.excludedDigits.includes(analysis.predictedDigit)) {
+        //     return null;
+        // }
 
         const confidence = analysis.confidence.toFixed(2);
 
@@ -1004,9 +1000,11 @@ class EnhancedDerivTradingBot {
                 if (message.msg_type === 'forget' && message.forget === this.tickSubscriptionId) {
                     console.log(`Unsubscribed from ticks successfully`);
                     this.tickSubscriptionId = null;
-                    // if (callback) callback();
+                    if (callback) callback();
                 }
             });
+        } else {
+            if (callback) callback();
         }
     }
 
