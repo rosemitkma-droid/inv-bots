@@ -19,8 +19,8 @@ class EnhancedDerivTradingBot {
             maxStake: config.maxStake || 127,
             repWindow: config.repWindow || 100, // Window for overall repetition rate
             condWindow: config.condWindow || 1000, // Window for conditional (individual digit) repetition rate
-            repHighThreshold: config.repHighThreshold || 0.15, // High threshold for overall rep rate (above average ~0.1)
-            condHighThreshold: config.condHighThreshold || 0.15, // High threshold for conditional rep rate
+            repHighThreshold: config.repHighThreshold || 0.17, // High threshold for overall rep rate (above average ~0.1)
+            condHighThreshold: config.condHighThreshold || 0.17, // High threshold for conditional rep rate
         };
         // Initialize existing properties
         this.currentStake = this.config.initialStake;
@@ -525,7 +525,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok Deriv 2 Deriv Differ Bot - Trading Summary',
+            subject: 'Grok v75 Deriv Differ Bot - Trading Summary',
             text: summaryText
         };
         try {
