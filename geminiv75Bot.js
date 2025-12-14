@@ -544,7 +544,7 @@ const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     initialStake: 0.61,
     multiplier: 11.3, // High multiplier needed for Digit Differ recovery
     maxConsecutiveLosses: 3,
-    takeProfit: 500,
+    takeProfit: 5,
 });
 
 bot.start();
