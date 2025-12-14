@@ -642,6 +642,6 @@ const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     maxConsecutiveLosses: 3,
     maxStake: 127,
     stopLoss: 86,
-    takeProfit: 5000,
+    takeProfit: 5,
 });
 bot.start();
