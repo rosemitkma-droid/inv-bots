@@ -62,9 +62,10 @@ class EnhancedDerivTradingBot {
         // Dynamic thresholding state
         this.globalRepeatRates = [];           // History of global repeat rates (rolling)
         this.digitRepeatRateHistory = Array(10).fill().map(() => []); // 10 digits (0-9), each has its own history
-        this.repeatRateLookback = 200;         // How many recent repeat-rate samples to consider for stats
-        this.repeatRateWindow = 500;           // Window size (in ticks) to compute each repeat rate sample
-        this.zScoreThreshold = 1.5;            // Lower = more trades, higher = stricter (start with 1.0–1.5)
+        this.repeatRateLookback = 50;         // How many recent repeat-rate samples to consider for stats
+        this.repeatRateWindow = 250;           // Window size (in ticks) to compute each repeat rate sample
+        this.zScoreThreshold = 2.5;            // Lower = more trades, higher = stricter (start with 1.0–1.5)
+        this.zScoreThreshold2 = 1.5;            // Lower = more trades, higher = stricter (start with 1.0–1.5)
 
         // WebSocket management
         this.reconnectAttempts = 0;
@@ -261,7 +262,7 @@ class EnhancedDerivTradingBot {
         }
 
         // 🔁 Every 15 ticks, update repeat rate histories (adjustable)
-        if (this.tickHistory.length % 15 === 0) {
+        if (this.tickHistory.length % 2 === 0) {
             this.updateRepeatRateHistories();
             const globalRate = this.getGlobalRepeatRate(this.repeatRateWindow);
             console.log(`Updated Global Repeat Rate: ${(globalRate * 100).toFixed(2)}%`);
@@ -276,7 +277,7 @@ class EnhancedDerivTradingBot {
     }
 
     // Returns the global repeat rate over the last N ticks
-    getGlobalRepeatRate(historyLength = 500) {
+    getGlobalRepeatRate(historyLength = 250) {
         const history = this.tickHistory.slice(-historyLength);
         if (history.length < 2) return 0;
 
@@ -288,7 +289,7 @@ class EnhancedDerivTradingBot {
     }
 
     // Returns repeat rate for a specific digit over last N ticks
-    getDigitRepeatRate(digit, historyLength = 500) {
+    getDigitRepeatRate(digit, historyLength = 250) {
         const history = this.tickHistory.slice(-historyLength);
         if (history.length < 2) return 0;
 
@@ -353,8 +354,8 @@ class EnhancedDerivTradingBot {
         const currentDigit = this.tickHistory[this.tickHistory.length - 1];
 
         // Ensure we have enough history to compute stats
-        if (this.globalRepeatRates.length < 50 || 
-            this.digitRepeatRateHistory[currentDigit].length < 50) {
+        if (this.globalRepeatRates.length < 25 || 
+            this.digitRepeatRateHistory[currentDigit].length < 25) {
             console.log('🟡 Insufficient repeat-rate history. Skipping trade.', this.digitRepeatRateHistory[currentDigit].length);
             return;
         }
@@ -376,14 +377,20 @@ class EnhancedDerivTradingBot {
 
         // Only trade if BOTH z-scores are significantly positive (high repetition anomaly)
         const isGlobalAnomaly = globalZ > this.zScoreThreshold;
-        const isDigitAnomaly = digitZ > this.zScoreThreshold;
+        const isDigitAnomaly = digitZ > this.zScoreThreshold2;
 
         console.log(
             `📊 Z-Scores → Global: ${globalZ.toFixed(2)} (rate: ${(currentGlobalRate*100).toFixed(1)}%), ` +
             `Digit ${currentDigit}: ${digitZ.toFixed(2)} (rate: ${(currentDigitRate*100).toFixed(1)}%)`
         );
 
-        if (isGlobalAnomaly && isDigitAnomaly) {
+        const globalRate = (currentGlobalRate*100).toFixed(1);
+        const digitRate = (currentDigitRate*100).toFixed(1);
+        const digitZ2 = digitZ.toFixed(2);
+
+        // if (isGlobalAnomaly && isDigitAnomaly) {
+        // if (globalRate < 10 && digitRate <= 6) {
+        if (digitZ2 >= 5 || digitZ2 < -3.0) {
             console.log(`✅ HIGH-CONFIDENCE SETUP: Placing trade on digit ${currentDigit}`);
             this.placeTrade(currentDigit);
         } else {
@@ -628,7 +635,7 @@ class EnhancedDerivTradingBot {
         const transporter = nodemailer.createTransport(this.emailConfig);
         const klastDigits = this.tickHistory.slice(-20);
 
-        const currentGlobalRate = this.getGlobalRepeatRate(500);
+        const currentGlobalRate = this.getGlobalRepeatRate(200);
         const globalMean = this.mean(this.globalRepeatRates);
         const globalZ = this.globalRepeatRates.length > 0 
             ? (currentGlobalRate - globalMean) / (this.stdDev(this.globalRepeatRates) || 0.01) 
@@ -743,6 +750,6 @@ const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     maxConsecutiveLosses: 3,
     maxStake: 127,
     stopLoss: 86,
-    takeProfit: 5000,
+    takeProfit: 5,
 });
 bot.start();
