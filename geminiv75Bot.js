@@ -16,8 +16,8 @@ class EnhancedDerivTradingBot {
             takeProfit: config.takeProfit,
             // New Filter Configs
             analysisWindow: 100,      // Analyze the last 100 ticks for patterns
-            maxRepetitionThreshold: 10, // If global repeats > 12% in last 100 ticks, DO NOT TRADE (Market is sticky)
-            maxDigitFrequency: 12,    // If the specific digit appears > 14% of time, DO NOT TRADE (Digit is Hot)
+            maxRepetitionThreshold: 9, // If global repeats > 12% in last 100 ticks, DO NOT TRADE (Market is sticky)
+            maxDigitFrequency: 9,    // If the specific digit appears > 14% of time, DO NOT TRADE (Digit is Hot)
         };
 
         this.assets = ['R_100', 'R_10', 'R_25', 'R_50', 'R_75']; // Suggest using Volatility indices for better stats
@@ -338,7 +338,7 @@ class EnhancedDerivTradingBot {
         // 2. Calculate Individual Digit Frequency (Heat)
         // How often has the CURRENT digit (the one we want to bet against) appeared recently?
         const digitCount = historySlice.filter(d => d === currentDigit).length;
-        const digitFrequency = (digitCount / analysisWindow) * 100;
+        const digitFrequency = ((digitCount / analysisWindow) * 100).toFixed(2);
 
         console.log(`📊 Analysis [${this.currentAsset}] | Last: ${currentDigit} | Global Repeats: ${globalRepetitionRate}% | Digit Heat: ${digitFrequency}%`);
 
@@ -363,10 +363,10 @@ class EnhancedDerivTradingBot {
         // If the last two digits were the same (e.g., 5, 5), do we bet on a 3rd?
         // Risky. Let's skip if a repeat just happened.
         const prevDigit = this.tickHistory[this.tickHistory.length - 2];
-        if (currentDigit === prevDigit) {
-            console.log(`⚠️ Immediate Repeat Detected (${prevDigit} -> ${currentDigit}). Waiting for breakout...`);
-            return;
-        }
+        // if (currentDigit === prevDigit) {
+        //     console.log(`⚠️ Immediate Repeat Detected (${prevDigit} -> ${currentDigit}). Waiting for breakout...`);
+        //     return;
+        // }
 
         // ✅ ALL CHECKS PASSED
         console.log(`✅ Signal Found: Market Scattering, Digit Cold. Executing...`);
