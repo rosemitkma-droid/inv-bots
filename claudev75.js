@@ -950,7 +950,7 @@ const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     maxConsecutiveLosses: 3,
     maxStake: 127,
     stopLoss: 70,
-    takeProfit: 5000,
+    takeProfit: 5,
     
     // Repetition filter configuration (adjust these based on testing)
     minWindowSize: 100,              // Minimum history to analyze
