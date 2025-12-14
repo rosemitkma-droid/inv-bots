@@ -476,24 +476,28 @@ class EnhancedDerivTradingBot {
         // Check for extreme overall repetition conditions
         if (weightedOverallRate >= this.config.overallRepetitionHighThreshold) {
             signalStrength = 'strong_high_overall';
+            console.log('High overall repetition detected', weightedOverallRate);
         } else if (weightedOverallRate <= this.config.overallRepetitionLowThreshold) {
             signalStrength = 'strong_low_overall';
+            console.log('Low overall repetition detected', weightedOverallRate);
         }
         
         // Check for extreme individual digit repetition conditions
         if (weightedCurrentDigitRate >= this.config.individualRepetitionHighThreshold) {
             signalStrength = signalStrength === 'none' ? 'strong_high_individual' : 'very_strong_high';
+            console.log('High individual digit repetition detected', weightedCurrentDigitRate);
         } else if (weightedCurrentDigitRate <= this.config.individualRepetitionLowThreshold) {
             signalStrength = signalStrength === 'none' ? 'strong_low_individual' : 'very_strong_low';
+            console.log('Low individual digit repetition detected', weightedCurrentDigitRate);
         }
 
         // Moderate signals
-        if (signalStrength === 'none') {
-            if (weightedOverallRate >= this.config.overallRepetitionHighThreshold * 0.8 ||
-                weightedOverallRate <= this.config.overallRepetitionLowThreshold * 1.2) {
-                signalStrength = 'moderate';
-            }
-        }
+        // if (signalStrength === 'none') {
+        //     if (weightedOverallRate >= this.config.overallRepetitionHighThreshold * 0.8 ||
+        //         weightedOverallRate <= this.config.overallRepetitionLowThreshold * 1.2) {
+        //         signalStrength = 'moderate';
+        //     }
+        // }
 
         return {
             overallRate: weightedOverallRate,
@@ -942,8 +946,8 @@ class EnhancedDerivTradingBot {
 // Usage Example
 const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     initialStake: 1,
-    multiplier: 2.2,
-    maxConsecutiveLosses: 8,
+    multiplier: 11.3,
+    maxConsecutiveLosses: 3,
     maxStake: 127,
     stopLoss: 70,
     takeProfit: 5000,
