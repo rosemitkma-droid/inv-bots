@@ -64,7 +64,7 @@ class EnhancedDerivTradingBot {
         this.digitRepeatRateHistory = Array(10).fill().map(() => []); // 10 digits (0-9), each has its own history
         this.repeatRateLookback = 200;         // How many recent repeat-rate samples to consider for stats
         this.repeatRateWindow = 500;           // Window size (in ticks) to compute each repeat rate sample
-        this.zScoreThreshold = 1.2;            // Lower = more trades, higher = stricter (start with 1.0–1.5)
+        this.zScoreThreshold = 1.5;            // Lower = more trades, higher = stricter (start with 1.0–1.5)
 
         // WebSocket management
         this.reconnectAttempts = 0;
@@ -744,6 +744,5 @@ const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     maxStake: 127,
     stopLoss: 86,
     takeProfit: 5000,
-    zScoreThreshold: 1.2, // Add this
 });
 bot.start();
