@@ -632,7 +632,7 @@ class EnhancedDigitDifferTradingBot {
 
         // for (let times = 3; times >= 2; times--) {
         if (appeared[2].length > 0) {
-            if (appeared[2].includes(currentCount) && appeared[2].length > 1 && last10[9] >= 2 && last10[0] !== lastDigit + 1 && last10[1] !== lastDigit + 1) {
+            if (appeared[2].includes(currentCount) && appeared[2].length > 1 !== lastDigit + 1) {
                 console.log(`TRADE SIGNAL! Betting digit ${lastDigit + 1} appears 2 times (currently 2x)`);
                 console.log(`TRADE SIGNAL! Betting digit ${last10[0]} ${last10[1]}`);
 
@@ -797,7 +797,7 @@ class EnhancedDigitDifferTradingBot {
             baseWaitTime = this.config.minWaitTime + (this.consecutiveLosses * 60000); // +1min per loss
             this.sendLossEmail(asset);
             // this.suspendAllExcept(asset);
-            // this.suspendAsset(asset);
+            this.suspendAsset(asset);
         }
 
         // If there is more than one suspended asset, reactivate the first one on win
@@ -1187,7 +1187,7 @@ class EnhancedDigitDifferTradingBot {
         console.log('🚀 Starting kInspired Accumulator Trading Bot with Learning System');
         console.log('Features: Adaptive filters, pattern recognition, volatility analysis');
         this.connect();
-        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
+        // this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
@@ -1196,9 +1196,9 @@ const bot = new EnhancedDigitDifferTradingBot('hsj0tA0XJoIzJG5', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP, hsj0tA0XJoIzJG5, Dz2V2KvRf4Uukt3
     initialStake: 1,
     multiplier: 21,
-    maxConsecutiveLosses: 3,
+    maxConsecutiveLosses: 2,
     stopLoss: 400,
-    takeProfit: 2.5,
+    takeProfit: 5,
     growthRate: 0.05,
     accuTakeProfit: 0.5,
     requiredHistoryLength: 1000,
