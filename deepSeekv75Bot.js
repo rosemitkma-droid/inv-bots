@@ -859,7 +859,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Kimi2v75 Differ Bot - Trading Summary',
+            subject: 'DeepSeekv75 Differ Bot - Trading Summary',
             text: summaryText
         };
 
@@ -909,7 +909,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Kimi2v75 Differ Bot - Loss Alert',
+            subject: 'DeepSeekv75 Differ Bot - Loss Alert',
             text: summaryText
         };
 
@@ -926,7 +926,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Kimi2v75 Differ Bot - Error Report',
+            subject: 'DeepSeekv75 Differ Bot - Error Report',
             text: `An error occurred in the trading bot: ${errorMessage}`
         };
 
