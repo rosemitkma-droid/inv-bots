@@ -363,13 +363,15 @@ class EnhancedDerivTradingBot {
         // If the last two digits were the same (e.g., 5, 5), do we bet on a 3rd?
         // Risky. Let's skip if a repeat just happened.
         const prevDigit = this.tickHistory[this.tickHistory.length - 2];
-        // if (currentDigit === prevDigit) {
-        //     console.log(`⚠️ Immediate Repeat Detected (${prevDigit} -> ${currentDigit}). Waiting for breakout...`);
-        //     return;
-        // }
+        if (currentDigit === prevDigit) {
+            console.log(`⚠️ Immediate Repeat Detected (${prevDigit} -> ${currentDigit}). Waiting for breakout...`);
+            return;
+        }
 
         // ✅ ALL CHECKS PASSED
         console.log(`✅ Signal Found: Market Scattering, Digit Cold. Executing...`);
+        this.globalRepetitionRate = globalRepetitionRate;
+        this.digitFrequency = digitFrequency;
         this.xDigit = currentDigit;
         this.placeTrade(this.xDigit);
     }
@@ -437,7 +439,16 @@ class EnhancedDerivTradingBot {
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
-            this.handleLossCounters();
+
+            if (this.consecutiveLosses === 2) {
+                this.consecutiveLosses2++;
+            } else if (this.consecutiveLosses === 3) {
+                this.consecutiveLosses3++;
+            } else if (this.consecutiveLosses === 4) {
+                this.consecutiveLosses4++;
+            } else if (this.consecutiveLosses === 5) {
+                this.consecutiveLosses5++;
+            }
             
             // Martingale
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
@@ -447,10 +458,15 @@ class EnhancedDerivTradingBot {
             this.logTradingSummary();
         }
 
+        if (!won) {
+        this.sendLossEmail();
+        }
+
         // Risk Management Checks
         if (this.totalProfitLoss >= this.config.takeProfit) {
             console.log('🎉 Take Profit Reached! Stopping.');
             this.endOfDay = true;
+            this.sendEmailSummary()
             this.disconnect();
             return;
         }
@@ -458,6 +474,7 @@ class EnhancedDerivTradingBot {
         if (this.consecutiveLosses >= this.config.maxConsecutiveLosses) {
             console.log('⛔ Max Consecutive Losses Reached. Stopping.');
             this.endOfDay = true;
+            this.sendEmailSummary()
             this.disconnect();
             return;
         }
@@ -470,13 +487,6 @@ class EnhancedDerivTradingBot {
         }, this.waitTime);
     }
 
-    handleLossCounters() {
-        if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
-        else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
-        else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
-        else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
-    }
-
     logTradingSummary() {
         console.log('\n📈 SESSION SUMMARY');
         console.log(`Trades: ${this.totalTrades} | W: ${this.totalWins} / L: ${this.totalLosses}`);
@@ -487,7 +497,9 @@ class EnhancedDerivTradingBot {
 
     startEmailTimer() {
         setInterval(() => {
-            if (!this.endOfDay) this.sendEmailSummary();
+            if (!this.endOfDay){
+                this.sendEmailSummary();
+            }
         }, 1800000);
     }
 
@@ -502,6 +514,8 @@ class EnhancedDerivTradingBot {
         const summaryText = `
         ENHANCED TRADING BOT SUMMARY
         ============================
+
+        Status: ${this.endOfDay ? 'DAY TRADING COMPLETED' : 'TRADING BOT SUMMARY - ONGOING'}
         
         Performance Metrics:
         -------------------
@@ -524,7 +538,55 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Gemini Deriv 2 Deriv Differ Bot - Trading Summary',
+            subject: 'Gemini75 Differ Bot - Trading Summary',
+            text: summaryText
+        };
+        try {
+            await transporter.sendMail(mailOptions);
+        } catch (error) {
+            // console.error('Email sending error:', error);
+        }
+    }
+
+    async sendLossEmail() {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+        const klastDigits = this.tickHistory.slice(-20);
+
+
+        const summaryText = `
+        LOSS ALERT - DETAILED ANALYSIS
+        ===============================
+        
+        Trade Result: LOSS
+        
+        Performance Metrics:
+        -------------------
+        Total Trades: ${this.totalTrades}
+        Won: ${this.totalWins} | Lost: ${this.totalLosses}
+        Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%
+        Total P/L: $${this.totalProfitLoss.toFixed(2)}
+        
+        x2:${this.consecutiveLosses2}
+        x3:${this.consecutiveLosses3}
+        x4:${this.consecutiveLosses4}
+        
+        Pattern Analysis:
+        ----------------
+        Asset: ${this.currentAsset}
+        Predicted Digit: ${this.xDigit} | Actual Digit: ${this.actualDigit}
+        Global Repetition Rate = ${this.globalRepetitionRate}%;
+        Digit Frequency = ${this.digitFrequency}%;
+        
+        Recent History:
+        --------------
+        Last 20 Digits: ${klastDigits.join(', ')}
+        
+        Current Stake: $${this.currentStake.toFixed(2)}
+        `;
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'Gemini75 Differ Bot - Loss Alert',
             text: summaryText
         };
         try {
@@ -544,7 +606,7 @@ const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     initialStake: 0.61,
     multiplier: 11.3, // High multiplier needed for Digit Differ recovery
     maxConsecutiveLosses: 3,
-    takeProfit: 5,
+    takeProfit: 2.5,
 });
 
 bot.start();
