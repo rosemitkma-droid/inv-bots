@@ -981,9 +981,9 @@ class EnsembleDecisionMaker {
      * Optimize trading threshold based on historical performance
      */
     optimizeThreshold() {
-        if (this.recentDecisions.length < 50) return;
+        if (this.recentDecisions.length < 5) return;
 
-        const thresholds = [0.7, 0.75, 0.8]; //[0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8];
+        const thresholds = [0.6, 0.65, 0.7, 0.75, 0.8]; //[0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8];
         let bestThreshold = 0.7;
         let bestScore = -Infinity;
 
@@ -1215,8 +1215,7 @@ class EnhancedAccumulatorBot {
         this.ws = null;
         this.connected = false;
         this.wsReady = false;
-        // this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
-        this.assets = config.assets || ['R_100'];
+        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
 
         this.config = {
             initialStake: config.initialStake || 1,
@@ -1670,7 +1669,7 @@ class EnhancedAccumulatorBot {
         this.observationCount++;
 
         // Update pattern models periodically
-        if (this.observationCount % 50 === 0 && this.config.enablePatternRecognition) {
+        if (this.observationCount % 10 === 0 && this.config.enablePatternRecognition) {
             this.patternEngine.buildNgramModel(asset, this.tickHistories[asset], 5);
             this.patternEngine.buildMarkovChain(asset, this.extendedStayedIn[asset], 3);
         }
@@ -1681,7 +1680,7 @@ class EnhancedAccumulatorBot {
 
         // Check learning mode
         if (this.learningMode && this.observationCount < this.config.learningModeThreshold) {
-            if (this.observationCount % 20 === 0) {
+            if (this.observationCount % 10 === 0) {
                 console.log(`🎓 Learning mode: ${this.observationCount}/${this.config.learningModeThreshold} observations`);
             }
             return;
@@ -1772,79 +1771,6 @@ class EnhancedAccumulatorBot {
         return wins / recentTrades.length;
     }
 
-    /**
-     * Enhanced trade outcome recording with neural network training
-     */
-    recordTradeOutcome(asset, won, digitCount, filterUsed, stayedInArray) {
-        const volatility = this.learningSystem.volatilityScores[asset] || 0;
-
-        const outcome = {
-            asset,
-            result: won ? 'win' : 'loss',
-            digitCount,
-            filterUsed,
-            arraySum: stayedInArray.reduce((a, b) => a + b, 0),
-            timestamp: Date.now(),
-            volatility,
-        };
-
-        // Update legacy learning system
-        if (!this.learningSystem.lossPatterns[asset]) {
-            this.learningSystem.lossPatterns[asset] = [];
-        }
-        this.learningSystem.lossPatterns[asset].push(outcome);
-        if (this.learningSystem.lossPatterns[asset].length > 100) {
-            this.learningSystem.lossPatterns[asset].shift();
-        }
-
-        // Update Bayesian model
-        this.statisticalEngine.updateBayesian(asset, won);
-
-        // Train neural network
-        if (this.config.enableNeuralNetwork && this.neuralEngine.initialized) {
-            const features = this.neuralEngine.prepareFeatures(
-                this.tickHistories[asset],
-                this.extendedStayedIn[asset],
-                digitCount,
-                volatility
-            );
-
-            const target = won ? 1 : 0;
-            const { loss, prediction } = this.neuralEngine.trainOnSample(features, target);
-
-            // Track prediction accuracy
-            if (!this.learningSystem.predictionAccuracy[asset]) {
-                this.learningSystem.predictionAccuracy[asset] = { correct: 0, total: 0 };
-            }
-            this.learningSystem.predictionAccuracy[asset].total++;
-            if ((prediction >= 0.5) === won) {
-                this.learningSystem.predictionAccuracy[asset].correct++;
-            }
-
-            if (this.totalTrades % 10 === 0) {
-                const metrics = this.neuralEngine.getPerformanceMetrics();
-                console.log(`🧠 Neural Network: Accuracy=${(metrics.accuracy * 100).toFixed(1)}%, Trend=${metrics.trend}`);
-            }
-        }
-
-        // Update ensemble decision maker
-        this.ensembleDecisionMaker.recordOutcome(this.lastEnsemblePredictions || {}, won);
-
-        // Optimize threshold periodically
-        if (this.totalTrades % 20 === 0) {
-            this.ensembleDecisionMaker.optimizeThreshold();
-        }
-
-        // Persist performance log
-        // this.persistenceManager.appendPerformanceLog({
-        //     asset,
-        //     won,
-        //     profit: won ? this.currentStake * 0.01 : -this.currentStake,
-        //     digitCount,
-        //     volatility
-        // });
-    }
-
     // ========================================================================
     // ENHANCED PROPOSAL HANDLER
     // ========================================================================
@@ -1873,27 +1799,28 @@ class EnhancedAccumulatorBot {
             assetState.stayedInArray = stayedInArray;
 
             // Update extended historical stayedInArray
-            const prev = this.previousStayedIn[asset];
-            if (prev === null) {
+            // const prev = this.previousStayedIn[asset];
+            // if (prev === null) {
                 this.extendedStayedIn[asset] = stayedInArray.slice(0, 99);
-            } else {
-                let isIncreased = true;
-                for (let i = 0; i < 99; i++) {
-                    if (stayedInArray[i] !== prev[i]) {
-                        isIncreased = false;
-                        break;
-                    }
-                }
-                if (isIncreased && stayedInArray[99] === prev[99] + 1) {
-                    // No reset
-                } else {
-                    const completed = prev[99] + 1;
-                    this.extendedStayedIn[asset].push(completed);
-                    if (this.extendedStayedIn[asset].length > 100) {
-                        this.extendedStayedIn[asset].shift();
-                    }
-                }
-            }
+            // } 
+            // else {
+            //     let isIncreased = true;
+            //     for (let i = 0; i < 99; i++) {
+            //         if (stayedInArray[i] !== prev[i]) {
+            //             isIncreased = false;
+            //             break;
+            //         }
+            //     }
+            //     if (isIncreased && stayedInArray[99] === prev[99] + 1) {
+            //         // No reset
+            //     } else {
+            //         const completed = prev[99] + 1;
+            //         this.extendedStayedIn[asset].push(completed);
+            //         if (this.extendedStayedIn[asset].length > 100) {
+            //             this.extendedStayedIn[asset].shift();
+            //         }
+            //     }
+            // }
             this.previousStayedIn[asset] = stayedInArray.slice();
 
             assetState.currentProposalId = message.proposal.id;
@@ -2063,7 +1990,7 @@ class EnhancedAccumulatorBot {
         const combinedSurvival = (km.survival + na.survivalFromHazard) / 2;
 
         // Check if hazard is too high
-        if (kernelHazard > 0.3) {
+        if (kernelHazard > 0.2) {
             console.log(`[${asset}] High hazard rate detected (${kernelHazard.toFixed(3)}), skipping`);
             return false;
         }
@@ -2240,7 +2167,7 @@ class EnhancedAccumulatorBot {
         if (!won) {
             baseWaitTime = this.config.minWaitTime;
             this.sendLossEmail(asset);
-            // this.suspendAsset(asset);
+            this.suspendAsset(asset);
 
             // if (this.consecutiveLosses >= 2) {
             //     if (this.sys === 1) {
@@ -2306,6 +2233,79 @@ class EnhancedAccumulatorBot {
                 this.connect();
             }, randomWaitTime);
         }
+    }
+
+    /**
+     * Enhanced trade outcome recording with neural network training
+     */
+    recordTradeOutcome(asset, won, digitCount, filterUsed, stayedInArray) {
+        const volatility = this.learningSystem.volatilityScores[asset] || 0;
+
+        const outcome = {
+            asset,
+            result: won ? 'win' : 'loss',
+            digitCount,
+            filterUsed,
+            arraySum: stayedInArray.reduce((a, b) => a + b, 0),
+            timestamp: Date.now(),
+            volatility,
+        };
+
+        // Update legacy learning system
+        if (!this.learningSystem.lossPatterns[asset]) {
+            this.learningSystem.lossPatterns[asset] = [];
+        }
+        this.learningSystem.lossPatterns[asset].push(outcome);
+        if (this.learningSystem.lossPatterns[asset].length > 100) {
+            this.learningSystem.lossPatterns[asset].shift();
+        }
+
+        // Update Bayesian model
+        this.statisticalEngine.updateBayesian(asset, won);
+
+        // Train neural network
+        if (this.config.enableNeuralNetwork && this.neuralEngine.initialized) {
+            const features = this.neuralEngine.prepareFeatures(
+                this.tickHistories[asset],
+                this.extendedStayedIn[asset],
+                digitCount,
+                volatility
+            );
+
+            const target = won ? 1 : 0;
+            const { loss, prediction } = this.neuralEngine.trainOnSample(features, target);
+
+            // Track prediction accuracy
+            if (!this.learningSystem.predictionAccuracy[asset]) {
+                this.learningSystem.predictionAccuracy[asset] = { correct: 0, total: 0 };
+            }
+            this.learningSystem.predictionAccuracy[asset].total++;
+            if ((prediction >= 0.5) === won) {
+                this.learningSystem.predictionAccuracy[asset].correct++;
+            }
+
+            if (this.totalTrades % 10 === 0) {
+                const metrics = this.neuralEngine.getPerformanceMetrics();
+                console.log(`🧠 Neural Network: Accuracy=${(metrics.accuracy * 100).toFixed(1)}%, Trend=${metrics.trend}`);
+            }
+        }
+
+        // Update ensemble decision maker
+        this.ensembleDecisionMaker.recordOutcome(this.lastEnsemblePredictions || {}, won);
+
+        // Optimize threshold periodically
+        if (this.totalTrades % 20 === 0) {
+            this.ensembleDecisionMaker.optimizeThreshold();
+        }
+
+        // Persist performance log
+        // this.persistenceManager.appendPerformanceLog({
+        //     asset,
+        //     won,
+        //     profit: won ? this.currentStake * 0.01 : -this.currentStake,
+        //     digitCount,
+        //     volatility
+        // });
     }
 
     //Reset
@@ -2472,8 +2472,8 @@ class EnhancedAccumulatorBot {
                 if (!this.endOfDay) {
                     console.log("It's Sunday, disconnecting the bot. No trading on Sundays.");
                     this.Pause = true;
+                    this.disconnect();
                     this.endOfDay = true;
-                    this.disconnect();  
                 }
                 return; // Skip all other checks on Sunday
             }
@@ -2782,7 +2782,7 @@ const token = 'rgNedekYXvCaPeP'; //|| process.env.DERIV_TOKEN;
 const bot = new EnhancedAccumulatorBot(token, {
     initialStake: 1,
     stopLoss: 400,
-    takeProfit: 5000,
+    takeProfit: 2.5,
     enableNeuralNetwork: true,
     enablePatternRecognition: true,
     learningModeThreshold: 100,
