@@ -948,16 +948,16 @@ async function main() {
       output: process.stdout
     });
     
-    await new Promise((resolve) => {
-      readline.question('Continue with REAL account? (yes/no): ', (answer) => {
-        readline.close();
-        if (answer.toLowerCase() !== 'yes') {
-          console.log('❌ Cancelled by user');
-          process.exit(0);
-        }
-        resolve();
-      });
-    });
+    // await new Promise((resolve) => {
+    //   readline.question('Continue with REAL account? (yes/no): ', (answer) => {
+    //     readline.close();
+    //     if (answer.toLowerCase() !== 'yes') {
+    //       console.log('❌ Cancelled by user');
+    //       process.exit(0);
+    //     }
+    //     resolve();
+    //   });
+    // });
   }
   
   // Create and start bot
