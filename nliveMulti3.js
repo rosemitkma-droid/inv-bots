@@ -1428,7 +1428,7 @@ const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', 'hsj0tA0XJoIzJG
     mainStake2: 5,
     maxConsecutiveLosses: 6,
     stopLoss: 200,
-    takeProfit: 5,
+    takeProfit: 2.5,
     growthRate: 0.05,
     accuTakeProfit: 0.5,
     requiredHistoryLength: 1000,
