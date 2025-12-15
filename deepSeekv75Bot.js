@@ -583,7 +583,7 @@ class EnhancedDerivTradingBot {
         }
         
         // Only trade when confidence is high
-        if (analysis.shouldTrade) {
+        if (analysis.shouldTrade  && this.winProbNumber >= 73) {
             console.log(`\n🎯 PLACING INTELLIGENT TRADE`);
             
             this.xDigit = currentDigit;
