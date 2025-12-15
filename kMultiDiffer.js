@@ -210,8 +210,8 @@ class EnhancedDigitDifferTradingBot {
             // 'RDBULL', 'RDBEAR', 
             // '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V',
             // 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
-            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR',
-            'R_100',
+            'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR',
+            // 'R_75',
         ];
 
         this.config = {
@@ -673,7 +673,7 @@ class EnhancedDigitDifferTradingBot {
         if (!won) {
             this.sendLossEmail(asset);
             // Suspend the asset after a trade
-            // this.suspendAsset(asset);
+            this.suspendAsset(asset);
         } else {
             this.sys = null;
         }
@@ -993,7 +993,7 @@ const bot = new EnhancedDigitDifferTradingBot('hsj0tA0XJoIzJG5', {
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
     stopLoss: 129,
-    takeProfit: 5000,
+    takeProfit: 2.5,
     requiredHistoryLength: 5000,
     winProbabilityThreshold: 0.6,
     minWaitTime: 2000, //5 Minutes
