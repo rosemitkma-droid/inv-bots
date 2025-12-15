@@ -467,9 +467,9 @@ class EnhancedDerivTradingBot {
             // this.RestartTrading = true;
         }
         this.totalProfitLoss += profit;
-        // if (!won) {
-        // this.sendLossEmail();
-        // }
+        if (!won) {
+        this.sendLossEmail();
+        }
         // this.Pause = true;
         // this.RestartTrading = true;
         if (!this.endOfDay) {
@@ -750,6 +750,6 @@ const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     maxConsecutiveLosses: 3,
     maxStake: 127,
     stopLoss: 86,
-    takeProfit: 5,
+    takeProfit: 2.5,
 });
 bot.start();
