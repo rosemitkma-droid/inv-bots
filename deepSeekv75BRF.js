@@ -280,7 +280,7 @@ class DerivVolatility75Bot {
         if (riskCheck.shouldStop) return false;
         
         // Check confidence level
-        if (analysis.confidence < 0.6) return false;
+        if (analysis.confidence < 0.7) return false;
         
         // Check if we have a signal
         if (!analysis.signal) return false;
@@ -499,8 +499,9 @@ class DerivVolatility75Bot {
         }
         
         // Analyze market every few ticks (not every tick)
-        if (this.marketData.priceHistory.length % 3 === 0) {
+        if (this.marketData.priceHistory.length % 1 === 0) {
             const analysis = this.analyzeMarket();
+            console.log(`\n🔍 Market Analysis | Trend: ${analysis.trend} | RSI: ${analysis.rsi} | Confidence: ${(analysis.confidence * 100).toFixed(2)}%`);
             
             // Log market status periodically
             if (this.marketData.priceHistory.length % 30 === 0) {
