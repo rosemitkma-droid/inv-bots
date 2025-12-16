@@ -9,7 +9,7 @@ class ProfessionalDerivBot {
     this.config = {
       // Account Settings
       token: process.env.DERIV_TOKEN,
-      paperTrading: process.env.PAPER_TRADING !== 'true', // Default TRUE
+      liveTrade: 'true', // Default False
       
       // Strategy Parameters
       instrument: 'EUR/USD',
@@ -66,7 +66,7 @@ class ProfessionalDerivBot {
     this.startEmailTimer();
     
     console.log('🚀 BOT INITIALIZED');
-    console.log(`Mode: ${this.config.paperTrading ? '✅ PAPER TRADING' : '🔴 LIVE TRADING'}`);
+    console.log(`Mode: ${this.config.liveTrade ? '🔴 LIVE TRADING' : '✅ PAPER TRADING'}`);
     console.log(`Capital: $${this.config.initialCapital}`);
     console.log(`Daily Risk Limit: $${(this.config.initialCapital * this.config.maxDailyRisk).toFixed(2)}`);
   }
@@ -101,7 +101,7 @@ class ProfessionalDerivBot {
     ---------------
     Consecutive Loss Days: ${this.state.consecutiveLossDays}
     Max Allowed: ${this.config.maxConsecutiveLossDays}
-    Trading Mode: ${this.config.paperTrading ? 'PAPER TRADING' : 'LIVE TRADING'}
+    Trading Mode: ${this.config.liveTrade ? 'LIVE TRADING' : 'PAPER TRADING'}
     `;
     const mailOptions = {
       from: this.emailConfig.auth.user,
@@ -301,12 +301,7 @@ class ProfessionalDerivBot {
     console.log(`   Direction: ${signal.direction} | Stake: $${stake.toFixed(2)}`);
     console.log(`   Confidence: ${(signal.confidence * 100).toFixed(1)}%`);
 
-    if (this.config.paperTrading) {
-      // ===== PAPER TRADING =====
-      console.log('✅ PAPER TRADE EXECUTED');
-      trade.status = 'open';
-      this.simulateTradeOutcome(trade);
-    } else {
+    if (this.config.liveTrade) {
       // ===== LIVE TRADING (Uncomment after validation) =====
       try {
         const proposal = await this.api.getProposal({
@@ -331,6 +326,11 @@ class ProfessionalDerivBot {
         console.error('❌ Live trade failed:', error.message);
         trade.status = 'failed';
       }
+    } else {
+      // ===== PAPER TRADING =====
+      console.log('✅ PAPER TRADE EXECUTED');
+      trade.status = 'open';
+      this.simulateTradeOutcome(trade);
     }
 
     this.state.trades.push(trade);
@@ -419,6 +419,7 @@ class ProfessionalDerivBot {
   handleNewTick(tick) {
     // Update market data with new tick
     console.log(`📡 New tick: ${tick.quote}`);
+    // console.log(`Mode: ${this.config.liveTrade ? '🔴 LIVE TRADING': '✅ PAPER TRADING'}`);
   }
 
   shutdown() {
