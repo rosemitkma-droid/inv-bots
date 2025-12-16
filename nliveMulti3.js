@@ -11,8 +11,8 @@ class EnhancedDigitDifferTradingBot {
         this.connected = false;
         this.wsReady = false;
 
-        // this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
-        this.assets = config.assets || ['R_100'];
+        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
+        // this.assets = config.assets || ['R_100'];
 
         this.config = {
             initialStake: config.initialStake || 10.5,
@@ -862,6 +862,7 @@ class EnhancedDigitDifferTradingBot {
             } else {
                 this.rtotalLosses++;
                 this.rtotalProfitLoss += profit;
+                this.sendLossEmail(asset);
             }
         }
 
@@ -873,7 +874,7 @@ class EnhancedDigitDifferTradingBot {
         if (!won) {
             // Longer wait after losses to let market conditions change
             baseWaitTime = this.config.minWaitTime //+ (this.consecutiveLosses * 60000); // +1min per loss
-            this.sendLossEmail(asset);
+            // this.sendLossEmail(asset);
             //Suspend All Assets (Non-Loss)
             // this.suspendAsset(asset);
             // this.suspendAllExcept(asset);
