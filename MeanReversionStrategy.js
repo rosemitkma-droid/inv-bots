@@ -1,58 +1,84 @@
 class MeanReversionStrategy {
   constructor(config) {
-    this.lookback = config.lookbackPeriod;
-    this.entryThreshold = config.entryThreshold;
-    this.exitThreshold = config.exitThreshold;
+    this.config = {
+      lookback: config.lookback || 50,
+      entryThreshold: config.entryThreshold || 2.5,
+      exitThreshold: config.exitThreshold || 1.0,
+      ...config
+    };
   }
 
-  analyze(candles) {
-    if (candles.length < this.lookback + 10) return null;
-
-    const closes = candles.map(c => c.close);
-    const sma = this.calculateSMA(closes, this.lookback);
-    const stdDev = this.calculateStdDev(closes, this.lookback);
-    const currentPrice = closes[closes.length - 1];
-    const zScore = (currentPrice - sma) / stdDev;
-
-    // ==== ENTRY LOGIC ====
-    // Only trade extreme deviations with confirmation
-    if (Math.abs(zScore) > this.entryThreshold && this.hasVolumeConfirmation(candles)) {
-      return {
-        direction: zScore > 0 ? 'SELL' : 'BUY',
-        entry: currentPrice,
-        stopLoss: zScore > 0 ? currentPrice + (stdDev * 3) : currentPrice - (stdDev * 3),
-        takeProfit: this.calculateDynamicTarget(zScore, sma, stdDev),
-        confidence: Math.min(Math.abs(zScore) / 4, 1),
-        zScore: zScore
-      };
+  analyze(marketData) {
+    if (!marketData || marketData.length < this.config.lookback + 10) {
+      return null;
     }
 
+    const closes = marketData.map(c => c.close);
+    const currentPrice = closes[closes.length - 1];
+    
+    // Calculate SMA
+    const sma = this.calculateSMA(closes, this.config.lookback);
+    
+    // Calculate standard deviation
+    const stdDev = this.calculateStdDev(closes, this.config.lookback);
+    
+    if (stdDev === 0) return null;
+    
+    // Calculate Z-Score
+    const zScore = (currentPrice - sma) / stdDev;
+    
+    // Only trade extreme deviations
+    if (Math.abs(zScore) > this.config.entryThreshold) {
+      // Direction: above SMA = sell/PUT, below = buy/CALL
+      const direction = zScore > 0 ? 'SELL' : 'BUY';
+      const contractType = direction === 'BUY' ? 'CALL' : 'PUT';
+      
+      // Risk management levels
+      const stopLossDistance = stdDev * 3;
+      const takeProfitDistance = stdDev * 1.5;
+      
+      const stopLoss = direction === 'BUY' 
+        ? currentPrice - stopLossDistance 
+        : currentPrice + stopLossDistance;
+      
+      const takeProfit = direction === 'BUY'
+        ? currentPrice + takeProfitDistance
+        : currentPrice - takeProfitDistance;
+      
+      // Confidence based on extremity
+      const confidence = Math.min(Math.abs(zScore) / 4, 1);
+      
+      return {
+        direction: contractType,
+        entry: currentPrice,
+        stopLoss,
+        takeProfit,
+        confidence,
+        zScore,
+        duration: 60, // 1 hour
+        timestamp: new Date()
+      };
+    }
+    
     return null;
   }
 
-  hasVolumeConfirmation(candles) {
-    const recentVolumes = candles.slice(-5).map(c => c.volume);
-    const avgVolume = recentVolumes.reduce((a,b) => a+b) / recentVolumes.length;
-    const currentVolume = candles[candles.length - 1].volume;
-    
-    // Require above-average volume for conviction
-    return currentVolume > avgVolume * 1.2;
-  }
-
-  calculateDynamicTarget(zScore, sma, stdDev) {
-    // Scale target based on extremity
-    const targetZScore = zScore > 0 ? -this.exitThreshold : this.exitThreshold;
-    return sma + (targetZScore * stdDev);
-  }
-
   calculateSMA(data, period) {
+    if (data.length < period) {
+      return data[data.length - 1];
+    }
+    
     const sum = data.slice(-period).reduce((a, b) => a + b, 0);
     return sum / period;
   }
 
   calculateStdDev(data, period) {
+    if (data.length < period) {
+      return 0;
+    }
+    
     const slice = data.slice(-period);
-    const mean = slice.reduce((a, b) => a + b) / period;
+    const mean = slice.reduce((a, b) => a + b, 0) / period;
     const variance = slice.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / period;
     return Math.sqrt(variance);
   }
