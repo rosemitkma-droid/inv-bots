@@ -525,7 +525,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok v75 Deriv Differ Bot - Trading Summary',
+            subject: 'Geminiv75 Deriv Differ Bot - Trading Summary',
             text: summaryText
         };
         try {
@@ -569,7 +569,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok v75 Deriv Bot - Loss Alert',
+            subject: 'Geminiv75 Deriv Bot - Loss Alert',
             text: summaryText
         };
         try {
@@ -583,7 +583,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok v75 Deriv Bot - Error Report',
+            subject: 'Geminiv75 Deriv Bot - Error Report',
             text: `An error occurred in the trading bot: ${errorMessage}`
         };
         try {
@@ -620,7 +620,7 @@ class EnhancedDerivTradingBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Grok v75 Deriv Bot - Status Update',
+            subject: 'Geminiv75 Deriv Bot - Status Update',
             text: summaryText
         };
         try {
