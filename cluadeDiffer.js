@@ -28,10 +28,13 @@ class AIWeightedEnsembleBot {
         this.totalTrades = 0;
         this.totalWins = 0;
         this.totalLosses = 0;
+        this.x2Losses = 0;
+        this.x3Losses = 0;
         this.totalProfitLoss = 0;
         this.tradeInProgress = false;
         this.suspendedAssets = new Set();
         this.endOfDay = false;
+        this.isWinTrade = false;
 
         // Tick data storage
         this.tickHistories = {};
@@ -58,6 +61,7 @@ class AIWeightedEnsembleBot {
         };
 
         this.lastUsedStrategy = null;
+        this.lastTradePredictions = null; // Store predictions for all strategies
 
         this.emailConfig = {
             service: 'gmail',
@@ -66,7 +70,7 @@ class AIWeightedEnsembleBot {
                 pass: 'jfjhtmussgfpbgpk'
             }
         };
-        
+
         this.emailRecipient = 'kenotaru@gmail.com';
 
         this.startEmailTimer();
@@ -164,9 +168,9 @@ class AIWeightedEnsembleBot {
         const quoteString = quote.toString();
         const [, fractionalPart = ''] = quoteString.split('.');
 
-        if (['R_75', 'R_50'].includes(asset)) {
+        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
             return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
-        } else if (['R_10', 'R_25'].includes(asset)) {
+        } else if (['R_10', 'R_25', '1HZ15V', '1HZ30V', '1HZ90V',].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
         } else {
             return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
@@ -189,8 +193,8 @@ class AIWeightedEnsembleBot {
 
         console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
 
-        if (this.tickHistories[asset].length >= this.config.requiredHistoryLength && 
-            !this.tradeInProgress && 
+        if (this.tickHistories[asset].length >= this.config.requiredHistoryLength &&
+            !this.tradeInProgress &&
             !this.suspendedAssets.has(asset)) {
             this.analyzeTicks(asset);
         }
@@ -200,10 +204,10 @@ class AIWeightedEnsembleBot {
     statisticalStrategy(history) {
         const recent50 = history.slice(-50);
         const recent20 = history.slice(-20);
-        
+
         const counts50 = Array(10).fill(0);
         const counts20 = Array(10).fill(0);
-        
+
         recent50.forEach(d => counts50[d]++);
         recent20.forEach(d => counts20[d]++);
 
@@ -213,7 +217,7 @@ class AIWeightedEnsembleBot {
             return { digit, deviation: c20 - expected };
         });
 
-        const maxDeviation = deviations.reduce((max, curr) => 
+        const maxDeviation = deviations.reduce((max, curr) =>
             curr.deviation > max.deviation ? curr : max
         );
 
@@ -245,7 +249,7 @@ class AIWeightedEnsembleBot {
     chaosStrategy(history) {
         // Uses attractor theory - finds digits at edge of phase space
         const last30 = history.slice(-30);
-        
+
         // Calculate "distance" from equilibrium for each digit
         const equilibrium = last30.length / 10;
         const digitCounts = Array(10).fill(0);
@@ -270,9 +274,9 @@ class AIWeightedEnsembleBot {
         // Linear regression on digit frequency trends
         const windowSize = 100;
         const window = history.slice(-windowSize);
-        
+
         const trends = Array(10).fill(0);
-        
+
         for (let digit = 0; digit < 10; digit++) {
             let sum = 0;
             window.forEach((d, idx) => {
@@ -289,10 +293,10 @@ class AIWeightedEnsembleBot {
         // Uses Bayes theorem to update probabilities
         const prior = 0.1; // Initial probability for each digit
         const recent = history.slice(-40);
-        
+
         const likelihoods = Array(10).fill(0);
         const digitCounts = Array(10).fill(0);
-        
+
         recent.forEach(d => digitCounts[d]++);
 
         // Calculate posterior probabilities
@@ -317,7 +321,7 @@ class AIWeightedEnsembleBot {
 
         const maxCount = Math.max(...digitCounts);
         const hotDigits = digitCounts.map((c, i) => c === maxCount ? i : -1).filter(d => d !== -1);
-        
+
         return hotDigits[Math.floor(Math.random() * hotDigits.length)];
     }
 
@@ -325,14 +329,14 @@ class AIWeightedEnsembleBot {
     frequencyGapStrategy(history) {
         // Finds digit with largest gap since last appearance
         const lastSeen = Array(10).fill(-1);
-        
+
         history.forEach((digit, idx) => {
             lastSeen[digit] = idx;
         });
 
         let maxGap = -1;
         let targetDigit = 0;
-        
+
         lastSeen.forEach((lastIdx, digit) => {
             const gap = history.length - 1 - lastIdx;
             if (gap > maxGap) {
@@ -349,7 +353,7 @@ class AIWeightedEnsembleBot {
         // Detects repeating sequences and predicts breaking digit
         const last10 = history.slice(-10);
         const digitCounts = Array(10).fill(0);
-        
+
         // Weight recent occurrences higher
         last10.forEach((d, idx) => {
             digitCounts[d] += (idx + 1);
@@ -357,7 +361,7 @@ class AIWeightedEnsembleBot {
 
         const maxWeightedCount = Math.max(...digitCounts);
         const dominantDigit = digitCounts.indexOf(maxWeightedCount);
-        
+
         return dominantDigit;
     }
 
@@ -371,7 +375,7 @@ class AIWeightedEnsembleBot {
             const window = history.slice(-windowSize);
             const counts = Array(10).fill(0);
             window.forEach(d => counts[d]++);
-            
+
             counts.forEach((count, digit) => {
                 volatility[digit] += Math.abs(count - windowSize / 10);
             });
@@ -384,11 +388,11 @@ class AIWeightedEnsembleBot {
     markovChainStrategy(history) {
         // Uses transition probabilities to predict unlikely digit
         const transitions = {};
-        
+
         for (let i = 0; i < history.length - 1; i++) {
             const current = history[i];
             const next = history[i + 1];
-            
+
             if (!transitions[current]) transitions[current] = Array(10).fill(0);
             transitions[current][next]++;
         }
@@ -439,7 +443,7 @@ class AIWeightedEnsembleBot {
         // Identifies longest current streak and predicts that digit
         const last20 = history.slice(-20);
         const streaks = Array(10).fill(0);
-        
+
         let currentStreak = 1;
         for (let i = last20.length - 2; i >= 0; i--) {
             if (last20[i] === last20[last20.length - 1]) {
@@ -451,17 +455,17 @@ class AIWeightedEnsembleBot {
 
         // Count streaks for each digit
         last20.forEach(d => streaks[d]++);
-        
+
         const maxStreak = Math.max(...streaks);
         const streakDigit = streaks.indexOf(maxStreak);
-        
+
         return streakDigit;
     }
 
     // ==================== ENSEMBLE VOTING SYSTEM ====================
     ensembleVoting(history) {
         const votes = Array(10).fill(0);
-        
+
         // Collect predictions from all strategies with weights
         const strategies = [
             { name: 'statistical', pred: this.statisticalStrategy(history), weight: this.strategyPerformance.statistical.weight },
@@ -485,13 +489,18 @@ class AIWeightedEnsembleBot {
         });
 
         const winner = votes.indexOf(Math.max(...votes));
-        
+
         // Find which strategy contributed most to winner
         const winningStrategy = strategies
             .filter(s => s.pred === winner)
             .reduce((best, curr) => curr.weight > best.weight ? curr : best, strategies[0]);
 
-        return { digit: winner, strategy: winningStrategy.name, votes };
+        return {
+            digit: winner,
+            strategy: winningStrategy.name,
+            votes,
+            allPredictions: strategies // Return all predictions for tracking
+        };
     }
 
     analyzeTicks(asset) {
@@ -510,17 +519,19 @@ class AIWeightedEnsembleBot {
         console.log(`Winning Strategy: ${strategy} (weight: ${this.strategyPerformance[strategy].weight.toFixed(2)})`);
 
         // Execute trade if predicted digit votes is greater than 6
-        if (predictedDigit !== lastDigit) {//&& predictedDigitVote > 6
+        if (predictedDigit !== lastDigit && predictedDigitVote > 0.6) {
             this.lastUsedStrategy = strategy;
+            // Store all predictions for this trade
+            this.lastTradePredictions = result.allPredictions;
             this.placeTrade(asset, predictedDigit, strategy, predictedDigitVote);
         }
     }
 
     placeTrade(asset, predictedDigit, strategy, predictedDigitVote) {
         if (this.tradeInProgress) return;
-        
+
         this.tradeInProgress = true;
-        console.log(`🚀 [${asset}] Strategy: ${strategy} => Digit ${predictedDigit} | Digitvote: ${predictedDigitVote.toFixed(2)} | Stake: $${this.currentStake.toFixed(2)}`);
+        console.log(`� [${asset}] Strategy: ${strategy} => Digit ${predictedDigit} | Digitvote: ${predictedDigitVote.toFixed(2)} | Stake: $${this.currentStake.toFixed(2)}`);
 
         this.sendRequest({
             buy: 1,
@@ -546,18 +557,26 @@ class AIWeightedEnsembleBot {
         });
     }
 
-    updateStrategyWeights(won) {
-        if (!this.lastUsedStrategy) return;
+    updateAllStrategyWeights(exitDigit) {
+        if (!this.lastTradePredictions) return;
 
-        const strategy = this.strategyPerformance[this.lastUsedStrategy];
-        strategy.total++;
-        
-        if (won) {
-            strategy.wins++;
-            strategy.weight *= 1.1; // Increase weight by 10%
-        } else {
-            strategy.weight *= 0.9; // Decrease weight by 10%
-        }
+        console.log('\n📊 Strategy Performance Update:');
+        console.log(`Actual Exit Digit: ${exitDigit}`);
+
+        this.lastTradePredictions.forEach(strat => {
+            const strategyStats = this.strategyPerformance[strat.name];
+            strategyStats.total++;
+
+            // For DIGITDIFF, we win if the prediction (barrier) does NOT match the exit digit
+            const won = strat.pred !== exitDigit;
+
+            if (won) {
+                strategyStats.wins++;
+                strategyStats.weight *= 1.05; // Increase weight by 5%
+            } else {
+                strategyStats.weight *= 0.95; // Decrease weight by 5%
+            }
+        });
 
         // Normalize weights
         const totalWeight = Object.values(this.strategyPerformance).reduce((sum, s) => sum + s.weight, 0);
@@ -565,7 +584,7 @@ class AIWeightedEnsembleBot {
             s.weight /= totalWeight;
         });
 
-        console.log('\n📊 Strategy Performance:');
+        // Log updated performance
         Object.entries(this.strategyPerformance).forEach(([name, perf]) => {
             const winRate = perf.total > 0 ? (perf.wins / perf.total * 100).toFixed(1) : 0;
             console.log(`  ${name}: ${perf.wins}/${perf.total} (${winRate}%) - Weight: ${perf.weight.toFixed(3)}`);
@@ -584,22 +603,44 @@ class AIWeightedEnsembleBot {
             this.totalWins++;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
+            this.isWinTrade = true;
         } else {
+            this.isWinTrade = false;
             this.totalLosses++;
             this.consecutiveLosses++;
+            if (this.consecutiveLosses === 2) {
+                this.x2Losses++;
+            }
+            if (this.consecutiveLosses === 3) {
+                this.x3Losses++;
+            }
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             this.suspendAsset(asset);
         }
 
         this.totalProfitLoss += profit;
-        this.updateStrategyWeights(won);
-        
-        if(!this.endOfDay) {
+
+        // Get exit digit to update all strategies
+        let exitDigit = -1;
+        if (contract.exit_tick) {
+            exitDigit = this.getLastDigit(contract.exit_tick, asset);
+        } else if (contract.exit_tick_display_value) {
+            exitDigit = this.getLastDigit(contract.exit_tick_display_value, asset);
+        }
+
+        if (exitDigit !== -1) {
+            console.log(`Exit Digit: ${exitDigit}`);
+            this.updateAllStrategyWeights(exitDigit);
+        } else {
+            console.log('⚠️ Could not determine exit digit, skipping strategy updates');
+        }
+
+        if (!this.endOfDay) {
             this.logSummary();
         }
 
         // Check stop conditions
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || 
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses ||
             this.totalProfitLoss <= -this.config.stopLoss) {
             console.log('🛑 Stop loss reached');
             this.endOfDay = true;
@@ -621,12 +662,12 @@ class AIWeightedEnsembleBot {
             this.sendLossEmail(asset);
         }
 
-        const waitTime = Math.floor(Math.random() * 
+        const waitTime = Math.floor(Math.random() *
             (this.config.maxWaitTime - this.config.minWaitTime + 1)) + this.config.minWaitTime;
 
         console.log(`⏳ Waiting ${Math.round(waitTime / 60000)} minutes before next trade...\n`);
 
-        if(!this.endOfDay) {
+        if (!this.endOfDay) {
             setTimeout(() => {
                 this.tradeInProgress = false;
                 this.connect();
@@ -637,7 +678,7 @@ class AIWeightedEnsembleBot {
     suspendAsset(asset) {
         this.suspendedAssets.add(asset);
         console.log(`🚫 Suspended: ${asset}`);
-        
+
         if (this.suspendedAssets.size > 3) {
             const first = Array.from(this.suspendedAssets)[0];
             this.suspendedAssets.delete(first);
@@ -647,29 +688,34 @@ class AIWeightedEnsembleBot {
 
     checkTimeForDisconnectReconnect() {
         setInterval(() => {
+            // Always use GMT +1 time regardless of server location
             const now = new Date();
-            const currentHours = now.getHours();
-            const currentMinutes = now.getMinutes();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
 
-            // Check for afternoon resume condition (7:00 AM)
-            if (this.endOfDay && currentHours === 14 && currentMinutes >= 0) {
-                console.log("It's 7:00 AM, reconnecting the bot.");
+            // Optional: log current GMT+1 time for monitoring
+            // console.log(
+            // "Current GMT+1 time:",
+            // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
+            // );
+
+            // Check for Morning resume condition (7:00 AM GMT+1)
+            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
+                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.LossDigitsList = [];
                 this.tradeInProgress = false;
                 this.usedAssets = new Set();
                 this.RestartTrading = true;
                 this.Pause = false;
                 this.endOfDay = false;
-                this.tradedDigitArray = [];
-                this.tradedDigitArray2 = [];
-                this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
                 this.connect();
             }
-    
-            // Check for evening stop condition (after 5:00 PM)
+
+            // Check for evening stop condition (after 5:00 PM GMT+1)
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM after a win trade, disconnecting the bot.");
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendDisconnectResumptionEmailSummary();
                     this.Pause = true;
                     this.disconnect();
@@ -682,6 +728,8 @@ class AIWeightedEnsembleBot {
     logSummary() {
         console.log('\n📊 TRADING SUMMARY');
         console.log(`Trades: ${this.totalTrades} | Wins: ${this.totalWins} | Losses: ${this.totalLosses}`);
+        console.log(`x2Losse: ${this.x2Losses}`);
+        console.log(`x3Losse: ${this.x3Losses}`);
         console.log(`P&L: $${this.totalProfitLoss.toFixed(2)} | Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%`);
         console.log(`Current Stake: $${this.currentStake.toFixed(2)}\n`);
     }
@@ -696,7 +744,7 @@ class AIWeightedEnsembleBot {
 
     async sendEmailSummary() {
         const transporter = nodemailer.createTransport(this.emailConfig);
-        
+
         const strategyStats = Object.entries(this.strategyPerformance)
             .map(([name, perf]) => {
                 const winRate = perf.total > 0 ? (perf.wins / perf.total * 100).toFixed(1) : 0;
@@ -713,6 +761,8 @@ class AIWeightedEnsembleBot {
                 Total Trades: ${this.totalTrades}
                 Wins: ${this.totalWins}
                 Losses: ${this.totalLosses}
+                x2Losse: ${this.x2Losses}
+                x3Losse: ${this.x3Losses}
                 P&L: $${this.totalProfitLoss.toFixed(2)}
                 Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
 
@@ -729,6 +779,79 @@ class AIWeightedEnsembleBot {
         }
     }
 
+    async sendLossEmail() {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+
+        const strategyStats = Object.entries(this.strategyPerformance)
+            .map(([name, perf]) => {
+                const winRate = perf.total > 0 ? (perf.wins / perf.total * 100).toFixed(1) : 0;
+                return `${name}: ${perf.wins}/${perf.total} (${winRate}%) - Weight: ${perf.weight.toFixed(3)}`;
+            })
+            .join('\n');
+
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'AI-Weighted Ensemble Bot - Loss Summary',
+            text: `
+                Loss Summary:
+                Total Trades: ${this.totalTrades}
+                Wins: ${this.totalWins}
+                Losses: ${this.totalLosses}
+                x2Losse: ${this.x2Losses}
+                x3Losse: ${this.x3Losses}
+                P&L: $${this.totalProfitLoss.toFixed(2)}
+                Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+
+                Strategy Performance:
+                ${strategyStats}
+            `
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            console.log('📧 Loss email sent successfully');
+        } catch (error) {
+            console.error('❌ Error sending email:', error.message);
+        }
+    }
+
+    async sendDisconnectResumptionEmailSummary() {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+        const currentHours = new Date().getHours();
+        const currentMinutes = new Date().getMinutes();
+
+        const summaryText = `
+        Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
+        Trading Summary:
+        Total Trades: ${this.totalTrades}
+        Total Trades Won: ${this.totalWins}
+        Total Trades Lost: ${this.totalLosses}
+        x2 Losses: ${this.x2Losses}
+        x3 Losses: ${this.x3Losses}
+
+        Currently Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+
+        Current Stake: $${this.currentStake.toFixed(2)}
+        Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
+        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+        `;
+
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'Gemini_SequenceDigit-Multi_Asset_Bot - Connection/Dissconnection Summary',
+            text: summaryText
+        };
+
+        try {
+            const info = await transporter.sendMail(mailOptions);
+            // console.log('Email sent:', info.messageId);
+        } catch (error) {
+            // console.error('Error sending email:', error);
+        }
+    }
+
     handleDisconnect() {
         this.connected = false;
         this.wsReady = false;
@@ -742,20 +865,23 @@ class AIWeightedEnsembleBot {
 
     start() {
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        // this.checkTimeForDisconnectReconnect();
     }
 }
 
 // Initialize and start bot
 const bot = new AIWeightedEnsembleBot('0P94g4WdSrSrzir', {
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
     stopLoss: 129,
     takeProfit: 5000,
     requiredHistoryLength: 1000,
-    minWaitTime: 300000, //5 Minutes
-    maxWaitTime: 2600000, //1 Hour
+    minWaitTime: 1200, // 2 Minutes
+    maxWaitTime: 3000, // 5 Minutes
+    // minWaitTime: 300000, //5 Minutes
+    // maxWaitTime: 2600000, //1 Hour
 });
 
 bot.start();

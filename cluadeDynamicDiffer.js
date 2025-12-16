@@ -10,7 +10,10 @@ class HybridSuperBot {
         this.connected = false;
         this.wsReady = false;
 
-        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
+        this.assets = config.assets || [
+            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
+            'R_10',
+        ];
 
         this.config = {
             initialStake: config.initialStake || 0.61,
@@ -29,10 +32,13 @@ class HybridSuperBot {
         this.totalTrades = 0;
         this.totalWins = 0;
         this.totalLosses = 0;
+        this.consecutiveLosses2 = 0;
+        this.consecutiveLosses3 = 0;
         this.totalProfitLoss = 0;
         this.tradeInProgress = false;
         this.suspendedAssets = new Set();
         this.endOfDay = false;
+        this.isWinTrade = false;
 
         // Tick data storage
         this.tickHistories = {};
@@ -56,16 +62,16 @@ class HybridSuperBot {
 
         // ========== LAYER 2: AI ENSEMBLE (5 strategies with weights) ==========
         this.ensembleStrategies = {
-            'statistical': { func: this.statisticalStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
-            'neural': { func: this.neuralStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
-            'chaos': { func: this.chaosStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
-            'regression': { func: this.regressionStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
-            'bayesian': { func: this.bayesianStrategy.bind(this), wins: 0, total: 0, weight: 1.0 },
+            'statistical': { func: this.statisticalStrategy.bind(this), wins: 0, total: 0, weight: 0.9 },
+            'neural': { func: this.neuralStrategy.bind(this), wins: 0, total: 0, weight: 0.9 },
+            'chaos': { func: this.chaosStrategy.bind(this), wins: 0, total: 0, weight: 0.9 },
+            'regression': { func: this.regressionStrategy.bind(this), wins: 0, total: 0, weight: 0.9 },
+            'bayesian': { func: this.bayesianStrategy.bind(this), wins: 0, total: 0, weight: 0.95 },
         };
 
         // ========== LAYER 3: QUANTUM PATTERNS (10 pattern detectors) ==========
         this.patternLibrary = {
-            zigzag: this.detectZigZag.bind(this),
+            // zigzag: this.detectZigZag.bind(this),
             consecutive: this.detectConsecutive.bind(this),
             mirror: this.detectMirror.bind(this),
             fibonacci: this.detectFibonacci.bind(this),
@@ -88,8 +94,8 @@ class HybridSuperBot {
         this.metaLayer = {
             layerWeights: {
                 rotation: 0.33,
-                ensemble: 0.33,
-                quantum: 0.34
+                ensemble: 0.34,
+                quantum: 0.33
             },
             layerPerformance: {
                 rotation: { wins: 0, total: 0 },
@@ -111,34 +117,38 @@ class HybridSuperBot {
         this.emailRecipient = 'kenotaru@gmail.com';
 
         this.startEmailTimer();
+
+        this.Pause = false;
     }
 
     connect() {
-        console.log('🚀 Connecting Hybrid Super Bot to Deriv API...');
-        this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+        if (!this.Pause) {
+            console.log('🚀 Connecting Hybrid Super Bot to Deriv API...');
+            this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
 
-        this.ws.on('open', () => {
-            console.log('✅ Connected to Deriv API');
-            this.connected = true;
-            this.wsReady = true;
-            this.authenticate();
-        });
+            this.ws.on('open', () => {
+                console.log('✅ Connected to Deriv API');
+                this.connected = true;
+                this.wsReady = true;
+                this.authenticate();
+            });
 
-        this.ws.on('message', (data) => {
-            const message = JSON.parse(data);
-            this.handleMessage(message);
-        });
+            this.ws.on('message', (data) => {
+                const message = JSON.parse(data);
+                this.handleMessage(message);
+            });
 
-        this.ws.on('error', (error) => {
-            console.error('WebSocket error:', error);
-            this.handleDisconnect();
-        });
+            this.ws.on('error', (error) => {
+                console.error('WebSocket error:', error);
+                this.handleDisconnect();
+            });
 
-        this.ws.on('close', () => {
-            console.log('Disconnected from Deriv API');
-            this.connected = false;
-            this.handleDisconnect();
-        });
+            this.ws.on('close', () => {
+                console.log('Disconnected from Deriv API');
+                this.connected = false;
+                this.handleDisconnect();
+            });
+        }
     }
 
     sendRequest(request) {
@@ -205,9 +215,9 @@ class HybridSuperBot {
         const quoteString = quote.toString();
         const [, fractionalPart = ''] = quoteString.split('.');
 
-        if (['R_75', 'R_50'].includes(asset)) {
+        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
             return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
-        } else if (['R_10', 'R_25'].includes(asset)) {
+        } else if (['R_10', 'R_25', '1HZ15V', '1HZ30V', '1HZ90V',].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
         } else {
             return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
@@ -230,8 +240,8 @@ class HybridSuperBot {
 
         console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
 
-        if (this.tickHistories[asset].length >= this.config.requiredHistoryLength && 
-            !this.tradeInProgress && 
+        if (this.tickHistories[asset].length >= this.config.requiredHistoryLength &&
+            !this.tradeInProgress &&
             !this.suspendedAssets.has(asset)) {
             this.analyzeTicks(asset);
         }
@@ -407,16 +417,16 @@ class HybridSuperBot {
     }
 
     // ==================== LAYER 3: QUANTUM PATTERN DETECTORS ====================
-    detectZigZag(seq) {
-        let changes = 0;
-        for (let i = 1; i < seq.length; i++) {
-            if ((seq[i] > seq[i-1] && i > 1 && seq[i-1] < seq[i-2]) ||
-                (seq[i] < seq[i-1] && i > 1 && seq[i-1] > seq[i-2])) {
-                changes++;
-            }
-        }
-        return changes / (seq.length - 2);
-    }
+    // detectZigZag(seq) {
+    //     let changes = 0;
+    //     for (let i = 1; i < seq.length; i++) {
+    //         if ((seq[i] > seq[i-1] && i > 1 && seq[i-1] < seq[i-2]) ||
+    //             (seq[i] < seq[i-1] && i > 1 && seq[i-1] > seq[i-2])) {
+    //             changes++;
+    //         }
+    //     }
+    //     return changes / (seq.length - 2);
+    // }
 
     detectConsecutive(seq) {
         let maxConsecutive = 0;
@@ -475,7 +485,7 @@ class HybridSuperBot {
     detectAscending(seq) {
         let ascending = 0;
         for (let i = 1; i < seq.length; i++) {
-            if (seq[i] > seq[i-1]) ascending++;
+            if (seq[i] > seq[i - 1]) ascending++;
         }
         return ascending / (seq.length - 1);
     }
@@ -483,7 +493,7 @@ class HybridSuperBot {
     detectDescending(seq) {
         let descending = 0;
         for (let i = 1; i < seq.length; i++) {
-            if (seq[i] < seq[i-1]) descending++;
+            if (seq[i] < seq[i - 1]) descending++;
         }
         return descending / (seq.length - 1);
     }
@@ -542,8 +552,8 @@ class HybridSuperBot {
         predictions.ensemble.votes = Array(10).fill(0);
         predictions.ensemble.votes[ensemblePred] = this.metaLayer.layerWeights.ensemble;
         const bestEnsemble = Object.entries(this.ensembleStrategies)
-            .reduce((best, [name, strat]) => strat.weight > best.weight ? { name, ...strat } : best, 
-                    { name: 'statistical', weight: 0 });
+            .reduce((best, [name, strat]) => strat.weight > best.weight ? { name, ...strat } : best,
+                { name: 'statistical', weight: 0 });
         predictions.ensemble.strategy = bestEnsemble.name;
 
         // LAYER 3: Quantum prediction
@@ -580,9 +590,9 @@ class HybridSuperBot {
                     digitCounts[digit] += score * (idx + 1) / recent.length;
                 });
             });
-            return { 
+            return {
                 digit: digitCounts.indexOf(Math.max(...digitCounts)),
-                strategy: `Superposition(${sortedPatterns.map(p => p[0].substring(0,3)).join('+')})`
+                strategy: `Superposition(${sortedPatterns.map(p => p[0].substring(0, 3)).join('+')})`
             };
         } else if (mode === 'collapsed') {
             recent.forEach(d => digitCounts[d]++);
@@ -604,7 +614,7 @@ class HybridSuperBot {
 
     calculateConsensus(predictions) {
         const totalVotes = Array(10).fill(0);
-        
+
         Object.values(predictions).forEach(layer => {
             layer.votes.forEach((vote, digit) => {
                 totalVotes[digit] += vote;
@@ -618,7 +628,7 @@ class HybridSuperBot {
         // Determine which layer contributed most
         let dominantLayer = 'rotation';
         let maxLayerVote = 0;
-        
+
         Object.entries(predictions).forEach(([layerName, layer]) => {
             if (layer.votes[winner] > maxLayerVote) {
                 maxLayerVote = layer.votes[winner];
@@ -642,22 +652,27 @@ class HybridSuperBot {
         const lastDigit = history[history.length - 1];
 
         console.log('\n🔬 ANALYZING ALL LAYERS...');
-        
+
         // Get predictions from all 3 layers
         const predictions = this.analyzeAllLayers(history);
 
         // Calculate consensus
         const result = this.calculateConsensus(predictions);
 
+        const rotationPrediction = predictions.rotation.votes.indexOf(Math.max(...predictions.rotation.votes));
+        const ensemblePrediction = predictions.ensemble.votes.indexOf(Math.max(...predictions.ensemble.votes));
+        const quantumPrediction = predictions.quantum.votes.indexOf(Math.max(...predictions.quantum.votes));
+
         console.log(`\n📊 LAYER PREDICTIONS:`);
-        console.log(`   Rotation: ${predictions.rotation.strategy} → Digit ${predictions.rotation.votes.indexOf(Math.max(...predictions.rotation.votes))}`);
-        console.log(`   Ensemble: ${predictions.ensemble.strategy} → Digit ${predictions.ensemble.votes.indexOf(Math.max(...predictions.ensemble.votes))}`);
-        console.log(`   Quantum: ${predictions.quantum.strategy} → Digit ${predictions.quantum.votes.indexOf(Math.max(...predictions.quantum.votes))}`);
+        console.log(`   Rotation: ${predictions.rotation.strategy} → Digit ${rotationPrediction}`);
+        console.log(`   Ensemble: ${predictions.ensemble.strategy} → Digit ${ensemblePrediction}`);
+        console.log(`   Quantum: ${predictions.quantum.strategy} → Digit ${quantumPrediction}`);
         console.log(`\n🎯 CONSENSUS: Digit ${result.digit} | Confidence: ${(result.confidence * 100).toFixed(1)}%`);
         console.log(`   Dominant Layer: ${result.dominantLayer} (${result.strategy})`);
         console.log(`   Vote Distribution: ${result.votes.map((v, i) => `${i}:${v.toFixed(2)}`).join(' | ')}`);
 
-        if (result.digit !== lastDigit && result.confidence >= this.metaLayer.consensusThreshold) {
+        // if (result.digit !== lastDigit && result.confidence >= this.metaLayer.consensusThreshold) {
+        if (result.digit !== lastDigit && rotationPrediction !== ensemblePrediction && rotationPrediction !== quantumPrediction && ensemblePrediction !== quantumPrediction) {
             this.metaLayer.lastUsedLayer = result.dominantLayer;
             this.placeTrade(asset, result.digit, result);
         } else if (result.digit !== lastDigit) {
@@ -667,7 +682,7 @@ class HybridSuperBot {
 
     placeTrade(asset, predictedDigit, result) {
         if (this.tradeInProgress) return;
-        
+
         this.tradeInProgress = true;
         console.log(`\n🚀 [${asset}] PLACING TRADE`);
         console.log(`   Digit: ${predictedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
@@ -704,13 +719,13 @@ class HybridSuperBot {
 
         const layer = this.metaLayer.lastUsedLayer;
         const perf = this.metaLayer.layerPerformance[layer];
-        
+
         perf.total++;
         if (won) {
             perf.wins++;
-            this.metaLayer.layerWeights[layer] *= 1.15; // 15% increase
+            this.metaLayer.layerWeights[layer] *= 1.05; // 5% increase
         } else {
-            this.metaLayer.layerWeights[layer] *= 0.85; // 15% decrease
+            this.metaLayer.layerWeights[layer] *= 0.5; // 50% decrease
         }
 
         // Normalize weights
@@ -725,9 +740,9 @@ class HybridSuperBot {
                 strat.total++;
                 if (won) {
                     strat.wins++;
-                    strat.weight *= 1.1;
+                    strat.weight *= 1.05;
                 } else {
-                    strat.weight *= 0.9;
+                    strat.weight *= 0.5;
                 }
             });
 
@@ -766,22 +781,29 @@ class HybridSuperBot {
             this.totalWins++;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
+            this.isWinTrade = true;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
+            this.isWinTrade = false;
+
+            if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
+            else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
+
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            this.suspendAsset(asset);
+            // this.suspendAsset(asset);
         }
 
         this.totalProfitLoss += profit;
         this.updateLayerWeights(won);
+        this.Pause = true;
 
-        if(!this.endOfDay) {
+        if (!this.endOfDay) {
             this.logSummary();
         }
 
         // Check stop conditions
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || 
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses ||
             this.totalProfitLoss <= -this.config.stopLoss) {
             console.log('\n🛑 Stop loss reached - Shutting down');
             this.endOfDay = true;
@@ -803,14 +825,15 @@ class HybridSuperBot {
             this.sendLossEmail(asset);
         }
 
-        const waitTime = Math.floor(Math.random() * 
+        const waitTime = Math.floor(Math.random() *
             (this.config.maxWaitTime - this.config.minWaitTime + 1)) + this.config.minWaitTime;
 
         console.log(`⏳ Waiting ${Math.round(waitTime / 60000)} minutes before next trade...\n`);
 
-        if(!this.endOfDay) {
+        if (!this.endOfDay) {
             setTimeout(() => {
                 this.tradeInProgress = false;
+                this.Pause = false;
                 this.connect();
             }, waitTime);
         }
@@ -819,8 +842,8 @@ class HybridSuperBot {
     suspendAsset(asset) {
         this.suspendedAssets.add(asset);
         console.log(`🚫 Suspended asset: ${asset}`);
-        
-        if (this.suspendedAssets.size > 3) {
+
+        if (this.suspendedAssets.size > 2) {
             const first = Array.from(this.suspendedAssets)[0];
             this.suspendedAssets.delete(first);
             console.log(`✅ Reactivated asset: ${first}`);
@@ -829,46 +852,65 @@ class HybridSuperBot {
 
     checkTimeForDisconnectReconnect() {
         setInterval(() => {
+            // Always use GMT +1 time regardless of server location
             const now = new Date();
-            const currentHours = now.getHours();
-            const currentMinutes = now.getMinutes();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 
-            // Check for afternoon resume condition (7:00 AM)
-            if (this.endOfDay && currentHours === 14 && currentMinutes >= 0) {
-                console.log("It's 7:00 AM, reconnecting the bot.");
+            // Optional: log current GMT+1 time for monitoring
+            // console.log(
+            // "Current GMT+1 time:",
+            // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
+            // );
+
+            // Check if it's Sunday - no trading on Sundays
+            if (currentDay === 0) {
+                if (!this.endOfDay) {
+                    console.log("It's Sunday, disconnecting the bot. No trading on Sundays.");
+                    this.Pause = true;
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Skip all other checks on Sunday
+            }
+
+            // Check for Morning resume condition (7:00 AM GMT+1) - but not on Sunday
+            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
+                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.LossDigitsList = [];
                 this.tradeInProgress = false;
                 this.usedAssets = new Set();
                 this.RestartTrading = true;
                 this.Pause = false;
                 this.endOfDay = false;
-                this.tradedDigitArray = [];
-                this.tradedDigitArray2 = [];
-                this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
                 this.connect();
             }
-    
-            // Check for evening stop condition (after 5:00 PM)
+
+            // Check for evening stop condition (after 5:00 PM GMT+1)
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM after a win trade, disconnecting the bot.");
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendDisconnectResumptionEmailSummary();
                     this.Pause = true;
                     this.disconnect();
                     this.endOfDay = true;
                 }
             }
-        }, 20000); // Check every 20 seconds
+        }, 5000); // Check every 5 seconds
     }
 
     logSummary() {
         const winRate = this.totalTrades > 0 ? (this.totalWins / this.totalTrades * 100).toFixed(2) : 0;
-        
+
         console.log('\n' + '='.repeat(60));
-        console.log('📊 HYBRID SUPER BOT - TRADING SUMMARY');
+        console.log('📊 CLUADE DYNAMIC DIFFER HYBRID SUPER BOT - TRADING SUMMARY');
         console.log('='.repeat(60));
         console.log(`Total Trades: ${this.totalTrades} | Wins: ${this.totalWins} | Losses: ${this.totalLosses}`);
         console.log(`Win Rate: ${winRate}% | Consecutive Losses: ${this.consecutiveLosses}`);
+        console.log(`x2 Losses: ${this.consecutiveLosses2}`);
+        console.log(`x3 Losses: ${this.consecutiveLosses3}`);
         console.log(`P&L: ${this.totalProfitLoss.toFixed(2)} | Current Stake: ${this.currentStake.toFixed(2)}`);
         console.log(`Quantum State: ${this.quantumState.mode} (Phase: ${this.quantumState.phase}°)`);
         console.log(`Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}`);
@@ -877,7 +919,7 @@ class HybridSuperBot {
 
     async sendEmailSummary() {
         const transporter = nodemailer.createTransport(this.emailConfig);
-        
+
         const layerStats = Object.entries(this.metaLayer.layerPerformance)
             .map(([name, perf]) => {
                 const winRate = perf.total > 0 ? (perf.wins / perf.total * 100).toFixed(1) : 0;
@@ -896,16 +938,18 @@ class HybridSuperBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Hybrid Super Bot - Trading Summary',
+            subject: 'Cluade Dynamic Differ Hybrid Super Bot - Trading Summary',
             text: `
-                HYBRID SUPER BOT - FINAL SUMMARY
-                ================================
+                CLUADE DYNAMIC DIFFER HYBRID SUPER BOT - FINAL SUMMARY
+                =====================================================
 
                 Overall Performance:
                 -------------------
                 Total Trades: ${this.totalTrades}
                 Wins: ${this.totalWins}
                 Losses: ${this.totalLosses}
+                x2 Losses: ${this.consecutiveLosses2}
+                x3 Losses: ${this.consecutiveLosses3}
                 Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : 0}%
                 Total P&L: ${this.totalProfitLoss.toFixed(2)}
 
@@ -958,7 +1002,7 @@ class HybridSuperBot {
         const mailOptions = {
             from: this.emailConfig.auth.user,
             to: this.emailRecipient,
-            subject: 'Hybrid Super Bot - Loss Alert',
+            subject: 'Cluade Dynamic Differ Hybrid Super Bot - Loss Alert',
             text: `
                 LOSS ALERT - TRADE SUMMARY
                 ==========================
@@ -975,6 +1019,8 @@ class HybridSuperBot {
                 Total Wins: ${this.totalWins}
                 Total Losses: ${this.totalLosses}
                 Consecutive Losses: ${this.consecutiveLosses}
+                x2 Losses: ${this.consecutiveLosses2}
+                x3 Losses: ${this.consecutiveLosses3}
                 Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
                 Total P&L: ${this.totalProfitLoss.toFixed(2)}
 
@@ -997,6 +1043,56 @@ class HybridSuperBot {
         }
     }
 
+    async sendDisconnectResumptionEmailSummary() {
+        const transporter = nodemailer.createTransport(this.emailConfig);
+
+        const now = new Date();
+
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+
+        const mailOptions = {
+            from: this.emailConfig.auth.user,
+            to: this.emailRecipient,
+            subject: 'Cluade Dynamic Differ Hybrid Super Bot',
+            text: `
+                Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
+                ==========================
+
+                HYPEROPTIC TRADING ENGINE - SUMMARY
+                ================================
+
+                Overall Performance:
+                --------------
+                Total Trades: ${this.totalTrades}
+                Total Wins: ${this.totalWins}
+                Total Losses: ${this.totalLosses}
+                Consecutive Losses: ${this.consecutiveLosses}
+                x2 Losses: ${this.consecutiveLosses2}
+                x3 Losses: ${this.consecutiveLosses3}
+                Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+                Total P&L: ${this.totalProfitLoss.toFixed(2)}
+
+                Risk Management:
+                ---------------
+                Current Stake: ${this.currentStake.toFixed(2)}
+                Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+
+                Layer Status:
+                ------------
+                Dominant Layer: ${this.metaLayer.lastUsedLayer}
+                Quantum Mode: ${this.quantumState.mode}
+            `
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            console.log('📧 Summary email sent successfully');
+        } catch (error) {
+            console.error('Error sending loss email:', error.message);
+        }
+    }
+
     handleDisconnect() {
         this.connected = false;
         this.wsReady = false;
@@ -1010,29 +1106,32 @@ class HybridSuperBot {
 
     start() {
         console.log('\n' + '='.repeat(60));
-        console.log('🚀 HYBRID SUPER BOT STARTING...');
+        console.log('🚀 Cluade Dynamic Differ HYBRID SUPER BOT STARTING...');
         console.log('='.repeat(60));
         console.log('Combining 23 strategies across 3 layers:');
         console.log('  • Layer 1 (Rotation): 8 strategies');
         console.log('  • Layer 2 (Ensemble): 5 AI strategies');
         console.log('  • Layer 3 (Quantum): 10 pattern detectors');
         console.log('='.repeat(60) + '\n');
-        
+
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
 // ==================== INITIALIZE AND START BOT ====================
-const bot = new HybridSuperBot('0P94g4WdSrSrzir', {
+const bot = new HybridSuperBot('rgNedekYXvCaPeP', {
+    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', 'hsj0tA0XJoIzJG5', 'rgNedekYXvCaPeP', 'Dz2V2KvRf4Uukt3'
     initialStake: 0.61,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
     stopLoss: 129,
     takeProfit: 5000,
     requiredHistoryLength: 1000,
-    minWaitTime: 300000, //5 Minutes
-    maxWaitTime: 2600000, //1 Hour
+    // minWaitTime: 120000, // 2 Minutes
+    // maxWaitTime: 300000, // 5 Minutes
+    minWaitTime: 1000, //5 Minutes
+    maxWaitTime: 5000, //1 Hour
 });
 
 bot.start();

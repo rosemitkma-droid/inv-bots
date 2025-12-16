@@ -15,7 +15,7 @@ class ChaosDetector {
             varianceRatio: null,
             alpha: 0.1 // smoothing factor
         };
-        
+
         // Chaos state tracking
         this.chaosHistory = [];
         this.maxHistoryLength = 20;
@@ -26,7 +26,7 @@ class ChaosDetector {
      * Returns comprehensive chaos assessment
      */
     analyzeChaos(tickHistory) {
-        const minLength = 100;
+        const minLength = 20;
         if (!tickHistory || tickHistory.length < minLength) {
             return {
                 isChaotic: false,
@@ -38,7 +38,7 @@ class ChaosDetector {
         }
 
         // Use last 300 ticks for analysis (balance between recency and statistical power)
-        const data = tickHistory.slice(-Math.min(100, tickHistory.length));
+        const data = tickHistory.slice(-Math.min(20, tickHistory.length));
 
         // Calculate multiple chaos indicators
         const metrics = {
@@ -114,10 +114,10 @@ class ChaosDetector {
         for (let i = 0; i < limit; i++) {
             const templateM = data.slice(i, i + m);
             const templateM1 = data.slice(i, i + m + 1);
-            
+
             const countB = matches(templateM, r);
             const countA = matches(templateM1, r);
-            
+
             if (countB > 1) B += Math.log((countB - 1) / (N - m));
             if (countA > 0) A += Math.log(countA / (N - m));
         }
@@ -169,7 +169,7 @@ class ChaosDetector {
             for (let seg = 0; seg < numSegments; seg++) {
                 const segment = data.slice(seg * w, (seg + 1) * w);
                 const segMean = segment.reduce((a, b) => a + b, 0) / w;
-                
+
                 let cumDev = 0;
                 const segDevs = [];
                 for (let i = 0; i < w; i++) {
@@ -179,7 +179,7 @@ class ChaosDetector {
 
                 const segR = Math.max(...segDevs) - Math.min(...segDevs);
                 const segS = Math.sqrt(this.variance(segment));
-                
+
                 if (segS > 0) {
                     rsSum += segR / segS;
                 }
@@ -193,7 +193,7 @@ class ChaosDetector {
 
         // Linear regression to find Hurst exponent
         const H = this.linearRegression(windows, rs).slope;
-        
+
         // Clamp between 0 and 1
         return Math.max(0, Math.min(1, H));
     }
@@ -208,19 +208,19 @@ class ChaosDetector {
         if (N < d * tau + 1) return 0;
 
         const patterns = new Map();
-        
+
         for (let i = 0; i <= N - d * tau; i++) {
             // Extract pattern
             const indices = [];
             for (let j = 0; j < d; j++) {
                 indices.push(data[i + j * tau]);
             }
-            
+
             // Convert to ordinal pattern
             const sorted = indices.map((v, idx) => ({ v, idx }))
-                                 .sort((a, b) => a.v - b.v);
+                .sort((a, b) => a.v - b.v);
             const pattern = sorted.map(x => x.idx).join(',');
-            
+
             patterns.set(pattern, (patterns.get(pattern) || 0) + 1);
         }
 
@@ -302,7 +302,7 @@ class ChaosDetector {
 
         // Calculate rolling standard deviation
         const std = Math.sqrt(this.variance(recent));
-        
+
         // Calculate coefficient of variation
         const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
         const cv = mean !== 0 ? std / Math.abs(mean) : 0;
@@ -319,20 +319,20 @@ class ChaosDetector {
     computeChaosScore(metrics) {
         // Normalize each metric to 0-1 chaos scale
         const sampleEntropyScore = Math.min(1, metrics.sampleEntropy / 2.0);
-        
+
         // Invert Hurst: low Hurst = high chaos
-        const hurstScore = metrics.hurstExponent < 0.5 
-            ? (0.5 - metrics.hurstExponent) * 2 
+        const hurstScore = metrics.hurstExponent < 0.5
+            ? (0.5 - metrics.hurstExponent) * 2
             : 0;
-        
+
         const permEntropyScore = metrics.permutationEntropy;
-        
+
         // Variance ratio near 1 = chaos
         const vrScore = Math.max(0, 1 - Math.abs(metrics.varianceRatio - 1));
-        
+
         // Low trend strength = chaos
         const trendScore = 1 - Math.min(1, metrics.trendStrength * 2);
-        
+
         // Volatility contribution
         const volScore = {
             'low': 0.2,
@@ -364,22 +364,22 @@ class ChaosDetector {
 
         // Secondary: Multiple indicators agreement
         const indicators = [];
-        
+
         // Sample entropy threshold
         indicators.push(metrics.sampleEntropy > 1.5);
-        
+
         // Hurst exponent (anti-persistent)
         indicators.push(metrics.hurstExponent < 0.45);
-        
+
         // Permutation entropy threshold
         indicators.push(metrics.permutationEntropy > 0.85);
-        
+
         // Variance ratio (random walk)
         indicators.push(Math.abs(metrics.varianceRatio - 1) < 0.15);
-        
+
         // Weak or no trend
         indicators.push(metrics.trendStrength < 0.15);
-        
+
         // High/extreme volatility
         indicators.push(['high', 'extreme'].includes(metrics.volatilityRegime));
 
@@ -408,15 +408,15 @@ class ChaosDetector {
 
         // Calculate variance of normalized scores
         const mean = normalized.reduce((a, b) => a + b, 0) / normalized.length;
-        const variance = normalized.reduce((sum, val) => 
+        const variance = normalized.reduce((sum, val) =>
             sum + Math.pow(val - mean, 2), 0) / normalized.length;
-        
+
         // Low variance = high consistency = high confidence
         const consistency = Math.exp(-5 * variance);
-        
+
         // Historical consistency
         const historyConsistency = this.getConsistencyScore();
-        
+
         // Combine current and historical
         return 0.6 * consistency + 0.4 * historyConsistency;
     }
@@ -426,7 +426,7 @@ class ChaosDetector {
      */
     updateEMA(metrics) {
         const alpha = this.ema.alpha;
-        
+
         for (const key in metrics) {
             if (typeof metrics[key] === 'number' && isFinite(metrics[key])) {
                 if (this.ema[key] === null) {
@@ -453,10 +453,10 @@ class ChaosDetector {
      */
     getConsistencyScore() {
         if (this.chaosHistory.length < 5) return 0.5;
-        
+
         const recent = this.chaosHistory.slice(-10);
         const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
-        
+
         // Calculate consistency (how close to pure 0 or 1)
         const consistency = 1 - 2 * Math.abs(mean - 0.5);
         return Math.max(0, Math.min(1, consistency));
@@ -512,7 +512,7 @@ class ChaosDetector {
         // Calculate R²
         const meanY = sumY / n;
         const ssTotal = y.reduce((sum, yi) => sum + Math.pow(yi - meanY, 2), 0);
-        const ssResidual = y.reduce((sum, yi, i) => 
+        const ssResidual = y.reduce((sum, yi, i) =>
             sum + Math.pow(yi - (slope * x[i] + intercept), 2), 0);
         const r2 = ssTotal > 0 ? 1 - (ssResidual / ssTotal) : 0;
 
@@ -541,7 +541,7 @@ class EnhancedDerivTradingBot {
         this.ws = null;
         this.connected = false;
         this.assets = [
-            'R_10','R_25','R_50','R_75', 'R_100', 'RDBULL', 'RDBEAR', '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V', 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
+            'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR', '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V', 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
             // 'RDBEAR'
         ];
 
@@ -575,12 +575,12 @@ class EnhancedDerivTradingBot {
         this.Pause = false;
         this.RestartTrading = true;
         this.endOfDay = false;
-        this.requiredHistoryLength = 100; // Increased for better pattern analysis
+        this.requiredHistoryLength = Math.floor(Math.random() * 4981) + 20; //Random history length (20 to 5000)
         this.kCount = false;
         this.kCountNum = 0;
         this.kLoss = 0;
         this.multiplier2 = false;
-        this.confidenceThreshold = null; 
+        this.confidenceThreshold = null;
         this.kTradeCount = 0;
         this.isWinTrade = true;
         this.waitTime = 0;
@@ -592,7 +592,7 @@ class EnhancedDerivTradingBot {
         this.scanChaos = false;
 
         this.chaosDetector = new ChaosDetector();// Instantiate chaos detector
-        
+
         // WebSocket management
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 10000;
@@ -612,34 +612,36 @@ class EnhancedDerivTradingBot {
     }
 
     connect() {
-        console.log('Attempting to connect to Deriv API...');
-        this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+        if (!this.endOfDay) {
+            console.log('Attempting to connect to Deriv API...');
+            this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
 
-        this.ws.on('open', () => {
-            console.log('Connected to Deriv API');
-            this.connected = true;
-            this.wsReady = true;
-            this.reconnectAttempts = 0;
-            this.authenticate();
-        });
+            this.ws.on('open', () => {
+                console.log('Connected to Deriv API');
+                this.connected = true;
+                this.wsReady = true;
+                this.reconnectAttempts = 0;
+                this.authenticate();
+            });
 
-        this.ws.on('message', (data) => {
-            const message = JSON.parse(data);
-            this.handleMessage(message);
-        });
+            this.ws.on('message', (data) => {
+                const message = JSON.parse(data);
+                this.handleMessage(message);
+            });
 
-        this.ws.on('error', (error) => {
-            console.error('WebSocket error:', error);
-            this.handleDisconnect();
-        });
-
-        this.ws.on('close', () => {
-            console.log('Disconnected from Deriv API');
-            this.connected = false;
-            if(!this.Pause) {
+            this.ws.on('error', (error) => {
+                console.error('WebSocket error:', error);
                 this.handleDisconnect();
-            }
-        });
+            });
+
+            this.ws.on('close', () => {
+                console.log('Disconnected from Deriv API');
+                this.connected = false;
+                if (!this.endOfDay && !this.Pause) {
+                    this.handleDisconnect();
+                }
+            });
+        }
     }
 
     sendRequest(request) {
@@ -659,12 +661,16 @@ class EnhancedDerivTradingBot {
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
             setTimeout(() => this.connect(), this.reconnectInterval);
-        } 
+        }
+
+        this.tradeInProgress = false;
+        this.lastDigitsList = [];
+        this.tickHistory = [];
     }
 
     handleApiError(error) {
         console.error('API Error:', error.message);
-        
+
         switch (error.code) {
             case 'InvalidToken':
                 console.error('Invalid token. Please check your API token and restart the bot.');
@@ -725,7 +731,7 @@ class EnhancedDerivTradingBot {
             this.tradeInProgress = false;
             this.lastDigitsList = [];
             this.tickHistory = [];
-            
+
             this.startTrading();
 
         } else if (message.msg_type === 'history') {
@@ -780,14 +786,14 @@ class EnhancedDerivTradingBot {
         if (this.usedAssets.size === this.assets.length) {
             this.usedAssets = new Set();
         }
-            
-        if (this.RestartTrading) {            
+
+        if (this.RestartTrading) {
             let availableAssets = this.assets.filter(asset => !this.usedAssets.has(asset));
             this.currentAsset = availableAssets[Math.floor(Math.random() * availableAssets.length)];
             this.usedAssets.add(this.currentAsset);
         }
         console.log(`Selected asset: ${this.currentAsset}`);
-        
+
         this.unsubscribeFromTicks(() => {
             this.subscribeToTickHistory(this.currentAsset);
             this.subscribeToTicks(this.currentAsset);
@@ -795,37 +801,37 @@ class EnhancedDerivTradingBot {
 
         this.RestartTrading = false;
     }
-        
+
     handleTickHistory(history) {
         this.tickHistory = history.prices.map(price => this.getLastDigit(price, this.currentAsset));
-        
+
     }
 
     handleTickUpdate(tick) {
         const lastDigit = this.getLastDigit(tick.quote, this.currentAsset);
         this.lastDigitsList.push(lastDigit);
-        
+
         // Update tick history
         this.tickHistory.push(lastDigit);
         if (this.tickHistory.length > this.requiredHistoryLength) {
             this.tickHistory.shift();
         }
-                       
-        console.log(`Recent tick History: ${this.tickHistory.slice(-5).join(', ')}`);           
+
+        console.log(`Recent tick History: ${this.tickHistory.slice(-5).join(', ')}`);
 
         // Enhanced logging
-        if(!this.tradeInProgress) { 
-            this.analyzeTicksEnhanced();           
+        if (!this.tradeInProgress) {
+            this.analyzeTicksEnhanced();
         }
     }
 
     applyChaosTheory() {
-       return this.chaosDetector.analyzeChaos(this.tickHistory);
+        return this.chaosDetector.analyzeChaos(this.tickHistory);
     }
 
-        
+
     analyzeTicksEnhanced() {
-        if (this.tradeInProgress) {
+        if (this.tradeInProgress || this.tickHistory.length < 20) {
             return;
         }
 
@@ -833,71 +839,71 @@ class EnhancedDerivTradingBot {
         const chaosAnalysis = this.applyChaosTheory();
 
         if (!chaosAnalysis || !chaosAnalysis.metrics) {
-        // console.log('Chaos analysis: insufficient data');
-        // return;
+            // console.log('Chaos analysis: insufficient data');
+            // return;
         }
 
-    // Log comprehensive analysis
-    // console.log('\n=== CHAOS ANALYSIS ===');
-    // console.log(`Chaos Score: ${(chaosAnalysis.chaosScore * 100).toFixed(1)}%`);
-    // console.log(`Market State: ${chaosAnalysis.isChaotic ? '🔴 CHAOTIC' : '🟢 PREDICTABLE'}`);
-    // console.log(`Confidence: ${(chaosAnalysis.confidence * 100).toFixed(1)}%`);
-    // console.log(`Should Trade: ${chaosAnalysis.shouldTrade ? 'YES ✓' : 'NO ✗'}`);
-    // console.log(`Reason: ${chaosAnalysis.reason}`);
-    // console.log('\nMetrics:');
-    // console.log(`  Sample Entropy: ${chaosAnalysis.metrics.sampleEntropy.toFixed(3)}`);
-    // console.log(`  Hurst Exponent: ${chaosAnalysis.metrics.hurstExponent.toFixed(3)}`);
-    // console.log(`  Perm Entropy: ${chaosAnalysis.metrics.permutationEntropy.toFixed(3)}`);
-    // console.log(`  Variance Ratio: ${chaosAnalysis.metrics.varianceRatio.toFixed(3)}`);
-    // console.log(`  Trend Strength: ${chaosAnalysis.metrics.trendStrength.toFixed(3)}`);
-    // console.log(`  Volatility: ${chaosAnalysis.metrics.volatilityRegime}`);
-    // console.log('====================\n');
+        // Log comprehensive analysis
+        // console.log('\n=== CHAOS ANALYSIS ===');
+        // console.log(`Chaos Score: ${(chaosAnalysis.chaosScore * 100).toFixed(1)}%`);
+        // console.log(`Market State: ${chaosAnalysis.isChaotic ? '🔴 CHAOTIC' : '🟢 PREDICTABLE'}`);
+        // console.log(`Confidence: ${(chaosAnalysis.confidence * 100).toFixed(1)}%`);
+        // console.log(`Should Trade: ${chaosAnalysis.shouldTrade ? 'YES ✓' : 'NO ✗'}`);
+        // console.log(`Reason: ${chaosAnalysis.reason}`);
+        // console.log('\nMetrics:');
+        // console.log(`  Sample Entropy: ${chaosAnalysis.metrics.sampleEntropy.toFixed(3)}`);
+        // console.log(`  Hurst Exponent: ${chaosAnalysis.metrics.hurstExponent.toFixed(3)}`);
+        // console.log(`  Perm Entropy: ${chaosAnalysis.metrics.permutationEntropy.toFixed(3)}`);
+        // console.log(`  Variance Ratio: ${chaosAnalysis.metrics.varianceRatio.toFixed(3)}`);
+        // console.log(`  Trend Strength: ${chaosAnalysis.metrics.trendStrength.toFixed(3)}`);
+        // console.log(`  Volatility: ${chaosAnalysis.metrics.volatilityRegime}`);
+        // console.log('====================\n');
 
-    // // Only proceed with trading logic if market is not chaotic
-    // if (!chaosAnalysis.shouldTrade) {
-    //     console.log('⚠️  Market too chaotic - skipping trade analysis');
-    //     return;
-    // }
+        // // Only proceed with trading logic if market is not chaotic
+        // if (!chaosAnalysis.shouldTrade) {
+        //     console.log('⚠️  Market too chaotic - skipping trade analysis');
+        //     return;
+        // }
 
-    // Least-occurring digit logic 
-    const tickHistory2 = this.tickHistory.slice(-50);
-    const digitCounts = Array(10).fill(0);
-    tickHistory2.forEach(digit => digitCounts[digit]++);
+        // Least-occurring digit logic 
+        const tickHistory2 = this.tickHistory;
+        const digitCounts = Array(10).fill(0);
+        tickHistory2.forEach(digit => digitCounts[digit]++);
 
-    let leastOccurringDigit = null;
-    let minCount = Infinity;
-    digitCounts.forEach((count, digit) => {
-        if (count < minCount) {
-            minCount = count;
-            leastOccurringDigit = digit;
-        }
-    });
+        let leastOccurringDigit = null;
+        let minCount = Infinity;
+        digitCounts.forEach((count, digit) => {
+            if (count < minCount) {
+                minCount = count;
+                leastOccurringDigit = digit;
+            }
+        });
 
-    const leastPercentage = minCount;
-    console.log(`Digit counts:`, digitCounts, '(', tickHistory2.length, 'ticks)');
-    console.log('Least occurring digit:', leastOccurringDigit, `(${minCount} times)`);
+        const leastPercentage = minCount;
+        console.log(`Digit counts:`, digitCounts, '(', tickHistory2.length, 'ticks)');
+        console.log('Least occurring digit:', leastOccurringDigit, `(${minCount} times)`);
 
-    this.lastDigit = this.tickHistory[this.tickHistory.length - 1];
+        this.lastDigit = this.tickHistory[this.tickHistory.length - 1];
 
-    if (
-        // leastPercentage < 7 
-        // && 
-        // this.xLeastDigit !== leastOccurringDigit && 
-        leastOccurringDigit !== this.lastDigit 
-        // && 
-        // this.xLeastDigit !== null
+        if (
+            // leastPercentage < 7 
+            // && 
+            // this.xLeastDigit !== leastOccurringDigit && 
+            leastOccurringDigit !== this.lastDigit
+            // && 
+            // this.xLeastDigit !== null
         ) {
-        
-        this.xDigit = leastOccurringDigit;
-        this.winProbNumber = leastPercentage;
-        this.chaosLevel = (chaosAnalysis.chaosScore * 100).toFixed(1);
-        this.kChaos = chaosAnalysis.isChaotic;
-        
-        this.placeTrade(this.xDigit, this.winProbNumber);
+
+            this.xDigit = leastOccurringDigit;
+            this.winProbNumber = leastPercentage;
+            this.chaosLevel = (chaosAnalysis.chaosScore * 100).toFixed(1);
+            this.kChaos = chaosAnalysis.isChaotic;
+
+            this.placeTrade(this.xDigit, this.winProbNumber);
+        }
+
+        this.xLeastDigit = leastOccurringDigit;
     }
-    
-    this.xLeastDigit = leastOccurringDigit;
-}
 
 
     placeTrade(predictedDigit, confidence) {
@@ -906,14 +912,14 @@ class EnhancedDerivTradingBot {
         }
 
         this.tradeInProgress = true;
-        
+
         console.log(`\n PLACING TRADE`);
         console.log(`Digit: ${predictedDigit} (${confidence}%)`);
         console.log(`Stake: $${this.currentStake.toFixed(2)}`);
-        
+
         const request = {
             buy: 1,
-            price: this.currentStake.toFixed(2), 
+            price: this.currentStake.toFixed(2),
             parameters: {
                 amount: this.currentStake.toFixed(2),
                 basis: 'stake',
@@ -946,21 +952,25 @@ class EnhancedDerivTradingBot {
     handleTradeResult(contract) {
         const won = contract.status === 'won';
         const profit = parseFloat(contract.profit);
-        
+        const exitSpot = contract.exit_tick_display_value;
+        const actualDigit = this.getLastDigit(parseFloat(exitSpot), this.currentAsset);
+        this.actualDigit = actualDigit;
+
         console.log(`\n📊 TRADE RESULT: ${won ? '✅ WON' : '❌ LOST'}`);
+        console.log(`   Predicted to differ from: ${this.xDigit} | Actual: ${actualDigit}`);
         console.log(`Profit/Loss: $${profit.toFixed(2)}`);
-       
+
         this.totalTrades++;
-        
+
         if (won) {
-            this.totalWins++;            
+            this.totalWins++;
             this.consecutiveLosses = 0;
             this.currentStake = this.config.initialStake;
         } else {
             this.isWinTrade = false;
             this.totalLosses++;
             this.consecutiveLosses++;
-            
+
             if (this.consecutiveLosses === 2) {
                 this.consecutiveLosses2++;
             } else if (this.consecutiveLosses === 3) {
@@ -972,7 +982,7 @@ class EnhancedDerivTradingBot {
             }
 
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            
+
             // this.RestartTrading = true; 
         }
 
@@ -984,7 +994,7 @@ class EnhancedDerivTradingBot {
 
         this.Pause = true;
 
-        this.RestartTrading = true; 
+        this.RestartTrading = true;
 
         if (!this.endOfDay) {
             this.logTradingSummary();
@@ -993,7 +1003,8 @@ class EnhancedDerivTradingBot {
         this.regimCount = 0;
         this.kChaos = null;
         this.scanChaos = false;
-        
+        this.requiredHistoryLength = Math.floor(Math.random() * 4981) + 20; //Random history length (20 to 5000)
+
         // Take profit condition
         if (this.totalProfitLoss >= this.config.takeProfit) {
             console.log('Take Profit Reached... Stopping trading.');
@@ -1007,17 +1018,17 @@ class EnhancedDerivTradingBot {
         if (this.consecutiveLosses >= this.config.maxConsecutiveLosses ||
             this.totalProfitLoss <= -this.config.stopLoss) {
             console.log('Stopping condition met. Disconnecting...');
-            this.endOfDay = true; 
+            this.endOfDay = true;
             this.sendDisconnectResumptionEmailSummary();
             this.disconnect();
             return;
         }
 
         this.disconnect();
-        
+
         if (!this.endOfDay) {
             this.waitTime = Math.floor(Math.random() * (1000 - 1000 + 1)) + 100000;
-            console.log(`⏳ Waiting ${Math.round(this.waitTime/1000)} seconds before next trade...\n`);
+            console.log(`⏳ Waiting ${Math.round(this.waitTime / 1000)} seconds before next trade...\n`);
             setTimeout(() => {
                 this.Pause = false;
                 this.kTrade = false;
@@ -1033,7 +1044,7 @@ class EnhancedDerivTradingBot {
             };
             this.sendRequest(request);
             console.log(`Unsubscribing from ticks with ID: ${this.tickSubscriptionId}`);
-            
+
             this.ws.once('message', (data) => {
                 const message = JSON.parse(data);
                 if (message.msg_type === 'forget' && message.forget === this.tickSubscriptionId) {
@@ -1049,33 +1060,57 @@ class EnhancedDerivTradingBot {
 
     checkTimeForDisconnectReconnect() {
         setInterval(() => {
+            // Always use GMT +1 time regardless of server location
             const now = new Date();
-            const currentHours = now.getHours();
-            const currentMinutes = now.getMinutes();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 
-            // Check for morning resume condition (8:00 AM)
+            // Optional: log current GMT+1 time for monitoring
+            // console.log(
+            // "Current GMT+1 time:",
+            // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
+            // );
+
+            // Check if it's Sunday - no trading on Sundays
+            if (currentDay === 0) {
+                if (!this.endOfDay) {
+                    console.log("It's Sunday, disconnecting the bot. No trading on Sundays.");
+                    this.Pause = true;
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Skip all other checks on Sunday
+            }
+
+            // Check for Morning resume condition (7:00 AM GMT+1) - but not on Sunday
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
-                console.log("It's 8:00 AM, reconnecting the bot.");
+                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.LossDigitsList = [];
+                this.tickHistory = [];
+                this.regimCount = 0;
+                this.kChaos = null;
+                this.scanChaos = false;
+                this.requiredHistoryLength = Math.floor(Math.random() * 4981) + 20; //Random
                 this.tradeInProgress = false;
-                this.usedAssets = new Set();
                 this.RestartTrading = true;
                 this.Pause = false;
                 this.endOfDay = false;
                 this.connect();
             }
-    
-            // Check for evening stop condition (after 8:00 PM)
+
+            // Check for evening stop condition (after 5:00 PM GMT+1)
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours === 17 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM after a win trade, disconnecting the bot.");
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendDisconnectResumptionEmailSummary();
                     this.Pause = true;
                     this.disconnect();
                     this.endOfDay = true;
                 }
             }
-        }, 20000);
+        }, 5000); // Check every 5 seconds
     }
 
     disconnect() {
@@ -1094,12 +1129,12 @@ class EnhancedDerivTradingBot {
         console.log(`Total P/L: $${this.totalProfitLoss.toFixed(2)}`);
         console.log(`Current Stake: $${this.currentStake.toFixed(2)}`);
         console.log('Predicted Digit:', this.xDigit);
-        console.log('Percentage:', this.winProbNumber),'%';
+        console.log('Percentage:', this.winProbNumber), '%';
         console.log(`Chaos Level: ${this.chaosLevel}`);
         console.log('Chaos:', this.kChaos, '(', this.regimCount, ')');
         console.log('═══════════════════════════════════════\n');
     }
-    
+
     startEmailTimer() {
         setInterval(() => {
             if (!this.endOfDay) {
@@ -1172,7 +1207,7 @@ class EnhancedDerivTradingBot {
         Pattern Analysis:
         ----------------
         Asset: ${this.currentAsset}
-        Predicted Digit: ${this.xDigit}
+        Predicted Digit: ${this.xDigit} | Actual Digit: ${this.actualDigit}
         Percentage: ${this.winProbNumber}%
         Chaos Level: ${this.chaosLevel}
         Chaos Details: ${this.kChaos} (${this.regimCount})
@@ -1182,7 +1217,7 @@ class EnhancedDerivTradingBot {
         Last 20 Digits: ${klastDigits.join(', ')}
         
         Current Stake: $${this.currentStake.toFixed(2)}
-        `;      
+        `;
 
         const mailOptions = {
             from: this.emailConfig.auth.user,
@@ -1256,14 +1291,14 @@ class EnhancedDerivTradingBot {
         }
     }
 
-    start() {        
+    start() {
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
 // Usage
-const bot = new EnhancedDerivTradingBot('DMylfkyce6VyZt7', {
+const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir'
     initialStake: 0.61,
     multiplier: 11.3,
