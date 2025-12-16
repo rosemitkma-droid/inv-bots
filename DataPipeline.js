@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 class DataPipeline {
-  async loadEURUSD() {
+  loadEURUSD() {
     const filePath = './EURUSD_1h.csv';
     
     if (!fs.existsSync(filePath)) {
@@ -10,7 +10,7 @@ class DataPipeline {
         `Please download EUR/USD 1-hour data:\n` +
         `1. Visit: https://www.dukascopy.com/swiss/english/marketwatch/historical/\n` +
         `2. Select: EUR/USD > 1 Hour > Last 2 Years\n` +
-        `3. Save as: data/EURUSD_1h.csv\n`
+        `3. Save as: /EURUSD_1h.csv\n`
       );
     }
 
@@ -38,14 +38,13 @@ class DataPipeline {
   validateQuality(data) {
     if (data.length < 1000) return 0.5;
     
-    // Check for gaps > 1 hour
     const gaps = data.filter((c, i) => {
       if (i === 0) return false;
       const diff = (c.timestamp - data[i-1].timestamp) / (1000 * 60 * 60);
       return diff > 1.5;
     });
     
-    return gaps.length < 50 ? 0.95 : 0.7;
+    return gaps.length < 50 ? 0.95 : Math.max(0.5, 1 - (gaps.length / data.length));
   }
 }
 
