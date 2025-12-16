@@ -9,7 +9,7 @@ class ProfessionalDerivBot {
     this.config = {
       // Account Settings
       token: process.env.DERIV_TOKEN,
-      paperTrading: process.env.PAPER_TRADING !== 'false', // Default TRUE
+      paperTrading: process.env.PAPER_TRADING !== 'true', // Default TRUE
       
       // Strategy Parameters
       instrument: 'EUR/USD',
