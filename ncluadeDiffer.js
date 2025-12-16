@@ -1043,8 +1043,8 @@ class EnhancedDigitDifferTradingBot {
             // 'RDBULL', 'RDBEAR', 
             // '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V',
             // 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
-            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR',
-            'R_100',
+            'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR',
+            // 'R_75',
         ];
 
         this.config = {
@@ -1728,7 +1728,7 @@ class EnhancedDigitDifferTradingBot {
         if (!won) {
             this.sendLossEmail(asset);
             // Suspend the asset after a trade
-            // this.suspendAsset(asset);
+            this.suspendAsset(asset);
         }
 
         // If there are suspended assets, reactivate the first one on win
@@ -1940,7 +1940,7 @@ class EnhancedDigitDifferTradingBot {
             .join('\n        ');
 
         const summaryText = `
-        ncluadeDiffer2 Trading Summary:
+        ncluadeDiffer Trading Summary:
         Total Trades: ${this.totalTrades}
         Total Trades Won: ${this.totalWins}
         Total Trades Lost: ${this.totalLosses}
