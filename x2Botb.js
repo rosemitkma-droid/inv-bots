@@ -535,7 +535,8 @@ class EnhancedDerivTradingBot {
         this.connected = false;
         this.assets = [
             // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR', '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V', 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
-            'R_25'
+            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR',
+            'RDBULL', 'RDBEAR','R_75'
         ];
 
         this.config = {
@@ -793,11 +794,11 @@ class EnhancedDerivTradingBot {
             this.usedAssets = new Set();
         }
 
-        // if (this.RestartTrading) {
+        if (this.RestartTrading) {
         let availableAssets = this.assets.filter(asset => !this.usedAssets.has(asset));
         this.currentAsset = availableAssets[Math.floor(Math.random() * availableAssets.length)];
         this.usedAssets.add(this.currentAsset);
-        // }
+        }
         console.log(`Selected asset: ${this.currentAsset}`);
 
         this.unsubscribeFromTicks(() => {
@@ -949,7 +950,7 @@ class EnhancedDerivTradingBot {
 
         this.Pause = true;
 
-        this.RestartTrading = true;
+        // this.RestartTrading = true;
 
         if (!this.endOfDay) {
             this.logTradingSummary();
@@ -1236,7 +1237,7 @@ class EnhancedDerivTradingBot {
 
     start() {
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        // this.checkTimeForDisconnectReconnect();
     }
 }
 
