@@ -699,7 +699,7 @@ class EnhancedDigitDifferTradingBot {
 
     start() {
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
@@ -853,13 +853,13 @@ class DynamicDigitDifferTradingBot extends EnhancedDigitDifferTradingBot {
             });
 
         // If we have good strategies, use the best one
-        if (strategiesByPerformance.length > 0) {
-            const selectedStrategy = strategiesByPerformance[0];
-            this.strategyPerformance[asset][selectedStrategy].lastUsed = Date.now();
-            this.currentStrategy[asset] = selectedStrategy;
-            this.saveStrategyPerformance(); // Save the update
-            return selectedStrategy;
-        }
+        // if (strategiesByPerformance.length > 0) {
+        //     const selectedStrategy = strategiesByPerformance[0];
+        //     this.strategyPerformance[asset][selectedStrategy].lastUsed = Date.now();
+        //     this.currentStrategy[asset] = selectedStrategy;
+        //     this.saveStrategyPerformance(); // Save the update
+        //     return selectedStrategy;
+        // }
 
         // Otherwise cycle through all strategies
         this.currentStrategyIndex = (this.currentStrategyIndex + 1) % this.patternStrategies.length;
@@ -1530,11 +1530,11 @@ const bot = new DynamicDigitDifferTradingBot('0P94g4WdSrSrzir', {
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
     stopLoss: 129,
-    takeProfit: 500,
+    takeProfit: 5000,
     requiredHistoryLength: 1000,
     winProbabilityThreshold: 100,
-    minWaitTime: 120000, // 2 Minutes
-    maxWaitTime: 300000, // 5 Minutes
+    minWaitTime: 300000, //5 Minutes
+    maxWaitTime: 2600000, //1 Hour
     minPatternStrength: 0.01,
     maxStrategyReuse: 3,
     patternWindowSizes: [12, 25, 50, 100, 200],
@@ -1542,4 +1542,3 @@ const bot = new DynamicDigitDifferTradingBot('0P94g4WdSrSrzir', {
 });
 
 bot.start();
-
