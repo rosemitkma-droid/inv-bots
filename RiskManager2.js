@@ -1,29 +1,26 @@
 class RiskManager {
   constructor(config) {
-    this.config = config;
-    this.dailyRisked = 0;
-    this.lastReset = new Date().toDateString();
+    this.config = {
+      maxDailyRisk: config.maxDailyRisk || 0.015,
+      maxTradeRisk: config.maxTradeRisk || 0.005,
+      kellyFraction: config.kellyFraction || 0.25,
+      ...config
+    };
   }
 
   canTrade(state) {
-    // Reset daily counter
-    const today = new Date().toDateString();
-    if (today !== this.lastReset) {
-      this.dailyRisked = 0;
-      this.lastReset = today;
-    }
-
-    // Check daily risk limit
-    if (this.dailyRisked >= state.capital * this.config.maxDailyRisk) {
-      console.log('🛑 Daily risk limit reached');
+    // Check daily loss limit
+    if (state.dailyPnL < -state.capital * this.config.maxDailyRisk) {
       return false;
     }
 
-    // Check max drawdown
-    const peak = Math.max(...state.equityCurve, state.capital);
-    const drawdown = (peak - state.capital) / peak;
-    if (drawdown > 0.15) {
-      console.log('🛑 Max drawdown exceeded');
+    // Check if daily risked amount exceeded
+    if (state.dailyRisked >= state.capital * this.config.maxDailyRisk) {
+      return false;
+    }
+
+    // Check if trade already active
+    if (state.activeTrade) {
       return false;
     }
 
@@ -31,25 +28,24 @@ class RiskManager {
   }
 
   calculatePositionSize(capital, stopLossPrice, entryPrice) {
-    const riskPerShare = Math.abs(entryPrice - stopLossPrice);
-    const dollarRisk = capital * this.config.maxTradeRisk;
+    const riskAmount = capital * this.config.maxTradeRisk;
+    const riskPerUnit = Math.abs(entryPrice - stopLossPrice);
     
-    // Kelly Criterion for position sizing
-    const winRate = 0.4; // Conservative estimate
-    const payoutRatio = 2; // 1:2 risk:reward
+    if (riskPerUnit === 0) return 0;
+    
+    const positionSize = riskAmount / riskPerUnit;
+    
+    // Conservative Kelly sizing
+    const winRate = 0.4;
+    const payoutRatio = 2;
     const kelly = (winRate * payoutRatio - (1 - winRate)) / payoutRatio;
-    const kellyPosition = (dollarRisk / riskPerShare) * (kelly * this.config.kellyFraction);
+    const kellySize = positionSize * kelly * this.config.kellyFraction;
     
-    // Floor: minimum 0.5% risk
-    // Cap: maximum 2% risk
-    const minSize = (capital * 0.005) / riskPerShare;
-    const maxSize = (capital * 0.02) / riskPerShare;
+    // Apply limits
+    const minSize = 0.5;
+    const maxSize = riskAmount * 2;
     
-    return Math.max(minSize, Math.min(kellyPosition, maxSize));
-  }
-
-  recordRisk(riskAmount) {
-    this.dailyRisked += riskAmount;
+    return Math.max(minSize, Math.min(kellySize, maxSize));
   }
 }
 
