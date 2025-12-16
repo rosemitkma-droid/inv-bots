@@ -10,8 +10,8 @@ class EnhancedDigitDifferTradingBot {
         this.wsReady = false;
 
         this.assets = config.assets || [
-            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100'
-            'R_100',
+            'R_10', 'R_25', 'R_50', 'R_75', 'R_100'
+            // 'R_100',
         ];
 
         this.config = {
@@ -1198,7 +1198,7 @@ const bot = new EnhancedDigitDifferTradingBot('hsj0tA0XJoIzJG5', {
     multiplier: 21,
     maxConsecutiveLosses: 2,
     stopLoss: 400,
-    takeProfit: 5,
+    takeProfit: 2.5,
     growthRate: 0.05,
     accuTakeProfit: 0.5,
     requiredHistoryLength: 1000,
