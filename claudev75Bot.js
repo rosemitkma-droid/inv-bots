@@ -9,7 +9,7 @@ class EnhancedDerivTradingBot {
         this.connected = false;
         this.assets = [
             // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR', '1HZ10V', '1HZ15V', '1HZ25V', '1HZ30V', '1HZ50V', '1HZ75V', '1HZ90V', '1HZ100V', 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
-            'R_75',
+            'RDBULL',
         ];
 
         this.config = {
@@ -950,7 +950,7 @@ const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     maxConsecutiveLosses: 3,
     maxStake: 127,
     stopLoss: 70,
-    takeProfit: 2.5,
+    takeProfit: 1,
     
     // Repetition filter configuration (adjust these based on testing)
     minWindowSize: 100,              // Minimum history to analyze
