@@ -9,8 +9,8 @@ class EnhancedDigitDifferTradingBot {
         this.connected = false;
         this.wsReady = false;
 
-        // this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
-        this.assets = config.assets || ['R_100'];
+        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
+        // this.assets = config.assets || ['R_100'];
 
         this.config = {
             initialStake: config.initialStake || 10.5,
@@ -1229,7 +1229,7 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP, hsj0tA0XJoIzJG5, Dz2V2KvRf4Uukt3
     initialStake: 1,
     multiplier: 21,
-    maxConsecutiveLosses: 3,
+    maxConsecutiveLosses: 2,
     stopLoss: 400,
     takeProfit: 1,
     growthRate: 0.05,
