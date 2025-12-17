@@ -1249,7 +1249,7 @@ const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
     maxStake: 127,
     maxConsecutiveLosses: 3,
     stopLoss: 127,
-    takeProfit: 2.5,
+    takeProfit: 1,
     // Analysis Thresholds - CRITICAL for trade decisions
     ANALYSIS: {
         minHistoryLength: 5000,       // Minimum ticks before trading
