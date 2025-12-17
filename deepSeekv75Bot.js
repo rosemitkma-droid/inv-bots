@@ -992,7 +992,7 @@ const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
     maxStake: 127,
     maxConsecutiveLosses: 3,
     stopLoss: 127,
-    takeProfit: 2.5,
+    takeProfit: 1,
 });
 
 bot.start();
