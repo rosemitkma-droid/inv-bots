@@ -10,8 +10,8 @@ class EnhancedDigitDifferTradingBot {
         this.wsReady = false;
 
         this.assets = config.assets || [
-            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100'
-            'R_100',
+            'R_10', 'R_25', 'R_50', 'R_75', 'R_100'
+            // 'R_100',
         ];
 
         this.config = {
@@ -631,14 +631,14 @@ class EnhancedDigitDifferTradingBot {
         const lastDigit = last10[last10.length - 1]; // The digit we're betting continues
 
         // for (let times = 3; times >= 3; times--) {
-        if (appeared[3].length > 0) {
-            if (appeared[3].includes(currentCount) && appeared[3].length > 1 && last10[9] >= 2) {
-                console.log(`TRADE SIGNAL! Betting digit ${lastDigit + 1} appears 3 times (currently 3x)`);
+        if (appeared[2].length > 0) {
+            if (appeared[1].includes(currentCount) && appeared[2].length > 2 && last10[9] >= 2 && last10[0] !== lastDigit + 1 && last10[1] !== lastDigit + 1) {
+                console.log(`TRADE SIGNAL! Betting digit ${lastDigit + 1} appears 1 time (currently 2x)`);
 
                 assetState.tradedDigitArray.push(currentCount);
-                assetState.filteredArray = appeared[3];
-                assetState.lastFilterUsed = 3;
-                assetState.tradeFrequency = 3;
+                assetState.filteredArray = appeared[1];
+                assetState.lastFilterUsed = 1;
+                assetState.tradeFrequency = 1;
 
                 this.placeTrade(asset);
             }
@@ -1186,13 +1186,13 @@ class EnhancedDigitDifferTradingBot {
 }
 
 // Usage
-const bot = new EnhancedDigitDifferTradingBot('hsj0tA0XJoIzJG5', {
+const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP, hsj0tA0XJoIzJG5, Dz2V2KvRf4Uukt3
     initialStake: 1,
     multiplier: 21,
-    maxConsecutiveLosses: 3,
+    maxConsecutiveLosses: 2,
     stopLoss: 400,
-    takeProfit: 5000,
+    takeProfit: 1,
     growthRate: 0.05,
     accuTakeProfit: 0.5,
     requiredHistoryLength: 1000,
