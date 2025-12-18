@@ -632,8 +632,8 @@ class EnhancedDigitDifferTradingBot {
 
         // for (let times = 3; times >= 2; times--) {
         if (appeared[2].length > 0) {
-            // if (appeared[2].includes(currentCount) && appeared[2].length > 1 !== lastDigit + 1) {
-            if (appeared[2].includes(currentCount) && appeared[2].length > 1 && last10[9] >= 2 && last10[0] !== lastDigit + 1 && last10[1] !== lastDigit + 1) {
+            if (appeared[2].includes(currentCount) && appeared[2].length > 1 !== lastDigit + 1) {
+            // if (appeared[2].includes(currentCount) && appeared[2].length > 1 && last10[9] >= 2 && last10[0] !== lastDigit + 1 && last10[1] !== lastDigit + 1) {
                 console.log(`TRADE SIGNAL! Betting digit ${lastDigit + 1} appears 2 times (currently 2x)`);
                 console.log(`TRADE SIGNAL! Betting digit ${last10[0]} ${last10[1]}`);
 
