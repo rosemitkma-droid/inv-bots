@@ -11,7 +11,7 @@ class EnhancedDigitDifferTradingBot {
 
         this.assets = config.assets || [
             'R_10', 'R_25', 'R_50', 'R_75', 'R_100'
-            // 'R_100',
+            // 'R_50',
         ];
 
         this.config = {
@@ -632,7 +632,8 @@ class EnhancedDigitDifferTradingBot {
 
         // for (let times = 3; times >= 2; times--) {
         if (appeared[2].length > 0) {
-            if (appeared[2].includes(currentCount) && appeared[2].length > 1 !== lastDigit + 1) {
+            // if (appeared[2].includes(currentCount) && appeared[2].length > 1 !== lastDigit + 1) {
+            if (appeared[2].includes(currentCount) && appeared[2].length > 1 && last10[9] >= 2 && last10[0] !== lastDigit + 1 && last10[1] !== lastDigit + 1) {
                 console.log(`TRADE SIGNAL! Betting digit ${lastDigit + 1} appears 2 times (currently 2x)`);
                 console.log(`TRADE SIGNAL! Betting digit ${last10[0]} ${last10[1]}`);
 
@@ -797,7 +798,7 @@ class EnhancedDigitDifferTradingBot {
             baseWaitTime = this.config.minWaitTime + (this.consecutiveLosses * 60000); // +1min per loss
             this.sendLossEmail(asset);
             // this.suspendAllExcept(asset);
-            this.suspendAsset(asset);
+            // this.suspendAsset(asset);
         }
 
         // If there is more than one suspended asset, reactivate the first one on win
@@ -1187,7 +1188,7 @@ class EnhancedDigitDifferTradingBot {
         console.log('🚀 Starting kInspired Accumulator Trading Bot with Learning System');
         console.log('Features: Adaptive filters, pattern recognition, volatility analysis');
         this.connect();
-        // this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
+        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
