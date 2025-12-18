@@ -631,14 +631,14 @@ class EnhancedDigitDifferTradingBot {
         const lastDigit = last10[last10.length - 1]; // The digit we're betting continues
 
         // for (let times = 3; times >= 2; times--) {
-        if (appeared[2].length > 0) {
-            if (appeared[1].includes(currentCount) && appeared[2].length > 3 && last10[9] >= 2) {
-                console.log(`TRADE SIGNAL! Betting digit ${lastDigit + 1} appears 1 time (currently 2x)`);
+        if (appeared[3].length > 0) {
+            if (appeared[3].includes(currentCount) && appeared[3].length > 1 && last10[9] >= 2) {
+                console.log(`TRADE SIGNAL! Betting digit ${lastDigit + 1} appears 3 times (currently 3x)`);
 
                 assetState.tradedDigitArray.push(currentCount);
-                assetState.filteredArray = appeared[1];
-                assetState.lastFilterUsed = 1;
-                assetState.tradeFrequency = 1;
+                assetState.filteredArray = appeared[3];
+                assetState.lastFilterUsed = 3;
+                assetState.tradeFrequency = 3;
 
                 this.placeTrade(asset);
             }
@@ -796,7 +796,7 @@ class EnhancedDigitDifferTradingBot {
             baseWaitTime = this.config.minWaitTime + (this.consecutiveLosses * 60000); // +1min per loss
             this.sendLossEmail(asset);
             // this.suspendAllExcept(asset);
-            this.suspendAsset(asset);
+            // this.suspendAsset(asset);
         }
 
         // If there is more than one suspended asset, reactivate the first one on win
@@ -1181,7 +1181,7 @@ class EnhancedDigitDifferTradingBot {
         console.log('🚀 Starting kInspired3 Accumulator Trading Bot with Learning System');
         console.log('Features: Adaptive filters, pattern recognition, volatility analysis');
         this.connect();
-        // this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
+        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
@@ -1190,9 +1190,9 @@ const bot = new EnhancedDigitDifferTradingBot('hsj0tA0XJoIzJG5', {
     // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP, hsj0tA0XJoIzJG5, Dz2V2KvRf4Uukt3
     initialStake: 1,
     multiplier: 21,
-    maxConsecutiveLosses: 3,
+    maxConsecutiveLosses: 2,
     stopLoss: 400,
-    takeProfit: 5000,
+    takeProfit: 1,
     growthRate: 0.05,
     accuTakeProfit: 0.5,
     requiredHistoryLength: 1000,
