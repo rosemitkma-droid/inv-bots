@@ -14,6 +14,7 @@
  * - Email notifications
  */
 
+require('dotenv').config();
 const WebSocket = require('ws');
 const nodemailer = require('nodemailer');
 const fs = require('fs');
@@ -47,25 +48,25 @@ function log(level, message, data = null) {
 
 const CONFIG = {
     // API Configuration
-    appId: 1089,
-    apiToken: 'Dz2V2KvRf4Uukt3',
+    appId: parseInt(process.env.DERIV_APP_ID || '1089'),
+    apiToken: process.env.DERIV_API_TOKEN || process.env.DERIV_TOKEN || 'Dz2V2KvRf4Uukt3',
     websocketUrl: 'wss://ws.binaryws.com/websockets/v3',
 
     // Email Configuration
     email: {
-        service: 'gmail',
-        user: 'kenzkdp2@gmail.com',
-        password: 'jfjhtmussgfpbgpk',
-        recipient: 'kenotaru@gmail.com',
+        service: process.env.EMAIL_SERVICE || 'gmail',
+        user: process.env.EMAIL_USER || 'kenzkdp2@gmail.com',
+        password: process.env.EMAIL_APP_PASSWORD || 'jfjhtmussgfpbgpk',
+        recipient: process.env.EMAIL_RECIPIENT || 'kenotaru@gmail.com',
         summaryInterval: 1800000 // 30 minutes
     },
 
     // Trading Configuration
     initialCapital: 500,
-    maxDailyLossPercent: 5,
-    dailyProfitTargetPercent: 2.5,
-    maxRiskPerTradePercent: 2,
-    maxOpenPositions: 5,
+    maxDailyLossPercent: 10,
+    dailyProfitTargetPercent: 10,
+    maxRiskPerTradePercent: 10,
+    maxOpenPositions: 9,
 
     // Asset Universe Configuration
     assets: {
@@ -428,33 +429,46 @@ class StateManager {
     }
 
     closePosition(contractId, profit) {
-        const position = this.state.portfolio.activePositions.find(p => p.contractId === contractId);
-        if (position) {
+        const positionIndex = this.state.portfolio.activePositions.findIndex(
+            p => String(p.contractId) === String(contractId)
+        );
+
+        if (positionIndex !== -1) {
+            const position = this.state.portfolio.activePositions[positionIndex];
             const capitalChange = profit;
             this.state.capital += capitalChange;
 
-            const asset = this.state.assets[position.symbol];
-            asset.totalTrades++;
+            const asset = position.symbol ? this.state.assets[position.symbol] : null;
+            if (asset) {
+                asset.totalTrades++;
 
-            if (capitalChange > 0) {
-                this.state.portfolio.dailyProfit += capitalChange;
-                asset.wins++;
-                asset.consecutiveLosses = 0;
+                if (capitalChange > 0) {
+                    this.state.portfolio.dailyProfit += capitalChange;
+                    asset.wins++;
+                    asset.consecutiveLosses = 0;
+                } else {
+                    this.state.portfolio.dailyLoss += Math.abs(capitalChange);
+                    asset.losses++;
+                    asset.consecutiveLosses++;
+                }
+
+                const isWin = capitalChange > 0;
+                asset.recentWinRate = asset.recentWinRate * 0.9 + (isWin ? 0.1 : 0);
             } else {
-                this.state.portfolio.dailyLoss += Math.abs(capitalChange);
-                asset.losses++;
-                asset.consecutiveLosses++;
+                // Handle legacy or missing asset data
+                log('WARNING', `Asset ${position.symbol || 'UNKNOWN'} not found in state during closure. Updating portfolio P/L only.`);
+                if (capitalChange > 0) {
+                    this.state.portfolio.dailyProfit += capitalChange;
+                } else {
+                    this.state.portfolio.dailyLoss += Math.abs(capitalChange);
+                }
             }
 
-            const isWin = capitalChange > 0;
-            asset.recentWinRate = asset.recentWinRate * 0.9 + (isWin ? 0.1 : 0);
-
-            this.state.portfolio.activePositions = this.state.portfolio.activePositions.filter(
-                p => p.contractId !== contractId
-            );
-
+            // Remove closed position
+            this.state.portfolio.activePositions.splice(positionIndex, 1);
             this.persistState();
-            return { capitalChange, asset, isWin };
+
+            return { capitalChange, asset: asset || { symbol: position.symbol || 'UNKNOWN' }, isWin: capitalChange > 0 };
         }
         return null;
     }
@@ -755,6 +769,24 @@ class RiskManager {
     }
 
     canOpenNewTrade() {
+        // Stale trade cleanup (24 hours)
+        const now = Date.now();
+        const staleThreshold = 24 * 3600000;
+        const initialCount = this.state.portfolio.activePositions.length;
+
+        this.state.portfolio.activePositions = this.state.portfolio.activePositions.filter(p => {
+            const age = now - (p.entryTime || 0);
+            if (age > staleThreshold) {
+                log('WARNING', `Removing stale trade: ${p.symbol || 'UNKNOWN'} (ID: ${p.contractId}) - open for ${Math.round(age / 3600000)}h`);
+                return false;
+            }
+            return true;
+        });
+
+        if (this.state.portfolio.activePositions.length !== initialCount) {
+            this.stateManager.persistState();
+        }
+
         const dailyLoss = this.state.portfolio.dailyLoss;
         const capital = this.state.capital;
         const maxDailyLoss = capital * (CONFIG.maxDailyLossPercent / 100);
@@ -1056,9 +1088,11 @@ class DerivAPI {
             return;
         }
 
+        const asset = this.state.assets[symbol];
         log('TRADE', `Requesting proposal for ${symbol} ${signal}`, {
             stake: `$${stake.toFixed(2)}`,
-            confidence: `${(confidence * 100).toFixed(1)}%`
+            confidence: `${(confidence * 100).toFixed(1)}%`,
+            winRate: `${(asset.recentWinRate * 100).toFixed(1)}%`
         });
 
         const reqId = this.send({
@@ -1084,36 +1118,46 @@ class DerivAPI {
 
         if (response.proposal) {
             log('TRADE', `Proposal received for ${request.symbol}, executing buy...`);
-            this.send({
+            const buyReqId = this.send({
                 buy: response.proposal.id,
                 price: request.stake
             });
-            this.pendingRequests.set(response.echo_req.req_id + 1, request);
+            if (buyReqId) {
+                this.pendingRequests.set(buyReqId, request);
+            }
         }
         this.pendingRequests.delete(reqId);
     }
 
     handleBuy(response) {
-        if (response.buy) {
-            const reqId = response.echo_req?.req_id;
-            const request = this.pendingRequests.get(reqId - 1) || {};
+        const reqId = response.echo_req?.req_id;
+        const request = this.pendingRequests.get(reqId);
 
+        if (response.buy && request) {
             const position = {
                 contractId: response.buy.contract_id,
-                symbol: request.symbol,
-                signal: request.signal,
-                amount: request.stake,
+                symbol: request.symbol || 'UNKNOWN',
+                signal: request.signal || 'UNKNOWN',
+                amount: request.stake || 0,
                 entryTime: Date.now()
             };
 
             this.stateManager.addPosition(position);
-            this.state.assets[request.symbol].dailyTrades++;
+
+            const asset = this.state.assets[request.symbol];
+            if (asset) {
+                asset.dailyTrades++;
+            }
 
             log('SUCCESS', `Trade executed: ${request.symbol} ${request.signal}`, {
                 contractId: response.buy.contract_id,
-                stake: `$${request.stake.toFixed(2)}`,
-                positions: this.state.portfolio.activePositions.length
+                stake: `$${(request.stake || 0).toFixed(2)}`,
+                totalActive: this.state.portfolio.activePositions.length
             });
+
+            // Log current active trades summary
+            const activeList = this.state.portfolio.activePositions.map(p => p.symbol).join(', ');
+            log('INFO', `Active trades: [${activeList}]`);
 
             // Send trade email
             this.emailManager.sendTradeEmail('OPEN', { ...request, contractId: response.buy.contract_id }, this.state);
@@ -1123,6 +1167,12 @@ class DerivAPI {
                 contract_id: response.buy.contract_id,
                 subscribe: 1
             });
+        } else if (response.error) {
+            log('ERROR', `Buy request failed for ${request?.symbol || 'unknown asset'}: ${response.error.message}`);
+        }
+
+        if (reqId) {
+            this.pendingRequests.delete(reqId);
         }
     }
 
@@ -1130,7 +1180,7 @@ class DerivAPI {
         const contract = response.proposal_open_contract;
         if (!contract || !contract.is_sold) return;
 
-        const profit = parseFloat(contract.profit);
+        const profit = parseFloat(contract.profit || 0);
         const result = this.stateManager.closePosition(contract.contract_id, profit);
 
         if (result) {
@@ -1156,6 +1206,17 @@ class DerivAPI {
             if (limitHit) {
                 this.emailManager.sendShutdownEmail(this.state, limitHit);
             }
+
+            // Log remaining active trades
+            const remaining = this.state.portfolio.activePositions.length;
+            if (remaining > 0) {
+                const activeList = this.state.portfolio.activePositions.map(p => p.symbol).join(', ');
+                log('INFO', `${remaining} active trades remaining: [${activeList}]`);
+            } else {
+                log('INFO', 'No active trades remaining');
+            }
+        } else {
+            log('WARNING', `Received update for unknown or already closed contract: ${contract.contract_id}`);
         }
     }
 
@@ -1206,6 +1267,18 @@ class DerivMultiAssetBot {
             // Send startup email
             await this.emailManager.sendStartupEmail(this.state);
 
+            // Re-subscribe to existing positions
+            if (this.state.portfolio.activePositions.length > 0) {
+                log('INFO', `Re-subscribing to ${this.state.portfolio.activePositions.length} active positions...`);
+                this.state.portfolio.activePositions.forEach(p => {
+                    this.apiClient.send({
+                        proposal_open_contract: 1,
+                        contract_id: p.contractId,
+                        subscribe: 1
+                    });
+                });
+            }
+
             // Asset scoring interval
             setInterval(() => {
                 if (this.state.isRunning) {
@@ -1243,6 +1316,7 @@ class DerivMultiAssetBot {
     logStatus() {
         const activeAssets = Object.values(this.state.assets).filter(a => a.isSubscribed).length;
         const uptime = this.stateManager.getUptimeString();
+        const activePositions = this.state.portfolio.activePositions;
 
         log('INFO', 'Status update', {
             uptime,
@@ -1250,10 +1324,20 @@ class DerivMultiAssetBot {
             dailyPnL: `$${(this.state.portfolio.dailyProfit - this.state.portfolio.dailyLoss).toFixed(2)}`,
             trades: this.state.portfolio.dailyTrades,
             signals: this.state.signalsDetected,
-            positions: this.state.portfolio.activePositions.length,
+            positionsCount: activePositions.length,
             activeAssets,
             topAssets: this.state.currentTopAssets.join(', ')
         });
+
+        if (activePositions.length > 0) {
+            log('TRADE', 'Current Active Positions:');
+            activePositions.forEach(p => {
+                const symbol = p.symbol || 'UNKNOWN';
+                const stake = p.amount ? `$${p.amount.toFixed(2)}` : 'N/A';
+                const entry = p.entryTime ? new Date(p.entryTime).toLocaleTimeString() : 'UNKNOWN';
+                log('TRADE', `  ▸ ${symbol}: Contract ${p.contractId} | Stake: ${stake} | Entry: ${entry}`);
+            });
+        }
     }
 
     async stop(reason = 'Unknown') {
