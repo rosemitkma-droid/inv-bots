@@ -1188,7 +1188,7 @@ class EnhancedDigitDifferTradingBot {
         console.log('🚀 Starting kInspired Accumulator Trading Bot with Learning System');
         console.log('Features: Adaptive filters, pattern recognition, volatility analysis');
         this.connect();
-        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
+        // this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
