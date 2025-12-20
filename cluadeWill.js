@@ -40,7 +40,7 @@ const CONFIG = {
     DAILY_LOSS_LIMIT: 0.25,              // 5% daily loss limit
     DAILY_PROFIT_TARGET: 0.25,          // 2.5% daily profit target
     PROFIT_LOCK_RATIO: 0.25,              // Lock 50% of gains
-    MAX_OPEN_POSITIONS: 5,
+    MAX_OPEN_POSITIONS: 50,
     TOP_ASSETS_TO_TRADE: 2, // Increased as requested earlier or implicitly by user preference
 
     // Martingale Settings
@@ -87,7 +87,7 @@ const ASSET_CONFIGS = {
         atrThreshold: 0.6,
         duration: 15,
         durationUnit: 'm',
-        maxTradesPerDay: 5,
+        maxTradesPerDay: 10,
         volatilityClass: 'low',
         tickSubscription: 'R_10',
         multiplier: 400
@@ -104,7 +104,7 @@ const ASSET_CONFIGS = {
         atrThreshold: 0.6,
         duration: 20,
         durationUnit: 'm',
-        maxTradesPerDay: 5,
+        maxTradesPerDay: 10,
         volatilityClass: 'medium-low',
         tickSubscription: 'R_25',
         multiplier: 400
@@ -121,7 +121,7 @@ const ASSET_CONFIGS = {
     //     atrThreshold: 0.6,
     //     duration: 20,
     //     durationUnit: 'm',
-    //     maxTradesPerDay: 5,
+    //     maxTradesPerDay: 10,
     //     volatilityClass: 'medium-low',
     //     tickSubscription: 'R_50',
     //     multiplier: 400
@@ -135,7 +135,7 @@ const ASSET_CONFIGS = {
     //     rsiThreshold: 35,
     //     duration: 30,
     //     durationUnit: 'm',
-    //     maxTradesPerDay: 5,
+    //     maxTradesPerDay: 10,
     //     volatilityClass: 'high',
     //     tickSubscription: 'R_75',
     //     multiplier: 400
@@ -152,7 +152,7 @@ const ASSET_CONFIGS = {
         atrThreshold: 0.6,
         duration: 30,
         durationUnit: 'm',
-        maxTradesPerDay: 5,
+        maxTradesPerDay: 10,
         volatilityClass: 'high',
         tickSubscription: 'R_100',
         multiplier: 400
@@ -169,7 +169,7 @@ const ASSET_CONFIGS = {
         atrThreshold: 0.6,
         duration: 5,
         durationUnit: 'm',
-        maxTradesPerDay: 5,
+        maxTradesPerDay: 10,
         volatilityClass: 'extreme',
         tickSubscription: 'BOOM1000',
         multiplier: 200
@@ -186,7 +186,7 @@ const ASSET_CONFIGS = {
         atrThreshold: 0.6,
         duration: 5,
         durationUnit: 'm',
-        maxTradesPerDay: 5,
+        maxTradesPerDay: 10,
         volatilityClass: 'extreme',
         tickSubscription: 'CRASH1000',
         multiplier: 200
@@ -278,6 +278,8 @@ const state = {
     portfolio: {
         dailyLoss: 0,
         dailyProfit: 0,
+        dailyWins: 0,
+        dailyLosses: 0,
         activePositions: [],
         topRankedAssets: [],
         lastRebalance: Date.now(),
@@ -300,6 +302,8 @@ Object.keys(ASSET_CONFIGS).forEach(symbol => {
         adx: 0,
         atr: 0,
         dailyTrades: 0,
+        dailyWins: 0,
+        dailyLosses: 0,
         dailyTradesPerDirection: { CALL: 0, PUT: 0 },
         consecutiveLosses: 0,
         cooldownUntil: 0,
@@ -328,7 +332,7 @@ class EmailManager {
         const mailOptions = {
             from: CONFIG.EMAIL_CONFIG.auth.user,
             to: CONFIG.EMAIL_RECIPIENT,
-            subject: `ClaudeINV Deriv Multi-Asset Bot - ${subject}`,
+            subject: `ClaudeWill Deriv Multi-Asset Bot - ${subject}`,
             text: text
         };
 
@@ -341,13 +345,15 @@ class EmailManager {
     }
 
     async sendSummary(isFinal = false) {
-        const winRate = (state.portfolio.dailyProfit + state.portfolio.dailyLoss) > 0
-            ? ((state.portfolio.dailyProfit / (state.portfolio.dailyProfit + state.portfolio.dailyLoss)) * 100).toFixed(2)
+        const totalTrades = state.portfolio.dailyWins + state.portfolio.dailyLosses;
+        const winRate = totalTrades > 0
+            ? ((state.portfolio.dailyWins / totalTrades) * 100).toFixed(2)
             : 0;
 
         const assetBreakdown = Object.entries(state.assets)
+            .filter(([_, data]) => data.dailyTrades > 0)
             .map(([symbol, data]) =>
-                `${symbol}: WinRate: ${(data.winRate * 100).toFixed(1)}% | Trades: ${data.dailyTrades}`
+                `${symbol}: Wins: ${data.dailyWins} | Losses: ${data.dailyLosses} | WR: ${(data.winRate * 100).toFixed(1)}% | Trades: ${data.dailyTrades}`
             ).join('\n');
 
         const summaryText = `
@@ -357,18 +363,24 @@ class EmailManager {
 
             Portfolio Performance:
             ---------------------
+            Total Trades: ${totalTrades}
+            Total Wins: ${state.portfolio.dailyWins}
+            Total Losses: ${state.portfolio.dailyLosses}
+            Win Rate: ${winRate}%
+
+            Financial Status:
+            ----------------
             Current Capital: $${state.capital.toFixed(2)}
             Daily Profit: $${state.portfolio.dailyProfit.toFixed(2)}
             Daily Loss: $${state.portfolio.dailyLoss.toFixed(2)}
             Locked Profit: $${state.lockedProfit.toFixed(2)}
-            Win Rate: ${winRate}%
 
             Active Positions: ${state.portfolio.activePositions.length}/${CONFIG.MAX_OPEN_POSITIONS}
             Top Ranked: ${state.portfolio.topRankedAssets.join(', ')}
             
             Per-Asset Breakdown:
             -------------------
-            ${assetBreakdown}
+            ${assetBreakdown || 'No trades yet today.'}
         `;
 
         await this.sendEmail(isFinal ? 'Final Report' : 'Summary Update', summaryText);
@@ -380,6 +392,7 @@ class EmailManager {
             LOSS ALERT - ${symbol}
             ====================
             Asset: ${symbol}
+            Wins/Losses Today: ${asset.dailyWins}/${asset.dailyLosses}
             Consecutive Losses: ${consecutiveLosses}
             Asset Win Rate: ${(asset.winRate * 100).toFixed(1)}%
             Daily Trades: ${asset.dailyTrades}
@@ -387,7 +400,7 @@ class EmailManager {
             Portfolio Status:
             ----------------
             Capital: $${state.capital.toFixed(2)}
-            Daily Loss: $${state.portfolio.dailyLoss.toFixed(2)}
+            Total Portfolio Loss: $${state.portfolio.dailyLoss.toFixed(2)}
 
             ${consecutiveLosses >= 3 ? '⚠️ Asset entering 4-hour cooldown' : ''}
         `;
@@ -923,9 +936,13 @@ class RiskManager {
         // Update daily stats
         if (profit > 0) {
             state.portfolio.dailyProfit += profit;
+            state.portfolio.dailyWins++;
+            assetState.dailyWins++;
             assetState.consecutiveLosses = 0;
         } else {
             state.portfolio.dailyLoss += Math.abs(profit);
+            state.portfolio.dailyLosses++;
+            assetState.dailyLosses++;
             assetState.consecutiveLosses++;
 
             // Apply cooldown after 3 consecutive losses
@@ -966,10 +983,14 @@ class RiskManager {
     static resetDailyCounters() {
         state.portfolio.dailyLoss = 0;
         state.portfolio.dailyProfit = 0;
+        state.portfolio.dailyWins = 0;
+        state.portfolio.dailyLosses = 0;
         state.lockedProfit = 0;
 
         Object.keys(state.assets).forEach(symbol => {
             state.assets[symbol].dailyTrades = 0;
+            state.assets[symbol].dailyWins = 0;
+            state.assets[symbol].dailyLosses = 0;
             state.assets[symbol].dailyTradesPerDirection = { CALL: 0, PUT: 0 };
         });
 
@@ -1209,26 +1230,6 @@ class ConnectionManager {
     processSignal(symbol, direction) {
         const assetState = state.assets[symbol];
 
-        // REVERSE LOGIC: Close opposite positions
-        const oppositeDir = direction === 'CALL' ? 'PUT' : 'CALL';
-
-        const activeOpposite = state.portfolio.activePositions.filter(p => p.symbol === symbol && p.direction === oppositeDir);
-
-        if (activeOpposite.length > 0) {
-            console.log(`🔄 Reversing trade for ${symbol}: Closing ${activeOpposite.length} ${oppositeDir} positions`);
-
-            // Closing logic for Multipliers (Sell the contract)
-            activeOpposite.forEach(position => {
-                if (position.contractId) {
-                    bot.connection.send({
-                        sell: position.contractId,
-                        price: 0 // Sell at market price
-                    });
-                    LOGGER.trade(`Selling opposite position ${position.contractId} on ${symbol}`);
-                }
-            });
-        }
-
         // Check RSI confirmation
         const config = ASSET_CONFIGS[symbol];
         let rsiConfirmed = false;
@@ -1245,30 +1246,30 @@ class ConnectionManager {
 
 
         //Check for ADX confirmation
-        let adxConfirmed = false;
-        if (direction === 'CALL' && assetState.adx > config.adxThreshold) {
-            adxConfirmed = true;
-        } else if (direction === 'PUT' && assetState.adx < (100 - config.adxThreshold)) {
-            adxConfirmed = true;
-        }
+        // let adxConfirmed = false;
+        // if (direction === 'CALL' && assetState.adx > config.adxThreshold) {
+        //     adxConfirmed = true;
+        // } else if (direction === 'PUT' && assetState.adx < (100 - config.adxThreshold)) {
+        //     adxConfirmed = true;
+        // }
 
-        if (!adxConfirmed) {
-            console.log(`⚠️  ${symbol} ${direction} signal rejected: ADX not confirmed (${assetState.adx.toFixed(1)})`);
-            return;
-        }
+        // if (!adxConfirmed) {
+        //     console.log(`⚠️  ${symbol} ${direction} signal rejected: ADX not confirmed (${assetState.adx.toFixed(1)})`);
+        //     return;
+        // }
 
         //Check for ATR confirmation
-        let atrConfirmed = false;
-        if (direction === 'CALL' && assetState.atr < config.atrThreshold) {
-            atrConfirmed = true;
-        } else if (direction === 'PUT' && assetState.atr > (100 - config.atrThreshold)) {
-            atrConfirmed = true;
-        }
+        // let atrConfirmed = false;
+        // if (direction === 'CALL' && assetState.atr < config.atrThreshold) {
+        //     atrConfirmed = true;
+        // } else if (direction === 'PUT' && assetState.atr > (100 - config.atrThreshold)) {
+        //     atrConfirmed = true;
+        // }
 
-        if (!atrConfirmed) {
-            console.log(`⚠️  ${symbol} ${direction} signal rejected: ATR not confirmed (${assetState.atr.toFixed(1)})`);
-            return;
-        }
+        // if (!atrConfirmed) {
+        //     console.log(`⚠️  ${symbol} ${direction} signal rejected: ATR not confirmed (${assetState.atr.toFixed(1)})`);
+        //     return;
+        // }
 
         // Calculate AI confidence
         const confidence = AIConfidenceModel.calculateConfidence(symbol, direction);
@@ -1287,6 +1288,25 @@ class ConnectionManager {
 
         console.log(`\n📈 WPR Signal: ${symbol} ${direction}`);
         console.log(`   WPR Prev: ${assetState.wprHistory[assetState.wprHistory.length - 2].toFixed(2)} -> Curr: ${assetState.wprHistory[assetState.wprHistory.length - 1].toFixed(2)}`);
+
+        // REVERSE LOGIC: Close opposite positions
+        const oppositeDir = direction === 'CALL' ? 'PUT' : 'CALL';
+        const activeOpposite = state.portfolio.activePositions.filter(p => p.symbol === symbol && p.direction === oppositeDir);
+
+        if (activeOpposite.length > 0) {
+            console.log(`🔄 Reversing trade for ${symbol}: Closing ${activeOpposite.length} ${oppositeDir} positions`);
+
+            // Closing logic for Multipliers (Sell the contract)
+            activeOpposite.forEach(position => {
+                if (position.contractId) {
+                    bot.connection.send({
+                        sell: position.contractId,
+                        price: 0 // Sell at market price
+                    });
+                    LOGGER.trade(`Selling opposite position ${position.contractId} on ${symbol}`);
+                }
+            });
+        }
 
         // Try to execute trade
         LOGGER.signal(`${symbol} ${direction} WPR Breakout (Confidence: 100%)`);
