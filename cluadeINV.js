@@ -44,7 +44,7 @@ const CONFIG = {
     TOP_ASSETS_TO_TRADE: 2,
 
     // Timing
-    ASSET_SCORING_INTERVAL: 5 * 60 * 1000,    // 5 minutes
+    ASSET_SCORING_INTERVAL: 1 * 60 * 1000,    // 1 minutes
     REBALANCE_INTERVAL: 4 * 60 * 60 * 1000,   // 4 hours
     COOLDOWN_PERIOD: 4 * 60 * 60 * 1000,      // 4 hours after 3 losses
     BLACKLIST_PERIOD: 48 * 60 * 60 * 1000,    // 48 hours
