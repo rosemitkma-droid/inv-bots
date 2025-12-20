@@ -1250,11 +1250,11 @@ class ConnectionManager {
 
         // Buy: Cross above -20 from below
         if (wprPrev <= -20 && wprCurr > -20) {
-            signal = 'CALL';
+            signal = 'PUT';
         }
         // Sell: Cross below -80 from above
         else if (wprPrev >= -80 && wprCurr < -80) {
-            signal = 'PUT';
+            signal = 'CALL';
         }
 
         if (signal !== 'none') {
