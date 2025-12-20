@@ -48,7 +48,7 @@ const CONFIG = {
     LOSSES_BEFORE_MARTINGALE: 1,
 
     // Timing
-    ASSET_SCORING_INTERVAL: 3 * 60 * 1000,    // 3 minutes
+    ASSET_SCORING_INTERVAL: 1 * 60 * 1000,    // 1 minutes
     REBALANCE_INTERVAL: 2 * 60 * 60 * 1000,   // 2 hours
     COOLDOWN_PERIOD: 2 * 60 * 60 * 1000,      // 2 hours after 3 losses
     BLACKLIST_PERIOD: 24 * 60 * 60 * 1000,    // 24 hours
