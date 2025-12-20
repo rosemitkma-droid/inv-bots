@@ -180,6 +180,41 @@ const ASSET_CONFIGS = {
         volatilityClass: 'extreme',
         tickSubscription: 'CRASH1000'
     },
+    // Cryptocurrencies
+    'cryBTCUSD': {
+        name: 'Bitcoin',
+        category: 'crypto',
+        emaShort: 10,
+        emaLong: 25,
+        rsiPeriod: 14,
+        rsiThreshold: 30,
+        adxPeriod: 14,
+        adxThreshold: 25,
+        atrThreshold: 0.6,
+        duration: 1,
+        durationUnit: 'h',
+        maxTradesPerDay: 10,
+        volatilityClass: 'high',
+        tickSubscription: 'cryBTCUSD',
+        multiplier: 100
+    },
+    'cryETHUSD': {
+        name: 'Ethereum',
+        category: 'crypto',
+        emaShort: 10,
+        emaLong: 25,
+        rsiPeriod: 14,
+        rsiThreshold: 30,
+        adxPeriod: 14,
+        adxThreshold: 25,
+        atrThreshold: 0.6,
+        duration: 1,
+        durationUnit: 'h',
+        maxTradesPerDay: 10,
+        volatilityClass: 'high',
+        tickSubscription: 'cryETHUSD',
+        multiplier: 100
+    },
     // Major Forex
     // 'frxEURUSD': {
     //     name: 'EUR/USD',
