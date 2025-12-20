@@ -267,6 +267,8 @@ const state = {
     portfolio: {
         dailyLoss: 0,
         dailyProfit: 0,
+        dailyWins: 0,
+        dailyLosses: 0,
         activePositions: [],
         topRankedAssets: [],
         lastRebalance: Date.now(),
@@ -277,6 +279,7 @@ const state = {
     pendingRequests: new Map(),
     requestId: 1
 };
+
 
 // Initialize asset states
 Object.keys(ASSET_CONFIGS).forEach(symbol => {
@@ -289,6 +292,8 @@ Object.keys(ASSET_CONFIGS).forEach(symbol => {
         adx: 0,
         atr: 0,
         dailyTrades: 0,
+        dailyWins: 0,
+        dailyLosses: 0,
         dailyTradesPerDirection: { CALL: 0, PUT: 0 },
         consecutiveLosses: 0,
         cooldownUntil: 0,
@@ -328,13 +333,15 @@ class EmailManager {
     }
 
     async sendSummary(isFinal = false) {
-        const winRate = (state.portfolio.dailyProfit + state.portfolio.dailyLoss) > 0
-            ? ((state.portfolio.dailyProfit / (state.portfolio.dailyProfit + state.portfolio.dailyLoss)) * 100).toFixed(2)
+        const totalTrades = state.portfolio.dailyWins + state.portfolio.dailyLosses;
+        const winRate = totalTrades > 0
+            ? ((state.portfolio.dailyWins / totalTrades) * 100).toFixed(2)
             : 0;
 
         const assetBreakdown = Object.entries(state.assets)
+            .filter(([_, data]) => data.dailyTrades > 0)
             .map(([symbol, data]) =>
-                `${symbol}: WinRate: ${(data.winRate * 100).toFixed(1)}% | Trades: ${data.dailyTrades}`
+                `${symbol}: Wins: ${data.dailyWins} | Losses: ${data.dailyLosses} | WR: ${(data.winRate * 100).toFixed(1)}% | Trades: ${data.dailyTrades}`
             ).join('\n');
 
         const summaryText = `
@@ -344,18 +351,24 @@ class EmailManager {
 
             Portfolio Performance:
             ---------------------
+            Total Trades: ${totalTrades}
+            Total Wins: ${state.portfolio.dailyWins}
+            Total Losses: ${state.portfolio.dailyLosses}
+            Win Rate: ${winRate}%
+
+            Financial Status:
+            ----------------
             Current Capital: $${state.capital.toFixed(2)}
             Daily Profit: $${state.portfolio.dailyProfit.toFixed(2)}
             Daily Loss: $${state.portfolio.dailyLoss.toFixed(2)}
             Locked Profit: $${state.lockedProfit.toFixed(2)}
-            Win Rate: ${winRate}%
 
             Active Positions: ${state.portfolio.activePositions.length}/${CONFIG.MAX_OPEN_POSITIONS}
             Top Ranked: ${state.portfolio.topRankedAssets.join(', ')}
             
             Per-Asset Breakdown:
             -------------------
-            ${assetBreakdown}
+            ${assetBreakdown || 'No trades yet today.'}
         `;
 
         await this.sendEmail(isFinal ? 'Final Report' : 'Summary Update', summaryText);
@@ -367,6 +380,7 @@ class EmailManager {
             LOSS ALERT - ${symbol}
             ====================
             Asset: ${symbol}
+            Wins/Losses Today: ${asset.dailyWins}/${asset.dailyLosses}
             Consecutive Losses: ${consecutiveLosses}
             Asset Win Rate: ${(asset.winRate * 100).toFixed(1)}%
             Daily Trades: ${asset.dailyTrades}
@@ -374,7 +388,7 @@ class EmailManager {
             Portfolio Status:
             ----------------
             Capital: $${state.capital.toFixed(2)}
-            Daily Loss: $${state.portfolio.dailyLoss.toFixed(2)}
+            Total Portfolio Loss: $${state.portfolio.dailyLoss.toFixed(2)}
 
             ${consecutiveLosses >= 3 ? '⚠️ Asset entering 4-hour cooldown' : ''}
         `;
@@ -911,9 +925,13 @@ class RiskManager {
         // Update daily stats
         if (profit > 0) {
             state.portfolio.dailyProfit += profit;
+            state.portfolio.dailyWins++;
+            assetState.dailyWins++;
             assetState.consecutiveLosses = 0;
         } else {
             state.portfolio.dailyLoss += Math.abs(profit);
+            state.portfolio.dailyLosses++;
+            assetState.dailyLosses++;
             assetState.consecutiveLosses++;
 
             // Apply cooldown after 3 consecutive losses
@@ -954,10 +972,14 @@ class RiskManager {
     static resetDailyCounters() {
         state.portfolio.dailyLoss = 0;
         state.portfolio.dailyProfit = 0;
+        state.portfolio.dailyWins = 0;
+        state.portfolio.dailyLosses = 0;
         state.lockedProfit = 0;
 
         Object.keys(state.assets).forEach(symbol => {
             state.assets[symbol].dailyTrades = 0;
+            state.assets[symbol].dailyWins = 0;
+            state.assets[symbol].dailyLosses = 0;
             state.assets[symbol].dailyTradesPerDirection = { CALL: 0, PUT: 0 };
         });
 
