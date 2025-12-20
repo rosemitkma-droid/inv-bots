@@ -2119,7 +2119,7 @@ class EnhancedDigitDifferTradingBot {
         console.log('═══════════════════════════════════════════════════════════');
         console.log('');
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        // this.checkTimeForDisconnectReconnect();
     }
 }
 
