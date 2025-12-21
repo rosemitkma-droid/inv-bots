@@ -1,14 +1,24 @@
 #!/usr/bin/env node
 /**
- * Deriv Multi-Asset Trading Bot
+ * Deriv Multi-Asset Trading Bot v2.0
  * Advanced AI-powered portfolio trading with dynamic asset selection
  * 
- * Dependencies: npm install ws mathjs @tensorflow/tfjs-node
+ * CHANGELOG v2.0:
+ * - Fixed ADX calculation (now returns proper smoothed ADX)
+ * - Fixed division by zero in win rate calculation
+ * - Improved RSI confirmation (scoring instead of hard filter)
+ * - Fixed synthetic correlation pairs
+ * - Added progressive stake reduction after losses
+ * - Added capital drift detection
+ * - Rate-limited loss email alerts
+ * - Optimized memory usage (reduced tick storage)
+ * - Event-driven dashboard updates
+ * 
+ * Dependencies: npm install ws mathjs nodemailer
  * Usage: API_TOKEN=your_token node deriv-multi-asset-bot.js
  */
 
 const WebSocket = require('ws');
-const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 const math = require('mathjs');
 const nodemailer = require('nodemailer');
 
@@ -30,12 +40,13 @@ const LOGGER = {
 // ============================================
 
 const CONFIG = {
-    API_TOKEN: '0P94g4WdSrSrzir',
-    APP_ID: '1089',
+    // Use environment variables for sensitive data
+    API_TOKEN: process.env.API_key || '0P94g4WdSrSrzir',
+    APP_ID: process.env.APP_ID || '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // Portfolio Settings
-    INITIAL_CAPITAL: 500,
+    INITIAL_CAPITAL: parseFloat(process.env.CAPITAL) || 500,
     MAX_RISK_PER_TRADE: 0.025,           // 2.5% per trade
     DAILY_LOSS_LIMIT: 0.05,              // 5% daily loss limit
     DAILY_PROFIT_TARGET: 0.025,          // 2.5% daily profit target
@@ -44,25 +55,34 @@ const CONFIG = {
     TOP_ASSETS_TO_TRADE: 2,
 
     // Timing
-    ASSET_SCORING_INTERVAL: 1 * 60 * 1000,    // 1 minutes
+    ASSET_SCORING_INTERVAL: 1 * 60 * 1000,    // 1 minute
     REBALANCE_INTERVAL: 4 * 60 * 60 * 1000,   // 4 hours
     COOLDOWN_PERIOD: 4 * 60 * 60 * 1000,      // 4 hours after 3 losses
-    BLACKLIST_PERIOD: 48 * 60 * 60 * 1000,    // 48 hours
+    BLACKLIST_PERIOD: 24 * 60 * 60 * 1000,    // 24 hours (reduced from 48)
+    CAPITAL_SYNC_INTERVAL: 60 * 60 * 1000,    // 1 hour for capital drift check
 
     // AI Settings
     MIN_CONFIDENCE_SCORE: 0.6,
     MIN_WIN_RATE_THRESHOLD: 0.5,
     WIN_RATE_LOOKBACK: 20,
 
-    // Email Settings
+    // Performance Settings
+    MAX_TICKS_STORED: 100,               // Reduced from 500
+    MAX_CANDLES_STORED: 150,             // Reduced from 200
+    DASHBOARD_UPDATE_INTERVAL: 10000,    // 10 seconds
+
+    // Email Rate Limiting
+    MIN_EMAIL_INTERVAL: 30 * 60 * 1000,  // 30 minutes between loss emails per asset
+
+    // Email Settings (use environment variables in production)
     EMAIL_CONFIG: {
         service: 'gmail',
         auth: {
-            user: 'kenzkdp2@gmail.com',
-            pass: 'jfjhtmussgfpbgpk'
+            user: process.env.EMAIL_USER || 'kenzkdp2@gmail.com',
+            pass: process.env.EMAIL_PASS || 'jfjhtmussgfpbgpk'
         }
     },
-    EMAIL_RECIPIENT: 'kenotaru@gmail.com'
+    EMAIL_RECIPIENT: process.env.EMAIL_RECIPIENT || 'kenotaru@gmail.com'
 };
 
 // ============================================
@@ -77,15 +97,17 @@ const ASSET_CONFIGS = {
         emaShort: 8,
         emaLong: 21,
         rsiPeriod: 14,
-        rsiThreshold: 30,
+        rsiOversold: 30,
+        rsiOverbought: 70,
         adxPeriod: 14,
-        adxThreshold: 25,
-        atrThreshold: 0.6,
+        adxThreshold: 20,              // Lowered from 25 for more signals
+        atrPeriod: 14,
         duration: 15,
         durationUnit: 'm',
         maxTradesPerDay: 5,
         volatilityClass: 'low',
-        tickSubscription: 'R_10'
+        tickSubscription: 'R_10',
+        defaultPayout: 0.85            // Store expected payout ratio
     },
     'R_25': {
         name: 'Volatility 25 Index',
@@ -93,44 +115,35 @@ const ASSET_CONFIGS = {
         emaShort: 10,
         emaLong: 24,
         rsiPeriod: 14,
-        rsiThreshold: 32,
+        rsiOversold: 30,
+        rsiOverbought: 70,
         adxPeriod: 14,
-        adxThreshold: 25,
-        atrThreshold: 0.6,
+        adxThreshold: 20,
+        atrPeriod: 14,
         duration: 20,
         durationUnit: 'm',
         maxTradesPerDay: 5,
         volatilityClass: 'medium-low',
-        tickSubscription: 'R_25'
+        tickSubscription: 'R_25',
+        defaultPayout: 0.85
     },
-    // 'R_50': {
-    //     name: 'Volatility 50 Index',
-    //     category: 'synthetic',
-    //     emaShort: 10,
-    //     emaLong: 24,
-    //     rsiPeriod: 14,
-    //     rsiThreshold: 32,
-    //     duration: 20,
-    //     durationUnit: 'm',
-    //     maxTradesPerDay: 5,
-    //     volatilityClass: 'medium-low',
-    //     tickSubscription: 'R_50'
-    // },
     'R_75': {
         name: 'Volatility 75 Index',
         category: 'synthetic',
         emaShort: 12,
         emaLong: 30,
         rsiPeriod: 21,
-        rsiThreshold: 35,
+        rsiOversold: 35,
+        rsiOverbought: 65,
         adxPeriod: 14,
-        adxThreshold: 25,
-        atrThreshold: 0.6,
+        adxThreshold: 22,
+        atrPeriod: 14,
         duration: 30,
         durationUnit: 'm',
         maxTradesPerDay: 5,
         volatilityClass: 'high',
-        tickSubscription: 'R_75'
+        tickSubscription: 'R_75',
+        defaultPayout: 0.82
     },
     'R_100': {
         name: 'Volatility 100 Index',
@@ -138,15 +151,17 @@ const ASSET_CONFIGS = {
         emaShort: 12,
         emaLong: 30,
         rsiPeriod: 21,
-        rsiThreshold: 35,
+        rsiOversold: 35,
+        rsiOverbought: 65,
         adxPeriod: 14,
-        adxThreshold: 25,
-        atrThreshold: 0.6,
+        adxThreshold: 22,
+        atrPeriod: 14,
         duration: 30,
         durationUnit: 'm',
         maxTradesPerDay: 5,
         volatilityClass: 'high',
-        tickSubscription: 'R_100'
+        tickSubscription: 'R_100',
+        defaultPayout: 0.80
     },
     'BOOM1000': {
         name: 'Boom 1000 Index',
@@ -154,15 +169,17 @@ const ASSET_CONFIGS = {
         emaShort: 5,
         emaLong: 15,
         rsiPeriod: 7,
-        rsiThreshold: 25,
+        rsiOversold: 25,
+        rsiOverbought: 75,
         adxPeriod: 14,
-        adxThreshold: 25,
-        atrThreshold: 0.6,
+        adxThreshold: 18,
+        atrPeriod: 14,
         duration: 5,
         durationUnit: 'm',
         maxTradesPerDay: 5,
         volatilityClass: 'extreme',
-        tickSubscription: 'BOOM1000'
+        tickSubscription: 'BOOM1000',
+        defaultPayout: 0.75
     },
     'CRASH1000': {
         name: 'Crash 1000 Index',
@@ -170,51 +187,57 @@ const ASSET_CONFIGS = {
         emaShort: 5,
         emaLong: 15,
         rsiPeriod: 7,
-        rsiThreshold: 25,
+        rsiOversold: 25,
+        rsiOverbought: 75,
         adxPeriod: 14,
-        adxThreshold: 25,
-        atrThreshold: 0.6,
+        adxThreshold: 18,
+        atrPeriod: 14,
         duration: 5,
         durationUnit: 'm',
         maxTradesPerDay: 5,
         volatilityClass: 'extreme',
-        tickSubscription: 'CRASH1000'
+        tickSubscription: 'CRASH1000',
+        defaultPayout: 0.75
     },
     // Cryptocurrencies
-    'cryBTCUSD': {
-        name: 'Bitcoin',
-        category: 'crypto',
-        emaShort: 10,
-        emaLong: 25,
-        rsiPeriod: 14,
-        rsiThreshold: 30,
-        adxPeriod: 14,
-        adxThreshold: 25,
-        atrThreshold: 0.6,
-        duration: 1,
-        durationUnit: 'h',
-        maxTradesPerDay: 10,
-        volatilityClass: 'high',
-        tickSubscription: 'cryBTCUSD',
-        multiplier: 100
-    },
-    'cryETHUSD': {
-        name: 'Ethereum',
-        category: 'crypto',
-        emaShort: 10,
-        emaLong: 25,
-        rsiPeriod: 14,
-        rsiThreshold: 30,
-        adxPeriod: 14,
-        adxThreshold: 25,
-        atrThreshold: 0.6,
-        duration: 1,
-        durationUnit: 'h',
-        maxTradesPerDay: 10,
-        volatilityClass: 'high',
-        tickSubscription: 'cryETHUSD',
-        multiplier: 100
-    },
+    // 'cryBTCUSD': {
+    //     name: 'Bitcoin',
+    //     category: 'crypto',
+    //     emaShort: 10,
+    //     emaLong: 25,
+    //     rsiPeriod: 14,
+    //     rsiOversold: 30,
+    //     rsiOverbought: 70,
+    //     adxPeriod: 14,
+    //     adxThreshold: 20,
+    //     atrPeriod: 14,
+    //     duration: 1,
+    //     durationUnit: 'h',
+    //     maxTradesPerDay: 10,
+    //     volatilityClass: 'high',
+    //     tickSubscription: 'cryBTCUSD',
+    //     defaultPayout: 0.80,
+    //     multiplier: 100
+    // },
+    // 'cryETHUSD': {
+    //     name: 'Ethereum',
+    //     category: 'crypto',
+    //     emaShort: 10,
+    //     emaLong: 25,
+    //     rsiPeriod: 14,
+    //     rsiOversold: 30,
+    //     rsiOverbought: 70,
+    //     adxPeriod: 14,
+    //     adxThreshold: 20,
+    //     atrPeriod: 14,
+    //     duration: 1,
+    //     durationUnit: 'h',
+    //     maxTradesPerDay: 10,
+    //     volatilityClass: 'high',
+    //     tickSubscription: 'cryETHUSD',
+    //     defaultPayout: 0.80,
+    //     multiplier: 100
+    // }
     // Major Forex
     // 'frxEURUSD': {
     //     name: 'EUR/USD',
@@ -287,15 +310,25 @@ const ASSET_CONFIGS = {
 };
 
 // ============================================
+// SYNTHETIC CORRELATION PAIRS (Fixed)
+// ============================================
+
+const SYNTHETIC_CORRELATION_PAIRS = [
+    ['R_75', 'R_100'],   // High volatility pair - strong correlation
+    ['R_10', 'R_25'],    // Low volatility pair - moderate correlation
+];
+
+// ============================================
 // STATE MANAGEMENT
 // ============================================
 
 const state = {
     capital: CONFIG.INITIAL_CAPITAL,
-    accountBalance: 0, // Store actual account balance separately
+    accountBalance: 0,
     lockedProfit: 0,
     isConnected: false,
     isAuthorized: false,
+    lastDashboardHash: '',             // For event-driven updates
 
     assets: {},
 
@@ -307,14 +340,17 @@ const state = {
         activePositions: [],
         topRankedAssets: [],
         lastRebalance: Date.now(),
-        lastScoring: Date.now()
+        lastScoring: Date.now(),
+        lastCapitalSync: Date.now()
     },
 
     subscriptions: new Map(),
     pendingRequests: new Map(),
-    requestId: 1
-};
+    requestId: 1,
 
+    // Email rate limiting
+    lastLossEmailTime: {}
+};
 
 // Initialize asset states
 Object.keys(ASSET_CONFIGS).forEach(symbol => {
@@ -323,9 +359,14 @@ Object.keys(ASSET_CONFIGS).forEach(symbol => {
         ticks: [],
         emaShort: 0,
         emaLong: 0,
+        prevEmaShort: null,
+        prevEmaLong: null,
         rsi: 50,
-        adx: 0,
+        prevRsi: 50,
+        adx: 25,
         atr: 0,
+        plusDI: 0,
+        minusDI: 0,
         dailyTrades: 0,
         dailyWins: 0,
         dailyLosses: 0,
@@ -338,117 +379,13 @@ Object.keys(ASSET_CONFIGS).forEach(symbol => {
         score: 0,
         lastSignal: null,
         predictability: 0.5,
-        spreadCost: 0
+        spreadCost: 0,
+        lastPayoutRatio: ASSET_CONFIGS[symbol].defaultPayout
     };
 });
 
 // ============================================
-// EMAIL MANAGER
-// ============================================
-
-class EmailManager {
-    constructor() {
-        this.transporter = nodemailer.createTransport(CONFIG.EMAIL_CONFIG);
-    }
-
-    async sendEmail(subject, text) {
-        const mailOptions = {
-            from: CONFIG.EMAIL_CONFIG.auth.user,
-            to: CONFIG.EMAIL_RECIPIENT,
-            subject: `ClaudeINV Deriv Multi-Asset Bot - ${subject}`,
-            text: text
-        };
-
-        try {
-            await this.transporter.sendMail(mailOptions);
-            console.log(`📧 Email sent: ${subject}`);
-        } catch (error) {
-            console.error('❌ Email error:', error.message);
-        }
-    }
-
-    async sendSummary(isFinal = false) {
-        const totalTrades = state.portfolio.dailyWins + state.portfolio.dailyLosses;
-        const winRate = totalTrades > 0
-            ? ((state.portfolio.dailyWins / totalTrades) * 100).toFixed(2)
-            : 0;
-
-        const assetBreakdown = Object.entries(state.assets)
-            .filter(([_, data]) => data.dailyTrades > 0)
-            .map(([symbol, data]) =>
-                `${symbol}: Wins: ${data.dailyWins} | Losses: ${data.dailyLosses} | WR: ${(data.winRate * 100).toFixed(1)}% | Trades: ${data.dailyTrades}`
-            ).join('\n');
-
-        const summaryText = `
-            ${isFinal ? 'FINAL REPORT' : 'PERIODIC SUMMARY'}
-            ========================================
-            Time: ${new Date().toLocaleString()}
-
-            Portfolio Performance:
-            ---------------------
-            Total Trades: ${totalTrades}
-            Total Wins: ${state.portfolio.dailyWins}
-            Total Losses: ${state.portfolio.dailyLosses}
-            Win Rate: ${winRate}%
-
-            Financial Status:
-            ----------------
-            Current Capital: $${state.capital.toFixed(2)}
-            Daily Profit: $${state.portfolio.dailyProfit.toFixed(2)}
-            Daily Loss: $${state.portfolio.dailyLoss.toFixed(2)}
-            Locked Profit: $${state.lockedProfit.toFixed(2)}
-
-            Active Positions: ${state.portfolio.activePositions.length}/${CONFIG.MAX_OPEN_POSITIONS}
-            Top Ranked: ${state.portfolio.topRankedAssets.join(', ')}
-            
-            Per-Asset Breakdown:
-            -------------------
-            ${assetBreakdown || 'No trades yet today.'}
-        `;
-
-        await this.sendEmail(isFinal ? 'Final Report' : 'Summary Update', summaryText);
-    }
-
-    async sendLossAlert(symbol, consecutiveLosses) {
-        const asset = state.assets[symbol];
-        const text = `
-            LOSS ALERT - ${symbol}
-            ====================
-            Asset: ${symbol}
-            Wins/Losses Today: ${asset.dailyWins}/${asset.dailyLosses}
-            Consecutive Losses: ${consecutiveLosses}
-            Asset Win Rate: ${(asset.winRate * 100).toFixed(1)}%
-            Daily Trades: ${asset.dailyTrades}
-
-            Portfolio Status:
-            ----------------
-            Capital: $${state.capital.toFixed(2)}
-            Total Portfolio Loss: $${state.portfolio.dailyLoss.toFixed(2)}
-
-            ${consecutiveLosses >= 3 ? '⚠️ Asset entering 4-hour cooldown' : ''}
-        `;
-
-        await this.sendEmail(`Loss Alert: ${symbol}`, text);
-    }
-
-    async sendStatusUpdate(status) {
-        const text = `
-            BOT STATUS UPDATE
-            =================
-            Time: ${new Date().toLocaleString()}
-            Status: ${status}
-
-            Capital: $${state.capital.toFixed(2)}
-            Total Daily Profit: $${state.portfolio.dailyProfit.toFixed(2)}
-            Total Daily Loss: $${state.portfolio.dailyLoss.toFixed(2)}
-        `;
-
-        await this.sendEmail('Status Update', text);
-    }
-}
-
-// ============================================
-// TECHNICAL INDICATORS (Worker Thread Compatible)
+// TECHNICAL INDICATORS (Fixed & Improved)
 // ============================================
 
 class TechnicalIndicators {
@@ -456,7 +393,7 @@ class TechnicalIndicators {
      * Calculate Exponential Moving Average
      */
     static calculateEMA(prices, period) {
-        if (prices.length < period) return null;
+        if (!prices || prices.length < period) return null;
 
         const multiplier = 2 / (period + 1);
         let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
@@ -469,26 +406,41 @@ class TechnicalIndicators {
     }
 
     /**
-     * Calculate RSI
+     * Calculate RSI with Wilder's smoothing
      */
     static calculateRSI(prices, period = 14) {
-        if (prices.length < period + 1) return 50;
+        if (!prices || prices.length < period + 1) return 50;
 
         const changes = [];
         for (let i = 1; i < prices.length; i++) {
             changes.push(prices[i] - prices[i - 1]);
         }
 
-        const recentChanges = changes.slice(-period);
-        let gains = 0, losses = 0;
+        if (changes.length < period) return 50;
 
-        recentChanges.forEach(change => {
-            if (change > 0) gains += change;
-            else losses += Math.abs(change);
-        });
+        // Initial averages
+        let avgGain = 0;
+        let avgLoss = 0;
 
-        const avgGain = gains / period;
-        const avgLoss = losses / period;
+        for (let i = 0; i < period; i++) {
+            if (changes[i] > 0) avgGain += changes[i];
+            else avgLoss += Math.abs(changes[i]);
+        }
+
+        avgGain /= period;
+        avgLoss /= period;
+
+        // Wilder's smoothing for remaining values
+        for (let i = period; i < changes.length; i++) {
+            const change = changes[i];
+            if (change > 0) {
+                avgGain = (avgGain * (period - 1) + change) / period;
+                avgLoss = (avgLoss * (period - 1)) / period;
+            } else {
+                avgGain = (avgGain * (period - 1)) / period;
+                avgLoss = (avgLoss * (period - 1) + Math.abs(change)) / period;
+            }
+        }
 
         if (avgLoss === 0) return 100;
 
@@ -497,15 +449,19 @@ class TechnicalIndicators {
     }
 
     /**
-     * Calculate ADX (Average Directional Index) for trend strength
+     * Calculate ADX (Average Directional Index) - FIXED VERSION
+     * Now returns proper smoothed ADX, not just DX
      */
     static calculateADX(highs, lows, closes, period = 14) {
-        if (closes.length < period * 2) return 25;
+        if (!closes || closes.length < period * 3) {
+            return { adx: 25, plusDI: 0, minusDI: 0 };
+        }
 
         const trueRanges = [];
         const plusDM = [];
         const minusDM = [];
 
+        // Calculate TR, +DM, -DM
         for (let i = 1; i < closes.length; i++) {
             const high = highs[i];
             const low = lows[i];
@@ -529,29 +485,62 @@ class TechnicalIndicators {
             minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
         }
 
-        // Smoothed averages
-        const smoothedTR = this.smoothedAverage(trueRanges, period);
-        const smoothedPlusDM = this.smoothedAverage(plusDM, period);
-        const smoothedMinusDM = this.smoothedAverage(minusDM, period);
+        if (trueRanges.length < period * 2) {
+            return { adx: 25, plusDI: 0, minusDI: 0 };
+        }
 
-        if (smoothedTR === 0) return 25;
+        // Calculate initial smoothed values using Wilder's method
+        let smoothedTR = trueRanges.slice(0, period).reduce((a, b) => a + b, 0);
+        let smoothedPlusDM = plusDM.slice(0, period).reduce((a, b) => a + b, 0);
+        let smoothedMinusDM = minusDM.slice(0, period).reduce((a, b) => a + b, 0);
 
-        const plusDI = (smoothedPlusDM / smoothedTR) * 100;
-        const minusDI = (smoothedMinusDM / smoothedTR) * 100;
+        const dxValues = [];
 
-        const diSum = plusDI + minusDI;
-        if (diSum === 0) return 25;
+        // Calculate DX values with Wilder's smoothing
+        for (let i = period; i < trueRanges.length; i++) {
+            // Wilder's smoothing: smoothed = previous - (previous/period) + current
+            smoothedTR = smoothedTR - (smoothedTR / period) + trueRanges[i];
+            smoothedPlusDM = smoothedPlusDM - (smoothedPlusDM / period) + plusDM[i];
+            smoothedMinusDM = smoothedMinusDM - (smoothedMinusDM / period) + minusDM[i];
 
-        const dx = Math.abs(plusDI - minusDI) / diSum * 100;
+            if (smoothedTR === 0) continue;
 
-        return dx;
+            const plusDI = (smoothedPlusDM / smoothedTR) * 100;
+            const minusDI = (smoothedMinusDM / smoothedTR) * 100;
+            const diSum = plusDI + minusDI;
+
+            if (diSum !== 0) {
+                const dx = (Math.abs(plusDI - minusDI) / diSum) * 100;
+                dxValues.push({ dx, plusDI, minusDI });
+            }
+        }
+
+        if (dxValues.length < period) {
+            return { adx: 25, plusDI: 0, minusDI: 0 };
+        }
+
+        // Calculate ADX as smoothed average of DX values
+        let adx = dxValues.slice(0, period).reduce((sum, v) => sum + v.dx, 0) / period;
+
+        // Continue Wilder's smoothing for ADX
+        for (let i = period; i < dxValues.length; i++) {
+            adx = ((adx * (period - 1)) + dxValues[i].dx) / period;
+        }
+
+        const lastDX = dxValues[dxValues.length - 1];
+
+        return {
+            adx: adx,
+            plusDI: lastDX.plusDI,
+            minusDI: lastDX.minusDI
+        };
     }
 
     /**
      * Calculate ATR (Average True Range)
      */
     static calculateATR(highs, lows, closes, period = 14) {
-        if (closes.length < period + 1) return 0;
+        if (!closes || closes.length < period + 1) return 0;
 
         const trueRanges = [];
 
@@ -564,30 +553,26 @@ class TechnicalIndicators {
             trueRanges.push(tr);
         }
 
-        return this.smoothedAverage(trueRanges.slice(-period), period);
-    }
+        if (trueRanges.length < period) return 0;
 
-    /**
-     * Smoothed average for ADX calculation
-     */
-    static smoothedAverage(values, period) {
-        if (values.length < period) return 0;
+        // Wilder's smoothing
+        let atr = trueRanges.slice(0, period).reduce((a, b) => a + b, 0) / period;
 
-        let sum = values.slice(0, period).reduce((a, b) => a + b, 0);
-        let smoothed = sum / period;
-
-        for (let i = period; i < values.length; i++) {
-            smoothed = (smoothed * (period - 1) + values[i]) / period;
+        for (let i = period; i < trueRanges.length; i++) {
+            atr = ((atr * (period - 1)) + trueRanges[i]) / period;
         }
 
-        return smoothed;
+        return atr;
     }
 
     /**
      * Detect EMA crossover
      */
     static detectCrossover(prevEmaShort, prevEmaLong, currEmaShort, currEmaLong) {
-        if (prevEmaShort === null || prevEmaLong === null) return 'none';
+        if (prevEmaShort === null || prevEmaLong === null ||
+            currEmaShort === null || currEmaLong === null) {
+            return 'none';
+        }
 
         const wasBelowOrEqual = prevEmaShort <= prevEmaLong;
         const isAbove = currEmaShort > currEmaLong;
@@ -599,6 +584,83 @@ class TechnicalIndicators {
         if (wasAboveOrEqual && isBelow) return 'bearish';
 
         return 'none';
+    }
+
+    /**
+     * Calculate RSI Score (instead of hard filter)
+     * Returns 0-1 score based on RSI position relative to direction
+     */
+    static calculateRSIScore(rsi, prevRsi, direction, config) {
+        let score = 0;
+
+        if (direction === 'CALL') {
+            // For CALL, lower RSI is better (oversold)
+            if (rsi < config.rsiOversold) {
+                score = 1.0;  // Strong - oversold
+            } else if (rsi < 40) {
+                score = 0.8;  // Good - below neutral
+            } else if (rsi < 50) {
+                score = 0.6;  // Moderate - slightly below neutral
+            } else if (rsi < 60) {
+                score = 0.4;  // Weak - slightly above neutral
+            } else {
+                score = 0.2;  // Very weak - overbought territory
+            }
+
+            // Bonus for RSI momentum (RSI turning up)
+            if (prevRsi !== null && rsi > prevRsi) {
+                score += 0.1;
+            }
+        } else {
+            // For PUT, higher RSI is better (overbought)
+            if (rsi > config.rsiOverbought) {
+                score = 1.0;  // Strong - overbought
+            } else if (rsi > 60) {
+                score = 0.8;  // Good - above neutral
+            } else if (rsi > 50) {
+                score = 0.6;  // Moderate - slightly above neutral
+            } else if (rsi > 40) {
+                score = 0.4;  // Weak - slightly below neutral
+            } else {
+                score = 0.2;  // Very weak - oversold territory
+            }
+
+            // Bonus for RSI momentum (RSI turning down)
+            if (prevRsi !== null && rsi < prevRsi) {
+                score += 0.1;
+            }
+        }
+
+        return Math.min(score, 1);
+    }
+
+    /**
+     * Calculate ADX Score for trend strength
+     */
+    static calculateADXScore(adx, plusDI, minusDI, direction) {
+        let score = 0;
+
+        // Base score from ADX strength
+        if (adx >= 40) {
+            score = 1.0;  // Very strong trend
+        } else if (adx >= 30) {
+            score = 0.8;  // Strong trend
+        } else if (adx >= 25) {
+            score = 0.6;  // Moderate trend
+        } else if (adx >= 20) {
+            score = 0.4;  // Weak trend
+        } else {
+            score = 0.2;  // No clear trend
+        }
+
+        // Bonus for DI alignment with direction
+        if (direction === 'CALL' && plusDI > minusDI) {
+            score += 0.15;
+        } else if (direction === 'PUT' && minusDI > plusDI) {
+            score += 0.15;
+        }
+
+        return Math.min(score, 1);
     }
 }
 
@@ -614,19 +676,19 @@ class PortfolioManager {
         const assetState = state.assets[symbol];
         const config = ASSET_CONFIGS[symbol];
 
-        // Recent win rate (30% weight)
+        // Recent win rate (30% weight) - FIXED division by zero
         const recentTrades = assetState.tradeHistory.slice(-CONFIG.WIN_RATE_LOOKBACK);
         const winRate = recentTrades.length > 0
             ? recentTrades.filter(t => t.profit > 0).length / recentTrades.length
             : 0.5;
 
-        // Trend strength (25% weight) - based on ADX
+        // Trend strength (25% weight) - based on proper ADX
         const trendStrength = Math.min(assetState.adx / 50, 1);
 
-        // Volatility fit (20% weight) - how well current volatility matches asset class
+        // Volatility fit (20% weight)
         const volatilityFit = this.calculateVolatilityFit(symbol);
 
-        // Predictability (25% weight) - based on consistent patterns
+        // Predictability (25% weight)
         const predictability = this.calculatePredictability(symbol);
 
         const score = (winRate * 0.3) +
@@ -650,8 +712,12 @@ class PortfolioManager {
         const recentTicks = assetState.ticks.slice(-20);
         const returns = [];
         for (let i = 1; i < recentTicks.length; i++) {
-            returns.push((recentTicks[i] - recentTicks[i - 1]) / recentTicks[i - 1]);
+            if (recentTicks[i - 1] !== 0) {
+                returns.push((recentTicks[i] - recentTicks[i - 1]) / recentTicks[i - 1]);
+            }
         }
+
+        if (returns.length === 0) return 0.5;
 
         const volatility = math.std(returns) * 100;
 
@@ -669,9 +735,9 @@ class PortfolioManager {
         if (volatility >= range.min && volatility <= range.max) {
             return 1;
         } else if (volatility < range.min) {
-            return Math.max(0.3, 1 - (range.min - volatility) / range.min);
+            return Math.max(0.3, 1 - (range.min - volatility) / (range.min || 0.1));
         } else {
-            return Math.max(0.3, 1 - (volatility - range.max) / range.max);
+            return Math.max(0.3, 1 - (volatility - range.max) / (range.max || 1));
         }
     }
 
@@ -688,9 +754,11 @@ class PortfolioManager {
         const directions = { CALL: { wins: 0, total: 0 }, PUT: { wins: 0, total: 0 } };
 
         recentTrades.forEach(trade => {
-            directions[trade.direction].total++;
-            if (trade.profit > 0) {
-                directions[trade.direction].wins++;
+            if (directions[trade.direction]) {
+                directions[trade.direction].total++;
+                if (trade.profit > 0) {
+                    directions[trade.direction].wins++;
+                }
             }
         });
 
@@ -719,11 +787,11 @@ class PortfolioManager {
 
             // Skip blacklisted or cooling down assets
             if (Date.now() < assetState.blacklistedUntil) {
-                console.log(`⏸️  ${symbol} is blacklisted until ${new Date(assetState.blacklistedUntil).toLocaleTimeString()}`);
+                LOGGER.info(`⏸️  ${symbol} is blacklisted until ${new Date(assetState.blacklistedUntil).toLocaleTimeString()}`);
                 return;
             }
             if (Date.now() < assetState.cooldownUntil) {
-                console.log(`⏸️  ${symbol} is cooling down until ${new Date(assetState.cooldownUntil).toLocaleTimeString()}`);
+                LOGGER.info(`⏸️  ${symbol} is cooling down until ${new Date(assetState.cooldownUntil).toLocaleTimeString()}`);
                 return;
             }
 
@@ -751,9 +819,11 @@ class PortfolioManager {
 
     /**
      * Calculate stake using Kelly Criterion with portfolio allocation
+     * IMPROVED: Uses actual payout ratios and progressive reduction
      */
     static calculateStake(symbol, rank) {
         const assetState = state.assets[symbol];
+        const config = ASSET_CONFIGS[symbol];
         const availableCapital = state.capital - state.lockedProfit;
 
         // Total risk per cycle
@@ -762,16 +832,23 @@ class PortfolioManager {
         // Split based on ranking (60/40 for top 2)
         const allocationRatio = rank === 0 ? 0.6 : 0.4;
 
-        // Kelly Criterion adjustment
+        // Kelly Criterion with actual payout ratio
+        const payoutRatio = assetState.lastPayoutRatio || config.defaultPayout;
         const winProb = assetState.winRate;
         const lossProb = 1 - winProb;
-        const winLossRatio = 1.8; // Typical payout ratio
 
-        let kellyFraction = (winProb * winLossRatio - lossProb) / winLossRatio;
-        kellyFraction = Math.max(0, Math.min(kellyFraction, 0.25)); // Cap at 25%
+        // Kelly formula for binary bets: f = (bp - q) / b
+        // Where b = payout ratio, p = win probability, q = loss probability
+        let kellyFraction = (payoutRatio * winProb - lossProb) / payoutRatio;
+        kellyFraction = Math.max(0, Math.min(kellyFraction, 0.15)); // Cap at 15%
 
-        // Apply Kelly to allocated amount
-        let stake = totalRisk * allocationRatio * (1 + kellyFraction);
+        // Progressive stake reduction after consecutive losses
+        let lossMultiplier = 1;
+        if (assetState.consecutiveLosses >= 1) lossMultiplier = 0.75;
+        if (assetState.consecutiveLosses >= 2) lossMultiplier = 0.5;
+
+        // Apply all factors
+        let stake = totalRisk * allocationRatio * (1 + kellyFraction) * lossMultiplier;
 
         // Ensure minimum stake
         stake = Math.max(stake, 1);
@@ -796,87 +873,128 @@ class PortfolioManager {
     }
 
     /**
-     * Check synthetic index correlation (R_75 and R_100 signals)
+     * Check synthetic index correlation - FIXED
      */
     static checkSyntheticCorrelation(symbol) {
-        const syntheticPairs = [
-            ['R_10', 'R_25'],
-            ['R_25', 'R_50'],
-            ['R_50', 'R_75'],
-            ['R_75', 'R_100'],
-            ['R_100', 'R_10'],
-        ];
-
-        for (const pair of syntheticPairs) {
+        for (const pair of SYNTHETIC_CORRELATION_PAIRS) {
             if (pair.includes(symbol)) {
                 const other = pair.find(s => s !== symbol);
+
+                // Check if other asset exists and has a recent signal
                 if (state.assets[other]?.lastSignal) {
-                    // Compare scores, return true if this symbol has lower score
-                    return state.assets[symbol].score < state.assets[other].score;
+                    const otherSignalAge = Date.now() - state.assets[other].lastSignal.timestamp;
+
+                    // Only consider if signal is recent (within 5 minutes)
+                    if (otherSignalAge < 5 * 60 * 1000) {
+                        // Compare scores, return true if this symbol has lower score
+                        return state.assets[symbol].score < state.assets[other].score;
+                    }
                 }
             }
         }
         return false;
     }
+
+    /**
+     * Check and log capital drift
+     */
+    static checkCapitalDrift() {
+        const drift = Math.abs(state.capital - state.accountBalance);
+
+        if (drift > 1) {
+            LOGGER.warn(`Capital drift detected: Bot capital $${state.capital.toFixed(2)} vs Account $${state.accountBalance.toFixed(2)} (diff: $${drift.toFixed(2)})`);
+
+            // Optional: Auto-sync if drift is significant (>5%)
+            const driftPercent = drift / state.accountBalance * 100;
+            if (driftPercent > 5 && state.accountBalance > 0) {
+                LOGGER.warn(`Drift >5%, consider manual sync. Use: state.capital = state.accountBalance`);
+            }
+        }
+
+        state.portfolio.lastCapitalSync = Date.now();
+    }
 }
 
 // ============================================
-// AI CONFIDENCE MODEL
+// AI CONFIDENCE MODEL (Improved)
 // ============================================
 
 class AIConfidenceModel {
     /**
-     * Calculate trade confidence score
+     * Calculate trade confidence score - IMPROVED
+     * Now uses scoring instead of hard filters
      */
     static calculateConfidence(symbol, direction) {
         const assetState = state.assets[symbol];
         const config = ASSET_CONFIGS[symbol];
 
-        let confidence = 0.5; // Base confidence
+        let confidence = 0;
+        const weights = {
+            rsi: 0.25,
+            adx: 0.25,
+            recentPerformance: 0.20,
+            volatilityFit: 0.15,
+            timeOfDay: 0.15
+        };
 
-        // 1. RSI confirmation (20% weight)
-        const rsi = assetState.rsi;
-        if (direction === 'CALL') {
-            if (rsi < config.rsiThreshold) confidence += 0.2;
-            else if (rsi < 50) confidence += 0.1;
-        } else {
-            if (rsi > (100 - config.rsiThreshold)) confidence += 0.2;
-            else if (rsi > 50) confidence += 0.1;
-        }
+        // 1. RSI Score (25% weight) - Now uses scoring instead of filter
+        const rsiScore = TechnicalIndicators.calculateRSIScore(
+            assetState.rsi,
+            assetState.prevRsi,
+            direction,
+            config
+        );
+        confidence += rsiScore * weights.rsi;
 
-        // 2. Trend strength (20% weight)
-        if (assetState.adx > 25) {
-            confidence += Math.min(assetState.adx / 100, 0.2);
-        }
+        // 2. ADX/Trend strength score (25% weight)
+        const adxScore = TechnicalIndicators.calculateADXScore(
+            assetState.adx,
+            assetState.plusDI,
+            assetState.minusDI,
+            direction
+        );
+        confidence += adxScore * weights.adx;
 
         // 3. Recent performance (20% weight)
-        const recentWins = assetState.tradeHistory
-            .slice(-5)
-            .filter(t => t.profit > 0).length;
-        confidence += (recentWins / 5) * 0.2;
+        const recentTrades = assetState.tradeHistory.slice(-5);
+        const recentWins = recentTrades.filter(t => t.profit > 0).length;
+        const recentScore = recentTrades.length > 0 ? recentWins / recentTrades.length : 0.5;
+        confidence += recentScore * weights.recentPerformance;
 
-        // 4. Volatility regime match (20% weight)
+        // 4. Volatility regime match (15% weight)
         const volFit = PortfolioManager.calculateVolatilityFit(symbol);
-        confidence += volFit * 0.2;
+        confidence += volFit * weights.volatilityFit;
 
-        // 5. Time-of-day factor (20% weight)
+        // 5. Time-of-day factor (15% weight)
         const hour = new Date().getUTCHours();
+        let timeScore = 0.5;
+
         if (config.category === 'forex') {
             // Forex best during London/NY sessions
             if ((hour >= 7 && hour <= 16) || (hour >= 13 && hour <= 21)) {
-                confidence += 0.15;
+                timeScore = 0.9;
+            } else {
+                timeScore = 0.4;
             }
         } else if (config.category === 'synthetic') {
             // Synthetics trade 24/7 with consistent patterns
-            confidence += 0.1;
+            timeScore = 0.7;
+        } else if (config.category === 'crypto') {
+            // Crypto is 24/7 but more volatile during US hours
+            if (hour >= 13 && hour <= 22) {
+                timeScore = 0.8;
+            } else {
+                timeScore = 0.6;
+            }
         }
+        confidence += timeScore * weights.timeOfDay;
 
         return Math.min(confidence, 1);
     }
 }
 
 // ============================================
-// RISK MANAGER
+// RISK MANAGER (Improved)
 // ============================================
 
 class RiskManager {
@@ -889,13 +1007,13 @@ class RiskManager {
 
         // Check daily loss limit
         if (dailyLoss >= availableCapital * CONFIG.DAILY_LOSS_LIMIT) {
-            console.log('🛑 Daily loss limit reached. Trading paused.');
+            LOGGER.warn('🛑 Daily loss limit reached. Trading paused.');
             return false;
         }
 
         // Check max positions
         if (activePositions.length >= CONFIG.MAX_OPEN_POSITIONS) {
-            console.log('🛑 Maximum open positions reached.');
+            LOGGER.warn('🛑 Maximum open positions reached.');
             return false;
         }
 
@@ -904,7 +1022,7 @@ class RiskManager {
             const profitToLock = dailyProfit * CONFIG.PROFIT_LOCK_RATIO;
             if (state.lockedProfit < profitToLock) {
                 state.lockedProfit = profitToLock;
-                console.log(`🔒 Locked ${profitToLock.toFixed(2)} in profits`);
+                LOGGER.info(`🔒 Locked ${profitToLock.toFixed(2)} in profits`);
             }
         }
 
@@ -952,7 +1070,7 @@ class RiskManager {
     }
 
     /**
-     * Record trade result and update risk metrics
+     * Record trade result and update risk metrics - FIXED division by zero
      */
     static recordTradeResult(symbol, profit, direction) {
         const assetState = state.assets[symbol];
@@ -972,10 +1090,10 @@ class RiskManager {
             // Apply cooldown after 3 consecutive losses
             if (assetState.consecutiveLosses >= 3) {
                 assetState.cooldownUntil = Date.now() + CONFIG.COOLDOWN_PERIOD;
-                console.log(`⏸️  ${symbol} entering cooldown after 3 consecutive losses`);
+                LOGGER.warn(`⏸️  ${symbol} entering cooldown after 3 consecutive losses`);
             }
 
-            // Send loss alert email
+            // Send rate-limited loss alert email
             bot.emailManager.sendLossAlert(symbol, assetState.consecutiveLosses);
         }
 
@@ -986,15 +1104,22 @@ class RiskManager {
             profit
         });
 
-        // Update win rate
+        // Limit trade history size
+        if (assetState.tradeHistory.length > 100) {
+            assetState.tradeHistory = assetState.tradeHistory.slice(-100);
+        }
+
+        // Update win rate - FIXED: Added check for empty array
         const recentTrades = assetState.tradeHistory.slice(-CONFIG.WIN_RATE_LOOKBACK);
-        assetState.winRate = recentTrades.filter(t => t.profit > 0).length / recentTrades.length;
+        assetState.winRate = recentTrades.length > 0
+            ? recentTrades.filter(t => t.profit > 0).length / recentTrades.length
+            : 0.5;
 
         // Check for blacklist condition
         if (recentTrades.length >= CONFIG.WIN_RATE_LOOKBACK &&
             assetState.winRate < CONFIG.MIN_WIN_RATE_THRESHOLD) {
             assetState.blacklistedUntil = Date.now() + CONFIG.BLACKLIST_PERIOD;
-            console.log(`🚫 ${symbol} blacklisted for 48h due to low win rate (${(assetState.winRate * 100).toFixed(1)}%)`);
+            LOGGER.warn(`🚫 ${symbol} blacklisted for 24h due to low win rate (${(assetState.winRate * 100).toFixed(1)}%)`);
         }
 
         // Update capital
@@ -1018,7 +1143,137 @@ class RiskManager {
             state.assets[symbol].dailyTradesPerDirection = { CALL: 0, PUT: 0 };
         });
 
-        console.log('📅 Daily counters reset');
+        LOGGER.info('📅 Daily counters reset');
+    }
+}
+
+// ============================================
+// EMAIL MANAGER (Rate Limited)
+// ============================================
+
+class EmailManager {
+    constructor() {
+        this.transporter = nodemailer.createTransport(CONFIG.EMAIL_CONFIG);
+    }
+
+    async sendEmail(subject, text) {
+        const mailOptions = {
+            from: CONFIG.EMAIL_CONFIG.auth.user,
+            to: CONFIG.EMAIL_RECIPIENT,
+            subject: `ClaudeINV Deriv Multi-Asset Bot - ${subject}`,
+            text: text
+        };
+
+        try {
+            await this.transporter.sendMail(mailOptions);
+            LOGGER.info(`📧 Email sent: ${subject}`);
+        } catch (error) {
+            LOGGER.error(`Email error: ${error.message}`);
+        }
+    }
+
+    async sendSummary(isFinal = false) {
+        const totalTrades = state.portfolio.dailyWins + state.portfolio.dailyLosses;
+        const winRate = totalTrades > 0
+            ? ((state.portfolio.dailyWins / totalTrades) * 100).toFixed(2)
+            : 0;
+
+        const assetBreakdown = Object.entries(state.assets)
+            .filter(([_, data]) => data.dailyTrades > 0)
+            .map(([symbol, data]) => {
+                const assetProfit = data.tradeHistory
+                    .filter(t => {
+                        const today = new Date();
+                        const tradeDate = new Date(t.timestamp);
+                        return tradeDate.toDateString() === today.toDateString();
+                    })
+                    .reduce((sum, t) => sum + t.profit, 0);
+                return `${symbol}: W:${data.dailyWins} L:${data.dailyLosses} WR:${(data.winRate * 100).toFixed(1)}% P/L:$${assetProfit.toFixed(2)}`;
+            }).join('\n');
+
+        const netPL = state.portfolio.dailyProfit - state.portfolio.dailyLoss;
+
+        const summaryText = `
+${isFinal ? '🏁 FINAL DAILY REPORT' : '📊 PERIODIC SUMMARY'}
+========================================
+Time: ${new Date().toLocaleString()}
+
+Portfolio Performance:
+---------------------
+Total Trades: ${totalTrades}
+Wins: ${state.portfolio.dailyWins} | Losses: ${state.portfolio.dailyLosses}
+Win Rate: ${winRate}%
+
+Financial Status:
+----------------
+Bot Capital: $${state.capital.toFixed(2)}
+Account Balance: $${state.accountBalance.toFixed(2)}
+Daily Profit: +$${state.portfolio.dailyProfit.toFixed(2)}
+Daily Loss: -$${state.portfolio.dailyLoss.toFixed(2)}
+Net P/L: ${netPL >= 0 ? '+' : ''}$${netPL.toFixed(2)}
+Locked Profit: $${state.lockedProfit.toFixed(2)}
+
+Active Positions: ${state.portfolio.activePositions.length}/${CONFIG.MAX_OPEN_POSITIONS}
+Top Ranked: ${state.portfolio.topRankedAssets.join(', ')}
+
+Per-Asset Breakdown:
+-------------------
+${assetBreakdown || 'No trades yet today.'}
+        `;
+
+        await this.sendEmail(isFinal ? 'Final Daily Report' : 'Summary Update', summaryText);
+    }
+
+    /**
+     * Send loss alert with rate limiting
+     */
+    async sendLossAlert(symbol, consecutiveLosses) {
+        const now = Date.now();
+        const lastSent = state.lastLossEmailTime[symbol] || 0;
+
+        // Only send if 30+ min since last alert for this asset, OR if entering cooldown
+        if (now - lastSent < CONFIG.MIN_EMAIL_INTERVAL && consecutiveLosses < 3) {
+            return; // Skip - too soon
+        }
+
+        state.lastLossEmailTime[symbol] = now;
+
+        const asset = state.assets[symbol];
+        const text = `
+⚠️ LOSS ALERT - ${symbol}
+====================
+Asset: ${ASSET_CONFIGS[symbol]?.name || symbol}
+Consecutive Losses: ${consecutiveLosses}
+Today: W:${asset.dailyWins} / L:${asset.dailyLosses}
+Asset Win Rate: ${(asset.winRate * 100).toFixed(1)}%
+Daily Trades: ${asset.dailyTrades}
+
+Portfolio Status:
+----------------
+Bot Capital: $${state.capital.toFixed(2)}
+Daily P/L: +$${state.portfolio.dailyProfit.toFixed(2)} / -$${state.portfolio.dailyLoss.toFixed(2)}
+
+${consecutiveLosses >= 3 ? '🚫 ASSET ENTERING 4-HOUR COOLDOWN' : ''}
+        `;
+
+        await this.sendEmail(`Loss Alert: ${symbol}${consecutiveLosses >= 3 ? ' (COOLDOWN)' : ''}`, text);
+    }
+
+    async sendStatusUpdate(status) {
+        const text = `
+🤖 BOT STATUS UPDATE
+=================
+Time: ${new Date().toLocaleString()}
+Status: ${status}
+
+Bot Capital: $${state.capital.toFixed(2)}
+Account Balance: $${state.accountBalance.toFixed(2)}
+Daily Profit: +$${state.portfolio.dailyProfit.toFixed(2)}
+Daily Loss: -$${state.portfolio.dailyLoss.toFixed(2)}
+Active Positions: ${state.portfolio.activePositions.length}
+        `;
+
+        await this.sendEmail('Status Update', text);
     }
 }
 
@@ -1035,7 +1290,7 @@ class ConnectionManager {
     }
 
     connect() {
-        console.log('🔌 Connecting to Deriv API...');
+        LOGGER.info('🔌 Connecting to Deriv API...');
 
         this.ws = new WebSocket(`${CONFIG.WS_URL}?app_id=${CONFIG.APP_ID}`);
 
@@ -1048,7 +1303,7 @@ class ConnectionManager {
     }
 
     onOpen() {
-        console.log('✅ Connected to Deriv API');
+        LOGGER.info('✅ Connected to Deriv API');
         state.isConnected = true;
         this.reconnectAttempts = 0;
 
@@ -1063,7 +1318,7 @@ class ConnectionManager {
             const response = JSON.parse(data);
             this.handleResponse(response);
         } catch (error) {
-            console.error('❌ Error parsing message:', error);
+            LOGGER.error(`Error parsing message: ${error.message}`);
         }
     }
 
@@ -1071,15 +1326,14 @@ class ConnectionManager {
         // Handle authorization
         if (response.msg_type === 'authorize') {
             if (response.error) {
-                console.error('❌ Authorization failed:', response.error.message);
+                LOGGER.error(`Authorization failed: ${response.error.message}`);
                 return;
             }
-            console.log('🔐 Authorized successfully');
-            console.log(`👤 Account: ${response.authorize.loginid}`);
-            console.log(`💰 Balance: ${response.authorize.balance} ${response.authorize.currency}`);
+            LOGGER.info('🔐 Authorized successfully');
+            LOGGER.info(`👤 Account: ${response.authorize.loginid}`);
+            LOGGER.info(`💰 Balance: ${response.authorize.balance} ${response.authorize.currency}`);
             state.isAuthorized = true;
             state.accountBalance = response.authorize.balance;
-            // state.capital = response.authorize.balance; // REMOVED: Don't overwrite bot capital
 
             // Start the bot
             bot.start();
@@ -1118,7 +1372,7 @@ class ConnectionManager {
         // Handle balance updates
         if (response.msg_type === 'balance') {
             state.accountBalance = response.balance.balance;
-            console.log(`💰 Real account balance updated: ${state.accountBalance}`);
+            LOGGER.info(`💰 Account balance updated: $${state.accountBalance.toFixed(2)}`);
         }
 
         // Resolve pending requests
@@ -1135,9 +1389,9 @@ class ConnectionManager {
 
         state.assets[symbol].ticks.push(tick.quote);
 
-        // Keep only last 500 ticks
-        if (state.assets[symbol].ticks.length > 500) {
-            state.assets[symbol].ticks = state.assets[symbol].ticks.slice(-500);
+        // Keep only last N ticks (reduced for memory)
+        if (state.assets[symbol].ticks.length > CONFIG.MAX_TICKS_STORED) {
+            state.assets[symbol].ticks = state.assets[symbol].ticks.slice(-CONFIG.MAX_TICKS_STORED);
         }
     }
 
@@ -1162,9 +1416,9 @@ class ConnectionManager {
             candles.push(candle);
         }
 
-        // Keep only last 200 candles
-        if (candles.length > 200) {
-            state.assets[symbol].candles = candles.slice(-200);
+        // Keep only last N candles (reduced for memory)
+        if (candles.length > CONFIG.MAX_CANDLES_STORED) {
+            state.assets[symbol].candles = candles.slice(-CONFIG.MAX_CANDLES_STORED);
         }
 
         // Update indicators
@@ -1173,7 +1427,7 @@ class ConnectionManager {
 
     handleCandlesHistory(response) {
         if (response.error) {
-            console.error('❌ Error fetching candles:', response.error.message);
+            LOGGER.error(`Error fetching candles: ${response.error.message}`);
             return;
         }
 
@@ -1188,7 +1442,7 @@ class ConnectionManager {
             epoch: c.epoch
         }));
 
-        console.log(`📊 Loaded ${response.candles.length} candles for ${symbol}`);
+        LOGGER.info(`📊 Loaded ${response.candles.length} candles for ${symbol}`);
         this.updateIndicators(symbol);
     }
 
@@ -1203,25 +1457,30 @@ class ConnectionManager {
         const highs = candles.map(c => c.high);
         const lows = candles.map(c => c.low);
 
-        // Store previous EMA values for crossover detection
-        const prevEmaShort = assetState.emaShort;
-        const prevEmaLong = assetState.emaLong;
+        // Store previous values for crossover detection and RSI momentum
+        assetState.prevEmaShort = assetState.emaShort;
+        assetState.prevEmaLong = assetState.emaLong;
+        assetState.prevRsi = assetState.rsi;
 
         // Calculate indicators
         assetState.emaShort = TechnicalIndicators.calculateEMA(closes, config.emaShort);
         assetState.emaLong = TechnicalIndicators.calculateEMA(closes, config.emaLong);
         assetState.rsi = TechnicalIndicators.calculateRSI(closes, config.rsiPeriod);
-        assetState.adx = TechnicalIndicators.calculateADX(highs, lows, closes);
-        assetState.atr = TechnicalIndicators.calculateATR(highs, lows, closes);
+
+        // Fixed ADX calculation
+        const adxResult = TechnicalIndicators.calculateADX(highs, lows, closes, config.adxPeriod);
+        assetState.adx = adxResult.adx;
+        assetState.plusDI = adxResult.plusDI;
+        assetState.minusDI = adxResult.minusDI;
+
+        assetState.atr = TechnicalIndicators.calculateATR(highs, lows, closes, config.atrPeriod || 14);
 
         // Check for signals
-        if (prevEmaShort && prevEmaLong) {
+        if (assetState.prevEmaShort && assetState.prevEmaLong) {
             const crossover = TechnicalIndicators.detectCrossover(
-                prevEmaShort, prevEmaLong,
+                assetState.prevEmaShort, assetState.prevEmaLong,
                 assetState.emaShort, assetState.emaLong
             );
-
-            // console.log('Cross-Over Indicator', crossover)
 
             if (crossover !== 'none') {
                 this.processSignal(symbol, crossover);
@@ -1235,50 +1494,21 @@ class ConnectionManager {
 
         const direction = crossover === 'bullish' ? 'CALL' : 'PUT';
 
-        // Check RSI confirmation
-        let rsiConfirmed = false;
-        if (direction === 'CALL' && assetState.rsi < config.rsiThreshold) {
-            rsiConfirmed = true;
-        } else if (direction === 'PUT' && assetState.rsi > (100 - config.rsiThreshold)) {
-            rsiConfirmed = true;
-        }
+        // Calculate AI confidence (now includes RSI scoring, not filtering)
+        const confidence = AIConfidenceModel.calculateConfidence(symbol, direction);
 
-        if (!rsiConfirmed) {
-            console.log(`⚠️  ${symbol} ${direction} signal rejected: RSI not confirmed (${assetState.rsi.toFixed(1)})`);
+        // Log signal details
+        LOGGER.signal(`${symbol} ${direction} signal - RSI: ${assetState.rsi.toFixed(1)}, ADX: ${assetState.adx.toFixed(1)}, Confidence: ${(confidence * 100).toFixed(1)}%`);
+
+        // Check minimum confidence threshold
+        if (confidence < CONFIG.MIN_CONFIDENCE_SCORE) {
+            LOGGER.warn(`${symbol} ${direction} signal rejected: Low confidence (${(confidence * 100).toFixed(1)}%)`);
             return;
         }
 
-        //Check for ADX confirmation
-        // let adxConfirmed = false;
-        // if (direction === 'CALL' && assetState.adx > config.adxThreshold) {
-        //     adxConfirmed = true;
-        // } else if (direction === 'PUT' && assetState.adx < (100 - config.adxThreshold)) {
-        //     adxConfirmed = true;
-        // }
-
-        // if (!adxConfirmed) {
-        //     console.log(`⚠️  ${symbol} ${direction} signal rejected: ADX not confirmed (${assetState.adx.toFixed(1)})`);
-        //     return;
-        // }
-
-        //Check for ATR confirmation
-        // let atrConfirmed = false;
-        // if (direction === 'CALL' && assetState.atr < config.atrThreshold) {
-        //     atrConfirmed = true;
-        // } else if (direction === 'PUT' && assetState.atr > (100 - config.atrThreshold)) {
-        //     atrConfirmed = true;
-        // }
-
-        // if (!atrConfirmed) {
-        //     console.log(`⚠️  ${symbol} ${direction} signal rejected: ATR not confirmed (${assetState.atr.toFixed(1)})`);
-        //     return;
-        // }
-
-        // Calculate AI confidence
-        const confidence = AIConfidenceModel.calculateConfidence(symbol, direction);
-
-        if (confidence < CONFIG.MIN_CONFIDENCE_SCORE) {
-            console.log(`⚠️  ${symbol} ${direction} signal rejected: Low confidence (${(confidence * 100).toFixed(1)}%)`);
+        // Check ADX for trend strength (as filter, not just score)
+        if (assetState.adx < config.adxThreshold) {
+            LOGGER.warn(`${symbol} ${direction} signal rejected: Weak trend (ADX: ${assetState.adx.toFixed(1)} < ${config.adxThreshold})`);
             return;
         }
 
@@ -1289,32 +1519,39 @@ class ConnectionManager {
             timestamp: Date.now()
         };
 
-        console.log(`\n📈 Signal: ${symbol} ${direction}`);
-        console.log(`   RSI: ${assetState.rsi.toFixed(1)}, ADX: ${assetState.adx.toFixed(1)}, Confidence: ${(confidence * 100).toFixed(1)}%`);
+        LOGGER.signal(`✅ ${symbol} ${direction} signal ACCEPTED - Executing trade`);
 
         // Try to execute trade
-        LOGGER.signal(`${symbol} ${direction} signal detected (Confidence: ${(confidence * 100).toFixed(1)}%)`);
         bot.executeTrade(symbol, direction, confidence);
     }
 
     handleBuyResponse(response) {
         if (response.error) {
-            console.error('❌ Trade error:', response.error.message);
+            LOGGER.error(`Trade error: ${response.error.message}`);
+
+            // Remove failed position from active positions
+            const reqId = response.echo_req?.req_id;
+            if (reqId) {
+                const posIndex = state.portfolio.activePositions.findIndex(p => p.reqId === reqId);
+                if (posIndex >= 0) {
+                    state.portfolio.activePositions.splice(posIndex, 1);
+                    LOGGER.warn(`Removed failed position for reqId ${reqId}`);
+                }
+            }
             return;
         }
 
         const contract = response.buy;
-        console.log(`✅ Trade executed: Contract ID ${contract.contract_id}`);
-        console.log(`   Buy Price: ${contract.buy_price}`);
+        LOGGER.trade(`Trade executed: Contract ID ${contract.contract_id}, Buy Price: $${contract.buy_price}`);
 
-        // Find position by req_id
+        // Find position by req_id and update with contract details
         const reqId = response.echo_req.req_id;
         const position = state.portfolio.activePositions.find(p => p.reqId === reqId);
 
         if (position) {
             position.contractId = contract.contract_id;
             position.buyPrice = contract.buy_price;
-            LOGGER.info(`Linked contract ${contract.contract_id} to position ${position.symbol} ${position.direction}`);
+            LOGGER.info(`Linked contract ${contract.contract_id} to ${position.symbol} ${position.direction}`);
         } else {
             LOGGER.warn(`Could not find position for reqId ${reqId}`);
         }
@@ -1329,14 +1566,20 @@ class ConnectionManager {
 
     handleProposal(response) {
         if (response.error) {
-            console.error('❌ Proposal error:', response.error.message);
+            LOGGER.error(`Proposal error: ${response.error.message}`);
             return;
         }
 
-        // Store proposal for potential execution
         const proposal = response.proposal;
-        console.log(`📋 Proposal: ${proposal.longcode}`);
-        console.log(`   Payout: ${proposal.payout}, Ask: ${proposal.ask_price}`);
+        const symbol = response.echo_req?.symbol;
+
+        // Store actual payout ratio for Kelly Criterion
+        if (symbol && state.assets[symbol] && proposal.payout && proposal.ask_price) {
+            const payoutRatio = (proposal.payout - proposal.ask_price) / proposal.ask_price;
+            state.assets[symbol].lastPayoutRatio = payoutRatio;
+        }
+
+        LOGGER.info(`📋 Proposal: Payout: $${proposal.payout}, Ask: $${proposal.ask_price}`);
     }
 
     handleOpenContract(response) {
@@ -1353,21 +1596,22 @@ class ConnectionManager {
             const profit = contract.profit;
             const symbol = contract.underlying;
 
-            console.log(`\n🏁 Contract ${contract.contract_id} closed`);
-            console.log(`   Result: ${profit >= 0 ? '✅ WIN' : '❌ LOSS'} ${profit.toFixed(2)}`);
+            const resultEmoji = profit >= 0 ? '✅' : '❌';
+            LOGGER.trade(`${resultEmoji} Contract ${contract.contract_id} closed: ${profit >= 0 ? 'WIN' : 'LOSS'} $${profit.toFixed(2)}`);
 
             // Record result
             if (posIndex >= 0) {
                 const position = state.portfolio.activePositions[posIndex];
-                LOGGER.trade(`Contract ${contract.contract_id} closed: ${profit >= 0 ? 'WIN' : 'LOSS'} ($${profit.toFixed(2)})`);
                 RiskManager.recordTradeResult(symbol, profit, position.direction);
                 state.portfolio.activePositions.splice(posIndex, 1);
             }
 
             // Unsubscribe from contract
-            this.send({
-                forget: response.subscription?.id
-            });
+            if (response.subscription?.id) {
+                this.send({
+                    forget: response.subscription.id
+                });
+            }
         } else if (posIndex >= 0) {
             // Update position with current profit/loss
             state.portfolio.activePositions[posIndex].currentProfit = contract.profit;
@@ -1375,30 +1619,30 @@ class ConnectionManager {
     }
 
     onError(error) {
-        console.error('❌ WebSocket error:', error.message);
+        LOGGER.error(`WebSocket error: ${error.message}`);
     }
 
     onClose() {
-        console.log('🔌 Disconnected from Deriv API');
+        LOGGER.warn('🔌 Disconnected from Deriv API');
         state.isConnected = false;
         state.isAuthorized = false;
 
         // Attempt reconnection
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
-            console.log(`🔄 Reconnecting in ${this.reconnectDelay / 1000}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+            LOGGER.info(`🔄 Reconnecting in ${this.reconnectDelay / 1000}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
             setTimeout(() => this.connect(), this.reconnectDelay);
         } else {
-            console.error('❌ Max reconnection attempts reached. Exiting.');
-            // bot.emailManager.sendStatusUpdate('Disconnected - Max reconnection attempts reached');
+            LOGGER.error('Max reconnection attempts reached. Exiting.');
+            bot.emailManager.sendStatusUpdate('Disconnected - Max reconnection attempts reached');
             process.exit(1);
         }
     }
 
     send(data) {
         if (!state.isConnected) {
-            console.error('❌ Cannot send: Not connected');
-            return;
+            LOGGER.error('Cannot send: Not connected');
+            return null;
         }
 
         data.req_id = state.requestId++;
@@ -1409,6 +1653,11 @@ class ConnectionManager {
     sendAsync(data) {
         return new Promise((resolve, reject) => {
             const reqId = this.send(data);
+            if (reqId === null) {
+                reject(new Error('Not connected'));
+                return;
+            }
+
             state.pendingRequests.set(reqId, { resolve, reject });
 
             // Timeout after 30 seconds
@@ -1434,10 +1683,11 @@ class DerivMultiAssetBot {
         this.rebalanceInterval = null;
         this.dailyResetInterval = null;
         this.summaryInterval = null;
+        this.capitalSyncInterval = null;
     }
 
     async start() {
-        console.log('\n🤖 ClaudeINV Deriv Multi-Asset Bot Starting...');
+        console.log('\n🤖 ClaudeINV Deriv Multi-Asset Bot v2.0 Starting...');
         console.log('=====================================');
         console.log(`💰 Initial Capital: $${state.capital}`);
         console.log(`📊 Tracking ${Object.keys(ASSET_CONFIGS).length} assets`);
@@ -1450,7 +1700,7 @@ class DerivMultiAssetBot {
             subscribe: 1
         });
 
-        // Subscribe to assets (max 5 at a time for efficiency)
+        // Subscribe to assets
         await this.subscribeToAssets();
 
         // Initial asset ranking
@@ -1458,27 +1708,31 @@ class DerivMultiAssetBot {
 
         // Start periodic scoring
         this.scoringInterval = setInterval(() => {
-            console.log('\n🔄 Recalculating asset scores...');
+            LOGGER.info('🔄 Recalculating asset scores...');
             PortfolioManager.rankAssets();
         }, CONFIG.ASSET_SCORING_INTERVAL);
 
         // Start rebalance interval
         this.rebalanceInterval = setInterval(() => {
-            console.log('\n⚖️  Rebalancing portfolio allocations...');
+            LOGGER.info('⚖️  Rebalancing portfolio allocations...');
             state.portfolio.lastRebalance = Date.now();
             PortfolioManager.rankAssets();
         }, CONFIG.REBALANCE_INTERVAL);
 
+        // Capital drift check
+        this.capitalSyncInterval = setInterval(() => {
+            PortfolioManager.checkCapitalDrift();
+        }, CONFIG.CAPITAL_SYNC_INTERVAL);
+
         // Daily reset at midnight UTC
         this.scheduleDailyReset();
 
-        // Start 30-minute email summary timer
+        // 30-minute email summary
         this.summaryInterval = setInterval(() => {
             this.emailManager.sendSummary();
-        }, 1800000);
+        }, 30 * 60 * 1000);
 
-        // this.emailManager.sendStatusUpdate('Bot Started Successfully');
-        console.log('✅ Bot started successfully!\n');
+        LOGGER.info('✅ Bot started successfully!');
     }
 
     async subscribeToAssets() {
@@ -1514,7 +1768,7 @@ class DerivMultiAssetBot {
                 subscribe: 1
             });
 
-            console.log(`📡 Subscribed to ${config.name} (${symbol})`);
+            LOGGER.info(`📡 Subscribed to ${config.name} (${symbol})`);
 
             // Small delay to avoid rate limiting
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -1530,13 +1784,13 @@ class DerivMultiAssetBot {
         // Check asset-specific limits
         const assetCheck = RiskManager.canAssetTrade(symbol, direction);
         if (!assetCheck.allowed) {
-            console.log(`⚠️  Trade blocked: ${assetCheck.reason}`);
+            LOGGER.warn(`Trade blocked: ${assetCheck.reason}`);
             return;
         }
 
         // Check synthetic correlation
         if (PortfolioManager.checkSyntheticCorrelation(symbol)) {
-            console.log(`⚠️  Trade blocked: Lower ranked in correlated pair`);
+            LOGGER.warn(`Trade blocked: Lower ranked in correlated pair`);
             return;
         }
 
@@ -1546,7 +1800,7 @@ class DerivMultiAssetBot {
         // Get asset ranking
         const rank = state.portfolio.topRankedAssets.indexOf(symbol);
         if (rank === -1) {
-            console.log(`⚠️  Trade blocked: Asset not in top ranked`);
+            LOGGER.warn(`Trade blocked: Asset not in top ranked`);
             return;
         }
 
@@ -1555,20 +1809,31 @@ class DerivMultiAssetBot {
             p => p.symbol === symbol && p.direction === direction
         );
         if (hasExisting) {
-            console.log(`⚠️  Trade blocked: Already have an active ${direction} on ${symbol}`);
+            LOGGER.warn(`Trade blocked: Already have active ${direction} on ${symbol}`);
             return;
         }
 
-        // Calculate stake
+        // Calculate stake (includes progressive reduction after losses)
         const stake = PortfolioManager.calculateStake(symbol, rank);
 
-        console.log(`\n🎯 Executing Trade:`);
-        console.log(`   Asset: ${config.name} (${symbol})`);
-        console.log(`   Direction: ${direction}`);
-        console.log(`   Stake: $${stake}`);
-        console.log(`   Duration: ${config.duration}${config.durationUnit}`);
-        console.log(`   Confidence: ${(confidence * 100).toFixed(1)}%`);
-        console.log(`   Ranking: #${rank + 1}`);
+        LOGGER.trade(`🎯 Executing: ${config.name} (${symbol}) ${direction}`);
+        LOGGER.trade(`   Stake: $${stake} | Duration: ${config.duration}${config.durationUnit} | Confidence: ${(confidence * 100).toFixed(1)}% | Rank: #${rank + 1}`);
+
+        // Create position BEFORE sending (fixes race condition)
+        const position = {
+            symbol,
+            direction,
+            stake,
+            confidence,
+            entryTime: Date.now(),
+            contractId: null,
+            reqId: null,
+            currentProfit: 0,
+            buyPrice: 0
+        };
+
+        // Add to array BEFORE sending
+        state.portfolio.activePositions.push(position);
 
         // Send trade request
         const contractType = direction === 'CALL' ? 'CALL' : 'PUT';
@@ -1588,26 +1853,13 @@ class DerivMultiAssetBot {
             }
         });
 
+        // Update position with reqId
+        position.reqId = reqId;
+
         // Update state
         assetState.dailyTrades++;
         assetState.dailyTradesPerDirection[direction]++;
-
-        // Track position (contract ID will be updated in buy response)
-        state.portfolio.activePositions.push({
-            symbol,
-            direction,
-            stake,
-            confidence,
-            entryTime: Date.now(),
-            contractId: null,
-            reqId: reqId, // Store reqId to match with response
-            currentProfit: 0,
-            buyPrice: 0
-        });
-
-        LOGGER.trade(`Placing ${direction} trade on ${symbol} with stake $${stake}`);
     }
-
 
     scheduleDailyReset() {
         const now = new Date();
@@ -1616,20 +1868,24 @@ class DerivMultiAssetBot {
 
         const msUntilMidnight = midnight - now;
 
-        setTimeout(() => {
+        setTimeout(async () => {
+            // Send final daily report before reset
+            await this.emailManager.sendSummary(true);
+
             RiskManager.resetDailyCounters();
             this.scheduleDailyReset(); // Schedule next reset
         }, msUntilMidnight);
 
-        console.log(`📅 Daily reset scheduled in ${(msUntilMidnight / 3600000).toFixed(1)} hours`);
+        LOGGER.info(`📅 Daily reset scheduled in ${(msUntilMidnight / 3600000).toFixed(1)} hours`);
     }
 
     stop() {
-        console.log('\n🛑 Stopping bot...');
+        LOGGER.info('🛑 Stopping bot...');
 
         if (this.scoringInterval) clearInterval(this.scoringInterval);
         if (this.rebalanceInterval) clearInterval(this.rebalanceInterval);
         if (this.summaryInterval) clearInterval(this.summaryInterval);
+        if (this.capitalSyncInterval) clearInterval(this.capitalSyncInterval);
 
         this.emailManager.sendSummary(true);
 
@@ -1637,10 +1893,12 @@ class DerivMultiAssetBot {
             this.connection.ws.close();
         }
 
-        console.log('👋 Bot stopped');
+        LOGGER.info('👋 Bot stopped');
     }
 
     getStatus() {
+        const netPL = state.portfolio.dailyProfit - state.portfolio.dailyLoss;
+
         return {
             connected: state.isConnected,
             authorized: state.isAuthorized,
@@ -1649,6 +1907,9 @@ class DerivMultiAssetBot {
             lockedProfit: state.lockedProfit,
             dailyProfit: state.portfolio.dailyProfit,
             dailyLoss: state.portfolio.dailyLoss,
+            netPL: netPL,
+            dailyWins: state.portfolio.dailyWins,
+            dailyLosses: state.portfolio.dailyLosses,
             activePositionsCount: state.portfolio.activePositions.length,
             activePositions: state.portfolio.activePositions.map(pos => ({
                 symbol: pos.symbol,
@@ -1659,7 +1920,13 @@ class DerivMultiAssetBot {
             })),
             topAssets: state.portfolio.topRankedAssets,
             assetStats: Object.entries(state.assets).map(([symbol, data]) => {
-                const assetProfit = data.tradeHistory.reduce((sum, t) => sum + t.profit, 0);
+                const todayTrades = data.tradeHistory.filter(t => {
+                    const today = new Date();
+                    const tradeDate = new Date(t.timestamp);
+                    return tradeDate.toDateString() === today.toDateString();
+                });
+                const assetProfit = todayTrades.reduce((sum, t) => sum + t.profit, 0);
+
                 return {
                     symbol,
                     score: (data.score * 100).toFixed(1) + '%',
@@ -1667,7 +1934,8 @@ class DerivMultiAssetBot {
                     dailyTrades: data.dailyTrades,
                     rsi: data.rsi.toFixed(1),
                     adx: data.adx.toFixed(1),
-                    profit: assetProfit.toFixed(2)
+                    profit: assetProfit.toFixed(2),
+                    consecutiveLosses: data.consecutiveLosses
                 };
             })
         };
@@ -1675,60 +1943,71 @@ class DerivMultiAssetBot {
 }
 
 // ============================================
-// CONSOLE DASHBOARD
+// CONSOLE DASHBOARD (Event-Driven)
 // ============================================
 
 class Dashboard {
-    static display() {
-        // console.clear();
-        console.log('╔══════════════════════════════════════════════════════════════╗');
-        console.log('║         ClaudeINV DERIV MULTI-ASSET BOT - LIVE DASHBOARD      ║');
-        console.log('╠══════════════════════════════════════════════════════════════╣');
+    static getStatusHash() {
+        const status = bot.getStatus();
+        return JSON.stringify({
+            capital: status.capital.toFixed(2),
+            positions: status.activePositionsCount,
+            netPL: status.netPL.toFixed(2),
+            wins: status.dailyWins,
+            losses: status.dailyLosses
+        });
+    }
+
+    static display(force = false) {
+        // Only update if something changed (event-driven)
+        const currentHash = this.getStatusHash();
+        if (!force && currentHash === state.lastDashboardHash) {
+            return;
+        }
+        state.lastDashboardHash = currentHash;
+
+        console.log('\n╔══════════════════════════════════════════════════════════════════╗');
+        console.log('║         ClaudeINV DERIV MULTI-ASSET BOT v2.0 - DASHBOARD          ║');
+        console.log('╠══════════════════════════════════════════════════════════════════╣');
 
         const status = bot.getStatus();
 
-        console.log(`║ 💰 Bot Capital: $${status.capital.toFixed(2).padEnd(10)} 🔒 Locked: $${status.lockedProfit.toFixed(2).padEnd(8)}║`);
-        console.log(`║ 🏦 Real Balance: $${status.accountBalance.toFixed(2).padEnd(46)}║`);
-        console.log(`║ 📈 Daily P/L: +$${status.dailyProfit.toFixed(2)} / -$${status.dailyLoss.toFixed(2)}`.padEnd(64) + '║');
-        console.log(`║ 📊 Positions: ${status.activePositionsCount}/${CONFIG.MAX_OPEN_POSITIONS}`.padEnd(64) + '║');
-        console.log('╠══════════════════════════════════════════════════════════════╣');
+        const netPLColor = status.netPL >= 0 ? '\x1b[32m' : '\x1b[31m';
+        const resetColor = '\x1b[0m';
+
+        console.log(`║ 💰 Bot Capital: $${status.capital.toFixed(2).padEnd(10)} 🏦 Account: $${status.accountBalance.toFixed(2).padEnd(10)} ║`);
+        console.log(`║ 📈 Daily: +$${status.dailyProfit.toFixed(2).padEnd(7)} -$${status.dailyLoss.toFixed(2).padEnd(7)} Net: ${netPLColor}${status.netPL >= 0 ? '+' : ''}$${status.netPL.toFixed(2)}${resetColor}`.padEnd(77) + '║');
+        console.log(`║ 🎯 W/L: ${status.dailyWins}/${status.dailyLosses}  |  Positions: ${status.activePositionsCount}/${CONFIG.MAX_OPEN_POSITIONS}  |  🔒 Locked: $${status.lockedProfit.toFixed(2)}`.padEnd(68) + '║');
+        console.log('╠══════════════════════════════════════════════════════════════════╣');
 
         if (status.activePositions.length > 0) {
-            console.log('║ 🚀 ACTIVE POSITIONS:                                         ║');
-            console.log('║ Symbol      | Dir  | Stake  | Profit | Time                 ║');
-            console.log('║-------------|------|--------|--------|----------------------║');
+            console.log('║ 🚀 ACTIVE POSITIONS:                                              ║');
+            console.log('║ Symbol       | Dir  | Stake   | Profit  | Time                   ║');
+            console.log('║--------------|------|---------|---------|------------------------║');
             status.activePositions.forEach(pos => {
                 const profitColor = pos.profit >= 0 ? '\x1b[32m' : '\x1b[31m';
-                const resetColor = '\x1b[0m';
-                const line = `║ ${pos.symbol.padEnd(11)} | ${pos.direction.padEnd(4)} | $${pos.stake.toFixed(2).padEnd(6)} | ${profitColor}${pos.profit.toFixed(2).padEnd(6)}${resetColor} | ${pos.duration}s`.padEnd(73) + '║';
-                console.log(line);
+                const profitStr = `${pos.profit >= 0 ? '+' : ''}${pos.profit.toFixed(2)}`;
+                console.log(`║ ${pos.symbol.padEnd(12)} | ${pos.direction.padEnd(4)} | $${pos.stake.toFixed(2).padEnd(6)} | ${profitColor}${profitStr.padEnd(7)}${resetColor} | ${pos.duration}s`.padEnd(77) + '║');
             });
-            console.log('╠══════════════════════════════════════════════════════════════╣');
+            console.log('╠══════════════════════════════════════════════════════════════════╣');
         }
 
-        console.log('║ 🏆 TOP RANKED ASSETS:                                        ║');
+        console.log('║ 🏆 TOP RANKED: ' + status.topAssets.join(', ').padEnd(52) + '║');
+        console.log('╠══════════════════════════════════════════════════════════════════╣');
+        console.log('║ Symbol       | Score  | WR     | ADX   | Trades | P/L     | Streak║');
+        console.log('║--------------|--------|--------|-------|--------|---------|-------║');
 
-        status.topAssets.forEach((symbol, idx) => {
-            const stat = status.assetStats.find(s => s.symbol === symbol);
-            if (stat) {
-                console.log(`║   ${idx + 1}. ${symbol.padEnd(12)} Score: ${stat.score.padEnd(7)} WR: ${stat.winRate.padEnd(7)}║`);
-            }
-        });
-
-        console.log('╠══════════════════════════════════════════════════════════════╣');
-        console.log('║ 📊 ASSET PERFORMANCE:                                        ║');
-        console.log('║ Symbol      | Score  | WinRate | Trades | RSI   | P/L       ║');
-        console.log('║-------------|--------|---------|--------|-------|-----------║');
-
-        status.assetStats.slice(0, 10).forEach(stat => {
+        status.assetStats.slice(0, 8).forEach(stat => {
+            const isTop = status.topAssets.includes(stat.symbol);
+            const marker = isTop ? '🏆' : '  ';
             const profitColor = parseFloat(stat.profit) >= 0 ? '\x1b[32m' : '\x1b[31m';
-            const resetColor = '\x1b[0m';
-            const line = `║ ${stat.symbol.padEnd(11)} | ${stat.score.padEnd(6)} | ${stat.winRate.padEnd(7)} | ${String(stat.dailyTrades).padEnd(6)} | ${stat.rsi.padEnd(5)} | ${profitColor}${stat.profit.padEnd(9)}${resetColor} ║`;
-            console.log(line);
+            const streakColor = stat.consecutiveLosses >= 2 ? '\x1b[31m' : '\x1b[0m';
+
+            console.log(`║${marker}${stat.symbol.padEnd(11)} | ${stat.score.padEnd(6)} | ${stat.winRate.padEnd(6)} | ${stat.adx.padEnd(5)} | ${String(stat.dailyTrades).padEnd(6)} | ${profitColor}${stat.profit.padEnd(7)}${resetColor} | ${streakColor}${stat.consecutiveLosses}L${resetColor}`.padEnd(77) + '   ║');
         });
 
-        console.log('╚══════════════════════════════════════════════════════════════╝');
-        console.log(`⏰ Last update: ${new Date().toLocaleTimeString()} | Press Ctrl+C to stop`);
+        console.log('╚══════════════════════════════════════════════════════════════════╝');
+        console.log(`⏰ ${new Date().toLocaleTimeString()} | Press Ctrl+C to stop\n`);
     }
 
     static startLiveUpdates() {
@@ -1736,7 +2015,7 @@ class Dashboard {
             if (state.isAuthorized) {
                 Dashboard.display();
             }
-        }, 5000);
+        }, CONFIG.DASHBOARD_UPDATE_INTERVAL);
     }
 }
 
@@ -1761,23 +2040,25 @@ process.on('SIGTERM', () => {
 // Validate API token
 if (CONFIG.API_TOKEN === 'YOUR_API_TOKEN_HERE') {
     console.log('═══════════════════════════════════════════════════════════════');
-    console.log('                    ClaudeINV DERIV MULTI-ASSET BOT              ');
+    console.log('              ClaudeINV DERIV MULTI-ASSET BOT v2.0              ');
     console.log('═══════════════════════════════════════════════════════════════');
     console.log('\n⚠️  API Token not configured!\n');
     console.log('To run this bot, you need to:');
     console.log('1. Get your API token from https://app.deriv.com/account/api-token');
     console.log('2. Run with: API_TOKEN=your_token node deriv-multi-asset-bot.js');
-    console.log('   Or set it in the CONFIG object\n');
-    console.log('Optional environment variables:');
+    console.log('\nOptional environment variables:');
     console.log('  - CAPITAL: Initial capital (default: 500)');
-    console.log('  - APP_ID: Deriv App ID (default: 1089)\n');
+    console.log('  - APP_ID: Deriv App ID (default: 1089)');
+    console.log('  - EMAIL_USER: Gmail address for notifications');
+    console.log('  - EMAIL_PASS: Gmail app password');
+    console.log('  - EMAIL_RECIPIENT: Email to receive notifications\n');
     console.log('═══════════════════════════════════════════════════════════════');
     process.exit(1);
 }
 
 // Start the bot
 console.log('═══════════════════════════════════════════════════════════════');
-console.log('                    ClaudeINV DERIV MULTI-ASSET BOT              ');
+console.log('              ClaudeINV DERIV MULTI-ASSET BOT v2.0              ');
 console.log('═══════════════════════════════════════════════════════════════');
 console.log('\n🚀 Initializing bot...\n');
 
