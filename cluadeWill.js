@@ -36,11 +36,11 @@ const CONFIG = {
 
     // Portfolio Settings
     INITIAL_CAPITAL: 500,
-    MAX_RISK_PER_TRADE: 0.25,           // 2.5% per trade
+    MAX_RISK_PER_TRADE: 0.01,           // 2.5% per trade
     DAILY_LOSS_LIMIT: 0.25,              // 5% daily loss limit
     DAILY_PROFIT_TARGET: 0.25,          // 2.5% daily profit target
-    PROFIT_LOCK_RATIO: 0.25,              // Lock 50% of gains
-    MAX_OPEN_POSITIONS: 50,
+    PROFIT_LOCK_RATIO: 0.05,              // Lock 50% of gains
+    MAX_OPEN_POSITIONS: 5,
     TOP_ASSETS_TO_TRADE: 2, // Increased as requested earlier or implicitly by user preference
 
     // Martingale Settings
@@ -54,7 +54,7 @@ const CONFIG = {
     BLACKLIST_PERIOD: 24 * 60 * 60 * 1000,    // 24 hours
 
     // AI Settings
-    MIN_CONFIDENCE_SCORE: 0.7,
+    MIN_CONFIDENCE_SCORE: 0.8,
     MIN_WIN_RATE_THRESHOLD: 0.5,
     WIN_RATE_LOOKBACK: 20,
 
@@ -789,7 +789,7 @@ class PortfolioManager {
         stake = Math.max(stake, 1);
 
         // Cap at 20% of capital for safety (Martingale protection)
-        stake = Math.min(stake, availableCapital * 0.20);
+        stake = Math.min(stake, availableCapital * 0.50);
 
         return parseFloat(stake.toFixed(2));
     }
@@ -1249,11 +1249,11 @@ class ConnectionManager {
         // Since we update using `closes` array which includes the latest candle, let's treat the latest calc as "current".
 
         // Buy: Cross above -20 from below
-        if (wprPrev <= -20 && wprCurr > -20) {
+        if (wprPrev < -20 && wprCurr > -20) {
             signal = 'PUT';
         }
         // Sell: Cross below -80 from above
-        else if (wprPrev >= -80 && wprCurr < -80) {
+        else if (wprPrev > -80 && wprCurr < -80) {
             signal = 'CALL';
         }
 
