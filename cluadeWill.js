@@ -92,23 +92,23 @@ const ASSET_CONFIGS = {
         tickSubscription: 'R_10',
         multiplier: 400
     },
-    'R_25': {
-        name: 'Volatility 25 Index',
-        category: 'synthetic',
-        emaShort: 10,
-        emaLong: 24,
-        rsiPeriod: 14,
-        rsiThreshold: 32,
-        adxPeriod: 14,
-        adxThreshold: 25,
-        atrThreshold: 0.6,
-        duration: 20,
-        durationUnit: 'm',
-        maxTradesPerDay: 10,
-        volatilityClass: 'medium-low',
-        tickSubscription: 'R_25',
-        multiplier: 400
-    },
+    // 'R_25': {
+    //     name: 'Volatility 25 Index',
+    //     category: 'synthetic',
+    //     emaShort: 10,
+    //     emaLong: 24,
+    //     rsiPeriod: 14,
+    //     rsiThreshold: 32,
+    //     adxPeriod: 14,
+    //     adxThreshold: 25,
+    //     atrThreshold: 0.6,
+    //     duration: 20,
+    //     durationUnit: 'm',
+    //     maxTradesPerDay: 10,
+    //     volatilityClass: 'medium-low',
+    //     tickSubscription: 'R_25',
+    //     multiplier: 400
+    // },
     // 'R_50': {
     //     name: 'Volatility 50 Index',
     //     category: 'synthetic',
@@ -140,23 +140,23 @@ const ASSET_CONFIGS = {
     //     tickSubscription: 'R_75',
     //     multiplier: 400
     // },
-    'R_100': {
-        name: 'Volatility 100 Index',
-        category: 'synthetic',
-        emaShort: 12,
-        emaLong: 30,
-        rsiPeriod: 21,
-        rsiThreshold: 35,
-        adxPeriod: 14,
-        adxThreshold: 25,
-        atrThreshold: 0.6,
-        duration: 30,
-        durationUnit: 'm',
-        maxTradesPerDay: 10,
-        volatilityClass: 'high',
-        tickSubscription: 'R_100',
-        multiplier: 400
-    },
+    // 'R_100': {
+    //     name: 'Volatility 100 Index',
+    //     category: 'synthetic',
+    //     emaShort: 12,
+    //     emaLong: 30,
+    //     rsiPeriod: 21,
+    //     rsiThreshold: 35,
+    //     adxPeriod: 14,
+    //     adxThreshold: 25,
+    //     atrThreshold: 0.6,
+    //     duration: 30,
+    //     durationUnit: 'm',
+    //     maxTradesPerDay: 10,
+    //     volatilityClass: 'high',
+    //     tickSubscription: 'R_100',
+    //     multiplier: 400
+    // },
     'BOOM1000': {
         name: 'Boom 1000 Index',
         category: 'synthetic',
@@ -1493,7 +1493,7 @@ class DerivMultiAssetBot {
     }
 
     async start() {
-        console.log('\n🤖 ClaudeINV Deriv Multi-Asset Bot Starting...');
+        console.log('\n🤖 ClaudeWill Deriv Multi-Asset Bot Starting...');
         console.log('=====================================');
         console.log(`💰 Initial Capital: $${state.capital}`);
         console.log(`📊 Tracking ${Object.keys(ASSET_CONFIGS).length} assets`);
@@ -1740,7 +1740,7 @@ class Dashboard {
     static display() {
         // console.clear();
         console.log('╔══════════════════════════════════════════════════════════════╗');
-        console.log('║         ClaudeINV DERIV MULTI-ASSET BOT - LIVE DASHBOARD      ║');
+        console.log('║         ClaudeWill DERIV MULTI-ASSET BOT - LIVE DASHBOARD      ║');
         console.log('╠══════════════════════════════════════════════════════════════╣');
 
         const status = bot.getStatus();
@@ -1820,7 +1820,7 @@ process.on('SIGTERM', () => {
 // Validate API token
 if (CONFIG.API_TOKEN === 'YOUR_API_TOKEN_HERE') {
     console.log('═══════════════════════════════════════════════════════════════');
-    console.log('                    ClaudeINV DERIV MULTI-ASSET BOT              ');
+    console.log('                    ClaudeWill DERIV MULTI-ASSET BOT              ');
     console.log('═══════════════════════════════════════════════════════════════');
     console.log('\n⚠️  API Token not configured!\n');
     console.log('To run this bot, you need to:');
@@ -1836,7 +1836,7 @@ if (CONFIG.API_TOKEN === 'YOUR_API_TOKEN_HERE') {
 
 // Start the bot
 console.log('═══════════════════════════════════════════════════════════════');
-console.log('                    ClaudeINV DERIV MULTI-ASSET BOT              ');
+console.log('                    ClaudeWill DERIV MULTI-ASSET BOT              ');
 console.log('═══════════════════════════════════════════════════════════════');
 console.log('\n🚀 Initializing bot...\n');
 
