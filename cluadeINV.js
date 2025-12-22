@@ -104,7 +104,7 @@ const ASSET_CONFIGS = {
         atrPeriod: 14,
         duration: 15,
         durationUnit: 'm',
-        maxTradesPerDay: 5,
+        maxTradesPerDay: 500,
         volatilityClass: 'low',
         tickSubscription: 'R_10',
         defaultPayout: 0.85            // Store expected payout ratio
@@ -122,7 +122,7 @@ const ASSET_CONFIGS = {
         atrPeriod: 14,
         duration: 20,
         durationUnit: 'm',
-        maxTradesPerDay: 5,
+        maxTradesPerDay: 500,
         volatilityClass: 'medium-low',
         tickSubscription: 'R_25',
         defaultPayout: 0.85
@@ -140,7 +140,7 @@ const ASSET_CONFIGS = {
         atrPeriod: 14,
         duration: 30,
         durationUnit: 'm',
-        maxTradesPerDay: 5,
+        maxTradesPerDay: 500,
         volatilityClass: 'high',
         tickSubscription: 'R_75',
         defaultPayout: 0.82
@@ -158,47 +158,47 @@ const ASSET_CONFIGS = {
         atrPeriod: 14,
         duration: 30,
         durationUnit: 'm',
-        maxTradesPerDay: 5,
+        maxTradesPerDay: 500,
         volatilityClass: 'high',
         tickSubscription: 'R_100',
         defaultPayout: 0.80
     },
-    'BOOM1000': {
-        name: 'Boom 1000 Index',
-        category: 'synthetic',
-        emaShort: 5,
-        emaLong: 15,
-        rsiPeriod: 7,
-        rsiOversold: 25,
-        rsiOverbought: 75,
-        adxPeriod: 14,
-        adxThreshold: 18,
-        atrPeriod: 14,
-        duration: 5,
-        durationUnit: 'm',
-        maxTradesPerDay: 5,
-        volatilityClass: 'extreme',
-        tickSubscription: 'BOOM1000',
-        defaultPayout: 0.75
-    },
-    'CRASH1000': {
-        name: 'Crash 1000 Index',
-        category: 'synthetic',
-        emaShort: 5,
-        emaLong: 15,
-        rsiPeriod: 7,
-        rsiOversold: 25,
-        rsiOverbought: 75,
-        adxPeriod: 14,
-        adxThreshold: 18,
-        atrPeriod: 14,
-        duration: 5,
-        durationUnit: 'm',
-        maxTradesPerDay: 5,
-        volatilityClass: 'extreme',
-        tickSubscription: 'CRASH1000',
-        defaultPayout: 0.75
-    },
+    // 'BOOM1000': {
+    //     name: 'Boom 1000 Index',
+    //     category: 'synthetic',
+    //     emaShort: 5,
+    //     emaLong: 15,
+    //     rsiPeriod: 7,
+    //     rsiOversold: 25,
+    //     rsiOverbought: 75,
+    //     adxPeriod: 14,
+    //     adxThreshold: 18,
+    //     atrPeriod: 14,
+    //     duration: 5,
+    //     durationUnit: 'm',
+    //     maxTradesPerDay: 500,
+    //     volatilityClass: 'extreme',
+    //     tickSubscription: 'BOOM1000',
+    //     defaultPayout: 0.75
+    // },
+    // 'CRASH1000': {
+    //     name: 'Crash 1000 Index',
+    //     category: 'synthetic',
+    //     emaShort: 5,
+    //     emaLong: 15,
+    //     rsiPeriod: 7,
+    //     rsiOversold: 25,
+    //     rsiOverbought: 75,
+    //     adxPeriod: 14,
+    //     adxThreshold: 18,
+    //     atrPeriod: 14,
+    //     duration: 5,
+    //     durationUnit: 'm',
+    //     maxTradesPerDay: 500,
+    //     volatilityClass: 'extreme',
+    //     tickSubscription: 'CRASH1000',
+    //     defaultPayout: 0.75
+    // },
     // Cryptocurrencies
     // 'cryBTCUSD': {
     //     name: 'Bitcoin',
@@ -213,7 +213,7 @@ const ASSET_CONFIGS = {
     //     atrPeriod: 14,
     //     duration: 1,
     //     durationUnit: 'h',
-    //     maxTradesPerDay: 10,
+    //     maxTradesPerDay: 1000,
     //     volatilityClass: 'high',
     //     tickSubscription: 'cryBTCUSD',
     //     defaultPayout: 0.80,
@@ -232,12 +232,12 @@ const ASSET_CONFIGS = {
     //     atrPeriod: 14,
     //     duration: 1,
     //     durationUnit: 'h',
-    //     maxTradesPerDay: 10,
+    //     maxTradesPerDay: 1000,
     //     volatilityClass: 'high',
     //     tickSubscription: 'cryETHUSD',
     //     defaultPayout: 0.80,
     //     multiplier: 100
-    // }
+    // },
     // Major Forex
     // 'frxEURUSD': {
     //     name: 'EUR/USD',
@@ -248,7 +248,7 @@ const ASSET_CONFIGS = {
     //     rsiThreshold: 30,
     //     duration: 4,
     //     durationUnit: 'h',
-    //     maxTradesPerDay: 1,
+    //     maxTradesPerDay: 100,
     //     volatilityClass: 'medium',
     //     tickSubscription: 'frxEURUSD',
     //     correlatedWith: ['frxGBPUSD']
@@ -262,7 +262,7 @@ const ASSET_CONFIGS = {
     //     rsiThreshold: 30,
     //     duration: 4,
     //     durationUnit: 'h',
-    //     maxTradesPerDay: 1,
+    //     maxTradesPerDay: 100,
     //     volatilityClass: 'medium',
     //     tickSubscription: 'frxGBPUSD',
     //     correlatedWith: ['frxEURUSD']
@@ -276,7 +276,7 @@ const ASSET_CONFIGS = {
     //     rsiThreshold: 30,
     //     duration: 4,
     //     durationUnit: 'h',
-    //     maxTradesPerDay: 1,
+    //     maxTradesPerDay: 100,
     //     volatilityClass: 'medium',
     //     tickSubscription: 'frxUSDJPY'
     // },
@@ -290,7 +290,7 @@ const ASSET_CONFIGS = {
     //     rsiThreshold: 30,
     //     duration: 1,
     //     durationUnit: 'h',
-    //     maxTradesPerDay: 2,
+    //     maxTradesPerDay: 200,
     //     volatilityClass: 'high',
     //     tickSubscription: 'WLDOIL'
     // },
@@ -303,7 +303,7 @@ const ASSET_CONFIGS = {
     //     rsiThreshold: 30,
     //     duration: 1,
     //     durationUnit: 'h',
-    //     maxTradesPerDay: 2,
+    //     maxTradesPerDay: 200,
     //     volatilityClass: 'high',
     //     tickSubscription: 'frxXAUUSD'
     // }
@@ -1805,9 +1805,11 @@ class DerivMultiAssetBot {
         }
 
         // Check for existing same-direction trade
+        // const hasExisting = state.portfolio.activePositions.some(
+        //     p => p.symbol === symbol && p.direction === direction
+        // );
         const hasExisting = state.portfolio.activePositions.some(
-            p => p.symbol === symbol && p.direction === direction
-        );
+            p => p.symbol === symbol);
         if (hasExisting) {
             LOGGER.warn(`Trade blocked: Already have active ${direction} on ${symbol}`);
             return;
