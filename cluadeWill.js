@@ -110,19 +110,19 @@ const CONFIG = {
     WPR_OVERSOLD: -80,
 
     // Trade Settings
-    MAX_TRADES_PER_ASSET: 200,
+    MAX_TRADES_PER_ASSET: 20000,
     MAX_OPEN_POSITIONS: 100,
     TOP_ASSETS_TO_TRADE: 2,
 
     // Timing
     ASSET_SCORING_INTERVAL: 5 * 60 * 1000,
-    COOLDOWN_AFTER_SESSION_END: 30 * 60 * 1000,
+    COOLDOWN_AFTER_SESSION_END: 1 * 60 * 1000,
     PROFIT_CHECK_INTERVAL: 1000,         // Check profit recovery every second
 
     // Risk Settings
     MIN_WIN_RATE_THRESHOLD: 0.40,
     WIN_RATE_LOOKBACK: 20,
-    BLACKLIST_PERIOD: 24 * 60 * 60 * 1000,
+    BLACKLIST_PERIOD: 1 * 60 * 1000,//24 * 60 * 60 * 1000,
 
     // Performance
     MAX_TICKS_STORED: 100,
@@ -193,7 +193,7 @@ const ASSET_CONFIGS = {
         multipliers: [50, 100, 200, 300, 500],
         defaultMultiplier: 50,
         wprPeriod: 80,
-        maxTradesPerDay: 50,
+        maxTradesPerDay: 500000,
         minStake: 1.00,
         maxStake: 3000,
         tradingHours: '24/7'
