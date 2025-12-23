@@ -88,7 +88,7 @@ const CONFIG = {
     // Capital Settings
     INITIAL_CAPITAL: parseFloat(process.env.CAPITAL) || 500,
     INITIAL_STAKE: parseFloat(process.env.STAKE) || 1.00,
-    TAKE_PROFIT: parseFloat(process.env.TAKE_PROFIT) || 0.06,
+    TAKE_PROFIT: parseFloat(process.env.TAKE_PROFITs) || 0.1,
 
     // Session Targets
     SESSION_PROFIT_TARGET: parseFloat(process.env.PROFIT_TARGET) || 150,
@@ -97,7 +97,7 @@ const CONFIG = {
     // Breakout & Reversal Settings
     REVERSAL_STAKE_MULTIPLIER: 2,      // 2x stake on reversal
     MAX_REVERSAL_LEVEL: 10,               // Max consecutive reversals
-    AUTO_CLOSE_ON_RECOVERY: true,        // Auto-close when profit >= accumulated loss
+    AUTO_CLOSE_ON_RECOVERY: false,        // Auto-close when profit >= accumulated loss
 
     // Timeframe Settings
     TIMEFRAME: SELECTED_TIMEFRAME,
@@ -191,7 +191,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 500],
-        defaultMultiplier: 50,
+        defaultMultiplier: 200,
         wprPeriod: 80,
         maxTradesPerDay: 500000,
         minStake: 1.00,
@@ -299,159 +299,159 @@ const ASSET_CONFIGS = {
     //     tradingHours: '24/7'
     // },
     // Jump Indices
-    'JD10': {
-        name: 'Jump 10 Index',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [20, 40, 60, 80, 100, 200],
-        defaultMultiplier: 20,
-        wprPeriod: 80,
-        maxTradesPerDay: 10,
-        minStake: 0.35,
-        maxStake: 1000,
-        tradingHours: '24/7'
-    },
-    'JD25': {
-        name: 'Jump 25 Index',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [20, 40, 60, 80, 100, 200],
-        defaultMultiplier: 20,
-        wprPeriod: 80,
-        maxTradesPerDay: 10,
-        minStake: 0.35,
-        maxStake: 1000,
-        tradingHours: '24/7'
-    },
-    'JD50': {
-        name: 'Jump 50 Index',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [20, 40, 60, 80, 100, 200],
-        defaultMultiplier: 20,
-        wprPeriod: 80,
-        maxTradesPerDay: 8,
-        minStake: 0.50,
-        maxStake: 1000,
-        tradingHours: '24/7'
-    },
-    'JD75': {
-        name: 'Jump 75 Index',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [20, 40, 60, 80, 100, 200],
-        defaultMultiplier: 20,
-        wprPeriod: 80,
-        maxTradesPerDay: 6,
-        minStake: 0.50,
-        maxStake: 1500,
-        tradingHours: '24/7'
-    },
-    'JD100': {
-        name: 'Jump 100 Index',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [20, 40, 60, 80, 100, 200],
-        defaultMultiplier: 20,
-        wprPeriod: 80,
-        maxTradesPerDay: 5,
-        minStake: 0.50,
-        maxStake: 1500,
-        tradingHours: '24/7'
-    },
-    // Forex
-    'frxEURUSD': {
-        name: 'EUR/USD',
-        category: 'forex',
-        contractType: 'multiplier',
-        multipliers: [50, 100, 200, 300, 400, 500, 1000],
-        defaultMultiplier: 50,
-        wprPeriod: 80,
-        maxTradesPerDay: 5,
-        minStake: 5,
-        maxStake: 5000,
-        tradingHours: 'Sun 22:05 - Fri 21:55 GMT'
-    },
-    'frxGBPUSD': {
-        name: 'GBP/USD',
-        category: 'forex',
-        contractType: 'multiplier',
-        multipliers: [50, 100, 200, 300, 400, 500, 1000],
-        defaultMultiplier: 50,
-        wprPeriod: 80,
-        maxTradesPerDay: 5,
-        minStake: 5,
-        maxStake: 5000,
-        tradingHours: 'Sun 22:05 - Fri 21:55 GMT'
-    },
-    'frxUSDJPY': {
-        name: 'USD/JPY',
-        category: 'forex',
-        contractType: 'multiplier',
-        multipliers: [50, 100, 200, 300, 400, 500, 1000],
-        defaultMultiplier: 50,
-        wprPeriod: 80,
-        maxTradesPerDay: 5,
-        minStake: 5,
-        maxStake: 5000,
-        tradingHours: 'Sun 22:05 - Fri 21:55 GMT'
-    },
-    // Crypto
-    'cryBTCUSD': {
-        name: 'Bitcoin/USD',
-        category: 'crypto',
-        contractType: 'multiplier',
-        multipliers: [50, 100, 150, 200, 250, 300],
-        defaultMultiplier: 50,
-        wprPeriod: 80,
-        maxTradesPerDay: 8,
-        minStake: 5,
-        maxStake: 3000,
-        tradingHours: '24/7'
-    },
-    'cryETHUSD': {
-        name: 'Ethereum/USD',
-        category: 'crypto',
-        contractType: 'multiplier',
-        multipliers: [50, 100, 150, 200, 250, 300],
-        defaultMultiplier: 50,
-        wprPeriod: 80,
-        maxTradesPerDay: 8,
-        minStake: 5,
-        maxStake: 3000,
-        tradingHours: '24/7'
-    },
-    // Commodities
-    'frxXAUUSD': {
-        name: 'Gold/USD',
-        category: 'commodity',
-        contractType: 'multiplier',
-        multipliers: [50, 100, 200, 300, 400, 500],
-        defaultMultiplier: 50,
-        wprPeriod: 80,
-        maxTradesPerDay: 5,
-        minStake: 5,
-        maxStake: 5000,
-        tradingHours: 'Sun 23:00 - Fri 21:55 GMT'
-    },
-    'frxXAGUSD': {
-        name: 'Silver/USD',
-        category: 'commodity',
-        contractType: 'multiplier',
-        multipliers: [50, 100, 200, 300],
-        defaultMultiplier: 50,
-        wprPeriod: 80,
-        maxTradesPerDay: 5,
-        minStake: 5,
-        maxStake: 3000,
-        tradingHours: 'Sun 23:00 - Fri 21:55 GMT'
-    }
+    // 'JD10': {
+    //     name: 'Jump 10 Index',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [20, 40, 60, 80, 100, 200],
+    //     defaultMultiplier: 20,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 10,
+    //     minStake: 0.35,
+    //     maxStake: 1000,
+    //     tradingHours: '24/7'
+    // },
+    // 'JD25': {
+    //     name: 'Jump 25 Index',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [20, 40, 60, 80, 100, 200],
+    //     defaultMultiplier: 20,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 10,
+    //     minStake: 0.35,
+    //     maxStake: 1000,
+    //     tradingHours: '24/7'
+    // },
+    // 'JD50': {
+    //     name: 'Jump 50 Index',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [20, 40, 60, 80, 100, 200],
+    //     defaultMultiplier: 20,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 8,
+    //     minStake: 0.50,
+    //     maxStake: 1000,
+    //     tradingHours: '24/7'
+    // },
+    // 'JD75': {
+    //     name: 'Jump 75 Index',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [20, 40, 60, 80, 100, 200],
+    //     defaultMultiplier: 20,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 6,
+    //     minStake: 0.50,
+    //     maxStake: 1500,
+    //     tradingHours: '24/7'
+    // },
+    // 'JD100': {
+    //     name: 'Jump 100 Index',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [20, 40, 60, 80, 100, 200],
+    //     defaultMultiplier: 20,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 5,
+    //     minStake: 0.50,
+    //     maxStake: 1500,
+    //     tradingHours: '24/7'
+    // },
+    // // Forex
+    // 'frxEURUSD': {
+    //     name: 'EUR/USD',
+    //     category: 'forex',
+    //     contractType: 'multiplier',
+    //     multipliers: [50, 100, 200, 300, 400, 500, 1000],
+    //     defaultMultiplier: 50,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 5,
+    //     minStake: 5,
+    //     maxStake: 5000,
+    //     tradingHours: 'Sun 22:05 - Fri 21:55 GMT'
+    // },
+    // 'frxGBPUSD': {
+    //     name: 'GBP/USD',
+    //     category: 'forex',
+    //     contractType: 'multiplier',
+    //     multipliers: [50, 100, 200, 300, 400, 500, 1000],
+    //     defaultMultiplier: 50,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 5,
+    //     minStake: 5,
+    //     maxStake: 5000,
+    //     tradingHours: 'Sun 22:05 - Fri 21:55 GMT'
+    // },
+    // 'frxUSDJPY': {
+    //     name: 'USD/JPY',
+    //     category: 'forex',
+    //     contractType: 'multiplier',
+    //     multipliers: [50, 100, 200, 300, 400, 500, 1000],
+    //     defaultMultiplier: 50,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 5,
+    //     minStake: 5,
+    //     maxStake: 5000,
+    //     tradingHours: 'Sun 22:05 - Fri 21:55 GMT'
+    // },
+    // // Crypto
+    // 'cryBTCUSD': {
+    //     name: 'Bitcoin/USD',
+    //     category: 'crypto',
+    //     contractType: 'multiplier',
+    //     multipliers: [50, 100, 150, 200, 250, 300],
+    //     defaultMultiplier: 50,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 8,
+    //     minStake: 5,
+    //     maxStake: 3000,
+    //     tradingHours: '24/7'
+    // },
+    // 'cryETHUSD': {
+    //     name: 'Ethereum/USD',
+    //     category: 'crypto',
+    //     contractType: 'multiplier',
+    //     multipliers: [50, 100, 150, 200, 250, 300],
+    //     defaultMultiplier: 50,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 8,
+    //     minStake: 5,
+    //     maxStake: 3000,
+    //     tradingHours: '24/7'
+    // },
+    // // Commodities
+    // 'frxXAUUSD': {
+    //     name: 'Gold/USD',
+    //     category: 'commodity',
+    //     contractType: 'multiplier',
+    //     multipliers: [50, 100, 200, 300, 400, 500],
+    //     defaultMultiplier: 50,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 5,
+    //     minStake: 5,
+    //     maxStake: 5000,
+    //     tradingHours: 'Sun 23:00 - Fri 21:55 GMT'
+    // },
+    // 'frxXAGUSD': {
+    //     name: 'Silver/USD',
+    //     category: 'commodity',
+    //     contractType: 'multiplier',
+    //     multipliers: [50, 100, 200, 300],
+    //     defaultMultiplier: 50,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 5,
+    //     minStake: 5,
+    //     maxStake: 3000,
+    //     tradingHours: 'Sun 23:00 - Fri 21:55 GMT'
+    // }
 };
 
 // Active assets
 let ACTIVE_ASSETS = process.env.ASSETS
     ? process.env.ASSETS.split(',')
-    : ['R_75', '1HZ50V'];//['R_10', 'R_75', 'R_100', '1HZ10V', '1HZ50V'];
+    : ['R_75'];//['R_10', 'R_75', 'R_100', '1HZ10V', '1HZ50V'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -610,41 +610,51 @@ class BreakoutManager {
     /**
      * Set up breakout levels when WPR signal occurs
      * Breakout only expires when a NEW breakout signal forms
+     * 
+     * After handleOHLC reorder:
+     * - candles[length-1] = new (opening) bar
+     * - candles[length-2] = just closed bar (triggered WPR signal)
+     * - We use the CLOSED bar's high/low for breakout levels
      */
     static setupBreakoutLevels(symbol, setupType) {
         const assetState = state.assets[symbol];
         const candles = assetState.candles;
 
-        if (candles.length < 2) {
+        if (candles.length < 3) {
             LOGGER.warn(`${symbol}: Not enough candles for breakout setup`);
             return false;
         }
 
-        // Get the PREVIOUS candle (the one before current)
-        const prevCandle = candles[candles.length - 2];
+        // Get the CLOSED candle that triggered the WPR signal
+        // This is candles[length-2] because the new bar is already at candles[length-1]
+        const signalCandle = candles[candles.length - 2];
 
         // If we already have an active breakout, this new signal REPLACES it
         if (assetState.breakout.active) {
             LOGGER.breakout(`${symbol}: New ${setupType} replaces previous ${assetState.breakout.type}`);
         }
 
-        // Set new breakout levels
+        // Set new breakout levels using the signal candle's high/low
         assetState.breakout = {
             active: true,
             type: setupType,
-            highLevel: prevCandle.high,
-            lowLevel: prevCandle.low,
-            triggerCandle: prevCandle.epoch,
+            highLevel: signalCandle.high,
+            lowLevel: signalCandle.low,
+            triggerCandle: signalCandle.epoch,
             confirmedEntry: false
         };
 
-        LOGGER.breakout(`${symbol} ${setupType} - Levels set: High=${prevCandle.high.toFixed(5)}, Low=${prevCandle.low.toFixed(5)}`);
+        LOGGER.breakout(`${symbol} ${setupType} - Levels set: High=${signalCandle.high.toFixed(5)}, Low=${signalCandle.low.toFixed(5)}`);
 
         return true;
     }
 
     /**
      * Check if price has confirmed breakout (closed above/below level)
+     * 
+     * After handleOHLC reorder:
+     * - candles[length-1] = new (opening) bar  
+     * - candles[length-2] = just closed bar (use this for confirmation)
      */
     static checkBreakoutConfirmation(symbol) {
         const assetState = state.assets[symbol];
@@ -656,9 +666,13 @@ class BreakoutManager {
             return null;
         }
 
-        // Get current (just closed) candle
-        const currentCandle = candles[candles.length - 1];
-        const closePrice = currentCandle.close;
+        if (candles.length < 2) {
+            return null;
+        }
+
+        // Get the CLOSED candle (not the new opening bar)
+        const closedCandle = candles[candles.length - 2];
+        const closePrice = closedCandle.close;
 
         // Check direction restrictions
         if (config.onlyDirection) {
@@ -692,6 +706,10 @@ class BreakoutManager {
 
     /**
      * Check if price has reversed through opposite breakout level
+     * 
+     * After handleOHLC reorder:
+     * - candles[length-1] = new (opening) bar
+     * - candles[length-2] = just closed bar (use this for reversal check)
      */
     static checkReversal(symbol) {
         const assetState = state.assets[symbol];
@@ -702,8 +720,13 @@ class BreakoutManager {
             return null;
         }
 
-        const currentCandle = candles[candles.length - 1];
-        const closePrice = currentCandle.close;
+        if (candles.length < 2) {
+            return null;
+        }
+
+        // Get the CLOSED candle
+        const closedCandle = candles[candles.length - 2];
+        const closePrice = closedCandle.close;
         const currentDirection = assetState.currentDirection;
 
         // If we're in a BUY and price closes BELOW the low level = REVERSAL to SELL
@@ -768,6 +791,7 @@ class BreakoutManager {
 class StakeManager {
     /**
      * Get stake for initial trade
+     * Reset all recovery-related variables and set initial TP
      */
     static getInitialStake(symbol) {
         const config = ASSET_CONFIGS[symbol];
@@ -778,7 +802,8 @@ class StakeManager {
         assetState.takeProfit = CONFIG.TAKE_PROFIT;
         assetState.reversalLevel = 0;
         assetState.accumulatedLoss = 0;
-        assetState.takeProfitAmount = 0;
+        // Set initial take profit amount (not 0, so first trade has a TP)
+        assetState.takeProfitAmount = CONFIG.TAKE_PROFIT;
 
         return this.validateStake(symbol, assetState.currentStake);
     }
@@ -812,7 +837,7 @@ class StakeManager {
         LOGGER.trade(`${symbol} Reversal stake: $${assetState.currentStake.toFixed(2)} (Level ${assetState.reversalLevel})`);
         LOGGER.trade(`${symbol} Accumulated loss: $${assetState.accumulatedLoss.toFixed(2)}, Dynamic TP: $${assetState.takeProfitAmount.toFixed(2)}`);
 
-        return this.validateStake(symbol, assetState.currentStake);
+        return this.validateStake(symbol, assetState.currentStake.toFixed(2));
     }
 
     /**
@@ -829,6 +854,9 @@ class StakeManager {
         assetState.takeProfitAmount = 0;
         assetState.activePosition = null;
         assetState.currentDirection = null;
+
+        // Reset Stake and Take Profit
+        this.getInitialStake(symbol);
 
         // Clear breakout and wait for new signal
         BreakoutManager.clearBreakout(symbol);
@@ -1188,21 +1216,25 @@ class ConnectionManager {
         const isNewBar = candles.length === 0 || candles[candles.length - 1].epoch !== candle.epoch;
 
         if (isNewBar) {
+            // IMPORTANT: Update indicators FIRST with the just-closed candle data
+            // The last candle in the array is the one that just closed
+            this.updateIndicators(symbol);
+
+            // Now add the new (opening) candle
             candles.push(candle);
             assetState.lastBarTime = candle.epoch;
 
-            // Process on new bar close
+            // Process trading logic based on the closed candle
+            // At this point, candles[length-2] is the closed candle, candles[length-1] is the new bar
             this.processNewBar(symbol);
         } else {
+            // Update the current (still open) candle
             candles[candles.length - 1] = candle;
         }
 
         if (candles.length > CONFIG.MAX_CANDLES_STORED) {
             state.assets[symbol].candles = candles.slice(-CONFIG.MAX_CANDLES_STORED);
         }
-
-        // Update WPR indicator
-        this.updateIndicators(symbol);
     }
 
     handleCandlesHistory(response) {
@@ -1411,6 +1443,12 @@ class ConnectionManager {
                 if (state.assets[symbol]) {
                     state.assets[symbol].activePosition = null;
                     state.assets[symbol].currentDirection = null;
+
+                    // WIN: Reset stake and TP to defaults
+                    if (profit > 0) {
+                        LOGGER.recovery(`${symbol} 🎉 WIN! Resetting to default stake and TP.`);
+                        StakeManager.fullReset(symbol);
+                    }
                 }
             }
 
@@ -1563,6 +1601,13 @@ class DerivBreakoutBot {
         const config = ASSET_CONFIGS[symbol];
         const assetState = state.assets[symbol];
 
+        const hasExisting = state.portfolio.activePositions.some(
+            p => p.symbol === symbol);
+        if (hasExisting) {
+            LOGGER.warn(`Trade blocked: Already have active ${direction} on ${symbol}`);
+            return;
+        }
+
         // Get stake based on whether this is a reversal
         let stake;
         if (isReversal) {
@@ -1653,7 +1698,7 @@ class DerivBreakoutBot {
         position.pendingReversal = newDirection;
 
         // Update breakout levels for the reversal
-        BreakoutManager.updateBreakoutForReversal(symbol, newDirection);
+        // BreakoutManager.updateBreakoutForReversal(symbol, newDirection);
 
         // Close current position at market
         this.connection.send({
