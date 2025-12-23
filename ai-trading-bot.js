@@ -35,7 +35,7 @@ class AIDigitDifferBot {
         // AI Model API Keys - Fixed parsing
         this.aiModels = {
             gemini: {
-                keys: this.parseGeminiKeys(process.env.GEMINI_API_KEYS),
+                keys: this.parseGeminiKeys(process.env.GEMINI_API_nKEYS),
                 currentIndex: 0,
                 enabled: false,
                 name: 'Gemini',
@@ -619,7 +619,9 @@ class AIDigitDifferBot {
             // Check if we should trade
             if (ensemble.confidence >= this.config.minConfidence &&
                 ensemble.agreement >= Math.min(this.config.minModelsAgreement, predictions.length) &&
-                ensemble.risk !== 'high') {
+                ensemble.risk !== 'high' &&
+                processingTime.toFixed(2) < 5
+            ) {
                 this.placeTrade(ensemble.digit, ensemble.confidence);
             } else {
                 console.log(`⏭️  Skipping trade: conf=${ensemble.confidence}%, agree=${ensemble.agreement}, risk=${ensemble.risk}`);
@@ -797,41 +799,88 @@ class AIDigitDifferBot {
         // Recent methods used
         const recentMethods = this.tradeMethod.slice(-5).join(', ');
 
-        return `You are an expert AI for Deriv Digit Differ trading. Your task is to predict the digit (0-9) that will NOT appear in the next tick.
+        // return `You are an expert AI for Deriv Digit Differ trading. Your task is to predict the digit (0-9) that will NOT appear in the next tick.
 
-        CURRENT MARKET DATA:
-        - Asset: ${this.currentAsset}
-        - Last 300 digits: [${recentDigits.join(',')}] 
-        - Last 50 digits: [${last50.join(',')}]
-        - Last 20 digits: [${last20.join(',')}]
-        - Digit frequency (last 50): ${counts.map((c, i) => `${i}:${c}`).join(',')}
-        - Digits not in last 15 ticks: [${gaps.join(',')}]
-        - Recent predictions: ${previousOutcomes || 'None'}
-        - Recent methods: ${recentMethods || 'None'}
-        - Consecutive losses: ${this.consecutiveLosses}
+        // CURRENT MARKET DATA:
+        // - Asset: ${this.currentAsset}
+        // - Last 300 digits: [${recentDigits.join(',')}] 
+        // - Last 50 digits: [${last50.join(',')}]
+        // - Last 20 digits: [${last20.join(',')}]
+        // - Digit frequency (last 50): ${counts.map((c, i) => `${i}:${c}`).join(',')}
+        // - Digits not in last 15 ticks: [${gaps.join(',')}]
+        // - Recent predictions: ${previousOutcomes || 'None'}
+        // - Recent methods: ${recentMethods || 'None'}
+        // - Consecutive losses: ${this.consecutiveLosses}
 
-        ANALYSIS METHODS TO USE:
-        1. FREQUENCY ANALYSIS - Identify over/under-represented digits
-        2. GAP ANALYSIS - Find digits due to appear (avoid these)
-        3. PATTERN RECOGNITION - Detect repeating sequences
-        4. TRANSITION PROBABILITY - P(next digit | current digit)
-        5. MOMENTUM ANALYSIS - Trending digit patterns
-        6. MEAN REVERSION - Digits deviating from expected 10% frequency
+        // ANALYSIS METHODS TO USE:
+        // 1. FREQUENCY ANALYSIS - Identify over/under-represented digits
+        // 2. GAP ANALYSIS - Find digits due to appear (avoid these)
+        // 3. PATTERN RECOGNITION - Detect repeating sequences
+        // 4. TRANSITION PROBABILITY - P(next digit | current digit)
+        // 5. MOMENTUM ANALYSIS - Trending digit patterns
+        // 6. MEAN REVERSION - Digits deviating from expected 10% frequency
 
-        CRITICAL CONSIDERATIONS:
-        - There is a 3-6 tick delay from your analysis to trade execution
-        - Your prediction should account for this delay
-        - Predict the digit LEAST likely to appear, not the most likely
-        - Base predictions on quantitative analysis only
+        // CRITICAL CONSIDERATIONS:
+        // - There is a 3-6 tick delay from your analysis to trade execution
+        // - Your prediction should account for this delay
+        // - Predict the digit LEAST likely to appear, not the most likely
+        // - Base predictions on quantitative analysis only
 
-        OUTPUT FORMAT (JSON only):
-        {
-            "predictedDigit": X,
-            "confidence": XX,
-            "primaryStrategy": "Method-Name",
-            "marketRegime": "trending/ranging/volatile",
-            "riskAssessment": "low/medium/high"
-        }`;
+        // OUTPUT FORMAT (JSON only):
+        // {
+        //     "predictedDigit": X,
+        //     "confidence": XX,
+        //     "primaryStrategy": "Method-Name",
+        //     "marketRegime": "trending/ranging/volatile",
+        //     "riskAssessment": "low/medium/high"
+        // }`;
+
+        return `You are an expert trading AI engaged in Deriv Digit Differ (digit that will not appear next) prediction, you are trading against an adversary (the Deriv system).
+            ADVERSARIAL CONTEXT:
+            - You are trading against an intelligent system that learns from your prediction patterns
+            - The opposing system actively tries to break your models and cause losses
+            - It adapts its digit generation to exploit your previous successful strategies
+            - You must continuously evolve your analysis and prediction methods
+
+            CURRENT MARKET DATA:
+            - Asset: ${this.currentAsset}
+            - Last 300 digits: [${recentDigits.join(',')}] 
+            - Digit frequency (last 50): ${counts.map((c, i) => `${i}:${c}`).join(',')}
+            - Digits not in last 15 ticks: [${gaps.join(',')}]
+            - Recent predictions: ${previousOutcomes || 'None'}
+            - Recent methods: ${recentMethods || 'None'}
+            - Consecutive losses: ${this.consecutiveLosses}
+
+            ANALYSIS FRAMEWORK – Use only proven methods for predicting the Digit that will NOT appear (Digit Differ):
+        
+            STRATEGY SELECTION & ADAPTATION:
+            - Select the best method based on recent performance, market regime, and risk level
+            - Avoid methods that have recently led to losses
+            - Adapt strategy dynamically based on current market conditions and historical effectiveness
+        
+            MARKET REGIME ASSESSMENT:
+            - Determine if the market is trending, ranging, or volatile using volatility and momentum indicators
+            - Adjust method selection based on the identified market regime
+
+            CRITICAL CONSIDERATIONS:
+            - There is a 1-3 tick delay from your analysis to trade execution
+            - Your prediction should account for this delay
+            - Predict the Digit that will NOT appear (Digit Differ), not the most likely
+            - Base predictions on quantitative analysis only
+
+            DECISION RULES:
+            - If consecutive losses ≥ 1, switch to conservative statistical methods
+            - Consider recent performance: adapt method selection based on what's working
+
+            OUTPUT FORMAT (JSON only):
+            {
+                "predictedDigit": X,
+                "confidence": XX,
+                "primaryStrategy": "Method-Name",
+                "marketRegime": "trending/ranging/volatile",
+                "riskAssessment": "low/medium/high"
+            }
+        `;
     }
 
     parseAIResponse(text, modelName = 'unknown') {
