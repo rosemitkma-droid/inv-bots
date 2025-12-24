@@ -40,6 +40,75 @@ const math = require('mathjs');
 const nodemailer = require('nodemailer');
 
 // ============================================
+// EMAIL SERVICE
+// ============================================
+
+class EmailService {
+    static async sendEmail(subject, body) {
+        if (!CONFIG.EMAIL_ENABLED) return;
+
+        try {
+            const transporter = nodemailer.createTransport({
+                service: CONFIG.EMAIL_CONFIG.service,
+                auth: {
+                    user: CONFIG.EMAIL_CONFIG.auth.user,
+                    pass: CONFIG.EMAIL_CONFIG.auth.pass
+                }
+            });
+
+            await transporter.sendMail({
+                from: CONFIG.EMAIL_CONFIG.auth.user,
+                to: CONFIG.EMAIL_RECIPIENT,
+                subject: `🤖 Deriv Bot: ${subject}`,
+                text: body
+            });
+
+            LOGGER.info(`📧 Email sent: ${subject}`);
+        } catch (error) {
+            LOGGER.error(`Failed to send email: ${error.message}`);
+        }
+    }
+
+    static async sendLossAlert(symbol, lossAmount, consecutiveLosses) {
+        const subject = `❌ Loss Alert: -$${lossAmount.toFixed(2)} (${symbol})`;
+        const body = `
+            LOSS ALERT
+            ==========
+            Asset: ${symbol}
+            Loss Amount: $${lossAmount.toFixed(2)}
+            Consecutive Losses: ${consecutiveLosses}
+            
+            Current Capital: $${state.capital.toFixed(2)}
+            Session Net P/L: $${state.session.netPL.toFixed(2)}
+            
+            Time: ${new Date().toUTCString()}
+        `;
+        await this.sendEmail(subject, body);
+    }
+
+    static async sendSessionSummary() {
+        const stats = SessionManager.getSessionStats();
+        const subject = `📊 Session Summary - Net P/L: $${stats.netPL.toFixed(2)}`;
+        const body = `
+            SESSION SUMMARY
+            ===============
+            Duration: ${stats.duration}
+            Trades: ${stats.trades}
+            Wins: ${stats.wins} | Losses: ${stats.losses}
+            Win Rate: ${stats.winRate}
+            
+            Net P/L: $${stats.netPL.toFixed(2)}
+            Current Capital: $${state.capital.toFixed(2)}
+            
+            Active Assets: ${Object.keys(state.assets).length}
+            
+            Time: ${new Date().toUTCString()}
+        `;
+        await this.sendEmail(subject, body);
+    }
+}
+
+// ============================================
 // LOGGER UTILITY
 // ============================================
 
@@ -1072,6 +1141,7 @@ class RiskManager {
             assetState.consecutiveLosses++;
 
             LOGGER.trade(`❌ LOSS on ${symbol}: -$${Math.abs(profit).toFixed(2)}`);
+            EmailService.sendLossAlert(symbol, Math.abs(profit), assetState.consecutiveLosses);
         }
 
         // Update trade history
@@ -1104,6 +1174,11 @@ class ConnectionManager {
         this.maxReconnectAttempts = 10;
         this.reconnectDelay = 5000;
         this.profitCheckInterval = null;
+
+        // Stagnation Detection
+        this.pingInterval = null;
+        this.checkDataInterval = null;
+        this.lastDataTime = Date.now();
     }
 
     connect() {
@@ -1123,11 +1198,14 @@ class ConnectionManager {
         LOGGER.info('✅ Connected to Deriv API');
         state.isConnected = true;
         this.reconnectAttempts = 0;
+        this.lastDataTime = Date.now();
 
+        this.startMonitor();
         this.send({ authorize: CONFIG.API_TOKEN });
     }
 
     onMessage(data) {
+        this.lastDataTime = Date.now(); // Update liveliness on ANY message (including ping/pong)
         try {
             const response = JSON.parse(data);
             this.handleResponse(response);
@@ -1187,6 +1265,7 @@ class ConnectionManager {
     }
 
     handleTick(tick) {
+        this.lastDataTime = Date.now(); // Update liveliness
         const symbol = tick.symbol;
         if (!state.assets[symbol]) return;
 
@@ -1200,6 +1279,7 @@ class ConnectionManager {
     }
 
     handleOHLC(ohlc) {
+        this.lastDataTime = Date.now(); // Update liveliness
         const symbol = ohlc.symbol;
         if (!state.assets[symbol]) return;
 
@@ -1487,6 +1567,8 @@ class ConnectionManager {
         state.isConnected = false;
         state.isAuthorized = false;
 
+        this.stopMonitor();
+
         if (this.profitCheckInterval) {
             clearInterval(this.profitCheckInterval);
         }
@@ -1499,6 +1581,35 @@ class ConnectionManager {
             LOGGER.error('Max reconnection attempts reached. Exiting.');
             process.exit(1);
         }
+    }
+
+    startMonitor() {
+        this.stopMonitor();
+
+        // 1. Heartbeat: Ping every 20s
+        this.pingInterval = setInterval(() => {
+            if (state.isConnected) {
+                this.send({ ping: 1 });
+            }
+        }, 20000);
+
+        // 2. Data Watchdog: Reconnect if no data for 60s
+        this.checkDataInterval = setInterval(() => {
+            if (!state.isConnected) return;
+
+            const silenceDuration = Date.now() - this.lastDataTime;
+            if (silenceDuration > 60000) { // 60 seconds silence
+                LOGGER.error(`⚠️ No data received for ${Math.round(silenceDuration / 1000)}s - Forcing reconnection...`);
+                if (this.ws) {
+                    this.ws.terminate(); // Force close logic to trigger
+                }
+            }
+        }, 10000);
+    }
+
+    stopMonitor() {
+        if (this.pingInterval) clearInterval(this.pingInterval);
+        if (this.checkDataInterval) clearInterval(this.checkDataInterval);
     }
 
     send(data) {
@@ -1540,6 +1651,14 @@ class DerivBreakoutBot {
         await this.subscribeToAssets();
 
         SessionManager.startNewSession();
+
+        // Start periodic email summary (every 60 minutes)
+        if (CONFIG.EMAIL_ENABLED) {
+            setInterval(() => {
+                EmailService.sendSessionSummary();
+            }, 60 * 60 * 1000);
+            LOGGER.info('📧 Email notifications enabled');
+        }
 
         LOGGER.info('✅ Bot started successfully!');
     }
