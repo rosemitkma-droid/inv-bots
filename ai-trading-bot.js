@@ -1000,16 +1000,16 @@ class AIDigitDifferBot {
         if (!key) throw new Error('No Groq API key');
 
         const response = await axios.post(
-            'https://api.groq.com/openai/v1/chat/completions',
+            'https://gen.pollinations.ai/v1/chat/completions',//'https://api.groq.com/openai/v1/chat/completions',
             {
-                model: 'llama-3.3-70b-versatile',
+                model: 'grok',//'llama-3.3-70b-versatile',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
                     { role: 'user', content: this.getPrompt() }
                 ],
                 temperature: 0.1,
                 max_tokens: 256,
-                response_format: { type: "json_object" }
+                // response_format: { type: "json_object" }
             },
             {
                 headers: {
@@ -1029,23 +1029,23 @@ class AIDigitDifferBot {
         if (!key) throw new Error('No OpenRouter API key');
 
         const response = await axios.post(
-            'https://openrouter.ai/api/v1/chat/completions',
+            'https://api.cerebras.ai/v1/chat/completions',//https://openrouter.ai/api/v1/chat/completions',
             {
-                model: 'meta-llama/llama-3.2-3b-instruct:free',
+                model: 'qwen-3-235b-a22b-instruct-2507',//'meta-llama/llama-3.2-3b-instruct:free',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
                     { role: 'user', content: this.getPrompt() }
                 ],
                 temperature: 0.1,
                 max_tokens: 256,
-                response_format: { type: "json_object" }
+                // response_format: { type: "json_object" }
             },
             {
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${key}`,
-                    'HTTP-Referer': 'https://github.com/digit-differ-bot',
-                    'X-Title': 'Digit Differ Bot'
+                    // 'HTTP-Referer': 'https://github.com/digit-differ-bot',
+                    // 'X-Title': 'Digit Differ Bot'
                 },
                 timeout: 30000
             }
@@ -1118,9 +1118,9 @@ class AIDigitDifferBot {
         if (!key) throw new Error('No SambaNova API key');
 
         const response = await axios.post(
-            'https://api.sambanova.ai/v1/chat/completions',
+            'https://gen.pollinations.ai/v1/chat/completions',//'https://api.sambanova.ai/v1/chat/completions',
             {
-                model: 'Meta-Llama-3.1-8B-Instruct',
+                model: 'perplexity-fast',//'Meta-Llama-3.1-8B-Instruct',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
                     { role: 'user', content: this.getPrompt() }
@@ -1141,40 +1141,6 @@ class AIDigitDifferBot {
         return this.parseAIResponse(text, 'sambanova');
     }
 
-    // NEW: Hugging Face Inference API (Free tier)
-    async predictWithHuggingFace() {
-        const key = this.aiModels.huggingface.key;
-        if (!key) throw new Error('No HuggingFace API key');
-
-        const response = await axios.post(
-            'https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct',
-            {
-                inputs: `[INST] You are a trading bot that ONLY outputs JSON. ${this.getPrompt()} [/INST]`,
-                parameters: {
-                    temperature: 0.1,
-                    max_new_tokens: 256,
-                    return_full_text: false
-                }
-            },
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${key}`
-                },
-                timeout: 30000
-            }
-        );
-
-        let text = '';
-        if (Array.isArray(response.data)) {
-            text = response.data[0]?.generated_text;
-        } else {
-            text = response.data?.generated_text;
-        }
-
-        return this.parseAIResponse(text, 'huggingface');
-    }
-
     // NEW: Qwen (Alibaba DashScope)
     async predictWithQwen() {
         const key = this.aiModels.qwen.key;
@@ -1182,9 +1148,9 @@ class AIDigitDifferBot {
 
         // Use compatible-mode endpoint
         const response = await axios.post(
-            'https://openrouter.ai/api/v1/chat/completions',//'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
+            'https://gen.pollinations.ai/v1/chat/completions',//'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
             {
-                model: 'qwen/qwen3-coder:free',//'qwen-turbo',
+                model: 'claude-fast',//'claude-fast',//'openai-fast',//'gemini-fast',//'claude-fast',//'qwen/qwen3-coder:free',//'qwen-turbo',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
                     { role: 'user', content: this.getPrompt() }
@@ -1210,9 +1176,9 @@ class AIDigitDifferBot {
         if (!key) throw new Error('No Moonshot API key');
 
         const response = await axios.post(
-            'https://openrouter.ai/api/v1/chat/completions',//'https://api.moonshot.cn/v1/chat/completions',
+            'https://gen.pollinations.ai/v1/chat/completions',//'https://openrouter.ai/api/v1/chat/completions',//'https://api.moonshot.cn/v1/chat/completions',
             {
-                model: 'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
+                model: 'gemini-fast',//'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
                     { role: 'user', content: this.getPrompt() }
@@ -1238,16 +1204,14 @@ class AIDigitDifferBot {
         if (!key) throw new Error('No SiliconFlow API key');
 
         const response = await axios.post(
-            'https://openrouter.ai/api/v1/chat/completions',//'https://api.siliconflow.cn/v1/chat/completions',
+            'https://gen.pollinations.ai/v1/chat/completions',//'https://openrouter.ai/api/v1/chat/completions',//'https://api.moonshot.cn/v1/chat/completions',
             {
-                model: 'xiaomi/mimo-v2-flash:free',//'Qwen/Qwen2.5-7B-Instruct', // Free & Fast model
+                model: 'openai-fast',//'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
                     { role: 'user', content: this.getPrompt() }
                 ],
-                temperature: 0.1,
-                max_tokens: 256,
-                response_format: { type: 'json_object' }
+                temperature: 0.1
             },
             {
                 headers: {
