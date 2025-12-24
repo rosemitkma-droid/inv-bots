@@ -224,9 +224,9 @@ const ASSET_CONFIGS = {
     //     category: 'synthetic',
     //     contractType: 'multiplier',
     //     multipliers: [400, 1000, 2000, 3000, 4000],
-    //     defaultMultiplier: 400,
+    //     defaultMultiplier: 1000,
     //     wprPeriod: 80,
-    //     maxTradesPerDay: 100,
+    //     maxTradesPerDay: 10000000,
     //     minStake: 1.00,
     //     maxStake: 2000,
     //     tradingHours: '24/7'
@@ -255,18 +255,18 @@ const ASSET_CONFIGS = {
     //     maxStake: 2000,
     //     tradingHours: '24/7'
     // },
-    'R_75': {
-        name: 'Volatility 75 Index',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [50, 100, 200, 300, 500],
-        defaultMultiplier: 200,
-        wprPeriod: 80,
-        maxTradesPerDay: 500000,
-        minStake: 1.00,
-        maxStake: 3000,
-        tradingHours: '24/7'
-    },
+    // 'R_75': {
+    //     name: 'Volatility 75 Index',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [50, 100, 200, 300, 500],
+    //     defaultMultiplier: 200,
+    //     wprPeriod: 80,
+    //     maxTradesPerDay: 500000,
+    //     minStake: 1.00,
+    //     maxStake: 3000,
+    //     tradingHours: '24/7'
+    // },
     // 'R_100': {
     //     name: 'Volatility 100 Index',
     //     category: 'synthetic',
@@ -304,18 +304,18 @@ const ASSET_CONFIGS = {
     //     maxStake: 1000,
     //     tradingHours: '24/7'
     // },
-    // '1HZ50V': {
-    //     name: 'Volatility 50 (1s) Index',
-    //     category: 'synthetic',
-    //     contractType: 'multiplier',
-    //     multipliers: [80, 200, 400, 600, 800],
-    //     defaultMultiplier: 80,
-    //     wprPeriod: 80,
-    //     maxTradesPerDay: 120,
-    //     minStake: 1.00,
-    //     maxStake: 1000,
-    //     tradingHours: '24/7'
-    // },
+    '1HZ50V': {
+        name: 'Volatility 50 (1s) Index',
+        category: 'synthetic',
+        contractType: 'multiplier',
+        multipliers: [80, 200, 400, 600, 800],
+        defaultMultiplier: 200,
+        wprPeriod: 80,
+        maxTradesPerDay: 120000000,
+        minStake: 1.00,
+        maxStake: 1000,
+        tradingHours: '24/7'
+    },
     // '1HZ75V': {
     //     name: 'Volatility 75 (1s) Index',
     //     category: 'synthetic',
@@ -998,13 +998,13 @@ class SessionManager {
 
         if (netPL >= state.session.currentProfitTarget) {
             LOGGER.trade(`🎯 SESSION PROFIT TARGET REACHED! Net P/L: $${netPL.toFixed(2)}`);
-            this.endSession('PROFIT_TARGET');
+            // this.endSession('PROFIT_TARGET');
             return true;
         }
 
         if (netPL <= CONFIG.SESSION_STOP_LOSS) {
             LOGGER.error(`🛑 SESSION STOP LOSS REACHED! Net P/L: $${netPL.toFixed(2)}`);
-            this.endSession('STOP_LOSS');
+            // this.endSession('STOP_LOSS');
             return true;
         }
 
