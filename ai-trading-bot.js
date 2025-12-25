@@ -379,15 +379,17 @@ class AIDigitDifferBot {
     }
 
     shutdown() {
-        console.log('\n🛑 Shutting down bot...');
+        console.log('\n🛑 Bot task completed. Entering SUSPEND mode...');
         this.isShuttingDown = true;
         this.isPaused = true;
         this.logFinalSummary();
         this.disconnect();
 
-        setTimeout(() => {
-            process.exit(0);
-        }, 1000);
+        console.log('💤 Bot is now sleeping to prevent auto-restart on VPS.');
+        console.log('👉 Press Ctrl+C or use your process manager to stop it manually.');
+
+        // Keep process alive indefinitely to prevent PM2/VPS restart
+        setInterval(() => { }, 1000 * 60 * 60);
     }
 
     // ==================== MESSAGE HANDLING ====================
@@ -960,16 +962,16 @@ class AIDigitDifferBot {
         if (!key) throw new Error('No Groq API key');
 
         const response = await axios.post(
-            'https://gen.pollinations.ai/v1/chat/completions',//'https://api.groq.com/openai/v1/chat/completions',
+            'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://api.groq.com/openai/v1/chat/completions',
             {
-                model: 'grok',//'llama-3.3-70b-versatile',
+                model: 'groq/compound',//'llama-3.3-70b-versatile',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
                     { role: 'user', content: this.getPrompt() }
                 ],
                 temperature: 0.1,
                 max_tokens: 256,
-                // response_format: { type: "json_object" }
+                response_format: { type: "json_object" }
             },
             {
                 headers: {
@@ -1078,15 +1080,16 @@ class AIDigitDifferBot {
         if (!key) throw new Error('No SambaNova API key');
 
         const response = await axios.post(
-            'https://gen.pollinations.ai/v1/chat/completions',//'https://api.sambanova.ai/v1/chat/completions',
+            'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://api.sambanova.ai/v1/chat/completions',
             {
-                model: 'perplexity-fast',//'Meta-Llama-3.1-8B-Instruct',
+                model: 'moonshotai/kimi-k2-instruct-0905',//'perplexity-fast',//'Meta-Llama-3.1-8B-Instruct',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
                     { role: 'user', content: this.getPrompt() }
                 ],
                 temperature: 0.1,
-                max_tokens: 256
+                max_tokens: 256,
+                response_format: { type: "json_object" }
             },
             {
                 headers: {
@@ -1108,19 +1111,21 @@ class AIDigitDifferBot {
 
         // Use compatible-mode endpoint
         const response = await axios.post(
-            'https://gen.pollinations.ai/v1/chat/completions',//'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
+            'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
             {
-                model: 'claude-fast',//'claude-fast',//'openai-fast',//'gemini-fast',//'claude-fast',//'qwen/qwen3-coder:free',//'qwen-turbo',
+                model: 'meta-llama/llama-4-scout-17b-16e-instruct',//'claude-fast',//'openai-fast',//'gemini-fast',//'claude-fast',//'qwen/qwen3-coder:free',//'qwen-turbo',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
                     { role: 'user', content: this.getPrompt() }
                 ],
-                temperature: 0.1
+                temperature: 0.1,
+                max_tokens: 256,
+                response_format: { type: "json_object" }
             },
             {
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${key}`
+                    'Authorization': `Bearer ${key}`,
                 },
                 timeout: 30000
             }
@@ -1136,14 +1141,16 @@ class AIDigitDifferBot {
         if (!key) throw new Error('No Moonshot API key');
 
         const response = await axios.post(
-            'https://gen.pollinations.ai/v1/chat/completions',//'https://openrouter.ai/api/v1/chat/completions',//'https://api.moonshot.cn/v1/chat/completions',
+            'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://openrouter.ai/api/v1/chat/completions',//'https://api.moonshot.cn/v1/chat/completions',
             {
-                model: 'gemini-fast',//'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
+                model: 'llama-3.3-70b-versatile',//'gemini-fast',//'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
                     { role: 'user', content: this.getPrompt() }
                 ],
-                temperature: 0.1
+                temperature: 0.1,
+                max_tokens: 256,
+                response_format: { type: "json_object" }
             },
             {
                 headers: {
@@ -1166,12 +1173,12 @@ class AIDigitDifferBot {
         const response = await axios.post(
             'https://gen.pollinations.ai/v1/chat/completions',//'https://openrouter.ai/api/v1/chat/completions',//'https://api.moonshot.cn/v1/chat/completions',
             {
-                model: 'openai-fast',//'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
+                model: 'gemini-fast',//'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
                     { role: 'user', content: this.getPrompt() }
                 ],
-                temperature: 0.1
+                temperature: 0.1,
             },
             {
                 headers: {
