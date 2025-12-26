@@ -151,11 +151,19 @@ class AIDigitDifferBot {
         this.winningPatterns = new Map();
         this.tradeMethod = [];
         this.currentPrediction = null;
+        this.RestartTrading = true;
 
         // Model Performance Tracking
         this.modelPerformance = {};
         for (const key in this.aiModels) {
-            this.modelPerformance[key] = { wins: 0, losses: 0, predictions: [] };
+            this.modelPerformance[key] = {
+                wins: 0,
+                losses: 0,
+                predictions: [],
+                lastPrediction: 'None',
+                lastOutcome: 'None',
+                currentPrediction: null
+            };
         }
 
         // Connection State
@@ -522,9 +530,13 @@ class AIDigitDifferBot {
         }
 
         // Select random unused asset
-        const availableAssets = this.assets.filter(a => !this.usedAssets.has(a));
-        this.currentAsset = availableAssets[Math.floor(Math.random() * availableAssets.length)];
-        this.usedAssets.add(this.currentAsset);
+        if (this.RestartTrading) {
+            const availableAssets = this.assets.filter(a => !this.usedAssets.has(a));
+            this.currentAsset = availableAssets[Math.floor(Math.random() * availableAssets.length)];
+            this.usedAssets.add(this.currentAsset);
+        }
+
+        this.RestartTrading = false;
 
         console.log(`\n🎯 Selected asset: ${this.currentAsset}`);
 
@@ -556,13 +568,13 @@ class AIDigitDifferBot {
         }, 500);
     }
 
-    getLastDigit(quote) {
+    getLastDigit(quote, asset) {
         const quoteString = quote.toString();
         const [, fractionalPart = ''] = quoteString.split('.');
 
-        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(this.currentAsset)) {
+        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
             return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
-        } else if (['R_10', 'R_25'].includes(this.currentAsset)) {
+        } else if (['R_10', 'R_25'].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
         } else {
             return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
@@ -574,14 +586,14 @@ class AIDigitDifferBot {
             console.log('⚠️ Invalid tick history received');
             return;
         }
-        this.tickHistory = history.prices.map(price => this.getLastDigit(price));
+        this.tickHistory = history.prices.map(price => this.getLastDigit(price, this.currentAsset));
         console.log(`📊 Received ${this.tickHistory.length} ticks of history`);
     }
 
     handleTickUpdate(tick) {
         if (!tick || !tick.quote) return;
 
-        const lastDigit = this.getLastDigit(tick.quote);
+        const lastDigit = this.getLastDigit(tick.quote, this.currentAsset);
 
         // Add to history
         this.tickHistory.push(lastDigit);
@@ -591,7 +603,7 @@ class AIDigitDifferBot {
 
         this.digitCounts[lastDigit]++;
 
-        console.log(`📍 Tick: ${tick.quote} | Digit: ${lastDigit} | History: ${this.tickHistory.length}`);
+        console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
 
         // Check if ready to analyze
         if (this.tickHistory.length >= this.config.requiredHistoryLength &&
@@ -641,8 +653,11 @@ class AIDigitDifferBot {
             if (ensemble.confidence >= this.config.minConfidence &&
                 ensemble.agreement >= Math.min(this.config.minModelsAgreement, predictions.length) &&
                 ensemble.risk !== 'high' &&
-                processingTime.toFixed(2) < 10
+                processingTime.toFixed(2) < 3 &&
+                this.lastPrediction !== this.xDigit
+                && ensemble.digit !== this.tickHistory[this.tickHistory.length - 1]
             ) {
+                this.xDigit = ensemble.digit;
                 this.placeTrade(ensemble.digit, ensemble.confidence);
             } else {
                 console.log(`⏭️  Skipping trade: conf=${ensemble.confidence}%, agree=${ensemble.agreement}, risk=${ensemble.risk}`);
@@ -739,6 +754,10 @@ class AIDigitDifferBot {
         for (const result of results) {
             if (result && !result.error && typeof result.predictedDigit === 'number') {
                 predictions.push(result);
+                // Store current prediction for feedback loop
+                if (this.modelPerformance[result.model]) {
+                    this.modelPerformance[result.model].currentPrediction = result.predictedDigit;
+                }
                 console.log(`   ✅ ${result.model}: digit=${result.predictedDigit}, conf=${result.confidence}%`);
             } else if (result && result.error) {
                 console.log(`   ❌ ${result.model}: ${result.error}`);
@@ -817,10 +836,15 @@ class AIDigitDifferBot {
         };
     }
 
-    getPrompt() {
+    getPrompt(modelName = 'unknown') {
         const recentDigits = this.tickHistory.slice(-300);
         const last50 = this.tickHistory.slice(-50);
         const last20 = this.tickHistory.slice(-20);
+
+        // Get model specific history
+        const modelStats = this.modelPerformance[modelName] || {};
+        const lastPred = modelStats.lastPrediction !== undefined ? modelStats.lastPrediction : 'None';
+        const lastOutcome = modelStats.lastOutcome !== undefined ? modelStats.lastOutcome : 'None';
 
         // Calculate frequency distribution
         const counts = Array(10).fill(0);
@@ -833,7 +857,7 @@ class AIDigitDifferBot {
             if (!last15Set.has(i)) gaps.push(i);
         }
 
-        // Previous outcomes
+        // Previous outcomes (Global)
         const previousOutcomes = this.previousPredictions.slice(-10).map((pred, i) =>
             `${pred}:${this.predictionOutcomes[i] ? 'W' : 'L'} `
         ).join(',');
@@ -850,17 +874,16 @@ class AIDigitDifferBot {
 
             CURRENT MARKET DATA:
             - Asset: ${this.currentAsset}
-            - Last 300 digits: [${recentDigits.join(',')}] 
-            - Digit frequency (last 50): ${counts.map((c, i) => `${i}:${c}`).join(',')}
-            - Digits not in last 15 ticks: [${gaps.join(',')}]
+            - Last 300 digits: [${recentDigits.join(', ')}] 
             - Recent predictions: ${previousOutcomes || 'None'}
+            - YOUR LAST PREDICTION: Predicted: ${lastPred} | Actual: ${this.actualDigit || 'None'} (${lastOutcome})
             - Recent methods: ${recentMethods || 'None'}
-            - Consecutive losses: ${this.consecutiveLosses}
+            - Consecutive losses: ${this.consecutiveLosses} 
 
             ANALYSIS FRAMEWORK – Use only proven methods for predicting the Digit that will NOT appear (Digit Differ):
         
             STRATEGY SELECTION & ADAPTATION:
-            - Select the best method based on recent performance, market regime, and risk level
+            - Use the best Digit Differ prediction method based on recent performance, market regime, and risk level
             - Avoid methods that have recently led to losses
             - Adapt strategy dynamically based on current market conditions and historical effectiveness
         
@@ -869,13 +892,11 @@ class AIDigitDifferBot {
             - Adjust method selection based on the identified market regime
 
             CRITICAL CONSIDERATIONS:
-            - There is a 1-3 tick delay from your analysis to trade execution
-            - Your prediction should account for this delay
+            - Use only Statistically proven methods for predicting the Digit that will NOT appear (Digit Differ)
             - Predict the Digit that will NOT appear (Digit Differ), not the most likely
             - Base predictions on quantitative analysis only
-
-            DECISION RULES:
-            - If consecutive losses ≥ 1, switch to conservative statistical methods
+            - never repeat the same method consecutively
+            - Switch to conservative statistical methods if consecutive losses ≥ 1 (never repeat the same method that lost)
             - Consider recent performance: adapt method selection based on what's working
 
             OUTPUT FORMAT (JSON only):
@@ -939,7 +960,7 @@ class AIDigitDifferBot {
         const response = await axios.post(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`,
             {
-                contents: [{ parts: [{ text: this.getPrompt() }] }],
+                contents: [{ parts: [{ text: this.getPrompt('gemini') }] }],
                 generationConfig: {
                     temperature: 0.1, // Lower temperature for more consistent JSON
                     maxOutputTokens: 256,
@@ -964,10 +985,10 @@ class AIDigitDifferBot {
         const response = await axios.post(
             'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://api.groq.com/openai/v1/chat/completions',
             {
-                model: 'groq/compound',//'llama-3.3-70b-versatile',
+                model: 'groq/compound',//'groq/compound-mini',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
-                    { role: 'user', content: this.getPrompt() }
+                    { role: 'user', content: this.getPrompt('groq') }
                 ],
                 temperature: 0.1,
                 max_tokens: 256,
@@ -996,7 +1017,7 @@ class AIDigitDifferBot {
                 model: 'qwen-3-235b-a22b-instruct-2507',//'meta-llama/llama-3.2-3b-instruct:free',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
-                    { role: 'user', content: this.getPrompt() }
+                    { role: 'user', content: this.getPrompt('openrouter') }
                 ],
                 temperature: 0.1,
                 max_tokens: 256,
@@ -1027,7 +1048,7 @@ class AIDigitDifferBot {
                 model: 'mistral-small-latest',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
-                    { role: 'user', content: this.getPrompt() }
+                    { role: 'user', content: this.getPrompt('mistral') }
                 ],
                 temperature: 0.1,
                 max_tokens: 256
@@ -1053,13 +1074,14 @@ class AIDigitDifferBot {
         const response = await axios.post(
             'https://api.cerebras.ai/v1/chat/completions',
             {
-                model: 'llama3.1-8b',
+                model: 'zai-glm-4.6',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
-                    { role: 'user', content: this.getPrompt() }
+                    { role: 'user', content: this.getPrompt('cerebras') }
                 ],
                 temperature: 0.1,
-                max_tokens: 256
+                max_tokens: 256,
+                response_format: { type: "json_object" }
             },
             {
                 headers: {
@@ -1082,10 +1104,10 @@ class AIDigitDifferBot {
         const response = await axios.post(
             'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://api.sambanova.ai/v1/chat/completions',
             {
-                model: 'moonshotai/kimi-k2-instruct-0905',//'perplexity-fast',//'Meta-Llama-3.1-8B-Instruct',
+                model: 'llama-3.3-70b-versatile',//'perplexity-fast',//'Meta-Llama-3.1-8B-Instruct',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
-                    { role: 'user', content: this.getPrompt() }
+                    { role: 'user', content: this.getPrompt('sambanova') }
                 ],
                 temperature: 0.1,
                 max_tokens: 256,
@@ -1116,7 +1138,7 @@ class AIDigitDifferBot {
                 model: 'meta-llama/llama-4-scout-17b-16e-instruct',//'claude-fast',//'openai-fast',//'gemini-fast',//'claude-fast',//'qwen/qwen3-coder:free',//'qwen-turbo',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
-                    { role: 'user', content: this.getPrompt() }
+                    { role: 'user', content: this.getPrompt('qwen') }
                 ],
                 temperature: 0.1,
                 max_tokens: 256,
@@ -1143,10 +1165,10 @@ class AIDigitDifferBot {
         const response = await axios.post(
             'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://openrouter.ai/api/v1/chat/completions',//'https://api.moonshot.cn/v1/chat/completions',
             {
-                model: 'llama-3.3-70b-versatile',//'gemini-fast',//'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
+                model: 'moonshotai/kimi-k2-instruct-0905',//'gemini-fast',//'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
-                    { role: 'user', content: this.getPrompt() }
+                    { role: 'user', content: this.getPrompt('kimi') }
                 ],
                 temperature: 0.1,
                 max_tokens: 256,
@@ -1176,7 +1198,7 @@ class AIDigitDifferBot {
                 model: 'gemini-fast',//'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
                 messages: [
                     { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
-                    { role: 'user', content: this.getPrompt() }
+                    { role: 'user', content: this.getPrompt('siliconflow') }
                 ],
                 temperature: 0.1,
             },
@@ -1301,11 +1323,12 @@ class AIDigitDifferBot {
     handleTradeResult(contract) {
         const won = contract.status === 'won';
         const profit = parseFloat(contract.profit);
-        const actualDigit = this.tickHistory[this.tickHistory.length - 1];
+        const exitSpot = contract.exit_tick_display_value;
+        this.actualDigit = this.getLastDigit(exitSpot, this.currentAsset);
 
         console.log('\n' + '='.repeat(40));
         console.log(won ? '🎉 TRADE WON!' : '😔 TRADE LOST');
-        console.log(`   Predicted: ${this.lastPrediction} | Actual: ${actualDigit}`);
+        console.log(`   Predicted: ${this.lastPrediction} | Actual: ${this.actualDigit}`);
         console.log(`   Profit: ${won ? '+' : ''}$${profit.toFixed(2)}`);
         console.log('='.repeat(40));
 
@@ -1319,6 +1342,29 @@ class AIDigitDifferBot {
         if (this.previousPredictions.length > 100) {
             this.previousPredictions.shift();
             this.predictionOutcomes.shift();
+        }
+
+        // Update model specific performance
+        for (const key in this.modelPerformance) {
+            const stats = this.modelPerformance[key];
+            const currentPred = stats.currentPrediction;
+
+            if (currentPred !== null && currentPred !== undefined) {
+                // Differ trade: Won if Prediction != Actual
+                // AI predicts the digit that will NOT appear.
+                // So if AI says "5" and Actual is "8", AI wins.
+                // If AI says "5" and Actual is "5", AI loses.
+                const modelWon = currentPred !== this.actualDigit;
+
+                stats.lastPrediction = currentPred;
+                stats.lastOutcome = modelWon ? 'WON' : 'LOST';
+
+                if (modelWon) stats.wins++;
+                else stats.losses++;
+
+                // Clear current prediction
+                stats.currentPrediction = null;
+            }
         }
 
         if (won) {
@@ -1340,9 +1386,11 @@ class AIDigitDifferBot {
             );
         }
 
+        // this.RestartTrading = false;
+
         // Send email notification for loss
         if (!won && this.emailConfig.enabled) {
-            this.sendLossEmail(actualDigit, profit);
+            this.sendLossEmail(this.actualDigit, profit);
         }
 
         // Log summary
@@ -1511,7 +1559,7 @@ class AIDigitDifferBot {
 
             console.log('📧 Email notification sent');
         } catch (error) {
-            console.error('❌ Failed to send email:', error.message);
+            // console.error('❌ Failed to send email:', error.message);
         }
     }
 
