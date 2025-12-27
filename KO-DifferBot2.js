@@ -101,7 +101,7 @@ class KODerivDifferBot {
         });
 
         // Telegram Configuration
-        this.telegramToken = process.env.TELEGRAM_BOT_TOKEN;
+        this.telegramToken = process.env.TELEGRAM_BOT_TOKENb;
         this.telegramChatId = process.env.TELEGRAM_CHAT_ID;
 
         if (this.telegramToken && this.telegramChatId) {
@@ -848,11 +848,11 @@ ${recentAnalysis}
 // RUN THE BOT
 // ============================================================================
 
-const token = process.env.DERIV_TOKEN || 'YOUR_DERIV_API_TOKEN';
+const token = process.env.DERIV_TOKENs || 'YOUR_DERIV_API_TOKEN';
 
 const bot = new KODerivDifferBot(token, {
     // Trading Parameters
-    initialStake: 0.35,
+    initialStake: 0.61,
     tickDuration: 1,
     stopLoss: 10,
     takeProfit: 1000,
