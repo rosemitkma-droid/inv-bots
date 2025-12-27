@@ -101,7 +101,7 @@ class KODerivDifferBot {
         });
 
         // Telegram Configuration
-        this.telegramToken = process.env.TELEGRAM_BOT_TOKENb;
+        this.telegramToken = process.env.TELEGRAM_BOT_TOKEN;
         this.telegramChatId = process.env.TELEGRAM_CHAT_ID;
 
         if (this.telegramToken && this.telegramChatId) {
@@ -848,23 +848,23 @@ ${recentAnalysis}
 // RUN THE BOT
 // ============================================================================
 
-const token = process.env.DERIV_TOKENs || 'YOUR_DERIV_API_TOKEN';
+const token = process.env.DERIV_TOKEN || 'YOUR_DERIV_API_TOKEN';
 
 const bot = new KODerivDifferBot(token, {
     // Trading Parameters
-    initialStake: 0.61,
+    initialStake: 0.35,
     tickDuration: 1,
     stopLoss: 10,
-    takeProfit: 10,
+    takeProfit: 1000,
 
     // Repetition Pattern Strategy
     historyLength: 5000,
     repetitionThreshold: 9.65,
-    repetitionThreshold2: 8,
+    repetitionThreshold2: 6,
     sequenceLength: 2,
     sequenceThreshold: 2,
-    repetitionThresholdB: 11,
-    repetitionThresholdB2: 11,
+    repetitionThresholdB: 10.5,
+    repetitionThresholdB2: 11.5,
     sequenceLengthB: 2,
     sequenceThresholdB: 15,
 
@@ -878,7 +878,7 @@ const bot = new KODerivDifferBot(token, {
     assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'], // Use single asset or ['R_10', 'R_25', 'R_50', 'R_75', 'R_100','RDBULL', 'RDBEAR',]
     parallelTrading: false,
     suspendOnLoss: true,
-    TradeSys: process.env.TRADESYS2 || 1,
+    TradeSys: process.env.TRADESYS2 || 2,
 });
 
 bot.start();
