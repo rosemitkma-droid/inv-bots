@@ -852,7 +852,7 @@ const token = process.env.DERIV_TOKEN || 'YOUR_DERIV_API_TOKEN';
 
 const bot = new KODerivDifferBot(token, {
     // Trading Parameters
-    initialStake: 0.35,
+    initialStake: 0.61,
     tickDuration: 1,
     stopLoss: 10,
     takeProfit: 1000,
