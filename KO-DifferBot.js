@@ -878,7 +878,7 @@ const bot = new KODerivDifferBot(token, {
     assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'], // Use single asset or ['R_10', 'R_25', 'R_50', 'R_75', 'R_100','RDBULL', 'RDBEAR',]
     parallelTrading: false,
     suspendOnLoss: true,
-    TradeSys: 2,
+    TradeSys: process.env.TRADESYS || 1,
 });
 
 bot.start();
