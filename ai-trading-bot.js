@@ -18,14 +18,7 @@
 require('dotenv').config();
 const WebSocket = require('ws');
 const axios = require('axios');
-
-// Optional: Email notifications
-let nodemailer;
-try {
-    nodemailer = require('nodemailer');
-} catch (e) {
-    console.log('📧 Nodemailer not installed. Email notifications disabled.');
-}
+const TelegramBot = require('node-telegram-bot-api');
 
 class AIDigitDifferBot {
     constructor(config = {}) {
@@ -172,16 +165,16 @@ class AIDigitDifferBot {
         this.isShuttingDown = false;
         this.isReconnecting = false;
 
-        // Email Configuration
-        this.emailConfig = {
-            enabled: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS),
-            service: 'gmail',
-            auth: {
-                user: process.env.EMAIL_USER,
-                pass: process.env.EMAIL_PASS
-            },
-            recipient: process.env.EMAIL_RECIPIENT
-        };
+        // Telegram Configuration (using Token 2 and Chat ID 2)
+        this.telegramToken = process.env.TELEGRAM_BOT_TOKEN2;
+        this.telegramChatId = process.env.TELEGRAM_CHAT_ID2;
+        this.telegramEnabled = !!(this.telegramToken && this.telegramChatId);
+
+        if (this.telegramEnabled) {
+            this.telegramBot = new TelegramBot(this.telegramToken, { polling: false });
+        } else {
+            console.log('📱 Telegram notifications disabled (missing API keys).');
+        }
 
         // Session tracking
         this.sessionStartTime = new Date();
@@ -191,9 +184,9 @@ class AIDigitDifferBot {
         console.log('='.repeat(60));
         this.logActiveModels();
 
-        // Start email timer
-        if (this.emailConfig.enabled) {
-            this.startEmailTimer();
+        // Start telegram timer
+        if (this.telegramEnabled) {
+            this.startTelegramTimer();
         }
     }
 
@@ -1388,9 +1381,9 @@ class AIDigitDifferBot {
 
         // this.RestartTrading = false;
 
-        // Send email notification for loss
-        if (!won && this.emailConfig.enabled) {
-            this.sendLossEmail(this.actualDigit, profit);
+        // Send Telegram notification for loss
+        if (!won && this.telegramEnabled) {
+            this.sendTelegramLossAlert(this.actualDigit, profit);
         }
 
         // Log summary
@@ -1510,9 +1503,9 @@ class AIDigitDifferBot {
         console.log(`   Final Balance: $${this.balance.toFixed(2)}`);
         console.log('='.repeat(60) + '\n');
 
-        // Send email notification if configured
-        if (this.emailConfig.enabled) {
-            this.sendEmailNotification('Bot Stopped', this.getEmailSummary());
+        // Send telegram notification if configured
+        if (this.telegramEnabled) {
+            this.sendTelegramMessage(`⏹ *Bot Stopped*\n\n${this.getTelegramSummary()}`);
         }
     }
 
@@ -1524,74 +1517,67 @@ class AIDigitDifferBot {
         return `${hours}h ${minutes}m`;
     }
 
-    getEmailSummary() {
+    getTelegramSummary() {
         const winRate = this.totalTrades > 0
             ? ((this.totalWins / this.totalTrades) * 100).toFixed(1)
             : 0;
 
         return `
-            Trading Session Summary
-            ========================
-            Total Trades: ${this.totalTrades}
-            Wins: ${this.totalWins}
-            Losses: ${this.totalLosses}
-            Win Rate: ${winRate}%
-            Total P/L: $${this.totalPnL.toFixed(2)}
-            Final Balance: $${this.balance.toFixed(2)}
+*Trading Session Summary*
+========================
+📊 *Total Trades:* ${this.totalTrades}
+✅ *Wins:* ${this.totalWins}
+❌ *Losses:* ${this.totalLosses}
+📈 *Win Rate:* ${winRate}%
+💰 *Total P/L:* $${this.totalPnL.toFixed(2)}
+🏦 *Final Balance:* $${this.balance.toFixed(2)}
         `;
     }
 
-    async sendEmailNotification(subject, body) {
-        if (!this.emailConfig.enabled || !nodemailer) return;
+    async sendTelegramMessage(message) {
+        if (!this.telegramEnabled || !this.telegramBot) return;
 
         try {
-            const transporter = nodemailer.createTransport({
-                service: this.emailConfig.service,
-                auth: this.emailConfig.auth
-            });
-
-            await transporter.sendMail({
-                from: this.emailConfig.auth.user,
-                to: this.emailConfig.recipient,
-                subject: `🤖 AI Digit Bot - ${subject}`,
-                text: body
-            });
-
-            console.log('📧 Email notification sent');
+            await this.telegramBot.sendMessage(this.telegramChatId, message, { parse_mode: 'Markdown' });
+            console.log('� Telegram notification sent');
         } catch (error) {
-            // console.error('❌ Failed to send email:', error.message);
+            console.error('❌ Failed to send Telegram message:', error.message);
         }
     }
 
-    startEmailTimer() {
+    startTelegramTimer() {
         // Send summary every 30 minutes
         setInterval(() => {
             if (this.totalTrades > 0 && !this.isShuttingDown) {
-                this.sendEmailNotification('Regular Performance Summary', this.getEmailSummary());
+                this.sendTelegramMessage(`📊 *Regular Performance Summary*\n\n${this.getTelegramSummary()}`);
             }
         }, 30 * 60 * 1000);
     }
 
-    async sendLossEmail(actualDigit, profit) {
-        const subject = `Loss Alert: -$${Math.abs(profit).toFixed(2)}`;
+    async sendTelegramLossAlert(actualDigit, profit) {
+        let riskWarning = '';
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses - 1) {
+            riskWarning = `\n⚠️ *CRITICAL RISK:* ${this.consecutiveLosses} consecutive losses! Next loss will trigger STOP.`;
+        }
+
         const body = `
-            TRADE LOSS ALERT
-            ================
-            Asset: ${this.currentAsset}
-            Prediction: ${this.lastPrediction}
-            Actual: ${actualDigit}
-            Loss: $${Math.abs(profit).toFixed(2)}
-            
-            Current Balance: $${this.balance.toFixed(2)}
-            Consecutive Losses: ${this.consecutiveLosses}
-            
-            Session Stats:
-            Wins: ${this.totalWins}
-            Losses: ${this.totalLosses}
-            P/L: $${this.totalPnL.toFixed(2)}
+🚨 *TRADE LOSS ALERT*
+=====================
+*Asset:* ${this.currentAsset}
+*Prediction (Betting NOT):* ${this.lastPrediction}
+*Actual Digit:* ${actualDigit}
+*Loss:* -$${Math.abs(profit).toFixed(2)}
+
+*Consecutive Losses:* ${this.consecutiveLosses} / ${this.config.maxConsecutiveLosses}${riskWarning}
+
+*Current Balance:* $${this.balance.toFixed(2)}
+*Total P/L:* $${this.totalPnL.toFixed(2)}
+
+*Session Stats:*
+Wins: ${this.totalWins} | Losses: ${this.totalLosses}
         `;
 
-        await this.sendEmailNotification(subject, body);
+        await this.sendTelegramMessage(body);
     }
 
     // ==================== START BOT ====================
