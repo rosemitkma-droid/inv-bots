@@ -859,14 +859,14 @@ const bot = new KODerivDifferBot(token, {
 
     // Repetition Pattern Strategy
     historyLength: 5000,
-    repetitionThreshold: 9.65,
-    repetitionThreshold2: 6,
+    repetitionThreshold: 9.88,
+    repetitionThreshold2: 9,
     sequenceLength: 2,
-    sequenceThreshold: 2,
-    repetitionThresholdB: 10.5,
-    repetitionThresholdB2: 11.5,
+    sequenceThreshold: 5,
+    repetitionThresholdB: 10.8,
+    repetitionThresholdB2: 12,
     sequenceLengthB: 2,
-    sequenceThresholdB: 15,
+    sequenceThresholdB: 14,
 
     // Martingale
     martingaleMultiplier: 11.3,
@@ -878,7 +878,7 @@ const bot = new KODerivDifferBot(token, {
     assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'], // Use single asset or ['R_10', 'R_25', 'R_50', 'R_75', 'R_100','RDBULL', 'RDBEAR',]
     parallelTrading: false,
     suspendOnLoss: true,
-    TradeSys: process.env.TRADESYS2 || 2,
+    TradeSys: 2,
 });
 
 bot.start();
