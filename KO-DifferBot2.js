@@ -863,10 +863,10 @@ const bot = new KODerivDifferBot(token, {
     repetitionThreshold2: 9,
     sequenceLength: 2,
     sequenceThreshold: 5,
-    repetitionThresholdB: 11,
-    repetitionThresholdB2: 13,
+    repetitionThresholdB: 10.5,
+    repetitionThresholdB2: 12,
     sequenceLengthB: 2,
-    sequenceThresholdB: 20,
+    sequenceThresholdB: 25,
 
     // Martingale
     martingaleMultiplier: 11.3,
