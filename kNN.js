@@ -14,7 +14,7 @@ const fs = require('fs');
 
 const CONFIG = {
     // API Configuration
-    API_TOKEN: 'DMylfkyce6VyZt7', // Replace with your actual token
+    API_TOKEN: 'Dz2V2KvRf4Uukt3', // Replace with your actual token
     APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3?app_id=1089',
 
