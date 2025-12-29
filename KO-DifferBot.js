@@ -859,10 +859,10 @@ const bot = new KODerivDifferBot(token, {
 
     // Repetition Pattern Strategy
     historyLength: 5000,
-    repetitionThreshold: 9.88,
-    repetitionThreshold2: 7,
+    repetitionThreshold: 9.65,
+    repetitionThreshold2: 8,
     sequenceLength: 2,
-    sequenceThreshold: 5,
+    sequenceThreshold: 2,
     repetitionThresholdB: 10.8,
     repetitionThresholdB2: 12,
     sequenceLengthB: 2,
