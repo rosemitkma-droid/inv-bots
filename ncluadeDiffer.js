@@ -2080,7 +2080,7 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
     stopLoss: 129,
-    takeProfit: 5,
+    takeProfit: 5000,
     minConfidence: 0.90,
     enableNeuralNetwork: true,
     enablePatternRecognition: true,
