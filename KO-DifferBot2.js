@@ -864,7 +864,7 @@ const bot = new KODerivDifferBot(token, {
     sequenceLength: 2,
     sequenceThreshold: 5,
     repetitionThresholdB: 9,
-    repetitionThresholdB2: 13,
+    repetitionThresholdB2: 14,
     sequenceLengthB: 2,
     sequenceThresholdB: 8,
 
