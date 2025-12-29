@@ -18,7 +18,7 @@
 
 require('dotenv').config();
 const WebSocket = require('ws');
-const nodemailer = require('nodemailer');
+const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
@@ -1138,15 +1138,17 @@ class EnhancedDigitDifferTradingBot {
         });
 
 
-        //Email Configuration
-        this.emailConfig = {
-            service: 'gmail',
-            auth: {
-                user: 'kenzkdp2@gmail.com',
-                pass: 'jfjhtmussgfpbgpk'
-            }
-        };
-        this.emailRecipient = 'kenotaru@gmail.com';
+        //Telegram Configuration
+        this.telegramToken = process.env.TELEGRAM_BOT_TOKEN5;
+        this.telegramChatId = process.env.TELEGRAM_CHAT_ID;
+        this.telegramBot = null;
+
+        if (this.telegramToken && this.telegramChatId) {
+            this.telegramBot = new TelegramBot(this.telegramToken, { polling: false });
+            console.log('📱 Telegram notifications enabled');
+        } else {
+            console.log('📱 Telegram notifications disabled (missing API keys)');
+        }
 
         // Load saved state
         // this.loadSavedState();
@@ -1154,7 +1156,7 @@ class EnhancedDigitDifferTradingBot {
         // Start periodic save
         // this.startPeriodicSave();
 
-        this.startEmailTimer();
+        this.startTelegramTimer();
 
         this.reconnectAttempts = 0;
         this.Pause = false;
@@ -1323,7 +1325,7 @@ class EnhancedDigitDifferTradingBot {
         switch (error.code) {
             case 'InvalidToken':
                 console.error('Invalid token. Please check your API token and restart the bot.');
-                this.sendErrorEmail('Invalid API token');
+                this.sendTelegramErrorAlert('Invalid API token');
                 this.disconnect();
                 break;
             case 'RateLimit':
@@ -1726,7 +1728,7 @@ class EnhancedDigitDifferTradingBot {
         }
 
         if (!won) {
-            this.sendLossEmail(asset);
+            this.sendTelegramLossAlert(asset);
             // Suspend the asset after a trade
             this.suspendAsset(asset);
         }
@@ -1749,7 +1751,7 @@ class EnhancedDigitDifferTradingBot {
         if (this.totalProfitLoss >= this.config.takeProfit) {
             console.log('Take Profit Reached... Stopping trading.');
             this.endOfDay = true;
-            this.sendEmailSummary();
+            this.sendTelegramSummary();
             this.disconnect();
             return;
         }
@@ -1879,7 +1881,7 @@ class EnhancedDigitDifferTradingBot {
             if (this.isWinTrade && !this.endOfDay) {
                 if (currentHours >= 17 && currentMinutes >= 0) {
                     console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
-                    this.sendDisconnectResumptionEmailSummary();
+                    this.sendTelegramDisconnectResumptionSummary();
                     this.Pause = true;
                     this.disconnect();
                     this.endOfDay = true;
@@ -1921,17 +1923,24 @@ class EnhancedDigitDifferTradingBot {
         console.log(`Waiting for: ${this.waitTime} minutes (${this.waitSeconds} ms) before resubscribing...`);
     }
 
-    startEmailTimer() {
+    startTelegramTimer() {
         setInterval(() => {
             if (!this.endOfDay) {
-                this.sendEmailSummary();
+                this.sendTelegramSummary();
             }
         }, 1800000); // 30 Minutes
     }
 
-    async sendEmailSummary() {
-        const transporter = nodemailer.createTransport(this.emailConfig);
+    async sendTelegramMessage(message) {
+        if (!this.telegramBot) return;
+        try {
+            await this.telegramBot.sendMessage(this.telegramChatId, message, { parse_mode: 'HTML' });
+        } catch (error) {
+            console.error('Error sending Telegram message:', error.message);
+        }
+    }
 
+    async sendTelegramSummary() {
         const neuralMetrics = this.neuralEngine.getPerformanceMetrics();
         const ensemblePerf = this.ensembleDecisionMaker.getPerformanceSummary();
 
@@ -1940,160 +1949,102 @@ class EnhancedDigitDifferTradingBot {
             .join('\n        ');
 
         const summaryText = `
-        ncluadeDiffer Trading Summary:
-        Total Trades: ${this.totalTrades}
-        Total Trades Won: ${this.totalWins}
-        Total Trades Lost: ${this.totalLosses}
-        x2 Losses: ${this.consecutiveLosses2}
-        x3 Losses: ${this.consecutiveLosses3}
-        x4 Losses: ${this.consecutiveLosses4}
-        x5 Losses: ${this.consecutiveLosses5}
+📊 <b>ncluadeDiffer Trading Summary</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+<b>Total Trades:</b> ${this.totalTrades}
+<b>Total Trades Won:</b> ${this.totalWins}
+<b>Total Trades Lost:</b> ${this.totalLosses}
+<b>x2 Losses:</b> ${this.consecutiveLosses2}
+<b>x3 Losses:</b> ${this.consecutiveLosses3}
+<b>x4 Losses:</b> ${this.consecutiveLosses4}
+<b>x5 Losses:</b> ${this.consecutiveLosses5}
 
-        Currently Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+<b>Currently Suspended Assets:</b> ${Array.from(this.suspendedAssets).join(', ') || 'None'}
 
-        Current Stake: $${this.currentStake.toFixed(2)}
-        Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
-        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+<b>Current Stake:</b> $${this.currentStake.toFixed(2)}
+<b>Total Profit/Loss:</b> $${this.totalProfitLoss.toFixed(2)}
+<b>Win Rate:</b> ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
 
-        AI LEARNING SYSTEM:
-        ─────────────────────────────────
-        Neural Network:
-            Accuracy: ${(neuralMetrics.accuracy * 100).toFixed(1)}%
-            Trend: ${neuralMetrics.trend}
-        
-        Model Performance:
-            ${modelPerf || 'No model data yet'}
-        
-        MARKET ANALYSIS:
-        ${this.assets.map(a => {
+🧠 <b>AI LEARNING SYSTEM</b>
+──────────────────────────
+<b>Neural Network:</b>
+    Accuracy: ${(neuralMetrics.accuracy * 100).toFixed(1)}%
+    Trend: ${neuralMetrics.trend}
+
+<b>Model Performance:</b>
+    ${modelPerf || 'No model data yet'}
+
+📊 <b>MARKET ANALYSIS</b>
+${this.assets.map(a => {
             const entropy = this.statisticalEngine.calculateEntropy(a);
             const hotDigits = this.statisticalEngine.getHotDigits(a);
-            return `${a}: Entropy=${(entropy * 100).toFixed(1)}%, Hot Digits=[${hotDigits.join(',')}]`;
-        }).join('\n    ')}
-        
-        ===================================================================
+            return `<code>${a}</code>: Entropy=${(entropy * 100).toFixed(1)}%, Hot=[${hotDigits.join(',')}]`;
+        }).join('\n')}
         `;
 
-        const mailOptions = {
-            from: this.emailConfig.auth.user,
-            to: this.emailRecipient,
-            subject: 'ncluadeDiffer - Summary',
-            text: summaryText
-        };
-
-        try {
-            const info = await transporter.sendMail(mailOptions);
-            // console.log('Email sent:', info.messageId);
-        } catch (error) {
-            // console.error('Error sending email:', error);
-        }
+        await this.sendTelegramMessage(summaryText);
     }
 
-    async sendLossEmail(asset) {
-        const transporter = nodemailer.createTransport(this.emailConfig);
-
+    async sendTelegramLossAlert(asset) {
         const history = this.tickHistories[asset];
         const lastFewTicks = history.slice(-10);
 
         const summaryText = `
-        Trade Summary:
-        Total Trades: ${this.totalTrades}
-        Total Trades Won: ${this.totalWins}
-        Total Trades Lost: ${this.totalLosses}
-        x2 Losses: ${this.consecutiveLosses2}
-        x3 Losses: ${this.consecutiveLosses3}
-        x4 Losses: ${this.consecutiveLosses4}
-        x5 Losses: ${this.consecutiveLosses5}
+❌ <b>LOSS ALERT</b> [${asset}]
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+<b>predicted Digit:</b> ${this.xDigit}
+<b>actual Digit:</b> ${this.actualDigit}
+<b>Confidence:</b> ${this.confidence}%
+<b>Probability:</b> ${this.probability}%
 
-        Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
-        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+<b>Total Trades:</b> ${this.totalTrades}
+<b>Total Trades Won:</b> ${this.totalWins}
+<b>Total Trades Lost:</b> ${this.totalLosses}
+<b>Net Profit/Loss:</b> $${this.totalProfitLoss.toFixed(2)}
+<b>Win Rate:</b> ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
 
-        Last Digit Analysis:
-        Asset: ${asset}
-        predicted Digit: ${this.xDigit} | actual Digit: ${this.actualDigit}
-        Confidence: ${this.confidence}%
-        Probability: ${this.probability}%
-        
-        Last 10 Digits: ${lastFewTicks.join(', ')} 
+📈 <b>Last 10 Digits:</b> ${lastFewTicks.join(', ')} 
+🚫 <b>Suspended Assets:</b> ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+⚠️ <b>Excluded Digits:</b> ${this.excludedDigits.join(', ')}
 
-        Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
-        Excluded Digits: ${this.excludedDigits.join(', ')}
-
-        Current Stake: $${this.currentStake.toFixed(2)}
-
-        Waiting for: ${this.waitTime} minutes before next trade...
+💰 <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
+⏱ <b>Waiting:</b> ${this.waitTime} minutes before next trade...
         `;
 
-        const mailOptions = {
-            from: this.emailConfig.auth.user,
-            to: this.emailRecipient,
-            subject: 'ncluadeDiffer - Loss Alert',
-            text: summaryText
-        };
-
-        try {
-            const info = await transporter.sendMail(mailOptions);
-            // console.log('Loss email sent:', info.messageId);
-        } catch (error) {
-            // console.error('Error sending loss email:', error);
-        }
+        await this.sendTelegramMessage(summaryText);
     }
 
-    async sendDisconnectResumptionEmailSummary() {
-        const transporter = nodemailer.createTransport(this.emailConfig);
+    async sendTelegramDisconnectResumptionSummary() {
         const now = new Date();
         const currentHours = now.getHours();
         const currentMinutes = now.getMinutes();
 
         const summaryText = `
-        Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
+⚠️ <b>Bot Status Update</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+<b>Event:</b> Disconnect/Reconnect
+<b>Time:</b> ${currentHours}:${currentMinutes}
 
-        Total Trades: ${this.totalTrades}
-        Total Trades Won: ${this.totalWins}
-        Total Trades Lost: ${this.totalLosses}
-        x2 Losses: ${this.consecutiveLosses2}
-        x3 Losses: ${this.consecutiveLosses3}
-        x4 Losses: ${this.consecutiveLosses4}
-        x5 Losses: ${this.consecutiveLosses5}
+<b>Total Trades:</b> ${this.totalTrades}
+<b>Total Trades Won:</b> ${this.totalWins}
+<b>Total Trades Lost:</b> ${this.totalLosses}
+<b>Net Profit/Loss:</b> $${this.totalProfitLoss.toFixed(2)}
+<b>Win Rate:</b> ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
 
-        Currently Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}
-
-        Current Stake: $${this.currentStake.toFixed(2)}
-        Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}
-        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
+🚫 <b>Suspended Assets:</b> ${Array.from(this.suspendedAssets).join(', ') || 'None'}
+💰 <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
         `;
 
-        const mailOptions = {
-            from: this.emailConfig.auth.user,
-            to: this.emailRecipient,
-            subject: 'ncluadeDiffer - Connection/Dissconnection Summary',
-            text: summaryText
-        };
-
-        try {
-            const info = await transporter.sendMail(mailOptions);
-            // console.log('Email sent:', info.messageId);
-        } catch (error) {
-            // console.error('Error sending email:', error);
-        }
+        await this.sendTelegramMessage(summaryText);
     }
 
-    async sendErrorEmail(errorMessage) {
-        const transporter = nodemailer.createTransport(this.emailConfig);
-
-        const mailOptions = {
-            from: this.emailConfig.auth.user,
-            to: this.emailRecipient,
-            subject: 'ncluadeDiffer - Error Report',
-            text: `An error occurred: ${errorMessage}`
-        };
-
-        try {
-            const info = await transporter.sendMail(mailOptions);
-            // console.log('Error email sent:', info.messageId);
-        } catch (error) {
-            // console.error('Error sending error email:', error);
-        }
+    async sendTelegramErrorAlert(errorMessage) {
+        const summaryText = `
+⚠️ <b>ERROR REPORT</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+<b>Message:</b> ${errorMessage}
+        `;
+        await this.sendTelegramMessage(summaryText);
     }
 
     start() {
@@ -2119,7 +2070,7 @@ class EnhancedDigitDifferTradingBot {
         console.log('═══════════════════════════════════════════════════════════');
         console.log('');
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
@@ -2129,7 +2080,7 @@ const bot = new EnhancedDigitDifferTradingBot('0P94g4WdSrSrzir', {
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
     stopLoss: 129,
-    takeProfit: 1,
+    takeProfit: 5,
     minConfidence: 0.90,
     enableNeuralNetwork: true,
     enablePatternRecognition: true,
