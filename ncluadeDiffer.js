@@ -2070,7 +2070,7 @@ ${this.assets.map(a => {
         console.log('═══════════════════════════════════════════════════════════');
         console.log('');
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        // this.checkTimeForDisconnectReconnect();
     }
 }
 
