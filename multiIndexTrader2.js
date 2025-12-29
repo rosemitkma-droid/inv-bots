@@ -16,20 +16,20 @@ const CONFIG = {
 
     // MULTI-ASSET CONFIGURATION
     symbols: [
-        { name: '1HZ10V', label: 'Volatility 10 (1s)', enabled: true },
-        { name: '1HZ25V', label: 'Volatility 25 (1s)', enabled: true },
+        { name: '1HZ10V', label: 'Volatility 10 (1s)', enabled: false },
+        { name: '1HZ25V', label: 'Volatility 25 (1s)', enabled: false },
         { name: '1HZ50V', label: 'Volatility 50 (1s)', enabled: true },
         { name: '1HZ75V', label: 'Volatility 75 (1s)', enabled: true },
         { name: '1HZ100V', label: 'Volatility 100 (1s)', enabled: true }
     ],
 
-    stake: 5,              // $5 per trade per symbol
-    multiplier: 50,        // 50x multiplier
-    stop_loss: 5,          // $5 stop loss
+    stake: 1,              // $5 per trade per symbol
+    multiplier: 200,        // 200x multiplier
+    stop_loss: 50,          // $5 stop loss
     currency: 'USD',
 
     // Investment Management
-    INVESTMENT_CAPITAL: process.env.INITIAL_CAPITAL ? parseFloat(process.env.INITIAL_CAPITAL) : 100,
+    INVESTMENT_CAPITAL: process.env.INITIAL_CAPITAL ? parseFloat(process.env.INITIAL_CAPITAL) : 1000,
     RISK_PERCENT: 5, // 5% risk per trade if using capital
 
     // Strategy parameters
