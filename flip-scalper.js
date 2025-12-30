@@ -6,10 +6,22 @@ const TelegramBot = require('node-telegram-bot-api');
 const CONFIG = {
     app_id: 1089, // Replace with your App ID if you have one, or keep 1089 (Deriv generic)
     token: 'hsj0tA0XJoIzJG5', // REPLACE THIS with your actual API Token
-    symbol: 'R_100', // Volatility 100 Index (Or use 'R_50', 'R_75', etc.)
-    market_open_time: '07:00', // Time to start the "Day" (HH:MM in GMT/UTC)
-    trade_amount: 10, // Stake amount in USD
-    multiplier: 100, // Multiplier value (e.g., 100, 200)
+
+    // MULTI-ASSET CONFIGURATION
+    symbols: [
+        { name: '1HZ10V', label: 'Volatility 10 (1s)', multiplier: 1000, enabled: true },
+        { name: '1HZ25V', label: 'Volatility 25 (1s)', multiplier: 400, enabled: true },
+        { name: '1HZ50V', label: 'Volatility 50 (1s)', multiplier: 200, enabled: true },
+        { name: '1HZ75V', label: 'Volatility 75 (1s)', multiplier: 100, enabled: true },
+        { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 60, enabled: true }
+    ],
+
+    // SESSIONS CONFIGURATION
+    sessions: {
+        london: { name: 'London', time: '07:00', enabled: true },
+        new_york: { name: 'New York', time: '13:00', enabled: true }
+    },
+
     market_open_duration: 90, // Minutes to look for trade after open (Strategy: 90 mins)
     candle_timeframe: 15, // Opening Range Candle (Minutes)
     entry_timeframe: 5,   // Reversal Pattern Timeframe (Minutes)
@@ -18,23 +30,16 @@ const CONFIG = {
 
     // Investment Management
     INVESTMENT_CAPITAL: process.env.INITIAL_CAPITAL ? parseFloat(process.env.INITIAL_CAPITAL) : 500,
-    RISK_PERCENT: 1, // 1% risk per trade
+    RISK_PERCENT: 1, // 1% risk per trade (Stop Loss)
+    RR_RATIO: 3,     // 1:3 Risk-Reward (Take Profit)
 };
 // =================================================
 
 class QuickFlipBot {
     constructor() {
         this.ws = null;
-        this.dailyATR = 0;
-        this.box = { high: null, low: null, direction: null, valid: false };
-        this.state = 'WAITING_FOR_OPEN'; // WAITING_FOR_OPEN, WAITING_CANDLE_CLOSE, CALCULATING_LIQUIDITY, HUNTING, EXECUTING, IN_TRADE
-        this.openTimeEpoch = null;
-        this.currentContractId = null;
-        this.lastCandle = null;
-        this.pingTimer = null;
-        this.isConnected = false;
-        this.tradeLog = [];
-        this.entryCandle = null;
+        this.assets = new Map(); // Stores state for each symbol
+        this.dailyATR = {}; // ATR values per symbol
 
         // Telegram Configuration
         this.telegramToken = process.env.TELEGRAM_BOT_TOKEN4;
@@ -49,6 +54,33 @@ class QuickFlipBot {
         }
 
         this.sessionStartTime = new Date();
+        this.tradeLog = [];
+        this.pingTimer = null;
+        this.isConnected = false;
+
+        this.initializeAssets();
+    }
+
+    initializeAssets() {
+        CONFIG.symbols.forEach(s => {
+            if (s.enabled) {
+                this.assets.set(s.name, {
+                    symbol: s.name,
+                    label: s.label,
+                    multiplier: s.multiplier,
+                    state: 'WAITING_FOR_OPEN',
+                    openTimeEpoch: null,
+                    session: null, // 'london' or 'new_york'
+                    box: { high: null, low: null, direction: null, valid: false },
+                    lastCandle: null,
+                    entryCandle: null,
+                    currentContractId: null,
+                    lastTimeLog: 0,
+                    lastWarningLog: 0,
+                    lastSessionTraded: null // Tracks 'YYYY-MM-DD:sessionKey'
+                });
+            }
+        });
     }
 
     start() {
@@ -57,10 +89,10 @@ class QuickFlipBot {
 
     connect() {
         this.log('='.repeat(60), 'SYSTEM');
-        this.log('🚀 Starting Quick Flip Scalper Bot', 'SYSTEM');
-        this.log(`📊 Symbol: ${CONFIG.symbol}`, 'SYSTEM');
-        this.log(`💰 Stake: $${CONFIG.trade_amount} | Multiplier: x${CONFIG.multiplier}`, 'SYSTEM');
-        this.log(`⏰ Market Open Time: ${CONFIG.market_open_time} GMT`, 'SYSTEM');
+        this.log('🚀 Starting MULTI-ASSET Quick Flip Scalper Bot', 'SYSTEM');
+        this.log(`📊 Active Symbols: ${Array.from(this.assets.keys()).join(', ')}`, 'SYSTEM');
+        this.log(`💰 Capital: $${CONFIG.INVESTMENT_CAPITAL} | Risk: ${CONFIG.RISK_PERCENT}% per trade`, 'SYSTEM');
+        this.log(`⏰ Sessions: ${Object.values(CONFIG.sessions).filter(s => s.enabled).map(s => `${s.name} (${s.time})`).join(', ')}`, 'SYSTEM');
         this.log('='.repeat(60), 'SYSTEM');
 
         this.ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${CONFIG.app_id}`);
@@ -97,7 +129,7 @@ class QuickFlipBot {
         this.pingTimer = setInterval(() => {
             if (this.isConnected) {
                 this.ws.send(JSON.stringify({ ping: 1 }));
-                this.log('📡 Keep-alive ping sent', 'SYSTEM');
+                // this.log('📡 Keep-alive ping sent', 'SYSTEM');
             }
         }, CONFIG.ping_interval);
     }
@@ -109,8 +141,9 @@ class QuickFlipBot {
         }
     }
 
-    log(message, category = 'INFO') {
+    log(message, category = 'INFO', symbol = '', isBoxed = false) {
         const timestamp = new Date().toISOString();
+        const symbolTag = symbol ? `[${symbol}] ` : '';
         const categoryColors = {
             'SYSTEM': '\x1b[36m',    // Cyan
             'CONNECTION': '\x1b[32m', // Green
@@ -123,7 +156,16 @@ class QuickFlipBot {
         const reset = '\x1b[0m';
         const color = categoryColors[category] || categoryColors['INFO'];
 
-        console.log(`${color}[${timestamp}] [${category}] ${message}${reset}`);
+        if (isBoxed) {
+            console.log(`${color}┏${'━'.repeat(60)}┓${reset}`);
+            const lines = message.split('\n');
+            lines.forEach(line => {
+                console.log(`${color}┃ ${line.padEnd(58)} ┃${reset}`);
+            });
+            console.log(`${color}┗${'━'.repeat(60)}┛${reset}`);
+        } else {
+            console.log(`${color}[${timestamp}] [${category}] ${symbolTag}${message}${reset}`);
+        }
     }
 
     async sendTelegramMessage(message) {
@@ -140,34 +182,42 @@ class QuickFlipBot {
         let totalProfit = 0;
         let wins = 0;
         let losses = 0;
+        const assetStats = {};
 
         this.tradeLog.forEach(trade => {
             if (trade.profit !== undefined) {
                 totalProfit += trade.profit;
                 if (trade.result === 'WIN') wins++;
                 else losses++;
+
+                if (!assetStats[trade.symbol]) assetStats[trade.symbol] = { pnl: 0, count: 0 };
+                assetStats[trade.symbol].pnl += trade.profit;
+                assetStats[trade.symbol].count++;
             }
         });
 
         const winRate = (wins + losses) > 0 ? (wins / (wins + losses) * 100).toFixed(1) : 0;
 
+        let assetBreakdown = '';
+        Object.keys(assetStats).forEach(sym => {
+            assetBreakdown += `\n• <b>${sym}:</b> $${assetStats[sym].pnl.toFixed(2)} (${assetStats[sym].count} trades)`;
+        });
+
         return `
 📊 <b>Flip Scalper Session Summary</b>
 ========================
-📈 <b>Asset:</b> ${CONFIG.symbol}
-📊 <b>Total Trades:</b> ${this.tradeLog.length}
-✅ <b>Wins:</b> ${wins}
-❌ <b>Losses:</b> ${losses}
+<b>Total Trades:</b> ${wins + losses}
+✅ <b>Wins:</b> ${wins} | ❌ <b>Losses:</b> ${losses}
 🔥 <b>Win Rate:</b> ${winRate}%
 💰 <b>Total P/L:</b> $${totalProfit.toFixed(2)}
-        `;
+${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
     }
 
     startTelegramTimer() {
         // Send summary every 30 minutes
         setInterval(() => {
             if (this.tradeLog.length > 0) {
-                this.sendTelegramMessage(`📊 *Periodic Performance Summary*\n${this.getTelegramSummary()}`);
+                this.sendTelegramMessage(`📊 <b>Periodic Performance Summary</b>\n${this.getTelegramSummary()}`);
             }
         }, 30 * 60 * 1000);
     }
@@ -180,7 +230,7 @@ class QuickFlipBot {
     handleMessage(msg) {
         // Handle pong
         if (msg.msg_type === 'ping') {
-            this.log('📡 Pong received', 'SYSTEM');
+            // this.log('📡 Pong received', 'SYSTEM');
             return;
         }
 
@@ -199,22 +249,22 @@ class QuickFlipBot {
 
             // Log Investment Capital info
             const baseCapital = CONFIG.INVESTMENT_CAPITAL;
-            const dailyLossLimit = baseCapital * 0.5; // Example 50% limit like kNN.js user set
+            const dailyLossLimit = baseCapital * 0.5;
 
             this.log(`🏢 Investment Capital: $${baseCapital.toFixed(2)}`, 'INFO');
             this.log(`🚨 Daily Loss Limit: $${dailyLossLimit.toFixed(2)} (50%)`, 'INFO');
 
             this.log('-'.repeat(60), 'SYSTEM');
-            this.log('📈 Strategy: Quick Flip Scalper', 'STRATEGY');
-            this.log(`⏳ Waiting for market open at ${CONFIG.market_open_time} GMT...`, 'STRATEGY');
+            this.log('📈 Strategy: Quick Flip Scalper (Multi-Asset)', 'STRATEGY');
             this.startClock();
         }
 
-        if (msg.msg_type === 'history') {
+        if (msg.msg_type === 'history' || msg.msg_type === 'candles') {
+            const sym = msg.echo_req.ticks_history;
             if (msg.req_id === 1) { // daily_atr
-                this.calculateATR(msg.history, msg.candles);
+                this.calculateATR(sym, msg.history || [], msg.candles || []);
             } else if (msg.req_id === 2) { // opening_candle
-                this.analyzeOpeningCandle(msg.candles);
+                this.analyzeOpeningCandle(sym, msg.candles || []);
             }
         }
 
@@ -223,13 +273,14 @@ class QuickFlipBot {
         }
 
         if (msg.msg_type === 'ohlc') {
-            this.checkForReversal(msg.ohlc);
+            this.checkForReversal(msg.ohlc.symbol, msg.ohlc);
         }
 
-        if (msg.msg_type === 'candles') {
-            // Initial subscription response
-            if (msg.candles && msg.candles.length > 0) {
-                this.lastCandle = msg.candles[msg.candles.length - 1];
+        if (msg.msg_type === 'candles' && !msg.echo_req.req_id) {
+            const sym = msg.echo_req.ticks_history;
+            const asset = this.assets.get(sym);
+            if (asset && msg.candles && msg.candles.length > 0) {
+                asset.lastCandle = msg.candles[msg.candles.length - 1];
             }
         }
 
@@ -247,93 +298,136 @@ class QuickFlipBot {
     }
 
     startClock() {
-        this.log('🔄 Starting market monitoring...', 'SYSTEM');
-        this.ws.send(JSON.stringify({ ticks: CONFIG.symbol }));
-        this.getDailyHistory();
+        this.log('🔄 Starting multi-asset market monitoring...', 'SYSTEM');
+
+        for (const [symbol, asset] of this.assets) {
+            this.ws.send(JSON.stringify({ ticks: symbol }));
+            this.getDailyHistory(symbol);
+        }
+
+        this.checkTime(); // Immediate initial check
     }
 
     checkTime() {
         const now = new Date();
         const nowString = now.toISOString().substring(11, 16); // Extract HH:MM
-        const currentMinute = nowString.substring(14, 16);
 
-        // Only log time check every 5 minutes to avoid spam
-        if (currentMinute === '00' || currentMinute === '15' || currentMinute === '30' || currentMinute === '45') {
-            if (this.state === 'WAITING_FOR_OPEN') {
-                this.log(`⏰ Current Time: ${nowString} GMT | State: ${this.state}`, 'INFO');
+        for (const [symbol, asset] of this.assets) {
+            // Determine active/future sessions for this asset
+            const sessions = Object.keys(CONFIG.sessions).filter(k => CONFIG.sessions[k].enabled);
+
+            for (const sessionKey of sessions) {
+                const session = CONFIG.sessions[sessionKey];
+
+                // Calculate session open epoch
+                const [h, m] = session.time.split(':').map(Number);
+                const openTime = new Date(now);
+                openTime.setUTCHours(h, m, 0, 0);
+                const openEpoch = Math.floor(openTime.getTime() / 1000);
+
+                const minsSinceOpen = (Date.now() / 1000 - openEpoch) / 60;
+                const sessionTag = `${now.toISOString().split('T')[0]}:${sessionKey}`;
+
+                // 1. Detect Session Open (or Catch-up)
+                if (asset.state === 'WAITING_FOR_OPEN' && asset.lastSessionTraded !== sessionTag) {
+                    // Start of window trigger
+                    if (nowString === session.time || (minsSinceOpen >= 0 && minsSinceOpen < CONFIG.market_open_duration)) {
+                        asset.session = sessionKey;
+                        asset.openTimeEpoch = openEpoch;
+
+                        this.log('='.repeat(60), 'STRATEGY', symbol);
+                        if (nowString === session.time) {
+                            this.log(`🔔 ${session.name.toUpperCase()} SESSION OPEN DETECTED!`, 'STRATEGY', symbol);
+                        } else {
+                            this.log(`⚡ CATCH-UP: ${session.name} session active (${minsSinceOpen.toFixed(1)}m passed)`, 'STRATEGY', symbol);
+                        }
+
+                        if (minsSinceOpen < CONFIG.candle_timeframe) {
+                            this.log(`⏱️ Waiting for opening candle... (${(CONFIG.candle_timeframe - minsSinceOpen).toFixed(1)}m left)`, 'STRATEGY', symbol);
+                            asset.state = 'WAITING_CANDLE_CLOSE';
+
+                            this.sendTelegramMessage(`🔔 <b>${session.name} Session Open</b> [${symbol}]\nWaiting for 15-min opening candle...`);
+                        } else {
+                            this.log(`✅ Opening candle closed. Analyzing liquidity...`, 'STRATEGY', symbol);
+                            asset.state = 'CALCULATING_LIQUIDITY';
+                            this.getOpeningCandle(symbol);
+                        }
+                        this.log('='.repeat(60), 'STRATEGY', symbol);
+                        break; // Move to next symbol
+                    }
+                }
             }
-        }
 
-        // 1. Detect Market Open
-        if (this.state === 'WAITING_FOR_OPEN' && nowString === CONFIG.market_open_time) {
-            this.log('='.repeat(60), 'STRATEGY');
-            this.log('🔔 MARKET OPEN DETECTED!', 'STRATEGY');
-            this.log(`⏱️  Waiting ${CONFIG.candle_timeframe} minutes for opening candle to close...`, 'STRATEGY');
-            this.log('='.repeat(60), 'STRATEGY');
-
-            this.sendTelegramMessage(`🔔 <b>MARKET OPEN DETECTED!</b>\n<b>Asset:</b> ${CONFIG.symbol}\n<b>Time:</b> ${nowString} GMT\nWaiting for 15-min opening candle...`);
-
-            this.openTimeEpoch = Math.floor(now.getTime() / 1000);
-            this.state = 'WAITING_CANDLE_CLOSE';
-        }
-
-        // 2. Wait for 15-min Candle Close
-        if (this.state === 'WAITING_CANDLE_CLOSE') {
-            const minutesPassed = (Date.now() / 1000 - this.openTimeEpoch) / 60;
-            const remainingMinutes = CONFIG.candle_timeframe - minutesPassed;
-
-            if (Math.floor(remainingMinutes) !== Math.floor(remainingMinutes + 1 / 60)) {
-                this.log(`⏳ Opening candle in progress... ${Math.ceil(remainingMinutes)} minutes remaining`, 'STRATEGY');
+            // 2. Wait for candle close
+            if (asset.state === 'WAITING_CANDLE_CLOSE') {
+                const minsSinceOpen = (Date.now() / 1000 - asset.openTimeEpoch) / 60;
+                if (minsSinceOpen >= CONFIG.candle_timeframe) {
+                    this.log('✅ Opening candle closed. Fetching data...', 'STRATEGY', symbol);
+                    this.getOpeningCandle(symbol);
+                    asset.state = 'CALCULATING_LIQUIDITY';
+                }
             }
 
-            if (minutesPassed >= CONFIG.candle_timeframe) {
-                this.log('✅ Opening candle closed. Fetching data...', 'STRATEGY');
-                this.getOpeningCandle();
-                this.state = 'CALCULATING_LIQUIDITY';
+            // 3. Window Expiration / Timeout check
+            if (asset.state === 'HUNTING' || asset.state === 'CALCULATING_LIQUIDITY' || asset.state === 'WAITING_CANDLE_CLOSE') {
+                const minsSinceOpen = (Date.now() / 1000 - asset.openTimeEpoch) / 60;
+                if (minsSinceOpen > CONFIG.market_open_duration) {
+                    this.log('='.repeat(60), 'STRATEGY', symbol);
+                    this.log(`⏰ ${CONFIG.market_open_duration} Minutes passed. Window expired.`, 'STRATEGY', symbol);
+                    this.log('='.repeat(60), 'STRATEGY', symbol);
+
+                    if (asset.state === 'HUNTING') {
+                        this.ws.send(JSON.stringify({ forget_all: 'candles' }));
+                    }
+
+                    asset.state = 'WAITING_FOR_OPEN';
+                    this.resetSetup(symbol);
+                }
             }
-        }
 
-        // 3. Timeout check (90 mins)
-        if (this.state === 'HUNTING') {
-            const minutesPassed = (Date.now() / 1000 - this.openTimeEpoch) / 60;
-            const remainingMinutes = CONFIG.market_open_duration - minutesPassed;
-
-            if (remainingMinutes > 0 && remainingMinutes < 5) {
-                this.log(`⚠️  Only ${Math.ceil(remainingMinutes)} minutes left in hunting window!`, 'STRATEGY');
-            }
-
-            if (minutesPassed > CONFIG.market_open_duration) {
-                this.log('='.repeat(60), 'STRATEGY');
-                this.log('⏰ 90 Minutes passed. No trade taken.', 'STRATEGY');
-                this.log('🔄 Resetting for next market open...', 'STRATEGY');
-                this.log('='.repeat(60), 'STRATEGY');
-                this.state = 'WAITING_FOR_OPEN';
-                this.resetSetup();
+            // Log periodic heartbeat
+            const currentMinute = nowString.substring(14, 16);
+            if (['00', '15', '30', '45'].includes(currentMinute)) {
+                if (Date.now() - asset.lastTimeLog > 60000) { // Every minute during heartbeat check
+                    const atrStatus = this.dailyATR[symbol] ? '✅' : '❌';
+                    this.log(`💓 Heartbeat | State: ${asset.state} | ATR: ${atrStatus}`, 'INFO', symbol);
+                    asset.lastTimeLog = Date.now();
+                }
             }
         }
     }
 
-    getDailyHistory() {
-        this.log('📊 Fetching daily candle history for ATR calculation...', 'STRATEGY');
+    getDailyHistory(symbol) {
+        this.log('📊 Fetching daily candle history for ATR calculation...', 'STRATEGY', symbol);
         this.ws.send(JSON.stringify({
-            ticks_history: CONFIG.symbol,
+            ticks_history: symbol,
             adjust_start_time: 1,
             count: 15,
             end: 'latest',
             start: 1,
             style: 'candles',
             granularity: 86400, // 1 Day
-            req_id: 1 // Replacement for custom_id: 'daily_atr'
+            req_id: 1
         }));
     }
 
-    calculateATR(history, candles) {
-        this.log('-'.repeat(60), 'STRATEGY');
-        this.log('📈 Calculating 14-Period Average True Range (ATR)...', 'STRATEGY');
+    calculateATR(symbol, history, candles) {
+        if (!candles || candles.length < 2) {
+            this.log('⚠️ Insufficient daily history for ATR calculation.', 'WARNING', symbol);
+            return;
+        }
+
+        this.log('-'.repeat(60), 'STRATEGY', symbol);
+        this.log('📈 AVERAGE TRUE RANGE (ATR) REPORT', 'STRATEGY', symbol);
+
+        // Log the last few daily candles for transparency
+        const recentCandles = candles.slice(-3).map(c =>
+            `Day ${new Date(c.epoch * 1000).toISOString().split('T')[0]}: H:${c.high.toFixed(2)} L:${c.low.toFixed(2)} C:${c.close.toFixed(2)}`
+        ).join('\n');
+        this.log(`Recent Price History:\n${recentCandles}`, 'INFO', symbol);
 
         let trSum = 0;
-        const trValues = [];
-
+        let validIntervals = 0;
         for (let i = 1; i < candles.length; i++) {
             const current = candles[i];
             const prev = candles[i - 1];
@@ -341,113 +435,111 @@ class QuickFlipBot {
             const hc = Math.abs(current.high - prev.close);
             const lc = Math.abs(current.low - prev.close);
             const tr = Math.max(hl, hc, lc);
-            trValues.push(tr);
             trSum += tr;
+            validIntervals++;
         }
 
-        this.dailyATR = trSum / 14;
+        this.dailyATR[symbol] = trSum / validIntervals;
+        const threshold = this.dailyATR[symbol] * 0.25;
 
-        this.log(`✅ Daily ATR (14) Calculated: ${this.dailyATR.toFixed(4)}`, 'SUCCESS');
-        this.log(`   Max TR: ${Math.max(...trValues).toFixed(4)}`, 'INFO');
-        this.log(`   Min TR: ${Math.min(...trValues).toFixed(4)}`, 'INFO');
-        this.log(`   25% of ATR (Liquidity Threshold): ${(this.dailyATR * 0.25).toFixed(4)}`, 'INFO');
-        this.log('-'.repeat(60), 'STRATEGY');
+        const atrOutput =
+            `✅ Daily ATR Result: ${this.dailyATR[symbol].toFixed(4)}\n` +
+            `• Lookback: ${validIntervals} days\n` +
+            `• Required Box Range (25%): ≥ ${threshold.toFixed(4)}`;
+
+        this.log(atrOutput, 'SUCCESS', symbol, true);
     }
 
-    getOpeningCandle() {
-        this.log('🔍 Fetching opening candle data...', 'STRATEGY');
-        const endTime = this.openTimeEpoch + (CONFIG.candle_timeframe * 60);
+    getOpeningCandle(symbol) {
+        const asset = this.assets.get(symbol);
+        const startTime = asset.openTimeEpoch;
+        const endTime = startTime + (CONFIG.candle_timeframe * 60);
+
+        this.log(`🔍 Requesting candle [${new Date(startTime * 1000).toISOString()} to ${new Date(endTime * 1000).toISOString()}]`, 'STRATEGY', symbol);
 
         this.ws.send(JSON.stringify({
-            ticks_history: CONFIG.symbol,
+            ticks_history: symbol,
             adjust_start_time: 1,
             count: 1,
+            start: startTime,
             end: endTime,
-            start: 1,
             style: 'candles',
             granularity: CONFIG.candle_timeframe * 60,
-            req_id: 2 // Replacement for custom_id: 'opening_candle'
+            req_id: 2
         }));
     }
 
-    analyzeOpeningCandle(candles) {
+    analyzeOpeningCandle(symbol, candles) {
+        const asset = this.assets.get(symbol);
         if (!candles || candles.length === 0) {
-            this.log('❌ No candle data received', 'ERROR');
+            this.log('❌ Opening candle data missing from API response', 'ERROR', symbol);
             return;
         }
 
-        const candle = candles[candles.length - 1];
+        const candle = candles[0]; // We requested count: 1
+        const candleTime = new Date(candle.epoch * 1000).toISOString();
         const range = candle.high - candle.low;
-        const bodySize = Math.abs(candle.close - candle.open);
         const isGreen = candle.close > candle.open;
         const candleColor = isGreen ? '🟢 GREEN' : '🔴 RED';
+        const atr = this.dailyATR[symbol] || 0;
+        const liquidityThreshold = 0.25 * atr;
+        const rangePercent = ((range / (atr || 1)) * 100).toFixed(2);
 
-        this.log('='.repeat(60), 'STRATEGY');
-        this.log('📊 OPENING CANDLE ANALYSIS', 'STRATEGY');
-        this.log('-'.repeat(60), 'STRATEGY');
-        this.log(`   Open:  ${candle.open.toFixed(4)}`, 'INFO');
-        this.log(`   High:  ${candle.high.toFixed(4)}`, 'INFO');
-        this.log(`   Low:   ${candle.low.toFixed(4)}`, 'INFO');
-        this.log(`   Close: ${candle.close.toFixed(4)}`, 'INFO');
-        this.log(`   Color: ${candleColor}`, 'INFO');
-        this.log(`   Range: ${range.toFixed(4)}`, 'INFO');
-        this.log(`   Body:  ${bodySize.toFixed(4)}`, 'INFO');
-        this.log('-'.repeat(60), 'STRATEGY');
+        const analysisOutput =
+            `📊 OPENING CANDLE ANALYSIS: ${symbol}\n` +
+            `• Start Time: ${candleTime}\n` +
+            `• Open:  ${candle.open.toFixed(4)} | Close: ${candle.close.toFixed(4)}\n` +
+            `• High:  ${candle.high.toFixed(4)} | Low:   ${candle.low.toFixed(4)}\n` +
+            `• Range: ${range.toFixed(4)} (${rangePercent}% of ATR)\n` +
+            `• Target: ≥ ${liquidityThreshold.toFixed(4)}`;
 
-        // Liquidity Check: Range >= 25% of ATR
-        const liquidityThreshold = 0.25 * this.dailyATR;
-        const rangePercent = (range / this.dailyATR * 100).toFixed(1);
-
-        this.log(`🔍 LIQUIDITY CHECK:`, 'STRATEGY');
-        this.log(`   Range: ${range.toFixed(4)} | Threshold: ${liquidityThreshold.toFixed(4)}`, 'INFO');
-        this.log(`   Range is ${rangePercent}% of Daily ATR`, 'INFO');
+        this.log(analysisOutput, 'STRATEGY', symbol, true);
 
         if (range >= liquidityThreshold) {
-            this.log('✅ LIQUIDITY CONFIRMED! Setup is VALID.', 'SUCCESS');
-            this.log('-'.repeat(60), 'STRATEGY');
+            this.log('✅ LIQUIDITY CONFIRMED!', 'SUCCESS', symbol);
+            asset.box = { high: candle.high, low: candle.low, direction: isGreen ? 'UP' : 'DOWN', valid: true };
 
-            this.box = {
-                high: candle.high,
-                low: candle.low,
-                direction: isGreen ? 'UP' : 'DOWN',
-                valid: true
-            };
+            const bias = asset.box.direction === 'UP' ? 'SELL' : 'BUY';
+            const targetSide = asset.box.direction === 'UP' ? 'High' : 'Low';
+            const level = asset.box.direction === 'UP' ? asset.box.high : asset.box.low;
 
-            const setupType = this.box.direction === 'UP' ? '🔻 BEARISH (Short)' : '🔼 BULLISH (Long)';
-            const targetSide = this.box.direction === 'UP' ? 'ABOVE' : 'BELOW';
-            const targetLevel = this.box.direction === 'UP' ? this.box.high : this.box.low;
+            const setupInfo =
+                `🎯 TRADING SETUP IDENTIFIED\n` +
+                `• Bias: ${bias} reversal\n` +
+                `• Liquidity Box: ${asset.box.low.toFixed(4)} - ${asset.box.high.toFixed(4)}\n` +
+                `• Trigger Level: Reversal at ${targetSide} (${level.toFixed(4)})`;
 
-            this.log('🎯 TRADING SETUP:', 'STRATEGY');
-            this.log(`   Box High: ${this.box.high.toFixed(4)}`, 'INFO');
-            this.log(`   Box Low:  ${this.box.low.toFixed(4)}`, 'INFO');
-            this.log(`   Bias:     ${setupType}`, 'INFO');
-            this.log(`   Looking for reversal ${targetSide} ${targetLevel.toFixed(4)}`, 'INFO');
-            this.log(`   Time Window: ${CONFIG.market_open_duration} minutes`, 'INFO');
-            this.log('='.repeat(60), 'STRATEGY');
+            this.log(setupInfo, 'STRATEGY', symbol, true);
+            this.sendTelegramMessage(
+                `✅ <b>Liquidity Confirmed!</b> [${symbol}]\n` +
+                `<b>Session:</b> ${CONFIG.sessions[asset.session].name}\n` +
+                `<b>Bias:</b> ${bias}\n` +
+                `<b>Level:</b> ${level.toFixed(4)}\n` +
+                `<b>Range:</b> ${rangePercent}% of ATR`
+            );
 
-            this.sendTelegramMessage(`✅ <b>LIQUIDITY CONFIRMED!</b>\n<b>Box Range:</b> ${range.toFixed(4)}\n<b>ATR (25%):</b> ${liquidityThreshold.toFixed(4)}\n<b>Setup:</b> ${setupType}\nHunting reversal at ${targetLevel.toFixed(4)}`);
-
-            this.startHunting();
+            this.startHunting(symbol);
         } else {
-            this.log('❌ LIQUIDITY CHECK FAILED!', 'ERROR');
-            this.log(`   Range (${rangePercent}% of ATR) is below 25% threshold`, 'ERROR');
-            this.log('   No trade setup today. Resetting...', 'ERROR');
-            this.log('='.repeat(60), 'STRATEGY');
+            this.log(`❌ LIQUIDITY FAILED (${rangePercent}% of ATR is below 25%)`, 'ERROR', symbol);
+            this.sendTelegramMessage(`❌ <b>Liquidity Failed</b> [${symbol}]\nRange ${rangePercent}% of ATR is too low.`);
 
-            this.sendTelegramMessage(`❌ <b>LIQUIDITY CHECK FAILED</b>\nRange is ONLY ${rangePercent}% of ATR. No setup today.`);
+            // Mark session as "traded/handled" even if failed liquidity, or wait? 
+            // Usually if liquidity fails, we don't trade that session.
+            const sessionTag = `${new Date().toISOString().split('T')[0]}:${asset.session}`;
+            asset.lastSessionTraded = sessionTag;
 
-            this.state = 'WAITING_FOR_OPEN';
-            this.resetSetup();
+            asset.state = 'WAITING_FOR_OPEN';
+            this.resetSetup(symbol);
         }
     }
 
-    startHunting() {
-        this.state = 'HUNTING';
-        this.log('🎯 HUNTING MODE ACTIVATED', 'STRATEGY');
-        this.log(`⏱️  Monitoring ${CONFIG.entry_timeframe}-minute candles for reversal patterns...`, 'STRATEGY');
+    startHunting(symbol) {
+        const asset = this.assets.get(symbol);
+        asset.state = 'HUNTING';
+        this.log('🎯 HUNTING MODE ACTIVATED', 'STRATEGY', symbol);
 
         this.ws.send(JSON.stringify({
-            ticks_history: CONFIG.symbol,
+            ticks_history: symbol,
             end: 'latest',
             start: 1,
             style: 'candles',
@@ -456,265 +548,183 @@ class QuickFlipBot {
         }));
     }
 
-    checkForReversal(candle) {
-        if (this.state !== 'HUNTING') return;
+    checkForReversal(symbol, candle) {
+        const asset = this.assets.get(symbol);
+        if (!asset || asset.state !== 'HUNTING') return;
 
-        // Only analyze when we have a new candle (different epoch)
-        if (this.lastCandle && this.lastCandle.epoch === candle.epoch) {
-            return; // Same candle, skip
-        }
-
-        this.lastCandle = candle;
+        if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
+        asset.lastCandle = candle;
 
         const body = Math.abs(candle.close - candle.open);
-        const range = candle.high - candle.low;
         const upperWick = candle.high - Math.max(candle.open, candle.close);
         const lowerWick = Math.min(candle.open, candle.close) - candle.low;
-        const isGreen = candle.close > candle.open;
 
-        // Log candle monitoring (every 5th candle to reduce spam)
-        if (Math.random() < 0.2) {
-            this.log(`👀 Monitoring: Price ${candle.close.toFixed(4)} | Box: [${this.box.low.toFixed(4)} - ${this.box.high.toFixed(4)}]`, 'INFO');
-        }
-
-        // Condition 1: Looking for LONG (Bullish) - Price must be BELOW box low
-        if (this.box.direction === 'DOWN' && candle.close < this.box.low) {
-            this.log('-'.repeat(60), 'TRADE');
-            this.log(`🔍 Price broke BELOW box at ${candle.close.toFixed(4)}`, 'TRADE');
-            this.log(`   Analyzing for BULLISH reversal pattern...`, 'TRADE');
-
-            // Hammer Pattern: Lower wick >= 2x Body and upper wick < body
-            const isHammer = lowerWick >= (2 * body) && upperWick < body && body > 0;
-
-            if (isHammer) {
-                this.log('='.repeat(60), 'TRADE');
-                this.log('🔥 HAMMER PATTERN DETECTED!', 'SUCCESS');
-                this.log(`   Open:       ${candle.open.toFixed(4)}`, 'INFO');
-                this.log(`   High:       ${candle.high.toFixed(4)}`, 'INFO');
-                this.log(`   Low:        ${candle.low.toFixed(4)}`, 'INFO');
-                this.log(`   Close:      ${candle.close.toFixed(4)}`, 'INFO');
-                this.log(`   Body:       ${body.toFixed(4)}`, 'INFO');
-                this.log(`   Lower Wick: ${lowerWick.toFixed(4)} (${(lowerWick / body).toFixed(2)}x body)`, 'INFO');
-                this.log(`   Upper Wick: ${upperWick.toFixed(4)}`, 'INFO');
-                this.log('='.repeat(60), 'TRADE');
-
-                this.sendTelegramMessage(`🔥 <b>HAMMER PATTERN DETECTED!</b>\n<b>Reversal Pattern at:</b> ${candle.close.toFixed(4)}\nExecuting LONG.`);
-
-                this.entryCandle = candle;
-                this.executeTrade('MULTUP'); // Multiplier UP (Long)
+        // Long (Hammer) below box
+        if (asset.box.direction === 'DOWN' && candle.close < asset.box.low) {
+            if (lowerWick >= (2 * body) && upperWick < body && body > 0) {
+                this.log('🔥 HAMMER DETECTED!', 'SUCCESS', symbol);
+                this.sendTelegramMessage(`🔥 <b>Hammer Pattern</b> [${symbol}]\nExecuting LONG.`);
+                asset.entryCandle = candle;
+                this.executeTrade(symbol, 'MULTUP');
             }
         }
 
-        // Condition 2: Looking for SHORT (Bearish) - Price must be ABOVE box high
-        if (this.box.direction === 'UP' && candle.close > this.box.high) {
-            this.log('-'.repeat(60), 'TRADE');
-            this.log(`🔍 Price broke ABOVE box at ${candle.close.toFixed(4)}`, 'TRADE');
-            this.log(`   Analyzing for BEARISH reversal pattern...`, 'TRADE');
-
-            // Shooting Star / Inverted Hammer: Upper wick >= 2x Body and lower wick < body
-            const isShootingStar = upperWick >= (2 * body) && lowerWick < body && body > 0;
-
-            if (isShootingStar) {
-                this.log('='.repeat(60), 'TRADE');
-                this.log('🔥 SHOOTING STAR PATTERN DETECTED!', 'SUCCESS');
-                this.log(`   Open:       ${candle.open.toFixed(4)}`, 'INFO');
-                this.log(`   High:       ${candle.high.toFixed(4)}`, 'INFO');
-                this.log(`   Low:        ${candle.low.toFixed(4)}`, 'INFO');
-                this.log(`   Close:      ${candle.close.toFixed(4)}`, 'INFO');
-                this.log(`   Body:       ${body.toFixed(4)}`, 'INFO');
-                this.log(`   Upper Wick: ${upperWick.toFixed(4)} (${(upperWick / body).toFixed(2)}x body)`, 'INFO');
-                this.log(`   Lower Wick: ${lowerWick.toFixed(4)}`, 'INFO');
-                this.log('='.repeat(60), 'TRADE');
-
-                this.sendTelegramMessage(`🔥 <b>SHOOTING STAR PATTERN DETECTED!</b>\n<b>Reversal Pattern at:</b> ${candle.close.toFixed(4)}\nExecuting SHORT.`);
-
-                this.entryCandle = candle;
-                this.executeTrade('MULTDOWN'); // Multiplier DOWN (Short)
+        // Short (Shooting Star) above box
+        if (asset.box.direction === 'UP' && candle.close > asset.box.high) {
+            if (upperWick >= (2 * body) && lowerWick < body && body > 0) {
+                this.log('🔥 SHOOTING STAR DETECTED!', 'SUCCESS', symbol);
+                this.sendTelegramMessage(`🔥 <b>Shooting Star</b> [${symbol}]\nExecuting SHORT.`);
+                asset.entryCandle = candle;
+                this.executeTrade(symbol, 'MULTDOWN');
             }
         }
     }
 
-    executeTrade(contractType) {
-        this.state = 'EXECUTING';
+    executeTrade(symbol, contractType) {
+        const asset = this.assets.get(symbol);
+        asset.state = 'EXECUTING';
 
-        const baseCapital = CONFIG.INVESTMENT_CAPITAL || this.trade_amount;
-        const stake = Math.max(baseCapital * (CONFIG.RISK_PERCENT / 100), 0.35).toFixed(2);
+        // Calculation: 1% risk = SL. 3% TP = RR 1:3.
+        const stake = (CONFIG.INVESTMENT_CAPITAL * (CONFIG.RISK_PERCENT / 100)).toFixed(2);
+        const stopLossAmount = Math.max(0, stake); // 100% of stake = SL
+        const takeProfitAmount = (stake * CONFIG.RR_RATIO).toFixed(2); // 300% of stake = TP
 
         const direction = contractType === 'MULTUP' ? '🔼 LONG' : '🔻 SHORT';
-        const target = contractType === 'MULTUP' ? this.box.high : this.box.low;
 
-        this.log('='.repeat(60), 'TRADE');
-        this.log('🚀 EXECUTING TRADE', 'TRADE');
-        this.log(`   Capital:     $${baseCapital.toFixed(2)}`, 'INFO');
-        this.log(`   Direction:   ${direction}`, 'INFO');
-        this.log(`   Symbol:      ${CONFIG.symbol}`, 'INFO');
-        this.log(`   Stake:       $${stake} (${CONFIG.RISK_PERCENT}% of capital)`, 'INFO');
-        this.log(`   Multiplier:  x${CONFIG.multiplier}`, 'INFO');
-        this.log(`   Entry Price: ${this.entryCandle.close.toFixed(4)}`, 'INFO');
-        this.log(`   Target:      ${target.toFixed(4)}`, 'INFO');
-        this.log('='.repeat(60), 'TRADE');
+        const tradeInfo =
+            `🚀 EXECUTING TRADE: ${symbol}\n` +
+            `• Direction: ${direction}\n` +
+            `• Stake:     $${stake} (Risk: ${CONFIG.RISK_PERCENT}%)\n` +
+            `• Multiplier: x${asset.multiplier}\n` +
+            `• SL Amount: -$${stake} (Fixed 100% of Stake)\n` +
+            `• TP Amount: +$${takeProfitAmount} (Target RR 1:3)`;
 
-        // Unsubscribe from candles to stop double entry
+        this.log(tradeInfo, 'TRADE', symbol, true);
+
         this.ws.send(JSON.stringify({ forget_all: 'candles' }));
-
-        this.sendTelegramMessage(`🚀 <b>EXECUTING TRADE</b>\n<b>Capital:</b> $${baseCapital.toFixed(2)}\n<b>Direction:</b> ${direction}\n<b>Stake:</b> $${stake}\n<b>Entry:</b> ${this.entryCandle.close.toFixed(4)}\n<b>Target:</b> ${target.toFixed(4)}`);
+        this.sendTelegramMessage(
+            `🚀 <b>Scaling Trade Execution</b> [${symbol}]\n` +
+            `<b>Session:</b> ${CONFIG.sessions[asset.session].name}\n` +
+            `<b>Side:</b> ${direction}\n\n` +
+            `💰 <b>Stake:</b> $${stake}\n` +
+            `⚙️ <b>Mult:</b> x${asset.multiplier}\n` +
+            `🛑 <b>SL:</b> $${stake}\n` +
+            `🎯 <b>TP:</b> $${takeProfitAmount}`
+        );
 
         this.ws.send(JSON.stringify({
             buy: 1,
             price: stake,
             parameters: {
                 contract_type: contractType,
-                symbol: CONFIG.symbol,
+                symbol: symbol,
                 currency: 'USD',
-                multiplier: CONFIG.multiplier,
-            }
+                multiplier: asset.multiplier,
+                limit_order: {
+                    take_profit: parseFloat(takeProfitAmount),
+                    stop_loss: parseFloat(stopLossAmount)
+                }
+            },
+            passthrough: { symbol: symbol }
         }));
     }
 
     handleBuyResponse(msg) {
         if (msg.buy) {
-            this.log('='.repeat(60), 'SUCCESS');
-            this.log('✅ TRADE EXECUTED SUCCESSFULLY!', 'SUCCESS');
-            this.log(`   Contract ID: ${msg.buy.contract_id}`, 'INFO');
-            this.log(`   Buy Price:   ${msg.buy.buy_price}`, 'INFO');
-            this.log(`   Payout:      ${msg.buy.payout}`, 'INFO');
-            this.log('='.repeat(60), 'SUCCESS');
+            const sym = msg.echo_req.passthrough.symbol;
+            const asset = this.assets.get(sym);
 
-            this.currentContractId = msg.buy.contract_id;
-            this.state = 'IN_TRADE';
+            this.log('✅ TRADE EXECUTED SUCCESSFULLY!', 'SUCCESS', sym);
+            asset.currentContractId = msg.buy.contract_id;
+            asset.state = 'IN_TRADE';
 
             this.tradeLog.push({
+                symbol: sym,
                 contractId: msg.buy.contract_id,
                 entryTime: new Date().toISOString(),
-                entryPrice: this.entryCandle.close,
                 direction: msg.buy.contract_type,
-                stake: CONFIG.trade_amount,
-                target: msg.buy.contract_type === 'MULTUP' ? this.box.high : this.box.low
+                stake: msg.buy.buy_price
             });
 
-            this.monitorTrade();
+            this.monitorTrade(sym);
         }
     }
 
-    monitorTrade() {
-        this.log('📊 Starting trade monitoring...', 'TRADE');
+    monitorTrade(symbol) {
+        const asset = this.assets.get(symbol);
+        this.log('📊 Starting trade monitoring...', 'TRADE', symbol);
 
-        if (this.currentContractId) {
+        if (asset.currentContractId) {
             this.ws.send(JSON.stringify({
                 proposal_open_contract: 1,
-                contract_id: this.currentContractId,
+                contract_id: asset.currentContractId,
                 subscribe: 1
             }));
         }
     }
 
     handleTradeUpdate(contract) {
+        const asset = Array.from(this.assets.values()).find(a => a.currentContractId === contract.contract_id);
+        if (!asset) return;
+
         if (contract.is_sold) {
             this.handleTradeClosed(contract);
             return;
         }
 
-        const currentPrice = contract.current_spot;
-        const entryPrice = contract.entry_spot;
-        const profit = contract.profit;
-        const contractType = contract.contract_type;
+        const profit = parseFloat(contract.profit || 0);
+        const profitPercent = ((profit / contract.buy_price) * 100).toFixed(2);
 
-        // Calculate distance to target
-        const target = contractType === 'MULTUP' ? this.box.high : this.box.low;
-        const distanceToTarget = Math.abs(currentPrice - target);
-        const progressPercent = contractType === 'MULTUP'
-            ? ((currentPrice - entryPrice) / (target - entryPrice) * 100)
-            : ((entryPrice - currentPrice) / (entryPrice - target) * 100);
-
-        // Log trade status periodically
-        this.log('-'.repeat(60), 'TRADE');
-        this.log('📈 ACTIVE TRADE STATUS', 'TRADE');
-        this.log(`   Contract ID:     ${this.currentContractId}`, 'INFO');
-        this.log(`   Entry Price:     ${entryPrice.toFixed(4)}`, 'INFO');
-        this.log(`   Current Price:   ${currentPrice.toFixed(4)}`, 'INFO');
-        this.log(`   Target:          ${target.toFixed(4)}`, 'INFO');
-        this.log(`   Distance to Target: ${distanceToTarget.toFixed(4)}`, 'INFO');
-        this.log(`   Progress:        ${Math.min(progressPercent, 100).toFixed(1)}%`, 'INFO');
-        this.log(`   P/L:             ${profit >= 0 ? '🟢' : '🔴'} $${profit.toFixed(2)}`, profit >= 0 ? 'SUCCESS' : 'ERROR');
-        this.log('-'.repeat(60), 'TRADE');
-
-        // Check if target hit
-        let targetHit = false;
-
-        if (contractType === 'MULTUP') { // Long
-            if (currentPrice >= target) {
-                targetHit = true;
-            }
-        } else { // Short
-            if (currentPrice <= target) {
-                targetHit = true;
-            }
-        }
-
-        if (targetHit) {
-            this.log('='.repeat(60), 'SUCCESS');
-            this.log('🎯 TARGET REACHED!', 'SUCCESS');
-            this.log(`   Target Price: ${target.toFixed(4)}`, 'INFO');
-            this.log(`   Current Price: ${currentPrice.toFixed(4)}`, 'INFO');
-            this.log(`   Profit: $${profit.toFixed(2)}`, 'INFO');
-            this.log('   Closing trade at market price...', 'INFO');
-            this.log('='.repeat(60), 'SUCCESS');
-
-            this.ws.send(JSON.stringify({
-                sell: this.currentContractId,
-                price: 0 // Market sell
-            }));
+        // Log update every few mins or significant profit changes
+        if (Math.random() < 0.3) {
+            this.log(`📈 Monitoring ${asset.symbol}: ${profitPercent}% | $${profit.toFixed(2)}`, 'TRADE', asset.symbol);
         }
     }
 
     handleTradeClosed(contract) {
-        const profit = contract.profit;
-        const exitPrice = contract.exit_tick;
+        const asset = Array.from(this.assets.values()).find(a => a.currentContractId === contract.contract_id);
+        const sym = asset ? asset.symbol : 'UNKNOWN';
+        const profit = parseFloat(contract.profit);
         const isWin = profit > 0;
 
-        this.log('='.repeat(60), 'SUCCESS');
-        this.log('🏁 TRADE CLOSED', 'TRADE');
-        this.log('-'.repeat(60), 'TRADE');
-        this.log(`   Contract ID:   ${this.currentContractId}`, 'INFO');
-        this.log(`   Entry Price:   ${contract.entry_spot.toFixed(4)}`, 'INFO');
-        this.log(`   Exit Price:    ${exitPrice.toFixed(4)}`, 'INFO');
-        this.log(`   Final P/L:     ${isWin ? '🟢' : '🔴'} $${profit.toFixed(2)}`, isWin ? 'SUCCESS' : 'ERROR');
-        this.log(`   Result:        ${isWin ? '✅ WIN' : '❌ LOSS'}`, isWin ? 'SUCCESS' : 'ERROR');
-        this.log('='.repeat(60), 'SUCCESS');
+        this.log('='.repeat(60), isWin ? 'SUCCESS' : 'ERROR', sym);
+        this.log(`🏁 TRADE CLOSED: ${isWin ? 'WIN 💰' : 'LOSS ❌'}`, isWin ? 'SUCCESS' : 'ERROR', sym);
+        this.log(`   Profit/Loss: $${profit.toFixed(2)}`, 'INFO', sym);
+        this.log('='.repeat(60), isWin ? 'SUCCESS' : 'ERROR', sym);
 
-        // Update trade log
-        const tradeIndex = this.tradeLog.findIndex(t => t.contractId === this.currentContractId);
-        if (tradeIndex !== -1) {
-            this.tradeLog[tradeIndex].exitTime = new Date().toISOString();
-            this.tradeLog[tradeIndex].exitPrice = exitPrice;
-            this.tradeLog[tradeIndex].profit = profit;
-            this.tradeLog[tradeIndex].result = isWin ? 'WIN' : 'LOSS';
+        const trade = this.tradeLog.find(t => t.contractId === contract.contract_id);
+        if (trade) {
+            trade.profit = profit;
+            trade.result = isWin ? 'WIN' : 'LOSS';
+            trade.exitTime = new Date().toISOString();
         }
 
-        if (isWin) {
-            this.sendTelegramMessage(`🎉 <b>TARGET HIT - TRADE WON!</b>\n<b>Profit:</b> +$${profit.toFixed(2)}\n<b>Exit Price:</b> ${exitPrice.toFixed(4)}`);
-        } else {
-            this.sendTelegramMessage(`❌ <b>TRADE CLOSED</b>\n<b>Profit/Loss:</b> $${profit.toFixed(2)}\n<b>Exit Price:</b> ${exitPrice.toFixed(4)}`);
+        this.sendTelegramMessage(`${isWin ? '💰' : '❌'} <b>Trade Closed</b> [${sym}]\n<b>Result:</b> ${isWin ? 'WIN' : 'LOSS'}\n<b>P/L:</b> $${profit.toFixed(2)}\n${this.getTelegramSummary()}`);
+
+        if (asset) {
+            const sessionTag = `${new Date().toISOString().split('T')[0]}:${asset.session}`;
+            asset.lastSessionTraded = sessionTag;
+
+            asset.currentContractId = null;
+            asset.state = 'WAITING_FOR_OPEN';
+            this.resetSetup(sym);
         }
-
-        this.printTradeLog();
-
-        this.state = 'WAITING_FOR_OPEN';
-        this.ws.send(JSON.stringify({ forget_all: 'proposal_open_contract' }));
-        this.resetSetup();
     }
 
     handleSellResponse(msg) {
         if (msg.sell) {
-            this.log('✅ Sell order executed', 'SUCCESS');
+            this.log('✅ Manual/Auto sell successful', 'SUCCESS');
         }
     }
 
     printTradeLog() {
-        if (this.tradeLog.length === 0) return;
+        if (this.tradeLog.length === 0) {
+            this.log('📭 No trades executed this session.', 'INFO');
+            return;
+        }
 
         this.log('='.repeat(60), 'SYSTEM');
-        this.log('📊 TRADE LOG SUMMARY', 'SYSTEM');
+        this.log('📊 SESSION TRADE LOG SUMMARY', 'SYSTEM');
         this.log('='.repeat(60), 'SYSTEM');
 
         let totalProfit = 0;
@@ -722,40 +732,32 @@ class QuickFlipBot {
         let losses = 0;
 
         this.tradeLog.forEach((trade, index) => {
-            this.log(`Trade #${index + 1}:`, 'INFO');
-            this.log(`   Contract:    ${trade.contractId}`, 'INFO');
-            this.log(`   Direction:   ${trade.direction === 'MULTUP' ? '🔼 LONG' : '🔻 SHORT'}`, 'INFO');
-            this.log(`   Entry Time:  ${trade.entryTime}`, 'INFO');
-            this.log(`   Entry Price: ${trade.entryPrice.toFixed(4)}`, 'INFO');
-            if (trade.exitPrice) {
-                this.log(`   Exit Time:   ${trade.exitTime}`, 'INFO');
-                this.log(`   Exit Price:  ${trade.exitPrice.toFixed(4)}`, 'INFO');
-                this.log(`   Profit:      ${trade.profit >= 0 ? '🟢' : '🔴'} ${trade.profit.toFixed(2)}`, 'INFO');
-                this.log(`   Result:      ${trade.result === 'WIN' ? '✅' : '❌'} ${trade.result}`, 'INFO');
-                totalProfit += trade.profit;
-                if (trade.result === 'WIN') wins++;
-                else losses++;
-            }
-            this.log('-'.repeat(60), 'SYSTEM');
+            const result = trade.result === 'WIN' ? '✅ WIN ' : '❌ LOSS';
+            this.log(`${index + 1}. [${trade.symbol}] ${trade.direction}: ${result} | P/L: $${trade.profit.toFixed(2)}`, 'INFO');
+            totalProfit += trade.profit;
+            if (trade.result === 'WIN') wins++;
+            else losses++;
         });
 
-        const winRate = this.tradeLog.length > 0 ? (wins / (wins + losses) * 100).toFixed(1) : 0;
+        const winRate = (wins + losses) > 0 ? (wins / (wins + losses) * 100).toFixed(1) : 0;
 
-        this.log('OVERALL STATISTICS:', 'SYSTEM');
-        this.log(`   Total Trades:  ${wins + losses}`, 'INFO');
-        this.log(`   Wins:          ${wins}`, 'SUCCESS');
-        this.log(`   Losses:        ${losses}`, 'ERROR');
-        this.log(`   Win Rate:      ${winRate}%`, 'INFO');
-        this.log(`   Total P/L:     ${totalProfit >= 0 ? '🟢' : '🔴'} ${totalProfit.toFixed(2)}`, totalProfit >= 0 ? 'SUCCESS' : 'ERROR');
+        this.log('-'.repeat(60), 'SYSTEM');
+        this.log(`📈 Total Trades: ${wins + losses} | Wins: ${wins} | Losses: ${losses}`, 'SYSTEM');
+        this.log(`🔥 Win Rate: ${winRate}% | Total P/L: $${totalProfit.toFixed(2)}`, 'SYSTEM');
         this.log('='.repeat(60), 'SYSTEM');
     }
 
-    resetSetup() {
+    resetSetup(symbol) {
+        const asset = this.assets.get(symbol);
         this.ws.send(JSON.stringify({ forget_all: 'candles' }));
-        this.box = { high: null, low: null, direction: null, valid: false };
-        this.lastCandle = null;
-        this.entryCandle = null;
-        this.log('🔄 Setup reset. Ready for next market open.', 'SYSTEM');
+        if (asset) {
+            asset.box = { high: null, low: null, direction: null, valid: false };
+            asset.lastCandle = null;
+            asset.entryCandle = null;
+            asset.openTimeEpoch = null;
+            asset.session = null;
+            this.log('🔄 Setup reset. Ready for next session.', 'SYSTEM', symbol);
+        }
     }
 }
 
@@ -764,7 +766,7 @@ const bot = new QuickFlipBot();
 bot.start();
 
 const initialStake = (CONFIG.INVESTMENT_CAPITAL * (CONFIG.RISK_PERCENT / 100)).toFixed(2);
-bot.sendTelegramMessage(`🚀 <b>QUICK FLIP SCALPER STARTED</b>\n<b>Symbol:</b> ${CONFIG.symbol}\n<b>Capital:</b> $${CONFIG.INVESTMENT_CAPITAL.toFixed(2)}\n<b>Target Stake:</b> $${initialStake}\nx${CONFIG.multiplier} Multiplier`);
+bot.sendTelegramMessage(`🚀 <b>MULTI-ASSET QUICK FLIP SCALPER STARTED</b>\n<b>Assets:</b> ${CONFIG.symbols.filter(s => s.enabled).map(s => s.name).join(', ')}\n<b>Capital:</b> $${CONFIG.INVESTMENT_CAPITAL.toFixed(2)}\n<b>Target Stake:</b> $${initialStake}`);
 
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
