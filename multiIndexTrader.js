@@ -111,15 +111,16 @@ let sessionStats = {
     totalTrades: 0,
     wins: 0,
     losses: 0,
-    startBalance: 0,
+    realizedPnL: 0,
     startTime: new Date()
 };
 
 // Active positions tracking (global)
 const activePositions = new Map();
 
-// Pending proposals
+// Pending proposals & buys
 const pendingProposals = new Map();
+const pendingBuys = new Map();
 
 // = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
 // TELEGRAM UTILITIES
@@ -155,7 +156,7 @@ function getTelegramSummary() {
 ✅ <b>Wins:</b> ${sessionStats.wins}
 ❌ <b>Losses:</b> ${sessionStats.losses}
 🔥 <b>Win Rate:</b> ${winRate}%
-💰 <b>Daily P/L:</b> $${formatNumber(dailyPnL)}
+💰 <b>Daily P/L:</b> ${dailyPnL >= 0 ? '+' : ''}$${formatNumber(dailyPnL)}
     `;
 }
 
@@ -311,7 +312,6 @@ function logSessionStats() {
     const winRate = sessionStats.totalTrades > 0
         ? (sessionStats.wins / sessionStats.totalTrades * 100).toFixed(2)
         : 0;
-    const netPnL = currentBalance - sessionStats.startBalance;
     const runtime = Math.floor((Date.now() - sessionStats.startTime) / 1000 / 60);
 
     console.log();
@@ -319,8 +319,8 @@ function logSessionStats() {
     console.log(`${COLORS.bright}${COLORS.cyan}║                            SESSION STATISTICS                                ║${COLORS.reset}`);
     console.log(`${COLORS.bright}${COLORS.cyan}╠══════════════════════════════════════════════════════════════════════════════╣${COLORS.reset}`);
     console.log(`${COLORS.cyan}║${COLORS.reset}  Runtime: ${runtime} minutes                                                        ${COLORS.cyan}║${COLORS.reset}`);
-    console.log(`${COLORS.cyan}║${COLORS.reset}  Balance: $${formatNumber(currentBalance)} (Started: $${formatNumber(sessionStats.startBalance)})                         ${COLORS.cyan}║${COLORS.reset}`);
-    console.log(`${COLORS.cyan}║${COLORS.reset}  Net P&L: ${netPnL >= 0 ? COLORS.green + '+' : COLORS.red}$${formatNumber(Math.abs(netPnL))}${COLORS.reset}  |  Daily P&L: ${dailyPnL >= 0 ? COLORS.green + '+' : COLORS.red}$${formatNumber(Math.abs(dailyPnL))}${COLORS.reset}                              ${COLORS.cyan}║${COLORS.reset}`);
+    console.log(`${COLORS.cyan}║${COLORS.reset}  Balance: $${formatNumber(currentBalance)}                                                             ${COLORS.cyan}║${COLORS.reset}`);
+    console.log(`${COLORS.cyan}║${COLORS.reset}  Net P&L: ${sessionStats.realizedPnL >= 0 ? COLORS.green + '+' : COLORS.red}$${formatNumber(Math.abs(sessionStats.realizedPnL))}${COLORS.reset}  |  Daily P&L: ${dailyPnL >= 0 ? COLORS.green + '+' : COLORS.red}$${formatNumber(Math.abs(dailyPnL))}${COLORS.reset}                              ${COLORS.cyan}║${COLORS.reset}`);
     console.log(`${COLORS.cyan}║${COLORS.reset}  Trades: ${sessionStats.totalTrades}  |  Wins: ${COLORS.green}${sessionStats.wins}${COLORS.reset}  |  Losses: ${COLORS.red}${sessionStats.losses}${COLORS.reset}  |  Win Rate: ${winRate}%           ${COLORS.cyan}║${COLORS.reset}`);
     console.log(`${COLORS.cyan}║${COLORS.reset}  Active Positions: ${activePositions.size} / ${CONFIG.MAX_CONCURRENT_TRADES}                                            ${COLORS.cyan}║${COLORS.reset}`);
     console.log(`${COLORS.bright}${COLORS.cyan}╚══════════════════════════════════════════════════════════════════════════════╝${COLORS.reset}`);
@@ -586,11 +586,21 @@ function requestProposal(symbol, type, stake) {
 /**
  * Buy a contract
  */
-function buyContract(proposalId, price) {
-    sendRequest({
+// function buyContract(proposalId, price) {
+//     const reqId = sendRequest({
+//         buy: proposalId,
+//         price: price
+//     });
+//     // We can't easily correlate reqId here without passing context, 
+//     // but we modify calling convention to pass symbol/type
+// }
+
+function buyContract(proposalId, price, symbol, type) {
+    const reqId = sendRequest({
         buy: proposalId,
         price: price
     });
+    pendingBuys.set(reqId, { symbol, type });
 }
 
 // ================================================================
@@ -604,7 +614,7 @@ function handleAuthorize(response) {
     if (response.authorize) {
         isAuthorized = true;
         currentBalance = response.authorize.balance;
-        sessionStats.startBalance = currentBalance;
+        // sessionStats.startBalance = currentBalance; // Removed to decouple P/L from balance
 
         log('Authorization successful!', 'SUCCESS');
         log(`Account: ${response.authorize.email}`, 'INFO');
@@ -631,10 +641,10 @@ function handleBalance(response) {
 
     if (oldBalance !== 0 && oldBalance !== currentBalance) {
         const change = currentBalance - oldBalance;
-        dailyPnL += change;
+        // dailyPnL += change; // REMOVED: Do not update P/L from balance changes (other bots interference)
 
         const changeStr = change > 0 ? `+$${formatNumber(change)}` : `-$${formatNumber(Math.abs(change))}`;
-        log(`Balance: $${formatNumber(currentBalance)} (${changeStr}) | Daily P&L: $${formatNumber(dailyPnL)}`, 'INFO');
+        log(`Balance: $${formatNumber(currentBalance)} (${changeStr})`, 'INFO');
     }
 
     // Check daily loss limit
@@ -695,10 +705,9 @@ function handleProposal(response) {
 
             if (state && !state.hasActivePosition) {
                 log(`Proposal received | ID: ${proposal.id} | Payout: $${formatNumber(proposal.payout)}`, 'TRADE', pendingInfo.symbol);
-                buyContract(proposal.id, proposal.ask_price);
-            }
 
-            pendingProposals.delete(response.req_id);
+                pendingProposals.delete(response.req_id);
+            }
         }
     }
 }
@@ -709,14 +718,22 @@ function handleProposal(response) {
 function handleBuy(response) {
     if (response.buy) {
         const contract = response.buy;
-        const symbol = response.echo_req.symbol;
+        const reqId = response.echo_req.req_id;
+        const buyInfo = pendingBuys.get(reqId);
+
+        // Fallback or retrieve from map
+        const symbol = buyInfo ? buyInfo.symbol : (response.echo_req.symbol || 'Unknown');
+        const type = buyInfo ? buyInfo.type : (contract.contract_type || 'Unknown');
+
+        if (buyInfo) pendingBuys.delete(reqId);
+
         const state = getAssetState(symbol);
 
         // Store position
         activePositions.set(contract.contract_id, {
             id: contract.contract_id,
             symbol: symbol,
-            type: contract.contract_type,
+            type: type,
             stake: contract.buy_price,
             payout: contract.payout,
             openTime: new Date()
@@ -729,9 +746,9 @@ function handleBuy(response) {
 
         sessionStats.totalTrades++;
 
-        log(`Trade OPENED | Type: ${contract.contract_type} | Stake: $${formatNumber(contract.buy_price)} | Payout: $${formatNumber(contract.payout)}`, 'SUCCESS', symbol);
+        log(`Trade OPENED | Type: ${type} | Stake: $${formatNumber(contract.buy_price)} | Payout: $${formatNumber(contract.payout)}`, 'SUCCESS', symbol);
 
-        sendTelegramMessage(`🚀 <b>TRADE OPENED</b> [${symbol}]\n━━━━━━━━━━━━━━━━━\n<b>Type:</b> ${contract.contract_type}\n<b>Stake:</b> $${formatNumber(contract.buy_price)}\n<b>Payout:</b> $${formatNumber(contract.payout)}`);
+        sendTelegramMessage(`🚀 <b>TRADE OPENED</b> [${symbol}]\n━━━━━━━━━━━━━━━━━\n<b>Type:</b> ${type}\n<b>Stake:</b> $${formatNumber(contract.buy_price)}\n<b>Payout:</b> $${formatNumber(contract.payout)}`);
 
         // Subscribe to contract updates
         sendRequest({
@@ -788,24 +805,32 @@ function handleContractUpdate(response) {
             }
         }
 
-        log(`❌ TRADE LOST | Loss: -$${formatNumber(Math.abs(profit))}`, 'ERROR', position.symbol);
+        // Update P/L
+        dailyPnL += profit;
+        sessionStats.realizedPnL += profit;
+
+        if (isWin) {
+            log(`🎉 TRADE WON! | Profit: +$${formatNumber(profit)}`, 'SUCCESS', position.symbol);
+        } else {
+            log(`❌ TRADE LOST | Loss: -$${formatNumber(Math.abs(profit))}`, 'ERROR', position.symbol);
+        }
+
+        sendTelegramMessage(`${profit >= 0 ? '🎉' : '😔'} <b>TRADE ${isWin ? 'WON' : 'LOST'}</b> [${position.symbol}]\n━━━━━━━━━━━━━━━━━\n<b>P/L:</b> $${formatNumber(profit)}\n<b>Daily P/L:</b> $${formatNumber(dailyPnL)}\n${getTelegramSummary()}`);
+
+        // Clean up
+        if (state) {
+            state.hasActivePosition = false;
+        }
+        activePositions.delete(contract.contract_id);
+
+        // Log statistics
+        logSessionStats();
     }
 
-    sendTelegramMessage(`${profit >= 0 ? '🎉' : '😔'} <b>TRADE ${isWin ? 'WON' : 'LOST'}</b> [${position.symbol}]\n━━━━━━━━━━━━━━━━━\n<b>P/L:</b> $${formatNumber(profit)}\n<b>Daily P/L:</b> $${formatNumber(dailyPnL)}\n${getTelegramSummary()}`);
-
-    // Clean up
-    if (state) {
-        state.hasActivePosition = false;
-    }
-    activePositions.delete(contract.contract_id);
-
-    // Log statistics
-    logSessionStats();
+    // ================================================================
+    // STRATEGY IMPLEMENTATION
+    // ================================================================
 }
-
-// ================================================================
-// STRATEGY IMPLEMENTATION
-// ================================================================
 
 /**
  * Initialize strategies for all active assets
@@ -1001,7 +1026,7 @@ function shutdown() {
     logHeader('BOT SHUTDOWN');
 
     log(`Final Balance: $${formatNumber(currentBalance)}`, 'INFO');
-    log(`Session P&L: $${formatNumber(currentBalance - sessionStats.startBalance)}`, 'INFO');
+    log(`Session P&L: $${formatNumber(sessionStats.realizedPnL)}`, 'INFO');
     log(`Daily P&L: $${formatNumber(dailyPnL)}`, 'INFO');
     log(`Total Trades: ${sessionStats.totalTrades}`, 'INFO');
     log(`Wins: ${sessionStats.wins} | Losses: ${sessionStats.losses}`, 'INFO');
@@ -1050,6 +1075,29 @@ process.on('uncaughtException', (error) => {
     console.error(error.stack);
     shutdown();
 });
+
+// ================================================================
+// STARTUP
+// ================================================================
+
+function startBot() {
+    console.clear();
+
+    logHeader('DERIV MULTI-ASSET ALGORITHMIC TRADING BOT v2.0');
+
+    log(`Strategy: Breakout & Retest (Multi-Timeframe)`, 'INFO');
+    log(`Active Symbols: ${CONFIG.ACTIVE_SYMBOLS.join(', ')}`, 'INFO');
+    log(`Initial Stake: $${CONFIG.STAKE_AMOUNT}`, 'INFO');
+    log(`Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT === 't' ? 'ticks' : CONFIG.DURATION_UNIT === 'm' ? 'minutes' : 'seconds'}`, 'INFO');
+    log(`Martingale: ${CONFIG.USE_MARTINGALE ? `ENABLED (x${CONFIG.MARTINGALE_MULTIPLIER}, max ${CONFIG.MAX_MARTINGALE_STEPS} steps)` : 'DISABLED'}`, 'INFO');
+    log(`Max Daily Loss: $${CONFIG.MAX_DAILY_LOSS}`, 'INFO');
+    log(`Trade Cooldown: ${CONFIG.TRADE_COOLDOWN / 1000}s`, 'INFO');
+
+    logSeparator();
+
+    // Clear previous log file
+} // End of handleProposal
+
 
 // ================================================================
 // STARTUP
