@@ -650,6 +650,7 @@ class AIDigitDifferBot {
             if (ensemble.confidence >= this.config.minConfidence &&
                 ensemble.agreement >= Math.min(this.config.minModelsAgreement, predictions.length) &&
                 ensemble.risk !== 'high' &&
+                ensemble.risk !== 'medium' &&
                 processingTime.toFixed(2) < 3 &&
                 this.lastPrediction !== this.xDigit
                 && ensemble.digit !== this.tickHistory[this.tickHistory.length - 1]
@@ -862,69 +863,50 @@ class AIDigitDifferBot {
         // Recent methods used
         const recentMethods = this.tradeMethod.slice(-5).join(', ');
 
-        return `You are an elite Digit Differ trading agent with a mission to maintain a 95%+ win rate. Your task is to predict the digit (0-9) that will NOT appear next.
+        return `You are an elite, adaptive trading AI specializing in Deriv Digit Differ—predicting the digit (0–9) that will NOT appear in the next tick. You operate in a highly adversarial environment: the Deriv system is not passive but an intelligent opponent that observes, learns from, and actively counters your behavioral patterns.
 
-        CORE PRINCIPLE: In Digit Differ, you WIN if the ACTUAL next digit is DIFFERENT from your prediction. Therefore, you must predict the digit most LIKELY to appear, so the actual digit differs from it.
+        ADVERSARIAL REALITY:
+        The platform may adapt its digit generation to neutralize your historically successful strategies.
+        Your predictability is your greatest vulnerability. Randomization and methodological diversity are defensive necessities.
+        No model is permanently effective. Continuous evolution is mandatory for survival.
 
-        === CURRENT MARKET DATA ===
+        CURRENT MARKET CONTEXT:
         Asset: ${this.currentAsset}
         Last 300 digits: [${recentDigits.join(', ')}]
-        Digit Frequency (last 100): ${JSON.stringify(Object.fromEntries([...Array(10)].map((_, i) => [i, this.tickHistory.slice(-100).filter(d => d === i).length])))}
-        Missing in last 15: [${gaps.join(', ')}]
-        Your last prediction: ${lastPred} → Actual: ${this.actualDigit || 'N/A'} (${lastOutcome})
-        Recent predictions: ${previousOutcomes || 'None'}
-        Consecutive losses: ${this.consecutiveLosses}
+        Recent prediction outcomes: ${previousOutcomes || 'None'}
+        YOUR LAST TRADE: Predicted: ${lastPred} Actual: ${this.actualDigit || 'None'} → Result: ${lastOutcome}
+        Recently used methods: ${recentMethods || 'None'}
+        Current consecutive losses: ${this.consecutiveLosses}
 
-        === WINNING STRATEGIES (Pick the BEST one) ===
+        CORE OPERATING PRINCIPLES:
+        Predict the ABSENT digit only—never the most probable next digit.
+        Use only statistically grounded, quantitatively validated methods, such as:
+        Frequency deviation analysis (cold-digit tracking)
+        Entropy and distribution divergence (e.g., KL divergence from uniformity)
+        Ensemble-based pattern detection (LSTM/Transformer-based forecasts inverted for "absence")
+        Volatility-adjusted regime-aware models
+        Never repeat the same prediction method consecutively.
+        After any loss (consecutiveLosses ≥ 1), immediately switch to a conservative statistical method (e.g., frequency-based min-entropy or uniformity test) and blacklist the losing method for at least 2 subsequent decisions.
+        Assess market regime (trending / ranging / volatile) using statistical indicators of dispersion and serial correlation in the last 50–100 digits.
+        Quantify prediction confidence rigorously—based on statistical significance, model entropy, or ensemble agreement. If confidence is below a high threshold (implied by 95% win-rate goal), DO NOT FORCE A TRADE. In such cases, still output a prediction, but assign a low confidence score and high riskAssessment to signal abstention-worthy uncertainty.
 
-        1. **HOT DIGIT SELECTION** (Highest Win Rate)
-        - Find the digit appearing MOST frequently in the last 20-50 ticks
-        - Hot digits tend to CONTINUE appearing due to short-term clustering
-        - Predict the hottest digit → It appears again → You WIN (actual ≠ prediction is false, but wait...)
-        - CORRECTION: Predict the HOTTEST digit because it's MOST LIKELY to appear again
-        - If it appears, you LOSE. So actually predict a COLD digit that WON'T appear.
+        STRATEGY ADAPTATION LOGIC:
+        Maintain an internal performance ledger: favor methods with recent wins in the current regime.
+        If recent methods show degradation (e.g., 2+ losses in 5 trades), trigger a regime reassessment and method reset.
+        Prioritize robustness over complexity: in volatile or high-entropy regimes, default to simpler, more interpretable statistical models.
 
-        2. **COLD DIGIT AVOIDANCE** (Safest Strategy)
-        - Identify digits that have NOT appeared in the last 15-30 ticks (gaps)
-        - These "cold" digits are statistically UNLIKELY to appear next
-        - Predict a COLD digit → It stays cold → Actual digit differs → You WIN
-
-        3. **MEAN REVERSION TRAP**
-        - After a digit appears 3+ times consecutively, it often STOPS appearing
-        - Predict that digit → It stops → Actual differs → You WIN
-
-        4. **ANTI-STREAK PLAY**
-        - If a digit hasn't appeared in 30+ ticks, it MAY appear soon (regression to mean)
-        - AVOID predicting this digit as it might finally appear
-
-        === DECISION TREE ===
-
-        IF gaps exist (digits missing from last 15 ticks):
-        → Predict the digit missing the LONGEST (coldest) - HIGHEST confidence
-        
-        ELSE IF a digit has appeared 4+ times in last 20 ticks:
-        → Predict that hot digit (it might cool off) - MEDIUM confidence
-        
-        ELSE:
-        → Predict the digit with LOWEST frequency in last 50 ticks - LOW confidence
-
-        === RISK MANAGEMENT ===
-        - After ${this.consecutiveLosses} consecutive loss(es), be MORE conservative
-        - Only trade with confidence ≥ 75%
-        - If recent methods failed, try the OPPOSITE approach
-        - Recent methods used: ${recentMethods || 'None'}
-
-        === OUTPUT (JSON ONLY) ===
+        OUTPUT FORMAT (STRICTLY JSON):
         {
-            "predictedDigit": <0-9, the digit you believe will NOT appear>,
-            "confidence": <60-95, your confidence level>,
-            "primaryStrategy": "<strategy name used>",
-            "reasoning": "<brief 1-line explanation>",
-            "marketRegime": "trending/ranging/volatile",
-            "riskAssessment": "low/medium/high"
+        "predictedDigit": X,
+        "confidence": XX,
+        "primaryStrategy": "Method-Name",
+        "marketRegime": "trending/ranging/volatile",
+        "riskAssessment": "low/medium/high"
         }
 
-        CRITICAL: Pick the digit with the LOWEST probability of appearing next. The actual digit will likely DIFFER from your choice, and you WIN.
+        Note: confidence must reflect true statistical certainty (0–100 scale). A value <85 typically implies the trade should be skipped in live execution—this is your built-in abstention signal. riskAssessment must align: low confidence → high risk.
+
+        You are not just predicting—you are strategically selecting only high-certainty battles in a war against an adaptive adversary.
     `;
     }
 
