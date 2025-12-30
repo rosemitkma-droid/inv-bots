@@ -38,9 +38,9 @@ const CONFIG = {
     // RISK MANAGEMENT (CRITICAL - ADJUST CAREFULLY)
     RISK_PERCENT_PER_TRADE: 0.02, // 2% of account balance per trade (0.01 = 1%)
     MIN_STAKE: 1, // Minimum stake in USD
-    MAX_STAKE: 10, // Maximum stake in USD
+    MAX_STAKE: 5, // Maximum stake in USD
     MAX_DAILY_LOSS_PERCENT: 0.05, // 5% max daily loss (bot stops)
-    MAX_CONSECUTIVE_LOSSES: 3, // Stop after consecutive losses
+    MAX_CONSECUTIVE_LOSSES: 4, // Stop after consecutive losses
 
     // REWARD CONFIGURATION
     TAKE_PROFIT_PERCENT: 0.50, // 50% profit target (0.5 = 50% of stake)
@@ -669,6 +669,8 @@ class RSIStrategy {
     reset() {
         this.signalStrength = 0;
         this.lastSignal = null;
+        this.tickHistory = []; // Clear history to force fresh analysis
+        this.logger.info('🔄 Strategy Soft Restart: Cleared market data for fresh analysis.');
     }
 }
 
@@ -828,16 +830,16 @@ class DerivBot {
         const winRate = this.tradeCount > 0 ? ((this.winCount / this.tradeCount) * 100).toFixed(1) : "0.0";
 
         this.sendTelegram(`
-${color} <b>TRADE COMPLETED</b> [${this.config.SYMBOL}]
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-<b>Result:</b> ${result.profit > 0 ? 'WIN' : 'LOSS'}
-<b>P/L:</b> $${result.profit.toFixed(2)} (${result.profitPercent}%)
-<b>Entry:</b> ${this.client.activeContract ? this.client.activeContract.buyPrice : 'N/A'}
-<b>Duration:</b> ${result.duration ? result.duration.toFixed(1) + 's' : 'N/A'}
+            ${color} <b>TRADE COMPLETED</b> [${this.config.SYMBOL}]
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━
+            <b>Result:</b> ${result.profit > 0 ? 'WIN' : 'LOSS'}
+            <b>P/L:</b> $${result.profit.toFixed(2)} (${result.profitPercent}%)
+            <b>Entry:</b> ${this.client.activeContract ? this.client.activeContract.buyPrice : 'N/A'}
+            <b>Duration:</b> ${result.duration ? result.duration.toFixed(1) + 's' : 'N/A'}
 
-📊 <b>SESSION STATS</b>
-<b>Win Rate:</b> ${winRate}%
-<b>Daily P/L:</b> $${this.dailyLoss.toFixed(2)}
+            📊 <b>SESSION STATS</b>
+            <b>Win Rate:</b> ${winRate}%
+            <b>Daily P/L:</b> $${this.dailyLoss.toFixed(2)}
         `);
 
         // Check daily loss limit based on Investment Capital
@@ -943,12 +945,12 @@ ${color} <b>TRADE COMPLETED</b> [${this.config.SYMBOL}]
             if (!this.isRunning) return;
             const winRate = this.tradeCount > 0 ? ((this.winCount / this.tradeCount) * 100).toFixed(1) : "0.0";
             await this.sendTelegram(`
-📊 <b>PERIODIC SUMMARY</b> [${this.config.SYMBOL}]
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-<b>Daily P/L:</b> $${this.dailyLoss.toFixed(2)}
-<b>Win Rate:</b> ${winRate}%
-<b>Total Trades:</b> ${this.tradeCount}
-<b>Time:</b> ${new Date().toLocaleTimeString()}
+                📊 <b>PERIODIC SUMMARY</b> [${this.config.SYMBOL}]
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━
+                <b>Daily P/L:</b> $${this.dailyLoss.toFixed(2)}
+                <b>Win Rate:</b> ${winRate}%
+                <b>Total Trades:</b> ${this.tradeCount}
+                <b>Time:</b> ${new Date().toLocaleTimeString()}
             `);
         }, this.config.TELEGRAM_SUMMARY_INTERVAL_MS);
     }
@@ -1005,21 +1007,3 @@ if (require.main === module) {
 
 // Export for module usage
 module.exports = { DerivBot, CONFIG, logger };
-
-/* 
- * ========================================
- * INSTRUCTIONS:
- * 1. Install dependencies: npm install ws winston
- * 2. Get API token from Deriv: deriv.com > Account Settings > API Token
- * 3. Configure settings in the CONFIG section above
- * 4. Run: node deriv-bot.js
- * 5. Monitor logs in logs/ directory
- * 
- * IMPORTANT RISK WARNING:
- * - This bot trades with real money
- * - Start with DEMO account first!
- * - Never risk more than you can afford to lose
- * - Past performance doesn't guarantee future results
- * - Use appropriate risk settings (2% or less per trade)
- * ========================================
- */
