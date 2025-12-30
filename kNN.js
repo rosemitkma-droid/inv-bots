@@ -145,7 +145,7 @@ class DerivBot {
         // State Management
         this.balance = 0;
         this.startingBalance = 0;
-        this.dailyProfit = 0;
+        this.realizedPnL = 0;
         this.dailyLossLimit = 0;
         this.isTrading = false;
         this.openTrades = new Map();
@@ -238,7 +238,7 @@ class DerivBot {
         const winRate = this.totalTrades > 0
             ? ((this.winningTrades / this.totalTrades) * 100).toFixed(1)
             : 0;
-        const dailyProfit = (this.balance - this.startingBalance).toFixed(2);
+        const sessionPnL = this.realizedPnL.toFixed(2);
 
         return `
 📊 <b>Trading Session Summary</b>
@@ -248,7 +248,7 @@ class DerivBot {
 ✅ <b>Wins:</b> ${this.winningTrades}
 ❌ <b>Losses:</b> ${this.losingTrades}
 🔥 <b>Win Rate:</b> ${winRate}%
-💰 <b>Net P/L:</b> $${dailyProfit}
+💰 <b>Session P/L:</b> $${sessionPnL}
 🏦 <b>Current Balance:</b> $${this.balance.toFixed(2)}
         `;
     }
@@ -500,11 +500,10 @@ class DerivBot {
         if (msg.balance) {
             const previousBalance = this.balance;
             this.balance = parseFloat(msg.balance.balance);
-            this.dailyProfit = this.balance - this.startingBalance;
 
             const change = this.balance - previousBalance;
             if (change !== 0) {
-                this.log(`💵 Balance: ${this.currency} ${this.balance.toFixed(2)} (${change > 0 ? '+' : ''}${change.toFixed(2)}) | Daily P/L: ${this.dailyProfit >= 0 ? '+' : ''}${this.dailyProfit.toFixed(2)}`, change > 0 ? 'SUCCESS' : 'WARNING');
+                this.log(`💵 Balance: ${this.currency} ${this.balance.toFixed(2)} (${change > 0 ? '+' : ''}${change.toFixed(2)})`, 'INFO');
             }
         }
 
@@ -745,9 +744,11 @@ class DerivBot {
                 this.sendTelegramMessage(`😔 <b>TRADE LOST</b>\n<b>Loss:</b> $${profit.toFixed(2)}\n<b>Balance:</b> $${this.balance.toFixed(2)}\n<b>Streak:</b> ${this.consecutiveLosses}`);
             }
 
+            this.realizedPnL += profit;
+
             const winRate = ((this.winningTrades / this.totalTrades) * 100).toFixed(1);
             this.log(`   📊 Win Rate: ${winRate}% (${this.winningTrades}/${this.totalTrades})`, 'INFO');
-            this.log(`   💵 Net P/L: ${this.dailyProfit >= 0 ? '+' : ''}$${this.dailyProfit.toFixed(2)}`, this.dailyProfit >= 0 ? 'SUCCESS' : 'ERROR');
+            this.log(`   💵 Session P/L: ${this.realizedPnL >= 0 ? '+' : ''}$${this.realizedPnL.toFixed(2)}`, this.realizedPnL >= 0 ? 'SUCCESS' : 'ERROR');
             this.logSeparator();
 
             this.tradeHistory.push({
