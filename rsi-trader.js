@@ -855,6 +855,9 @@ ${color} <b>TRADE COMPLETED</b> [${this.config.SYMBOL}]
             this.isRunning = false;
         }
 
+        // Reset strategy to force fresh analysis
+        this.strategy.reset();
+
         // Print performance update
         this.printPerformanceUpdate();
     }
