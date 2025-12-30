@@ -259,6 +259,8 @@ class DerivAPIClient {
                 this.handleTick(message);
             } else if (message.msg_type === 'transaction') {
                 this.handleTransaction(message);
+            } else if (message.msg_type === 'ping') {
+                // Pong received
             }
 
         } catch (error) {
@@ -277,8 +279,9 @@ class DerivAPIClient {
             // Subscribe to balance updates
             this.send({ balance: 1, subscribe: 1 });
 
-            // Get active symbols
-            this.send({ active_symbols: 'brief', product_type: 'basic' });
+            // Subscribe to ticks immediately (skip symbol discovery to safe avoid hangs)
+            this.logger.info(`📋 Skipping symbol discovery, subscribing directly to ${this.config.SYMBOL}...`);
+            this.subscribeTicks();
 
             // Flush message queue
             this.flushMessageQueue();
