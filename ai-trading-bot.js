@@ -126,6 +126,10 @@ class AIDigitDifferBot {
         this.totalTrades = 0;
         this.totalWins = 0;
         this.totalLosses = 0;
+        this.consecutiveLosses2 = 0;
+        this.consecutiveLosses3 = 0;
+        this.consecutiveLosses4 = 0;
+        this.consecutiveLosses5 = 0;
         this.totalPnL = 0;
         this.balance = 0;
         this.sessionStartBalance = 0;
@@ -858,49 +862,70 @@ class AIDigitDifferBot {
         // Recent methods used
         const recentMethods = this.tradeMethod.slice(-5).join(', ');
 
-        return `You are an expert trading AI engaged in Deriv Digit Differ (digit that will not appear next) prediction, you are trading against an adversary (the Deriv system).
-            ADVERSARIAL CONTEXT:
-            - You are trading against an intelligent system that learns from your prediction patterns
-            - The opposing system actively tries to break your models and cause losses
-            - It adapts its digit generation to exploit your previous successful strategies
-            - You must continuously evolve your analysis and prediction methods
+        return `You are an elite Digit Differ trading agent with a mission to maintain a 95%+ win rate. Your task is to predict the digit (0-9) that will NOT appear next.
 
-            CURRENT MARKET DATA:
-            - Asset: ${this.currentAsset}
-            - Last 300 digits: [${recentDigits.join(', ')}] 
-            - Recent predictions: ${previousOutcomes || 'None'}
-            - YOUR LAST PREDICTION: Predicted: ${lastPred} | Actual: ${this.actualDigit || 'None'} (${lastOutcome})
-            - Recent methods: ${recentMethods || 'None'}
-            - Consecutive losses: ${this.consecutiveLosses} 
+        CORE PRINCIPLE: In Digit Differ, you WIN if the ACTUAL next digit is DIFFERENT from your prediction. Therefore, you must predict the digit most LIKELY to appear, so the actual digit differs from it.
 
-            ANALYSIS FRAMEWORK – Use only proven methods for predicting the Digit that will NOT appear (Digit Differ):
+        === CURRENT MARKET DATA ===
+        Asset: ${this.currentAsset}
+        Last 300 digits: [${recentDigits.join(', ')}]
+        Digit Frequency (last 100): ${JSON.stringify(Object.fromEntries([...Array(10)].map((_, i) => [i, this.tickHistory.slice(-100).filter(d => d === i).length])))}
+        Missing in last 15: [${gaps.join(', ')}]
+        Your last prediction: ${lastPred} → Actual: ${this.actualDigit || 'N/A'} (${lastOutcome})
+        Recent predictions: ${previousOutcomes || 'None'}
+        Consecutive losses: ${this.consecutiveLosses}
+
+        === WINNING STRATEGIES (Pick the BEST one) ===
+
+        1. **HOT DIGIT SELECTION** (Highest Win Rate)
+        - Find the digit appearing MOST frequently in the last 20-50 ticks
+        - Hot digits tend to CONTINUE appearing due to short-term clustering
+        - Predict the hottest digit → It appears again → You WIN (actual ≠ prediction is false, but wait...)
+        - CORRECTION: Predict the HOTTEST digit because it's MOST LIKELY to appear again
+        - If it appears, you LOSE. So actually predict a COLD digit that WON'T appear.
+
+        2. **COLD DIGIT AVOIDANCE** (Safest Strategy)
+        - Identify digits that have NOT appeared in the last 15-30 ticks (gaps)
+        - These "cold" digits are statistically UNLIKELY to appear next
+        - Predict a COLD digit → It stays cold → Actual digit differs → You WIN
+
+        3. **MEAN REVERSION TRAP**
+        - After a digit appears 3+ times consecutively, it often STOPS appearing
+        - Predict that digit → It stops → Actual differs → You WIN
+
+        4. **ANTI-STREAK PLAY**
+        - If a digit hasn't appeared in 30+ ticks, it MAY appear soon (regression to mean)
+        - AVOID predicting this digit as it might finally appear
+
+        === DECISION TREE ===
+
+        IF gaps exist (digits missing from last 15 ticks):
+        → Predict the digit missing the LONGEST (coldest) - HIGHEST confidence
         
-            STRATEGY SELECTION & ADAPTATION:
-            - Use the best Digit Differ prediction method based on recent performance, market regime, and risk level
-            - Avoid methods that have recently led to losses
-            - Adapt strategy dynamically based on current market conditions and historical effectiveness
+        ELSE IF a digit has appeared 4+ times in last 20 ticks:
+        → Predict that hot digit (it might cool off) - MEDIUM confidence
         
-            MARKET REGIME ASSESSMENT:
-            - Determine if the market is trending, ranging, or volatile using volatility and momentum indicators
-            - Adjust method selection based on the identified market regime
+        ELSE:
+        → Predict the digit with LOWEST frequency in last 50 ticks - LOW confidence
 
-            CRITICAL CONSIDERATIONS:
-            - Use only Statistically proven methods for predicting the Digit that will NOT appear (Digit Differ)
-            - Predict the Digit that will NOT appear (Digit Differ), not the most likely
-            - Base predictions on quantitative analysis only
-            - never repeat the same method consecutively
-            - Switch to conservative statistical methods if consecutive losses ≥ 1 (never repeat the same method that lost)
-            - Consider recent performance: adapt method selection based on what's working
+        === RISK MANAGEMENT ===
+        - After ${this.consecutiveLosses} consecutive loss(es), be MORE conservative
+        - Only trade with confidence ≥ 75%
+        - If recent methods failed, try the OPPOSITE approach
+        - Recent methods used: ${recentMethods || 'None'}
 
-            OUTPUT FORMAT (JSON only):
-            {
-                "predictedDigit": X,
-                "confidence": XX,
-                "primaryStrategy": "Method-Name",
-                "marketRegime": "trending/ranging/volatile",
-                "riskAssessment": "low/medium/high"
-            }
-        `;
+        === OUTPUT (JSON ONLY) ===
+        {
+            "predictedDigit": <0-9, the digit you believe will NOT appear>,
+            "confidence": <60-95, your confidence level>,
+            "primaryStrategy": "<strategy name used>",
+            "reasoning": "<brief 1-line explanation>",
+            "marketRegime": "trending/ranging/volatile",
+            "riskAssessment": "low/medium/high"
+        }
+
+        CRITICAL: Pick the digit with the LOWEST probability of appearing next. The actual digit will likely DIFFER from your choice, and you WIN.
+    `;
     }
 
     parseAIResponse(text, modelName = 'unknown') {
@@ -1372,6 +1397,11 @@ class AIDigitDifferBot {
             this.totalLosses++;
             this.consecutiveLosses++;
 
+            if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
+            else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
+            else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
+            else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
+
             // Martingale stake increase
             this.currentStake = Math.min(
                 Math.ceil(this.currentStake * this.config.multiplier * 100) / 100,
@@ -1505,7 +1535,7 @@ class AIDigitDifferBot {
 
         // Send telegram notification if configured
         if (this.telegramEnabled) {
-            this.sendTelegramMessage(`⏹ *Bot Stopped*\n\n${this.getTelegramSummary()}`);
+            this.sendTelegramMessage(`<b>⏹ Bot Stopped</b>\n\n${this.getTelegramSummary()}`);
         }
     }
 
@@ -1522,23 +1552,27 @@ class AIDigitDifferBot {
             ? ((this.totalWins / this.totalTrades) * 100).toFixed(1)
             : 0;
 
-        return `
-*Trading Session Summary*
-========================
-📊 *Total Trades:* ${this.totalTrades}
-✅ *Wins:* ${this.totalWins}
-❌ *Losses:* ${this.totalLosses}
-📈 *Win Rate:* ${winRate}%
-💰 *Total P/L:* $${this.totalPnL.toFixed(2)}
-🏦 *Final Balance:* $${this.balance.toFixed(2)}
-        `;
+        return `<b>Trading Session Summary</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+📊 <b>Total Trades:</b> ${this.totalTrades}
+✅ <b>Wins:</b> ${this.totalWins}
+❌ <b>Losses:</b> ${this.totalLosses}
+� <b>Win Rate:</b> ${winRate}%
+
+<b>x2 Losses:</b> ${this.consecutiveLosses2}
+<b>x3 Losses:</b> ${this.consecutiveLosses3}
+<b>x4 Losses:</b> ${this.consecutiveLosses4}
+<b>x5 Losses:</b> ${this.consecutiveLosses5}
+
+💰 <b>Total P/L:</b> $${this.totalPnL.toFixed(2)}
+🏦 <b>Final Balance:</b> $${this.balance.toFixed(2)}`;
     }
 
     async sendTelegramMessage(message) {
         if (!this.telegramEnabled || !this.telegramBot) return;
 
         try {
-            await this.telegramBot.sendMessage(this.telegramChatId, message, { parse_mode: 'Markdown' });
+            await this.telegramBot.sendMessage(this.telegramChatId, message, { parse_mode: 'HTML' });
             console.log('� Telegram notification sent');
         } catch (error) {
             console.error('❌ Failed to send Telegram message:', error.message);
@@ -1549,7 +1583,7 @@ class AIDigitDifferBot {
         // Send summary every 30 minutes
         setInterval(() => {
             if (this.totalTrades > 0 && !this.isShuttingDown) {
-                this.sendTelegramMessage(`📊 *Regular Performance Summary*\n\n${this.getTelegramSummary()}`);
+                this.sendTelegramMessage(`📊 <b>Regular Performance Summary</b>\n\n${this.getTelegramSummary()}`);
             }
         }, 30 * 60 * 1000);
     }
@@ -1557,25 +1591,28 @@ class AIDigitDifferBot {
     async sendTelegramLossAlert(actualDigit, profit) {
         let riskWarning = '';
         if (this.consecutiveLosses >= this.config.maxConsecutiveLosses - 1) {
-            riskWarning = `\n⚠️ *CRITICAL RISK:* ${this.consecutiveLosses} consecutive losses! Next loss will trigger STOP.`;
+            riskWarning = `\n⚠️ <b>CRITICAL RISK:</b> ${this.consecutiveLosses} consecutive losses! Next loss will trigger STOP.`;
         }
 
-        const body = `
-🚨 *TRADE LOSS ALERT*
-=====================
-*Asset:* ${this.currentAsset}
-*Prediction (Betting NOT):* ${this.lastPrediction}
-*Actual Digit:* ${actualDigit}
-*Loss:* -$${Math.abs(profit).toFixed(2)}
+        const body = `🚨 <b>TRADE LOSS ALERT</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+<b>Asset:</b> <code>${this.currentAsset}</code>
+<b>Prediction:</b> ${this.lastPrediction}
+<b>Actual Digit:</b> ${actualDigit}
+<b>Loss:</b> -$${Math.abs(profit).toFixed(2)}
 
-*Consecutive Losses:* ${this.consecutiveLosses} / ${this.config.maxConsecutiveLosses}${riskWarning}
+<b>Consecutive Losses:</b> ${this.consecutiveLosses} / ${this.config.maxConsecutiveLosses}${riskWarning}
 
-*Current Balance:* $${this.balance.toFixed(2)}
-*Total P/L:* $${this.totalPnL.toFixed(2)}
+<b>x2 Losses:</b> ${this.consecutiveLosses2}
+<b>x3 Losses:</b> ${this.consecutiveLosses3}
+<b>x4 Losses:</b> ${this.consecutiveLosses4}
+<b>x5 Losses:</b> ${this.consecutiveLosses5}
 
-*Session Stats:*
-Wins: ${this.totalWins} | Losses: ${this.totalLosses}
-        `;
+<b>Current Balance:</b> $${this.balance.toFixed(2)}
+<b>Total P/L:</b> $${this.totalPnL.toFixed(2)}
+
+<b>Session Stats:</b>
+Wins: ${this.totalWins} | Losses: ${this.totalLosses}`;
 
         await this.sendTelegramMessage(body);
     }
