@@ -440,12 +440,12 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
         }
 
         this.dailyATR[symbol] = trSum / validIntervals;
-        const threshold = this.dailyATR[symbol] * 0.25;
+        const threshold = this.dailyATR[symbol] * 0.10;
 
         const atrOutput =
             `✅ Daily ATR Result: ${this.dailyATR[symbol].toFixed(4)}\n` +
             `• Lookback: ${validIntervals} days\n` +
-            `• Required Box Range (25%): ≥ ${threshold.toFixed(4)}`;
+            `• Required Box Range (10%): ≥ ${threshold.toFixed(4)}`;
 
         this.log(atrOutput, 'SUCCESS', symbol, true);
     }
