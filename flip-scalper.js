@@ -440,12 +440,12 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
         }
 
         this.dailyATR[symbol] = trSum / validIntervals;
-        const threshold = this.dailyATR[symbol] * 0.10;
+        const threshold = this.dailyATR[symbol] * 0.11;
 
         const atrOutput =
             `✅ Daily ATR Result: ${this.dailyATR[symbol].toFixed(4)}\n` +
             `• Lookback: ${validIntervals} days\n` +
-            `• Required Box Range (10%): ≥ ${threshold.toFixed(4)}`;
+            `• Required Box Range (11%): ≥ ${threshold.toFixed(4)}`;
 
         this.log(atrOutput, 'SUCCESS', symbol, true);
     }
@@ -482,7 +482,7 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
         const isGreen = candle.close > candle.open;
         const candleColor = isGreen ? '🟢 GREEN' : '🔴 RED';
         const atr = this.dailyATR[symbol] || 0;
-        const liquidityThreshold = 0.25 * atr;
+        const liquidityThreshold = 0.11 * atr;
         const rangePercent = ((range / (atr || 1)) * 100).toFixed(2);
 
         const analysisOutput =
@@ -520,7 +520,7 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
 
             this.startHunting(symbol);
         } else {
-            this.log(`❌ LIQUIDITY FAILED (${rangePercent}% of ATR is below 25%)`, 'ERROR', symbol);
+            this.log(`❌ LIQUIDITY FAILED (${rangePercent}% of ATR is below 11%)`, 'ERROR', symbol);
             this.sendTelegramMessage(`❌ <b>Liquidity Failed</b> [${symbol}]\nRange ${rangePercent}% of ATR is too low.`);
 
             // Mark session as "traded/handled" even if failed liquidity, or wait? 
