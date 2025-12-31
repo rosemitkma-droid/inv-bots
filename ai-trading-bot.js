@@ -20,6 +20,266 @@ const WebSocket = require('ws');
 const axios = require('axios');
 const TelegramBot = require('node-telegram-bot-api');
 
+// Production-Grade Adversarial-Aware Prediction System
+
+class EnhancedAIPrompt {
+
+    static generatePrompt(marketData, modelPerformance, regimeData) {
+        const {
+            currentAsset,
+            tickHistory,
+            lastPrediction,
+            lastOutcome,
+            consecutiveLosses,
+            recentMethods,
+            volatility,
+            marketRegime,
+            comprehensiveAnalysis
+        } = marketData;
+
+        const recentDigits = tickHistory.slice(-100);
+        const last50 = tickHistory.slice(-50);
+        const last20 = tickHistory.slice(-20);
+        const last500 = tickHistory.slice(-500);
+
+        // Use comprehensive analysis if available, otherwise calculate basic stats
+        let freqStats, gapAnalysis, serialCorrelation, entropyValue, uniformityTest;
+
+        if (comprehensiveAnalysis && !comprehensiveAnalysis.error) {
+            // Use pre-calculated comprehensive analysis
+            freqStats = comprehensiveAnalysis.frequencyAnalysis;
+            gapAnalysis = comprehensiveAnalysis.gapAnalysis.absentDigits || [];
+            serialCorrelation = comprehensiveAnalysis.serialCorrelation;
+            entropyValue = comprehensiveAnalysis.entropy;
+            uniformityTest = comprehensiveAnalysis.uniformityTest;
+        } else {
+            // Fallback to basic calculations
+            freqStats = this.calculateFrequencyStats(last500);
+            gapAnalysis = this.analyzeGaps(tickHistory);
+            serialCorrelation = this.calculateSerialCorrelation(tickHistory);
+            entropyValue = null;
+            uniformityTest = null;
+        }
+
+        const volatilityAssessment = this.assessVolatility(tickHistory);
+
+        // Format comprehensive analysis for prompt
+        let comprehensiveSection = '';
+        if (comprehensiveAnalysis && !comprehensiveAnalysis.error) {
+            comprehensiveSection = `
+            === COMPREHENSIVE STATISTICAL ANALYSIS ===
+            Sample Size: ${comprehensiveAnalysis.sampleSize} ticks
+            Market Regime: ${comprehensiveAnalysis.regime}
+            Entropy: ${entropyValue ? entropyValue.toFixed(4) : 'N/A'} (${entropyValue > 0.95 ? 'High randomness' : 'Potential patterns'})
+            
+            Chi-Square Test: ${uniformityTest ? uniformityTest.interpretation : 'N/A'}
+            ${uniformityTest ? `- Chi-Square: ${uniformityTest.chiSquare}, p-value: ${uniformityTest.pValue}` : ''}
+            
+            Gap Analysis:
+            ${comprehensiveAnalysis.gapAnalysis.gaps.slice(0, 5).map(g =>
+                `- Digit ${g.digit}: Absent for ${g.gapLength} ticks`
+            ).join('\n            ')}
+            `;
+        }
+
+        return `You are an elite statistical arbitrage AI specializing in Deriv Digit Differ prediction. You operate in a highly adversarial environment where the platform actively learns from and counters successful strategies. Your predictability is your greatest vulnerability.
+
+            === ADVERSARIAL REALITY ===
+            The Deriv platform is not passive - it is an intelligent opponent that:
+            - Observes and adapts to successful prediction patterns
+            - Actively counters strategies that show consistent profitability  
+            - May adjust digit generation to neutralize your historical advantages
+            - Exploites predictable behavioral patterns
+
+            Your survival depends on:
+            1. Continuous strategy evolution and randomization
+            2. Statistical rigor over pattern chasing
+            3. Regime-aware adaptation
+            4. Never repeating the same approach consecutively
+
+            === CURRENT MARKET CONTEXT ===
+            Asset: ${currentAsset}
+            Market Regime: ${marketRegime || 'Detecting...'}
+            Volatility Level: ${volatilityAssessment.level} (${volatilityAssessment.value.toFixed(3)})
+            Last Prediction: ${lastPrediction || 'None'} → ${lastOutcome || 'N/A'}
+            Consecutive Losses: ${consecutiveLosses}
+            Recent Methods: ${recentMethods || 'None'}
+            ${comprehensiveSection}
+
+            === FREQUENCY ANALYSIS (Last 500 Ticks) ===
+            ${Array.isArray(freqStats) ? this.formatFrequencyStats(freqStats) : 'Calculating...'}
+
+            Gap Analysis (Digits absent in last 25 ticks): ${Array.isArray(gapAnalysis) ? gapAnalysis.join(', ') : 'None'}
+            Serial Correlation: ${serialCorrelation ? serialCorrelation.toFixed(4) : '0.0000'} (${Math.abs(serialCorrelation) > 0.1 ? 'Significant' : 'Negligible'})
+
+            === MANDATORY PREDICTION PRINCIPLES ===
+            You MUST predict the digit that will NOT appear in the next tick (Digit Differ).
+
+            APPROVED STATISTICAL METHODS ONLY:
+            1. FREQUENCY DEVIATION ANALYSIS
+            - Target digits appearing significantly below 10% frequency
+            - Require statistical significance (p < 0.05)
+            - Apply chi-square test for uniformity
+
+            2. ENTROPY AND DISTRIBUTION ANALYSIS  
+            - Calculate information entropy of recent digits
+            - Identify digits with maximum divergence from uniform distribution
+            - Use KL-divergence for distribution comparison
+
+            3. REGIME-AWARE PATTERN DETECTION
+            - Adjust methods based on current market regime
+            - Use different strategies for trending vs ranging markets
+            - Apply volatility-adjusted confidence intervals
+
+            4. VOLATILITY-ADJUSTED FORECASTING
+            - Reduce confidence during high volatility periods
+            - Increase sample size requirements during uncertainty
+            - Use GARCH models for volatility prediction
+
+            FORBIDDEN APPROACHES:
+            - Pattern matching without statistical validation
+            - Numerology or superstitious reasoning
+            - Chasing recent streaks without statistical basis
+            - Copying previous successful predictions
+
+            === ADAPTIVE STRATEGY PROTOCOL ===
+            After ANY loss (consecutiveLosses ≥ 1):
+            1. Immediately switch to conservative statistical method
+            2. Blacklist the losing method for next 3 decisions
+            3. Increase sample size requirements by 50%
+            4. Reduce confidence threshold by 20%
+
+            Performance Tracking:
+            - Maintain ledger of method effectiveness by regime
+            - Favor methods with recent wins in current regime
+            - Trigger complete strategy reset after 3 losses in 5 trades
+
+            === CONFIDENCE REQUIREMENTS ===
+            Confidence MUST reflect true statistical certainty:
+            - 95%+: Strong statistical evidence, multiple methods agree
+            - 85-94%: Moderate evidence, single strong method
+            - 70-84%: Weak evidence, trade not recommended
+            - <70%: Insufficient evidence, mandatory skip
+
+            Statistical Validation Requirements:
+            - Minimum 100 observations for frequency analysis
+            - P-value < 0.05 for significance claims
+            - Confidence intervals for all probability estimates
+            - Bayesian updating for model weights
+
+            === MARKET REGIME ADAPTATION ===
+            Current Regime: ${marketRegime || 'Unknown'}
+
+            Regime-Specific Guidelines:
+            - TRENDING: Focus on momentum-resistant digits, reduce position size
+            - RANGING: Emphasize mean reversion, standard confidence
+            - VOLATILE: Conservative approach, require higher confidence threshold
+            - STABLE: Normal operation, standard statistical methods
+
+            === OUTPUT FORMAT (STRICT JSON) ===
+            {
+            "predictedDigit": X,
+            "confidence": XX,
+            "primaryStrategy": "Statistical-Method-Name",
+            "marketRegime": "trending/ranging/volatile/stable",
+            "riskAssessment": "low/medium/high",
+            "statisticalEvidence": {
+                "frequencyAnalysis": {
+                "digitFrequency": X.X%,
+                "expectedFrequency": 10.0%,
+                "deviation": X.X%,
+                "significance": "p=X.XXX"
+                },
+                "gapAnalysis": {
+                "absentForTicks": X,
+                "maxHistoricalGap": X,
+                "gapPercentile": XX%
+                },
+                "volatilityAdjusted": true/false,
+                "serialCorrelation": X.XXXX,
+                "sampleSize": XXX
+            },
+            "methodRationale": "Detailed explanation of statistical reasoning",
+            "alternativeCandidates": [X, Y, Z],
+            "skipRecommendation": "reason or null"
+            }
+
+            === CRITICAL REMINDERS ===
+            - You are not just predicting - you are strategically selecting only high-certainty battles
+            - The platform adapts to your patterns - maintain unpredictability
+            - Statistical rigor is your only defense against market randomness
+            - When in doubt, reduce confidence or skip the trade entirely
+            - Your goal is long-term survival, not short-term gains
+
+            Generate your prediction based on the statistical evidence provided. Remember: predict the digit that will NOT appear in the next tick.
+        `;
+    }
+
+    static calculateFrequencyStats(digits) {
+        const counts = Array(10).fill(0);
+        digits.forEach(d => counts[d]++);
+
+        const total = digits.length;
+        return counts.map((count, digit) => ({
+            digit,
+            count,
+            frequency: (count / total * 100).toFixed(1),
+            deviation: ((count / total - 0.1) * 100).toFixed(1)
+        }));
+    }
+
+    static analyzeGaps(tickHistory) {
+        const last25 = new Set(tickHistory.slice(-25));
+        const gaps = [];
+        for (let i = 0; i < 10; i++) {
+            if (!last25.has(i)) gaps.push(i);
+        }
+        return gaps;
+    }
+
+    static assessVolatility(tickHistory) {
+        if (tickHistory.length < 50) {
+            return { level: 'Unknown', value: 0 };
+        }
+
+        // Calculate rolling standard deviation
+        const recent = tickHistory.slice(-50);
+        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+        const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
+        const stdDev = Math.sqrt(variance);
+
+        let level = 'Low';
+        if (stdDev > 3) level = 'High';
+        else if (stdDev > 2) level = 'Medium';
+
+        return { level, value: stdDev };
+    }
+
+    static calculateSerialCorrelation(tickHistory) {
+        if (tickHistory.length < 50) return 0;
+
+        const recent = tickHistory.slice(-50);
+        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+
+        let numerator = 0;
+        let denominator = 0;
+
+        for (let i = 0; i < recent.length - 1; i++) {
+            numerator += (recent[i] - mean) * (recent[i + 1] - mean);
+            denominator += Math.pow(recent[i] - mean, 2);
+        }
+
+        return denominator > 0 ? numerator / denominator : 0;
+    }
+
+    static formatFrequencyStats(stats) {
+        return stats
+            .sort((a, b) => parseFloat(a.frequency) - parseFloat(b.frequency))
+            .map(s => `Digit ${s.digit}: ${s.frequency}% (${s.count}/500) | Deviation: ${s.deviation}%`)
+            .join('\n');
+    }
+}
+
 class AIDigitDifferBot {
     constructor(config = {}) {
         // Deriv Configuration
@@ -97,30 +357,34 @@ class AIDigitDifferBot {
             'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
         ];
 
-        // Trading Configuration
+        // Trading Configuration - UPGRADED WITH SAFE RISK MANAGEMENT
         this.config = {
             initialStake: config.initialStake || 5,
-            multiplier: config.multiplier || 11.3,
-            maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
-            stopLoss: config.stopLoss || 67,
-            takeProfit: config.takeProfit || 100,
+            baseStake: config.baseStake || 5,
+            maxStakePercent: config.maxStakePercent || 2, // Max 2% of balance per trade
+            maxConsecutiveLosses: config.maxConsecutiveLosses || 5, // Increased from 3
+            stopLoss: config.stopLoss || 25, // Reduced from 67% to 25%
+            takeProfit: config.takeProfit || 50, // Reduced from 100% to 50%
             requiredHistoryLength: config.requiredHistoryLength || 500,
-            minConfidence: config.minConfidence || 60,
+            minConfidence: config.minConfidence || 75, // Increased from 60 to 75
             minModelsAgreement: config.minModelsAgreement || 2,
             maxReconnectAttempts: config.maxReconnectAttempts || 10000,
             reconnectInterval: config.reconnectInterval || 5000,
-            tradeCooldown: config.tradeCooldown || 3000,
-            minWaitTime: config.minWaitTime || 10000,
-            maxWaitTime: config.maxWaitTime || 60000,
+            tradeCooldown: config.tradeCooldown || 5000, // Increased from 3000
+            minWaitTime: config.minWaitTime || 15000, // Increased from 10000
+            maxWaitTime: config.maxWaitTime || 90000, // Increased from 60000
         };
 
         // Trading State
         this.currentStake = this.config.initialStake;
+        this.consecutiveWins = 0; // Track wins for Anti-Martingale
         this.currentAsset = null;
         this.usedAssets = new Set();
         this.consecutiveLosses = 0;
         this.currentTradeId = null;
         this.tickSubscriptionId = null;
+        this.tradingHistory = []; // Track all trades for performance analysis
+        this.lastTradeResult = null; // 'won' or 'lost'
 
         // Statistics
         this.totalTrades = 0;
@@ -647,27 +911,171 @@ class AIDigitDifferBot {
             this.lastConfidence = ensemble.confidence;
 
             // Check if we should trade
-            if (ensemble.confidence >= this.config.minConfidence &&
-                ensemble.agreement >= Math.min(this.config.minModelsAgreement, predictions.length) &&
-                ensemble.risk !== 'high' &&
-                ensemble.risk !== 'medium' &&
-                processingTime.toFixed(2) < 3 &&
-                this.lastPrediction !== this.xDigit
-                && ensemble.digit !== this.tickHistory[this.tickHistory.length - 1]
-            ) {
-                this.xDigit = ensemble.digit;
+            // if (ensemble.confidence >= this.config.minConfidence &&
+            //     ensemble.agreement >= Math.min(this.config.minModelsAgreement, predictions.length) &&
+            //     ensemble.risk !== 'high' &&
+            //     ensemble.risk !== 'medium' &&
+            //     processingTime.toFixed(2) < 3 &&
+            //     this.lastPrediction !== this.xDigit
+            //     && ensemble.digit !== this.tickHistory[this.tickHistory.length - 1]
+            // ) {
+            //     this.xDigit = ensemble.digit;
+            //     this.placeTrade(ensemble.digit, ensemble.confidence);
+            // } else {
+            //     console.log(`⏭️  Skipping trade: conf=${ensemble.confidence}%, agree=${ensemble.agreement}, risk=${ensemble.risk}`);
+            //     this.predictionInProgress = false;
+            //     this.scheduleNextTrade();
+            // }
+
+            // NEW CODE:
+            const marketRegime = this.detectMarketRegime(this.tickHistory);
+            const tradeDecision = this.shouldExecuteTrade(ensemble, marketRegime, this.config);
+
+            if (tradeDecision.execute && processingTime.toFixed(2) < 3) {
                 this.placeTrade(ensemble.digit, ensemble.confidence);
             } else {
-                console.log(`⏭️  Skipping trade: conf=${ensemble.confidence}%, agree=${ensemble.agreement}, risk=${ensemble.risk}`);
+                console.log(`⏭️ Skipping trade: ${tradeDecision.reason}`);
                 this.predictionInProgress = false;
                 this.scheduleNextTrade();
             }
+
 
         } catch (error) {
             console.error('❌ Prediction error:', error.message);
             this.predictionInProgress = false;
             this.scheduleNextTrade();
         }
+    }
+
+    /**
+     * Intelligent Trade Decision Logic
+     * Determines if a trade should be executed based on multiple factors
+     */
+    shouldExecuteTrade(ensemble, marketRegime, config) {
+        const reasons = [];
+        let execute = true;
+
+        // 1. Confidence Check
+        if (ensemble.confidence < config.minConfidence) {
+            execute = false;
+            reasons.push(`Low confidence: ${ensemble.confidence}% < ${config.minConfidence}%`);
+        }
+
+        // 2. Model Agreement Check
+        const minAgreement = Math.min(config.minModelsAgreement, ensemble.totalModels || 1);
+        if (ensemble.agreement < minAgreement) {
+            execute = false;
+            reasons.push(`Low agreement: ${ensemble.agreement}/${ensemble.totalModels || 'N/A'} models`);
+        }
+
+        // 3. Risk Assessment Check
+        if (ensemble.risk === 'high') {
+            execute = false;
+            reasons.push(`High risk assessment`);
+        }
+
+        // 4. Medium Risk in Volatile Markets
+        // if (ensemble.risk === 'medium' && (marketRegime === 'volatile' || marketRegime === 'random')) {
+        //     execute = false;
+        //     reasons.push(`Medium risk in ${marketRegime} market`);
+        // }
+
+        // 5. Regime-Specific Confidence Adjustment
+        if (marketRegime === 'volatile' && ensemble.confidence < config.minConfidence + 10) {
+            execute = false;
+            reasons.push(`Volatile market requires ${config.minConfidence + 10}% confidence`);
+        }
+
+        if (marketRegime === 'random' && ensemble.confidence < config.minConfidence + 15) {
+            execute = false;
+            reasons.push(`Random market requires ${config.minConfidence + 15}% confidence`);
+        }
+
+        // 6. Avoid Repeating Same Prediction
+        if (this.lastPrediction === ensemble.digit && this.xDigit === ensemble.digit) {
+            execute = false;
+            reasons.push(`Already predicted digit ${ensemble.digit}`);
+        }
+
+        // 7. Avoid Predicting Current Tick's Digit
+        const lastTickDigit = this.tickHistory[this.tickHistory.length - 1];
+        if (ensemble.digit === lastTickDigit) {
+            execute = false;
+            reasons.push(`Digit ${ensemble.digit} just appeared in last tick`);
+        }
+
+        // 8. Check Comprehensive Analysis (if available)
+        if (this.tickHistory.length >= 100) {
+            const analysis = this.performComprehensiveAnalysis(this.tickHistory, 100);
+
+            // If market is highly uniform (random), require higher confidence
+            if (analysis.uniformityTest && analysis.uniformityTest.isUniform) {
+                if (ensemble.confidence < config.minConfidence + 10) {
+                    execute = false;
+                    reasons.push(`Uniform distribution requires higher confidence`);
+                }
+            }
+
+            // If entropy is very high (random), be more cautious
+            if (analysis.entropy && analysis.entropy > 0.95) {
+                if (ensemble.confidence < config.minConfidence + 15) {
+                    execute = false;
+                    reasons.push(`High entropy (${analysis.entropy.toFixed(2)}) requires higher confidence`);
+                }
+            }
+
+            // Check if predicted digit has a significant gap
+            if (analysis.gapAnalysis && analysis.gapAnalysis.absentDigits) {
+                const isAbsent = analysis.gapAnalysis.absentDigits.includes(ensemble.digit);
+                if (isAbsent) {
+                    // Boost confidence for absent digits
+                    console.log(`✅ Digit ${ensemble.digit} has been absent - good prediction target`);
+                } else {
+                    // Digit appeared recently, be more cautious
+                    if (ensemble.confidence < config.minConfidence + 5) {
+                        execute = false;
+                        reasons.push(`Digit ${ensemble.digit} appeared recently, needs higher confidence`);
+                    }
+                }
+            }
+        }
+
+        // 9. Balance Check
+        if (this.balance < config.initialStake * 2) {
+            execute = false;
+            reasons.push(`Low balance: $${this.balance.toFixed(2)}`);
+        }
+
+        // 10. Consecutive Losses Check (extra caution)
+        if (this.consecutiveLosses >= 3 && ensemble.confidence < config.minConfidence + 10) {
+            execute = false;
+            reasons.push(`${this.consecutiveLosses} consecutive losses - need ${config.minConfidence + 10}% confidence`);
+        }
+
+        // Build result
+        const result = {
+            execute: execute,
+            reason: execute
+                ? `✅ All checks passed (Conf: ${ensemble.confidence}%, Risk: ${ensemble.risk}, Regime: ${marketRegime})`
+                : reasons.join(' | '),
+            confidence: ensemble.confidence,
+            risk: ensemble.risk,
+            regime: marketRegime
+        };
+
+        // Log decision details
+        if (!execute) {
+            console.log(`\n🚫 Trade Decision: SKIP`);
+            console.log(`   Reasons: ${result.reason}`);
+        } else {
+            console.log(`\n✅ Trade Decision: EXECUTE`);
+            console.log(`   Confidence: ${ensemble.confidence}%`);
+            console.log(`   Risk: ${ensemble.risk}`);
+            console.log(`   Market Regime: ${marketRegime}`);
+            console.log(`   Agreement: ${ensemble.agreement} models`);
+        }
+
+        return result;
     }
 
     async getEnsemblePredictions() {
@@ -834,80 +1242,309 @@ class AIDigitDifferBot {
         };
     }
 
-    getPrompt(modelName = 'unknown') {
-        const recentDigits = this.tickHistory.slice(-300);
-        const last50 = this.tickHistory.slice(-50);
-        const last20 = this.tickHistory.slice(-20);
+    // Add comprehensive statistical analysis
+    performComprehensiveAnalysis(tickHistory, minSampleSize = 100) {
+        if (tickHistory.length < minSampleSize) {
+            return { error: 'Insufficient data for statistical analysis' };
+        }
 
+        const sample = tickHistory.slice(-minSampleSize);
+
+        return {
+            frequencyAnalysis: this.analyzeDigitFrequency(sample),
+            gapAnalysis: this.analyzeDigitGaps(sample),
+            serialCorrelation: this.calculateSerialCorrelation(sample),
+            entropy: this.calculateEntropy(sample),
+            uniformityTest: this.performChiSquareTest(sample),
+            volatility: this.calculateVolatility(sample),
+            regime: this.detectMarketRegime(sample)
+        };
+    }
+
+    // Add frequency analysis
+    analyzeDigitFrequency(digits) {
+        const counts = Array(10).fill(0);
+        digits.forEach(d => counts[d]++);
+
+        const total = digits.length;
+        return counts.map((count, digit) => ({
+            digit,
+            count,
+            frequency: count / total,
+            deviation: (count / total - 0.1) * 100,
+            zScore: (count / total - 0.1) / Math.sqrt(0.1 * 0.9 / total)
+        }));
+    }
+
+    /**
+     * Analyze digit gaps - which digits haven't appeared recently
+     */
+    analyzeDigitGaps(digits) {
+        if (digits.length < 25) return { gaps: [], maxGap: 0, absentDigits: [] };
+
+        const last25 = new Set(digits.slice(-25));
+        const gaps = [];
+
+        for (let i = 0; i < 10; i++) {
+            if (!last25.has(i)) {
+                // Find how long this digit has been absent
+                let gapLength = 0;
+                for (let j = digits.length - 1; j >= 0; j--) {
+                    if (digits[j] === i) break;
+                    gapLength++;
+                }
+                gaps.push({ digit: i, gapLength });
+            }
+        }
+
+        const maxGap = gaps.length > 0 ? Math.max(...gaps.map(g => g.gapLength)) : 0;
+
+        return {
+            gaps: gaps.sort((a, b) => b.gapLength - a.gapLength),
+            maxGap,
+            absentDigits: gaps.map(g => g.digit)
+        };
+    }
+
+    /**
+     * Calculate serial correlation (already exists but adding here for completeness)
+     * This is a duplicate - will be handled by the existing one
+     */
+    // calculateSerialCorrelation is already defined in Kelly Criterion section
+
+    /**
+     * Perform Chi-Square test for uniformity
+     * Tests if digit distribution is significantly different from uniform
+     */
+    performChiSquareTest(digits) {
+        if (digits.length < 100) {
+            return { chiSquare: 0, pValue: 1, isUniform: true };
+        }
+
+        const counts = Array(10).fill(0);
+        digits.forEach(d => counts[d]++);
+
+        const expected = digits.length / 10;
+        let chiSquare = 0;
+
+        for (const count of counts) {
+            chiSquare += Math.pow(count - expected, 2) / expected;
+        }
+
+        // Degrees of freedom = 10 - 1 = 9
+        // Critical value at p=0.05 for df=9 is 16.919
+        const criticalValue = 16.919;
+        const isUniform = chiSquare < criticalValue;
+
+        // Approximate p-value (simplified)
+        const pValue = chiSquare < criticalValue ? 0.5 : 0.01;
+
+        return {
+            chiSquare: chiSquare.toFixed(3),
+            pValue: pValue.toFixed(3),
+            isUniform,
+            interpretation: isUniform
+                ? 'Distribution is uniform (random)'
+                : 'Distribution is non-uniform (potential pattern)'
+        };
+    }
+
+    /**
+     * Calculate serial correlation (autocorrelation)
+     * Measures if current digit is correlated with previous digit
+     */
+    calculateSerialCorrelation(digits) {
+        if (digits.length < 50) return 0;
+
+        const recent = digits.slice(-50);
+        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+
+        let numerator = 0;
+        let denominator = 0;
+
+        for (let i = 0; i < recent.length - 1; i++) {
+            numerator += (recent[i] - mean) * (recent[i + 1] - mean);
+            denominator += Math.pow(recent[i] - mean, 2);
+        }
+
+        return denominator > 0 ? numerator / denominator : 0;
+    }
+
+
+    /**
+     * Kelly Criterion - Optimal position sizing based on win rate and payout
+     * Replaces dangerous Martingale strategy
+     */
+    calculateKellyStake(winRate, payout, balance, maxRiskPercent = 2) {
+        // Bound win rate between 10% and 90% to avoid extreme values
+        const p = Math.max(0.1, Math.min(0.9, winRate));
+        const q = 1 - p;
+        const b = payout; // Payout ratio (typically ~1.1 for digit differ)
+
+        // Kelly formula: f = (bp - q) / b
+        const kellyFraction = (b * p - q) / b;
+
+        // Use half-Kelly for safety (Kelly is known to be aggressive)
+        const safeKellyFraction = Math.max(0, kellyFraction * 0.5);
+
+        // Maximum risk amount (2% of balance by default)
+        const maxRiskAmount = balance * (maxRiskPercent / 100);
+
+        // Calculate optimal stake
+        const optimalStake = Math.min(
+            balance * safeKellyFraction,
+            maxRiskAmount
+        );
+
+        // Ensure stake is at least 1 and at most baseStake * 3
+        return Math.max(1, Math.min(Math.floor(optimalStake), this.config.baseStake * 3));
+    }
+
+    /**
+     * Anti-Martingale - Increase stake after wins, reset after losses
+     * Safer alternative to Martingale
+     */
+    calculateAntiMartingaleStake(lastTradeResult, currentStake, baseStake, consecutiveWins = 0) {
+        if (lastTradeResult === 'won') {
+            // Increase stake after win, but cap at 4x base
+            const multiplier = Math.min(Math.pow(1.5, consecutiveWins + 1), 4);
+            return Math.floor(currentStake * multiplier);
+        } else {
+            // Reset to base stake after loss (key difference from Martingale)
+            return baseStake;
+        }
+    }
+
+    /**
+     * Volatility-Adjusted Position Sizing
+     * Reduce stake during high volatility, increase during low volatility
+     */
+    calculateVolatilityAdjustedStake(baseStake, currentVolatility, averageVolatility) {
+        if (currentVolatility <= 0 || averageVolatility <= 0) return baseStake;
+
+        // Volatility ratio: if current > average, reduce stake
+        const volatilityRatio = averageVolatility / currentVolatility;
+
+        // Limit adjustment factor between 0.3x and 3x
+        const adjustmentFactor = Math.max(0.3, Math.min(volatilityRatio, 3));
+
+        const adjustedStake = baseStake * adjustmentFactor;
+        return Math.max(1, Math.floor(adjustedStake));
+    }
+
+    /**
+     * Calculate volatility from recent tick history
+     */
+    calculateVolatility(digits) {
+        if (digits.length < 20) return 0;
+
+        const recent = digits.slice(-50);
+        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+        const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
+        return Math.sqrt(variance);
+    }
+
+    /**
+     * Market Regime Detection
+     * Determines if market is trending, ranging, volatile, or stable
+     */
+    detectMarketRegime(tickHistory) {
+        if (tickHistory.length < 100) return 'insufficient_data';
+
+        const recent = tickHistory.slice(-100);
+        const volatility = this.calculateVolatility(recent);
+        const trend = this.detectTrend(recent);
+        const entropy = this.calculateEntropy(recent);
+
+        // High volatility = volatile regime
+        if (volatility > 2.5) return 'volatile';
+
+        // Strong trend = trending regime
+        if (Math.abs(trend.strength) > 0.3) return 'trending';
+
+        // High entropy = random regime
+        if (entropy > 0.95) return 'random';
+
+        // Otherwise stable
+        return 'stable';
+    }
+
+    /**
+     * Detect trend strength and direction
+     */
+    detectTrend(digits) {
+        if (digits.length < 20) return { strength: 0, direction: 'neutral' };
+
+        const first = digits.slice(0, 10);
+        const last = digits.slice(-10);
+
+        const firstAvg = first.reduce((a, b) => a + b, 0) / first.length;
+        const lastAvg = last.reduce((a, b) => a + b, 0) / last.length;
+
+        const diff = lastAvg - firstAvg;
+        const strength = Math.abs(diff) / 5; // Normalize to 0-1 range
+        const direction = diff > 0 ? 'up' : diff < 0 ? 'down' : 'neutral';
+
+        return { strength, direction };
+    }
+
+    /**
+     * Calculate Shannon entropy (measure of randomness)
+     */
+    calculateEntropy(digits) {
+        const counts = Array(10).fill(0);
+        digits.forEach(d => counts[d]++);
+
+        const total = digits.length;
+        let entropy = 0;
+
+        for (const count of counts) {
+            if (count > 0) {
+                const p = count / total;
+                entropy -= p * Math.log2(p);
+            }
+        }
+
+        // Normalize to 0-1 range (max entropy for 10 digits is log2(10) ≈ 3.32)
+        return entropy / Math.log2(10);
+    }
+
+
+    getPrompt(modelName = 'unknown') {
         // Get model specific history
         const modelStats = this.modelPerformance[modelName] || {};
         const lastPred = modelStats.lastPrediction !== undefined ? modelStats.lastPrediction : 'None';
         const lastOutcome = modelStats.lastOutcome !== undefined ? modelStats.lastOutcome : 'None';
 
-        // Calculate frequency distribution
-        const counts = Array(10).fill(0);
-        last50.forEach(d => counts[d]++);
-
-        // Find gaps (digits not appearing recently)
-        const last15Set = new Set(this.tickHistory.slice(-15));
-        const gaps = [];
-        for (let i = 0; i < 10; i++) {
-            if (!last15Set.has(i)) gaps.push(i);
-        }
-
-        // Previous outcomes (Global)
-        const previousOutcomes = this.previousPredictions.slice(-10).map((pred, i) =>
-            `${pred}:${this.predictionOutcomes[i] ? 'W' : 'L'} `
-        ).join(',');
-
         // Recent methods used
         const recentMethods = this.tradeMethod.slice(-5).join(', ');
 
-        return `You are an elite, adaptive trading AI specializing in Deriv Digit Differ—predicting the digit (0–9) that will NOT appear in the next tick. You operate in a highly adversarial environment: the Deriv system is not passive but an intelligent opponent that observes, learns from, and actively counters your behavioral patterns.
+        // Detect market regime
+        const marketRegime = this.detectMarketRegime(this.tickHistory);
 
-        ADVERSARIAL REALITY:
-        The platform may adapt its digit generation to neutralize your historically successful strategies.
-        Your predictability is your greatest vulnerability. Randomization and methodological diversity are defensive necessities.
-        No model is permanently effective. Continuous evolution is mandatory for survival.
+        // Calculate volatility
+        const volatility = this.calculateVolatility(this.tickHistory);
 
-        CURRENT MARKET CONTEXT:
-        Asset: ${this.currentAsset}
-        Last 300 digits: [${recentDigits.join(', ')}]
-        Recent prediction outcomes: ${previousOutcomes || 'None'}
-        YOUR LAST TRADE: Predicted: ${lastPred} Actual: ${this.actualDigit || 'None'} → Result: ${lastOutcome}
-        Recently used methods: ${recentMethods || 'None'}
-        Current consecutive losses: ${this.consecutiveLosses}
+        // Perform comprehensive statistical analysis
+        const comprehensiveAnalysis = this.tickHistory.length >= 100
+            ? this.performComprehensiveAnalysis(this.tickHistory, 100)
+            : null;
 
-        CORE OPERATING PRINCIPLES:
-        Predict the ABSENT digit only—never the most probable next digit.
-        Use only statistically grounded, quantitatively validated methods, such as:
-        Frequency deviation analysis (cold-digit tracking)
-        Entropy and distribution divergence (e.g., KL divergence from uniformity)
-        Ensemble-based pattern detection (LSTM/Transformer-based forecasts inverted for "absence")
-        Volatility-adjusted regime-aware models
-        Never repeat the same prediction method consecutively.
-        After any loss (consecutiveLosses ≥ 1), immediately switch to a conservative statistical method (e.g., frequency-based min-entropy or uniformity test) and blacklist the losing method for at least 2 subsequent decisions.
-        Assess market regime (trending / ranging / volatile) using statistical indicators of dispersion and serial correlation in the last 50–100 digits.
-        Quantify prediction confidence rigorously—based on statistical significance, model entropy, or ensemble agreement. If confidence is below a high threshold (implied by 95% win-rate goal), DO NOT FORCE A TRADE. In such cases, still output a prediction, but assign a low confidence score and high riskAssessment to signal abstention-worthy uncertainty.
+        // Prepare market data for EnhancedAIPrompt
+        const marketData = {
+            currentAsset: this.currentAsset,
+            tickHistory: this.tickHistory,
+            lastPrediction: lastPred,
+            lastOutcome: lastOutcome,
+            consecutiveLosses: this.consecutiveLosses,
+            recentMethods: recentMethods,
+            volatility: volatility,
+            marketRegime: marketRegime,
+            comprehensiveAnalysis: comprehensiveAnalysis // Add full statistical analysis
+        };
 
-        STRATEGY ADAPTATION LOGIC:
-        Maintain an internal performance ledger: favor methods with recent wins in the current regime.
-        If recent methods show degradation (e.g., 2+ losses in 5 trades), trigger a regime reassessment and method reset.
-        Prioritize robustness over complexity: in volatile or high-entropy regimes, default to simpler, more interpretable statistical models.
-
-        OUTPUT FORMAT (STRICTLY JSON):
-        {
-        "predictedDigit": X,
-        "confidence": XX,
-        "primaryStrategy": "Method-Name",
-        "marketRegime": "trending/ranging/volatile",
-        "riskAssessment": "low/medium/high"
-        }
-
-        Note: confidence must reflect true statistical certainty (0–100 scale). A value <85 typically implies the trade should be skipped in live execution—this is your built-in abstention signal. riskAssessment must align: low confidence → high risk.
-
-        You are not just predicting—you are strategically selecting only high-certainty battles in a war against an adaptive adversary.
-    `;
+        // Use EnhancedAIPrompt for better adversarial-aware predictions
+        return EnhancedAIPrompt.generatePrompt(marketData, this.modelPerformance, {});
     }
 
     parseAIResponse(text, modelName = 'unknown') {
@@ -1300,13 +1937,36 @@ class AIDigitDifferBot {
         this.tradeInProgress = true;
         this.predictionInProgress = true;
 
-        console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${this.currentStake.toFixed(2)} (${confidence}% confidence)`);
+        // Apply volatility adjustment to stake if enough history
+        let adjustedStake = this.currentStake;
+
+        if (this.tickHistory.length >= 100) {
+            const currentVolatility = this.calculateVolatility(this.tickHistory.slice(-50));
+            const averageVolatility = this.calculateVolatility(this.tickHistory.slice(-100));
+
+            if (currentVolatility > 0 && averageVolatility > 0) {
+                adjustedStake = this.calculateVolatilityAdjustedStake(
+                    this.currentStake,
+                    currentVolatility,
+                    averageVolatility
+                );
+
+                if (adjustedStake !== this.currentStake) {
+                    console.log(`📊 Volatility Adjustment: $${this.currentStake.toFixed(2)} → $${adjustedStake.toFixed(2)}`);
+                }
+            }
+        }
+
+        // Ensure stake is within limits
+        adjustedStake = Math.max(1, Math.min(adjustedStake, this.balance * 0.1));
+
+        console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${adjustedStake.toFixed(2)} (${confidence}% confidence)`);
 
         this.sendRequest({
             buy: 1,
-            price: this.currentStake,
+            price: adjustedStake,
             parameters: {
-                amount: this.currentStake,
+                amount: adjustedStake,
                 basis: 'stake',
                 contract_type: 'DIGITDIFF',
                 currency: 'USD',
@@ -1370,7 +2030,16 @@ class AIDigitDifferBot {
         if (won) {
             this.totalWins++;
             this.consecutiveLosses = 0;
-            this.currentStake = this.config.initialStake;
+            this.consecutiveWins++; // Track wins for Anti-Martingale
+            this.lastTradeResult = 'won';
+
+            // Use Anti-Martingale: increase stake after wins (safer than Martingale)
+            this.currentStake = this.calculateAntiMartingaleStake(
+                'won',
+                this.currentStake,
+                this.config.baseStake,
+                this.consecutiveWins
+            );
 
             // Track winning pattern
             const pattern = this.tickHistory.slice(-5).join('');
@@ -1378,18 +2047,47 @@ class AIDigitDifferBot {
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
+            this.consecutiveWins = 0; // Reset win streak
+            this.lastTradeResult = 'lost';
 
             if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
             else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
-            // Martingale stake increase
-            this.currentStake = Math.min(
-                Math.ceil(this.currentStake * this.config.multiplier * 100) / 100,
-                this.balance * 0.5
+            // REPLACED DANGEROUS MARTINGALE WITH KELLY CRITERION
+            // Calculate win rate from history
+            const winRate = this.totalTrades > 0 ? this.totalWins / this.totalTrades : 0.5;
+            const payout = 1.1; // Typical payout for digit differ
+
+            // Use Kelly Criterion for optimal position sizing
+            this.currentStake = this.calculateKellyStake(
+                winRate,
+                payout,
+                this.balance,
+                this.config.maxStakePercent
             );
+
+            // Ensure stake doesn't exceed balance limits
+            this.currentStake = Math.min(
+                this.currentStake,
+                this.balance * (this.config.maxStakePercent / 100)
+            );
+
+            console.log(`📊 Kelly Criterion Stake: $${this.currentStake.toFixed(2)} (Win Rate: ${(winRate * 100).toFixed(1)}%)`);
         }
+
+        // Track trade in history
+        this.tradingHistory.push({
+            timestamp: Date.now(),
+            asset: this.currentAsset,
+            predicted: this.lastPrediction,
+            actual: this.actualDigit,
+            result: won ? 'won' : 'lost',
+            profit: profit,
+            stake: this.currentStake,
+            confidence: this.lastConfidence
+        });
 
         // this.RestartTrading = false;
 
