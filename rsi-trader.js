@@ -38,12 +38,12 @@ const CONFIG = {
     // RISK MANAGEMENT (CRITICAL - ADJUST CAREFULLY)
     RISK_PERCENT_PER_TRADE: 0.02, // 2% of account balance per trade (0.01 = 1%)
     MIN_STAKE: 1, // Minimum stake in USD
-    MAX_STAKE: 5, // Maximum stake in USD
+    MAX_STAKE: 2, // Maximum stake in USD
     MAX_DAILY_LOSS_PERCENT: 0.05, // 5% max daily loss (bot stops)
     MAX_CONSECUTIVE_LOSSES: 4, // Stop after consecutive losses
 
     // REWARD CONFIGURATION
-    TAKE_PROFIT_PERCENT: 0.50, // 50% profit target (0.5 = 50% of stake)
+    TAKE_PROFIT_PERCENT: 0.10, // 50% profit target (0.5 = 50% of stake)
     STOP_LOSS_PERCENT: 0.85, // 85% of stake as stop loss
     DEAL_CANCELLATION: null, // null, '5m', '10m', '15m', '30m', '60m' (only for volatility indices)
 
