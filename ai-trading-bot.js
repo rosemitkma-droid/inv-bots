@@ -365,6 +365,7 @@ class AIDigitDifferBot {
             maxConsecutiveLosses: config.maxConsecutiveLosses || 5, // Increased from 3
             stopLoss: config.stopLoss || 25, // Reduced from 67% to 25%
             takeProfit: config.takeProfit || 50, // Reduced from 100% to 50%
+            multiplier: config.multiplier || 11.3,
             requiredHistoryLength: config.requiredHistoryLength || 500,
             minConfidence: config.minConfidence || 75, // Increased from 60 to 75
             minModelsAgreement: config.minModelsAgreement || 2,
@@ -1041,10 +1042,10 @@ class AIDigitDifferBot {
         }
 
         // 9. Balance Check
-        if (this.balance < config.initialStake * 2) {
-            execute = false;
-            reasons.push(`Low balance: $${this.balance.toFixed(2)}`);
-        }
+        // if (this.balance < config.initialStake * 2) {
+        //     execute = false;
+        //     reasons.push(`Low balance: $${this.balance.toFixed(2)}`);
+        // }
 
         // 10. Consecutive Losses Check (extra caution)
         if (this.consecutiveLosses >= 3 && ensemble.confidence < config.minConfidence + 10) {
@@ -1938,27 +1939,27 @@ class AIDigitDifferBot {
         this.predictionInProgress = true;
 
         // Apply volatility adjustment to stake if enough history
-        let adjustedStake = this.currentStake;
+        let adjustedStake = parseFloat(this.currentStake.toFixed(2));
 
-        if (this.tickHistory.length >= 100) {
-            const currentVolatility = this.calculateVolatility(this.tickHistory.slice(-50));
-            const averageVolatility = this.calculateVolatility(this.tickHistory.slice(-100));
+        // if (this.tickHistory.length >= 100) {
+        //     const currentVolatility = this.calculateVolatility(this.tickHistory.slice(-50));
+        //     const averageVolatility = this.calculateVolatility(this.tickHistory.slice(-100));
 
-            if (currentVolatility > 0 && averageVolatility > 0) {
-                adjustedStake = this.calculateVolatilityAdjustedStake(
-                    this.currentStake,
-                    currentVolatility,
-                    averageVolatility
-                );
+        //     if (currentVolatility > 0 && averageVolatility > 0) {
+        //         adjustedStake = this.calculateVolatilityAdjustedStake(
+        //             this.currentStake,
+        //             currentVolatility,
+        //             averageVolatility
+        //         );
 
-                if (adjustedStake !== this.currentStake) {
-                    console.log(`📊 Volatility Adjustment: $${this.currentStake.toFixed(2)} → $${adjustedStake.toFixed(2)}`);
-                }
-            }
-        }
+        //         if (adjustedStake !== this.currentStake) {
+        //             console.log(`📊 Volatility Adjustment: $${this.currentStake.toFixed(2)} → $${adjustedStake.toFixed(2)}`);
+        //         }
+        //     }
+        // }
 
         // Ensure stake is within limits
-        adjustedStake = Math.max(1, Math.min(adjustedStake, this.balance * 0.1));
+        // adjustedStake = Math.max(1, Math.min(adjustedStake, this.balance * 0.1));
 
         console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${adjustedStake.toFixed(2)} (${confidence}% confidence)`);
 
@@ -2033,13 +2034,15 @@ class AIDigitDifferBot {
             this.consecutiveWins++; // Track wins for Anti-Martingale
             this.lastTradeResult = 'won';
 
+            this.currentStake = this.config.initialStake;
+
             // Use Anti-Martingale: increase stake after wins (safer than Martingale)
-            this.currentStake = this.calculateAntiMartingaleStake(
-                'won',
-                this.currentStake,
-                this.config.baseStake,
-                this.consecutiveWins
-            );
+            // this.currentStake = this.calculateAntiMartingaleStake(
+            //     'won',
+            //     this.currentStake,
+            //     this.config.baseStake,
+            //     this.consecutiveWins
+            // );
 
             // Track winning pattern
             const pattern = this.tickHistory.slice(-5).join('');
@@ -2055,26 +2058,28 @@ class AIDigitDifferBot {
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
+            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+
             // REPLACED DANGEROUS MARTINGALE WITH KELLY CRITERION
             // Calculate win rate from history
-            const winRate = this.totalTrades > 0 ? this.totalWins / this.totalTrades : 0.5;
-            const payout = 1.1; // Typical payout for digit differ
+            // const winRate = this.totalTrades > 0 ? this.totalWins / this.totalTrades : 0.5;
+            // const payout = 1.1; // Typical payout for digit differ
 
-            // Use Kelly Criterion for optimal position sizing
-            this.currentStake = this.calculateKellyStake(
-                winRate,
-                payout,
-                this.balance,
-                this.config.maxStakePercent
-            );
+            // // Use Kelly Criterion for optimal position sizing
+            // this.currentStake = this.calculateKellyStake(
+            //     winRate,
+            //     payout,
+            //     this.balance,
+            //     this.config.maxStakePercent
+            // );
 
-            // Ensure stake doesn't exceed balance limits
-            this.currentStake = Math.min(
-                this.currentStake,
-                this.balance * (this.config.maxStakePercent / 100)
-            );
+            // // Ensure stake doesn't exceed balance limits
+            // this.currentStake = Math.min(
+            //     this.currentStake,
+            //     this.balance * (this.config.maxStakePercent / 100)
+            // );
 
-            console.log(`📊 Kelly Criterion Stake: $${this.currentStake.toFixed(2)} (Win Rate: ${(winRate * 100).toFixed(1)}%)`);
+            // console.log(`📊 Kelly Criterion Stake: $${this.currentStake.toFixed(2)} (Win Rate: ${(winRate * 100).toFixed(1)}%)`);
         }
 
         // Track trade in history
