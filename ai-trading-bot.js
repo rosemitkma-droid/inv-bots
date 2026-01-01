@@ -1152,7 +1152,7 @@ class AIDigitDifferBot {
             this.usedAssets.add(this.currentAsset);
         }
 
-        this.RestartTrading = false;
+        // this.RestartTrading = false;
         console.log(`\n🎯 Selected asset: ${this.currentAsset}`);
 
         this.tickHistory = [];
@@ -1237,7 +1237,7 @@ class AIDigitDifferBot {
             console.log(`\n⚠️ WARNING: Drawdown at ${tradingStatus.currentDrawdown.toFixed(1)}%`);
         }
 
-        this.predictionInProgress = true;
+        this.predictionInProgress = false;
         console.log('\n🧠 Starting AI ensemble prediction...');
 
         const startTime = Date.now();
@@ -1250,7 +1250,7 @@ class AIDigitDifferBot {
 
             if (predictions.length === 0) {
                 console.log('⚠️  No valid predictions received');
-                this.predictionInProgress = true;
+                this.predictionInProgress = false;
                 this.scheduleNextTrade2();
                 return;
             }
@@ -1296,13 +1296,13 @@ class AIDigitDifferBot {
                 this.placeTrade(ensemble.digit, ensemble.confidence, kellyResult.stake);
             } else {
                 console.log(`⏭️ Skipping trade: ${tradeDecision.reason}`);
-                this.predictionInProgress = true;
+                this.predictionInProgress = false;
                 this.scheduleNextTrade2();
             }
 
         } catch (error) {
             console.error('❌ Prediction error:', error.message);
-            this.predictionInProgress = true;
+            this.predictionInProgress = false;
             this.scheduleNextTrade2();
         }
     }
