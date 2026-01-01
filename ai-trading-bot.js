@@ -761,7 +761,14 @@ class AIDigitDifferBot {
                 enabled: false,
                 name: 'SambaNova',
                 weight: 1.0
-            }
+            },
+            moonshot: {
+                key: (process.env.MOONSHOT_API_KEY || '').trim(),
+                enabled: false,
+                name: 'Moonshot',
+                weight: 1.0
+            },
+
         };
 
         this.initializeAIModels();
@@ -1093,7 +1100,7 @@ class AIDigitDifferBot {
             console.error('❌ Trade error:', message.error.message);
             this.tradeInProgress = false;
             this.predictionInProgress = false;
-            this.scheduleNextTrade();
+            this.scheduleNextTrade2();
             return;
         }
 
@@ -1244,7 +1251,7 @@ class AIDigitDifferBot {
             if (predictions.length === 0) {
                 console.log('⚠️  No valid predictions received');
                 this.predictionInProgress = true;
-                this.scheduleNextTrade();
+                this.scheduleNextTrade2();
                 return;
             }
 
@@ -1290,13 +1297,13 @@ class AIDigitDifferBot {
             } else {
                 console.log(`⏭️ Skipping trade: ${tradeDecision.reason}`);
                 this.predictionInProgress = true;
-                this.scheduleNextTrade();
+                this.scheduleNextTrade2();
             }
 
         } catch (error) {
             console.error('❌ Prediction error:', error.message);
             this.predictionInProgress = true;
-            this.scheduleNextTrade();
+            this.scheduleNextTrade2();
         }
     }
 
@@ -1788,18 +1795,22 @@ class AIDigitDifferBot {
         if (!key) throw new Error('No SambaNova API key');
 
         const response = await axios.post(
-            'https://api.sambanova.ai/v1/chat/completions',
+            'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://openrouter.ai/api/v1/chat/completions',//'https://api.moonshot.cn/v1/chat/completions',
             {
-                model: 'Meta-Llama-3.1-8B-Instruct',
+                model: 'llama-3.3-70b-versatile',//'moonshotai/kimi-k2-instruct-0905',
                 messages: [
-                    { role: 'system', content: 'You are a trading AI that outputs JSON only.' },
-                    { role: 'user', content: this.getPrompt('sambanova') }
+                    { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
+                    { role: 'user', content: this.getPrompt('SambaNova') }
                 ],
                 temperature: 0.1,
-                max_tokens: 512
+                max_tokens: 256,
+                response_format: { type: "json_object" }
             },
             {
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${key}`
+                },
                 timeout: 30000
             }
         );
@@ -2005,6 +2016,31 @@ class AIDigitDifferBot {
         const waitTime = Math.floor(
             Math.random() * (this.config.maxWaitTime - this.config.minWaitTime) +
             this.config.minWaitTime
+        );
+
+        console.log(`\n⏳ Waiting ${Math.round(waitTime / 1000)}s before next trade...`);
+
+        this.isPaused = true;
+        this.disconnect();
+
+        setTimeout(() => {
+            if (!this.isShuttingDown) {
+                this.isPaused = false;
+                this.reconnectAttempts = 0;
+                this.connect();
+            }
+        }, waitTime);
+    }
+
+    scheduleNextTrade2() {
+        if (this.aiModels.gemini.enabled && this.aiModels.gemini.keys.length > 1) {
+            this.aiModels.gemini.currentIndex =
+                (this.aiModels.gemini.currentIndex + 1) % this.aiModels.gemini.keys.length;
+        }
+
+        const waitTime = Math.floor(
+            Math.random() * (30000 - 15000) +
+            15000
         );
 
         console.log(`\n⏳ Waiting ${Math.round(waitTime / 1000)}s before next trade...`);
