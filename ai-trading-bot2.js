@@ -522,6 +522,7 @@ class AIRiskController {
         if (metrics.drawdownPercent > 15) {
             riskLevel = 'high';
             recommendedKellyFraction = 0.1;
+            console.log(`   ⚠️ High drawdown detected: ${metrics.drawdownPercent.toFixed(1)}%`);
             warnings.push('High drawdown - reduce position size');
         }
 
@@ -531,15 +532,17 @@ class AIRiskController {
             warnings.push('Loss streak detected');
         }
 
-        if (marketData.confidence < 70) {
-            riskLevel = 'high';
-            recommendedKellyFraction = 0.15;
-            warnings.push('Low prediction confidence');
-        }
+        // if (marketData.confidence < 70) {
+        //     riskLevel = 'high';
+        //     recommendedKellyFraction = 0.15;
+        //     console.log(`   ⚠️ Low prediction confidence detected: ${marketData.confidence.toFixed(1)}%`);
+        //     warnings.push('Low prediction confidence');
+        // }
 
         if (marketData.regime === 'volatile' || marketData.regime === 'random') {
             riskLevel = riskLevel === 'high' ? 'extreme' : 'high';
             recommendedKellyFraction *= 0.5;
+            console.log(`   ⚠️ Unfavorable market conditions detected: ${marketData.regime}`);
             warnings.push('Unfavorable market conditions');
         }
 
@@ -1131,7 +1134,7 @@ class AIDigitDifferBot {
                 this.handleAuthorize(message);
                 break;
             case 'balance':
-                this.handleBalance(message);
+                // this.handleBalance(message);
                 break;
             case 'history':
                 this.handleTickHistory(message.history);
@@ -1164,14 +1167,14 @@ class AIDigitDifferBot {
         }
         console.log('✅ Authentication successful');
         console.log(`👤 Account: ${message.authorize.loginid}`);
-        this.balance = message.authorize.balance;
-        this.sessionStartBalance = this.balance;
+        this.balance = this.kellyManager.investmentCapital; //message.authorize.balance;
+        // this.sessionStartBalance = this.balance;
 
         // Sync Kelly manager with actual balance
-        this.kellyManager.currentCapital = this.balance;
-        this.kellyManager.initialCapital = this.investmentCapital;
+        // this.kellyManager.currentCapital = this.balance;
+        // this.kellyManager.initialCapital = this.investmentCapital;
 
-        console.log(`💰 Account Balance: $${this.balance.toFixed(2)}`);
+        console.log(`💰 Account Balance: $${message.authorize.balance.toFixed(2)}`);
         console.log(`📊 Investment Capital: $${this.investmentCapital}`);
         this.sendRequest({ balance: 1, subscribe: 1 });
         this.resetTradingState();
@@ -1184,12 +1187,12 @@ class AIDigitDifferBot {
         this.digitCounts = Array(10).fill(0);
         this.tickSubscriptionId = null;
     }
-    handleBalance(message) {
-        if (message.balance) {
-            this.balance = message.balance.balance;
-            this.kellyManager.currentCapital = this.balance;
-        }
-    }
+    // handleBalance(message) {
+    //     if (message.balance) {
+    //         this.balance = message.balance.balance;
+    //         this.kellyManager.currentCapital = this.balance;
+    //     }
+    // }
     handleBuyResponse(message) {
         if (message.error) {
             console.error('❌ Trade error:', message.error.message);
@@ -1441,12 +1444,12 @@ class AIDigitDifferBot {
             reasons.push(`Agreement ${ensemble.agreement} < ${this.config.minModelsAgreement}`);
         }
         // Risk level too high
-        if (riskAssessment.riskLevel === 'extreme') {
-            execute = false;
-            reasons.push('Extreme risk level');
-        }
+        // if (riskAssessment.riskLevel === 'extreme') {
+        //     execute = false;
+        //     reasons.push('Extreme risk level');
+        // }
         // Opportunity score too low
-        if (riskAssessment.opportunityScore < 3) {
+        if (riskAssessment.opportunityScore < 4) {
             execute = false;
             reasons.push(`Opportunity score ${riskAssessment.opportunityScore}/10 too low`);
         }
@@ -1562,6 +1565,7 @@ class AIDigitDifferBot {
         const rawVotes = Array(10).fill(0);
         predictions.forEach(p => rawVotes[p.predictedDigit]++);
         const agreement = rawVotes[winningDigit];
+
         const avgConfidence = confidences[winningDigit].length > 0
             ? Math.round(confidences[winningDigit].reduce((a, b) => a + b, 0) / confidences[winningDigit].length)
             : 50;
@@ -1576,6 +1580,7 @@ class AIDigitDifferBot {
             strategy
         };
     }
+
     // ==================== STATISTICAL ANALYSIS ====================
     performComprehensiveAnalysis(tickHistory, minSampleSize = 100) {
         if (tickHistory.length < minSampleSize) {
@@ -1935,9 +1940,9 @@ class AIDigitDifferBot {
         console.log(`   Position Size: ${((stake / this.kellyManager.currentCapital) * 100).toFixed(2)}%`);
         this.sendRequest({
             buy: 1,
-            price: stake,
+            price: stake.toFixed(2),
             parameters: {
-                amount: stake,
+                amount: stake.toFixed(2),
                 basis: 'stake',
                 contract_type: 'DIGITDIFF',
                 currency: 'USD',
@@ -2001,6 +2006,9 @@ class AIDigitDifferBot {
         }
         // Dynamically adjust Kelly fraction based on performance
         this.kellyManager.adjustKellyFraction();
+
+        this.balance = this.kellyManager.currentCapital;
+
         // Track trade
         this.tradingHistory.push({
             timestamp: Date.now(),
