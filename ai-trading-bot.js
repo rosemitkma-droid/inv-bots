@@ -1,16 +1,16 @@
 /**
  * ============================================================
- * AI-POWERED DERIV DIGIT DIFFER TRADING BOT v3.0
- * Multi-Model Ensemble Prediction System (Fixed & Improved)
+ * AI-POWERED DERIV DIGIT DIFFER TRADING BOT v4.0
+ * Complete Kelly Criterion & AI Risk Management System
  * ============================================================
  * 
- * Supported AI Models (all free tiers):
- * - Google Gemini (60 req/min)
- * - Groq (30 req/min, fastest inference)
- * - OpenRouter (multiple free models)
- * - Mistral AI (free tier)
- * - Cerebras (fast inference, free)
- * - SambaNova (free tier)
+ * FEATURES:
+ * - Full Kelly Criterion position sizing
+ * - AI-controlled stake management
+ * - Intelligent recovery strategy (no Martingale)
+ * - Dynamic drawdown protection
+ * - Regime-adaptive risk management
+ * - Investment capital tracking ($500 default)
  * 
  * ============================================================
  */
@@ -20,11 +20,498 @@ const WebSocket = require('ws');
 const axios = require('axios');
 const TelegramBot = require('node-telegram-bot-api');
 
-// Production-Grade Adversarial-Aware Prediction System
+// ==================== KELLY CRITERION MANAGER ====================
+
+class KellyCriterionManager {
+    constructor(config = {}) {
+        // Investment capital configuration
+        this.investmentCapital = config.investmentCapital || 500;
+        this.currentCapital = this.investmentCapital;
+        this.peakCapital = this.investmentCapital;
+
+        // Kelly Criterion parameters
+        this.kellyFraction = config.kellyFraction || 0.25; // Quarter Kelly (conservative)
+        this.minKellyFraction = 0.1;  // Minimum 10% of full Kelly
+        this.maxKellyFraction = 0.5;  // Maximum 50% of full Kelly
+
+        // Stake limits
+        this.minStake = config.minStake || 0.35;
+        this.maxStakePercent = config.maxStakePercent || 5; // Max 5% per trade
+        this.absoluteMaxStake = config.absoluteMaxStake || 50;
+
+        // Risk management thresholds
+        this.maxDrawdownPercent = config.maxDrawdownPercent || 25;
+        this.warningDrawdownPercent = config.warningDrawdownPercent || 15;
+        this.dailyLossLimit = config.dailyLossLimit || 50; // $50 daily loss limit
+        this.dailyProfitTarget = config.dailyProfitTarget || 100; // $100 daily target
+
+        // Recovery parameters
+        this.recoveryMode = false;
+        this.recoveryStartCapital = 0;
+        this.maxRecoveryMultiplier = 2.0;
+
+        // Performance tracking
+        this.tradeHistory = [];
+        this.dailyPnL = 0;
+        this.sessionPnL = 0;
+        this.currentDrawdown = 0;
+        this.maxDrawdownReached = 0;
+
+        // Confidence-based adjustments
+        this.confidenceThresholds = {
+            veryHigh: 90,   // Full Kelly fraction
+            high: 80,       // 80% of Kelly fraction
+            medium: 70,     // 50% of Kelly fraction
+            low: 60         // 25% of Kelly fraction
+        };
+
+        // Win rate tracking (rolling window)
+        this.recentWins = 0;
+        this.recentLosses = 0;
+        this.rollingWindowSize = 50;
+        this.rollingResults = [];
+
+        console.log('\n💰 Kelly Criterion Manager Initialized');
+        console.log(`   Investment Capital: $${this.investmentCapital}`);
+        console.log(`   Kelly Fraction: ${this.kellyFraction * 100}%`);
+        console.log(`   Max Drawdown Limit: ${this.maxDrawdownPercent}%`);
+        console.log(`   Max Stake: ${this.maxStakePercent}% of capital`);
+    }
+
+    /**
+     * Core Kelly Criterion Formula
+     * f* = (bp - q) / b
+     * where: b = decimal odds - 1, p = win probability, q = 1 - p
+     */
+    calculateFullKelly(winProbability, decimalOdds) {
+        const p = Math.max(0.01, Math.min(0.99, winProbability));
+        const q = 1 - p;
+        const b = decimalOdds - 1; // Net odds
+
+        if (b <= 0) return 0;
+
+        const kelly = (b * p - q) / b;
+        return Math.max(0, kelly);
+    }
+
+    /**
+     * Calculate optimal stake using Enhanced Kelly Criterion
+     * Considers: confidence, market regime, drawdown, consecutive losses
+     */
+    calculateOptimalStake(params) {
+        const {
+            winProbability = 0.5,
+            payout = 1.85,          // Typical digit differ payout
+            confidence = 70,
+            marketRegime = 'stable',
+            consecutiveLosses = 0,
+            consecutiveWins = 0,
+            volatility = 'medium'
+        } = params;
+
+        // Step 1: Calculate base Kelly fraction
+        const fullKelly = this.calculateFullKelly(winProbability, payout);
+
+        // Step 2: Apply fractional Kelly for safety
+        let adjustedKelly = fullKelly * this.kellyFraction;
+
+        // Step 3: Confidence-based adjustment
+        const confidenceMultiplier = this.getConfidenceMultiplier(confidence);
+        adjustedKelly *= confidenceMultiplier;
+
+        // Step 4: Market regime adjustment
+        const regimeMultiplier = this.getRegimeMultiplier(marketRegime);
+        adjustedKelly *= regimeMultiplier;
+
+        // Step 5: Volatility adjustment
+        const volatilityMultiplier = this.getVolatilityMultiplier(volatility);
+        adjustedKelly *= volatilityMultiplier;
+
+        // Step 6: Consecutive losses adjustment (reduce stake after losses)
+        const lossAdjustment = this.getLossAdjustment(consecutiveLosses);
+        adjustedKelly *= lossAdjustment;
+
+        // Step 7: Consecutive wins bonus (slight increase after wins)
+        const winBonus = this.getWinBonus(consecutiveWins);
+        adjustedKelly *= winBonus;
+
+        // Step 8: Drawdown protection
+        const drawdownMultiplier = this.getDrawdownMultiplier();
+        adjustedKelly *= drawdownMultiplier;
+
+        // Step 9: Calculate final stake
+        let stake = this.currentCapital * adjustedKelly;
+
+        // Apply hard limits
+        stake = Math.max(this.minStake, stake);
+        stake = Math.min(stake, this.currentCapital * (this.maxStakePercent / 100));
+        stake = Math.min(stake, this.absoluteMaxStake);
+        stake = Math.min(stake, this.currentCapital * 0.1); // Never more than 10% of capital
+
+        // Round to 2 decimal places
+        stake = Math.round(stake * 100) / 100;
+
+        // Log calculation details
+        this.logStakeCalculation({
+            fullKelly,
+            adjustedKelly,
+            confidenceMultiplier,
+            regimeMultiplier,
+            volatilityMultiplier,
+            lossAdjustment,
+            winBonus,
+            drawdownMultiplier,
+            finalStake: stake
+        });
+
+        return {
+            stake,
+            kellyFraction: adjustedKelly,
+            riskLevel: this.assessRiskLevel(stake),
+            recommendation: this.getStakeRecommendation(stake, confidence)
+        };
+    }
+
+    /**
+     * AI-Driven Recovery Strategy
+     * Replaces dangerous Martingale with intelligent recovery
+     */
+    calculateRecoveryStake(params) {
+        const {
+            baseStake,
+            consecutiveLosses,
+            lossAmount,
+            winRate,
+            confidence
+        } = params;
+
+        // Enter recovery mode after 2 consecutive losses
+        if (consecutiveLosses >= 2 && !this.recoveryMode) {
+            this.recoveryMode = true;
+            this.recoveryStartCapital = this.currentCapital;
+            console.log('🔄 Entering Recovery Mode');
+        }
+
+        // Exit recovery mode if we've recovered losses
+        if (this.recoveryMode && this.currentCapital >= this.recoveryStartCapital) {
+            this.recoveryMode = false;
+            console.log('✅ Exited Recovery Mode - Losses Recovered');
+            return baseStake;
+        }
+
+        if (!this.recoveryMode) {
+            return baseStake;
+        }
+
+        // Recovery Strategy: Gradual increase based on win rate and confidence
+        let recoveryMultiplier = 1.0;
+
+        // Higher win rate = can be more aggressive in recovery
+        if (winRate >= 0.55) {
+            recoveryMultiplier = 1.3;
+        } else if (winRate >= 0.50) {
+            recoveryMultiplier = 1.2;
+        } else if (winRate >= 0.45) {
+            recoveryMultiplier = 1.1;
+        } else {
+            // Poor win rate = be conservative
+            recoveryMultiplier = 0.8;
+        }
+
+        // Confidence adjustment
+        if (confidence >= 85) {
+            recoveryMultiplier *= 1.2;
+        } else if (confidence >= 75) {
+            recoveryMultiplier *= 1.1;
+        } else if (confidence < 65) {
+            recoveryMultiplier *= 0.7;
+        }
+
+        // Cap recovery multiplier
+        recoveryMultiplier = Math.min(recoveryMultiplier, this.maxRecoveryMultiplier);
+
+        // Calculate recovery stake
+        let recoveryStake = baseStake * recoveryMultiplier;
+
+        // Apply maximum limits
+        recoveryStake = Math.min(recoveryStake, this.currentCapital * 0.05);
+        recoveryStake = Math.min(recoveryStake, this.absoluteMaxStake);
+
+        return Math.round(recoveryStake * 100) / 100;
+    }
+
+    /**
+     * Confidence Multiplier
+     * Higher confidence = can use more of Kelly fraction
+     */
+    getConfidenceMultiplier(confidence) {
+        if (confidence >= this.confidenceThresholds.veryHigh) {
+            return 1.0; // Full Kelly fraction
+        } else if (confidence >= this.confidenceThresholds.high) {
+            return 0.8;
+        } else if (confidence >= this.confidenceThresholds.medium) {
+            return 0.5;
+        } else if (confidence >= this.confidenceThresholds.low) {
+            return 0.25;
+        } else {
+            return 0.1; // Very low confidence = minimal stake
+        }
+    }
+
+    /**
+     * Market Regime Multiplier
+     * Adjust stake based on market conditions
+     */
+    getRegimeMultiplier(regime) {
+        const multipliers = {
+            'stable': 1.0,
+            'trending': 0.8,
+            'ranging': 0.9,
+            'volatile': 0.5,
+            'random': 0.4,
+            'unknown': 0.6
+        };
+        return multipliers[regime] || 0.6;
+    }
+
+    /**
+     * Volatility Multiplier
+     * Higher volatility = lower stake
+     */
+    getVolatilityMultiplier(volatility) {
+        const multipliers = {
+            'low': 1.2,
+            'medium': 1.0,
+            'high': 0.6,
+            'extreme': 0.3
+        };
+        return multipliers[volatility] || 1.0;
+    }
+
+    /**
+     * Consecutive Loss Adjustment
+     * Reduce stake after consecutive losses
+     */
+    getLossAdjustment(consecutiveLosses) {
+        if (consecutiveLosses === 0) return 1.0;
+        if (consecutiveLosses === 1) return 0.9;
+        if (consecutiveLosses === 2) return 0.7;
+        if (consecutiveLosses === 3) return 0.5;
+        if (consecutiveLosses === 4) return 0.3;
+        return 0.2; // 5+ consecutive losses = very small stake
+    }
+
+    /**
+     * Consecutive Win Bonus
+     * Slight increase after wins (Anti-Martingale concept)
+     */
+    getWinBonus(consecutiveWins) {
+        if (consecutiveWins === 0) return 1.0;
+        if (consecutiveWins === 1) return 1.1;
+        if (consecutiveWins === 2) return 1.2;
+        if (consecutiveWins === 3) return 1.3;
+        return 1.4; // Cap at 40% bonus
+    }
+
+    /**
+     * Drawdown Protection Multiplier
+     * Reduce stake as drawdown increases
+     */
+    getDrawdownMultiplier() {
+        const drawdownPercent = this.calculateCurrentDrawdown();
+
+        if (drawdownPercent < 5) return 1.0;
+        if (drawdownPercent < 10) return 0.8;
+        if (drawdownPercent < 15) return 0.6;
+        if (drawdownPercent < 20) return 0.4;
+        if (drawdownPercent < 25) return 0.2;
+        return 0.1; // Critical drawdown
+    }
+
+    /**
+     * Calculate Current Drawdown
+     */
+    calculateCurrentDrawdown() {
+        if (this.peakCapital <= 0) return 0;
+        const drawdown = ((this.peakCapital - this.currentCapital) / this.peakCapital) * 100;
+        this.currentDrawdown = Math.max(0, drawdown);
+        this.maxDrawdownReached = Math.max(this.maxDrawdownReached, this.currentDrawdown);
+        return this.currentDrawdown;
+    }
+
+    /**
+     * Check if trading should continue
+     */
+    shouldContinueTrading() {
+        const drawdown = this.calculateCurrentDrawdown();
+        const reasons = [];
+
+        // Check drawdown limit
+        if (drawdown >= this.maxDrawdownPercent) {
+            reasons.push(`Max drawdown ${drawdown.toFixed(1)}% reached (limit: ${this.maxDrawdownPercent}%)`);
+        }
+
+        // Check daily loss limit
+        if (this.dailyPnL <= -this.dailyLossLimit) {
+            reasons.push(`Daily loss limit $${this.dailyLossLimit} reached`);
+        }
+
+        // Check minimum capital
+        if (this.currentCapital < this.investmentCapital * 0.5) {
+            reasons.push(`Capital below 50% of initial investment`);
+        }
+
+        // Check if daily profit target reached (optional stop)
+        const reachedDailyTarget = this.dailyPnL >= this.dailyProfitTarget;
+
+        return {
+            canTrade: reasons.length === 0,
+            reasons,
+            warning: drawdown >= this.warningDrawdownPercent,
+            reachedDailyTarget,
+            currentDrawdown: drawdown,
+            dailyPnL: this.dailyPnL
+        };
+    }
+
+    /**
+     * Update capital after trade
+     */
+    updateAfterTrade(profit, isWin) {
+        this.currentCapital += profit;
+        this.dailyPnL += profit;
+        this.sessionPnL += profit;
+
+        // Update peak capital
+        if (this.currentCapital > this.peakCapital) {
+            this.peakCapital = this.currentCapital;
+        }
+
+        // Update rolling window
+        this.rollingResults.push(isWin ? 1 : 0);
+        if (this.rollingResults.length > this.rollingWindowSize) {
+            this.rollingResults.shift();
+        }
+
+        // Recalculate rolling win rate
+        if (this.rollingResults.length > 0) {
+            this.recentWins = this.rollingResults.filter(r => r === 1).length;
+            this.recentLosses = this.rollingResults.filter(r => r === 0).length;
+        }
+
+        // Track trade
+        this.tradeHistory.push({
+            timestamp: Date.now(),
+            profit,
+            isWin,
+            capital: this.currentCapital,
+            drawdown: this.calculateCurrentDrawdown()
+        });
+    }
+
+    /**
+     * Get current win rate from rolling window
+     */
+    getRollingWinRate() {
+        if (this.rollingResults.length < 5) {
+            return 0.5; // Default to 50% if not enough data
+        }
+        return this.recentWins / this.rollingResults.length;
+    }
+
+    /**
+     * Get suggested payout based on asset
+     */
+    getPayoutForAsset(asset) {
+        // Typical payouts for Digit Differ (adjust based on actual values)
+        const payouts = {
+            'R_10': 1.85,
+            'R_25': 1.85,
+            'R_50': 1.85,
+            'R_75': 1.85,
+            'R_100': 1.85,
+            'RDBULL': 1.80,
+            'RDBEAR': 1.80
+        };
+        return payouts[asset] || 1.85;
+    }
+
+    /**
+     * Assess risk level of stake
+     */
+    assessRiskLevel(stake) {
+        const percentOfCapital = (stake / this.currentCapital) * 100;
+
+        if (percentOfCapital <= 1) return 'very_low';
+        if (percentOfCapital <= 2) return 'low';
+        if (percentOfCapital <= 3) return 'medium';
+        if (percentOfCapital <= 5) return 'high';
+        return 'very_high';
+    }
+
+    /**
+     * Get stake recommendation
+     */
+    getStakeRecommendation(stake, confidence) {
+        if (confidence < 60) {
+            return 'SKIP - Confidence too low';
+        }
+        if (stake < this.minStake) {
+            return 'SKIP - Stake below minimum';
+        }
+        if (this.calculateCurrentDrawdown() > 20) {
+            return 'CAUTION - High drawdown';
+        }
+        return 'TRADE';
+    }
+
+    /**
+     * Log stake calculation details
+     */
+    logStakeCalculation(details) {
+        console.log('\n📊 Kelly Stake Calculation:');
+        console.log(`   Full Kelly: ${(details.fullKelly * 100).toFixed(2)}%`);
+        console.log(`   Adjusted Kelly: ${(details.adjustedKelly * 100).toFixed(4)}%`);
+        console.log(`   Multipliers: Conf=${details.confidenceMultiplier.toFixed(2)}, ` +
+            `Regime=${details.regimeMultiplier.toFixed(2)}, ` +
+            `Vol=${details.volatilityMultiplier.toFixed(2)}`);
+        console.log(`   Loss Adj: ${details.lossAdjustment.toFixed(2)}, Win Bonus: ${details.winBonus.toFixed(2)}`);
+        console.log(`   Drawdown Mult: ${details.drawdownMultiplier.toFixed(2)}`);
+        console.log(`   Final Stake: $${details.finalStake.toFixed(2)}`);
+    }
+
+    /**
+     * Get current status summary
+     */
+    getStatus() {
+        return {
+            investmentCapital: this.investmentCapital,
+            currentCapital: this.currentCapital,
+            peakCapital: this.peakCapital,
+            currentDrawdown: this.calculateCurrentDrawdown(),
+            maxDrawdownReached: this.maxDrawdownReached,
+            dailyPnL: this.dailyPnL,
+            sessionPnL: this.sessionPnL,
+            rollingWinRate: this.getRollingWinRate(),
+            recoveryMode: this.recoveryMode,
+            tradesCount: this.tradeHistory.length
+        };
+    }
+
+    /**
+     * Reset daily stats (call at start of new trading day)
+     */
+    resetDailyStats() {
+        this.dailyPnL = 0;
+        console.log('📅 Daily stats reset');
+    }
+}
+
+// ==================== ENHANCED AI PROMPT ====================
 
 class EnhancedAIPrompt {
 
-    static generatePrompt(marketData, modelPerformance, regimeData) {
+    static generatePrompt(marketData, modelPerformance, kellyStatus) {
         const {
             currentAsset,
             tickHistory,
@@ -42,18 +529,15 @@ class EnhancedAIPrompt {
         const last20 = tickHistory.slice(-20);
         const last500 = tickHistory.slice(-500);
 
-        // Use comprehensive analysis if available, otherwise calculate basic stats
         let freqStats, gapAnalysis, serialCorrelation, entropyValue, uniformityTest;
 
         if (comprehensiveAnalysis && !comprehensiveAnalysis.error) {
-            // Use pre-calculated comprehensive analysis
             freqStats = comprehensiveAnalysis.frequencyAnalysis;
             gapAnalysis = comprehensiveAnalysis.gapAnalysis.absentDigits || [];
             serialCorrelation = comprehensiveAnalysis.serialCorrelation;
             entropyValue = comprehensiveAnalysis.entropy;
             uniformityTest = comprehensiveAnalysis.uniformityTest;
         } else {
-            // Fallback to basic calculations
             freqStats = this.calculateFrequencyStats(last500);
             gapAnalysis = this.analyzeGaps(tickHistory);
             serialCorrelation = this.calculateSerialCorrelation(tickHistory);
@@ -63,7 +547,6 @@ class EnhancedAIPrompt {
 
         const volatilityAssessment = this.assessVolatility(tickHistory);
 
-        // Format comprehensive analysis for prompt
         let comprehensiveSection = '';
         if (comprehensiveAnalysis && !comprehensiveAnalysis.error) {
             comprehensiveSection = `
@@ -82,20 +565,42 @@ class EnhancedAIPrompt {
             `;
         }
 
-        return `You are an elite statistical arbitrage AI specializing in Deriv Digit Differ prediction. You operate in a highly adversarial environment where the platform actively learns from and counters successful strategies. Your predictability is your greatest vulnerability.
+        // Add Kelly Criterion context
+        let kellySection = '';
+        if (kellyStatus) {
+            kellySection = `
+            === CAPITAL & RISK STATUS ===
+            Current Capital: $${kellyStatus.currentCapital.toFixed(2)}
+            Drawdown: ${kellyStatus.currentDrawdown.toFixed(1)}%
+            Session P/L: $${kellyStatus.sessionPnL.toFixed(2)}
+            Rolling Win Rate: ${(kellyStatus.rollingWinRate * 100).toFixed(1)}%
+            Recovery Mode: ${kellyStatus.recoveryMode ? 'ACTIVE' : 'Inactive'}
+            
+            RISK GUIDANCE:
+            ${kellyStatus.currentDrawdown > 15 ? '⚠️ HIGH DRAWDOWN - Be conservative' : '✅ Drawdown acceptable'}
+            ${kellyStatus.rollingWinRate < 0.45 ? '⚠️ LOW WIN RATE - Increase confidence threshold' : '✅ Win rate healthy'}
+            `;
+        }
+
+        return `You are an elite statistical arbitrage AI specializing in Deriv Digit Differ prediction with Kelly Criterion risk management.
+
+            === KELLY CRITERION INTEGRATION ===
+            You are part of an AI-managed trading system that uses Kelly Criterion for position sizing.
+            Your confidence score DIRECTLY affects stake size:
+            - 90%+ confidence = Full position
+            - 80-89% = 80% position
+            - 70-79% = 50% position
+            - 60-69% = 25% position
+            - Below 60% = Trade should be SKIPPED
+            
+            BE ACCURATE with confidence - overconfidence leads to overleveraging!
+            ${kellySection}
 
             === ADVERSARIAL REALITY ===
-            The Deriv platform is not passive - it is an intelligent opponent that:
+            The Deriv platform is an intelligent opponent that:
             - Observes and adapts to successful prediction patterns
-            - Actively counters strategies that show consistent profitability  
-            - May adjust digit generation to neutralize your historical advantages
-            - Exploites predictable behavioral patterns
-
-            Your survival depends on:
-            1. Continuous strategy evolution and randomization
-            2. Statistical rigor over pattern chasing
-            3. Regime-aware adaptation
-            4. Never repeating the same approach consecutively
+            - Actively counters strategies showing consistent profitability
+            - Exploits predictable behavioral patterns
 
             === CURRENT MARKET CONTEXT ===
             Asset: ${currentAsset}
@@ -110,115 +615,43 @@ class EnhancedAIPrompt {
             ${Array.isArray(freqStats) ? this.formatFrequencyStats(freqStats) : 'Calculating...'}
 
             Gap Analysis (Digits absent in last 25 ticks): ${Array.isArray(gapAnalysis) ? gapAnalysis.join(', ') : 'None'}
-            Serial Correlation: ${serialCorrelation ? serialCorrelation.toFixed(4) : '0.0000'} (${Math.abs(serialCorrelation) > 0.1 ? 'Significant' : 'Negligible'})
+            Serial Correlation: ${serialCorrelation ? serialCorrelation.toFixed(4) : '0.0000'}
 
-            === MANDATORY PREDICTION PRINCIPLES ===
-            You MUST predict the digit that will NOT appear in the next tick (Digit Differ).
-
-            APPROVED STATISTICAL METHODS ONLY:
-            1. FREQUENCY DEVIATION ANALYSIS
-            - Target digits appearing significantly below 10% frequency
-            - Require statistical significance (p < 0.05)
-            - Apply chi-square test for uniformity
-
-            2. ENTROPY AND DISTRIBUTION ANALYSIS  
-            - Calculate information entropy of recent digits
-            - Identify digits with maximum divergence from uniform distribution
-            - Use KL-divergence for distribution comparison
-
-            3. REGIME-AWARE PATTERN DETECTION
-            - Adjust methods based on current market regime
-            - Use different strategies for trending vs ranging markets
-            - Apply volatility-adjusted confidence intervals
-
-            4. VOLATILITY-ADJUSTED FORECASTING
-            - Reduce confidence during high volatility periods
-            - Increase sample size requirements during uncertainty
-            - Use GARCH models for volatility prediction
-
-            FORBIDDEN APPROACHES:
-            - Pattern matching without statistical validation
-            - Numerology or superstitious reasoning
-            - Chasing recent streaks without statistical basis
-            - Copying previous successful predictions
-
-            === ADAPTIVE STRATEGY PROTOCOL ===
-            After ANY loss (consecutiveLosses ≥ 1):
-            1. Immediately switch to conservative statistical method
-            2. Blacklist the losing method for next 3 decisions
-            3. Increase sample size requirements by 50%
-            4. Reduce confidence threshold by 20%
-
-            Performance Tracking:
-            - Maintain ledger of method effectiveness by regime
-            - Favor methods with recent wins in current regime
-            - Trigger complete strategy reset after 3 losses in 5 trades
-
-            === CONFIDENCE REQUIREMENTS ===
-            Confidence MUST reflect true statistical certainty:
-            - 95%+: Strong statistical evidence, multiple methods agree
-            - 85-94%: Moderate evidence, single strong method
-            - 70-84%: Weak evidence, trade not recommended
-            - <70%: Insufficient evidence, mandatory skip
-
-            Statistical Validation Requirements:
-            - Minimum 100 observations for frequency analysis
-            - P-value < 0.05 for significance claims
-            - Confidence intervals for all probability estimates
-            - Bayesian updating for model weights
-
-            === MARKET REGIME ADAPTATION ===
-            Current Regime: ${marketRegime || 'Unknown'}
-
-            Regime-Specific Guidelines:
-            - TRENDING: Focus on momentum-resistant digits, reduce position size
-            - RANGING: Emphasize mean reversion, standard confidence
-            - VOLATILE: Conservative approach, require higher confidence threshold
-            - STABLE: Normal operation, standard statistical methods
+            === PREDICTION TASK ===
+            Predict the digit (0-9) that will NOT appear in the next tick (Digit Differ).
+            
+            CRITICAL: Your confidence score is used for Kelly Criterion stake sizing!
+            - If uncertain, give LOWER confidence (50-70%)
+            - Only give 85%+ if statistical evidence is STRONG
+            - Consider recommending SKIP if evidence is weak
 
             === OUTPUT FORMAT (STRICT JSON) ===
             {
-            "predictedDigit": X,
-            "confidence": XX,
-            "primaryStrategy": "Statistical-Method-Name",
-            "marketRegime": "trending/ranging/volatile/stable",
-            "riskAssessment": "low/medium/high",
-            "statisticalEvidence": {
-                "frequencyAnalysis": {
-                "digitFrequency": X.X%,
-                "expectedFrequency": 10.0%,
-                "deviation": X.X%,
-                "significance": "p=X.XXX"
+                "predictedDigit": X,
+                "confidence": XX,
+                "primaryStrategy": "Method-Name",
+                "marketRegime": "trending/ranging/volatile/stable/random",
+                "riskAssessment": "low/medium/high",
+                "recommendedAction": "TRADE/SKIP/WAIT",
+                "kellyAdjustment": "full/reduced/minimal",
+                "statisticalEvidence": {
+                    "frequencyDeviation": X.X,
+                    "gapLength": X,
+                    "entropyLevel": "high/medium/low",
+                    "confidenceInterval": "XX-XX%"
                 },
-                "gapAnalysis": {
-                "absentForTicks": X,
-                "maxHistoricalGap": X,
-                "gapPercentile": XX%
-                },
-                "volatilityAdjusted": true/false,
-                "serialCorrelation": X.XXXX,
-                "sampleSize": XXX
-            },
-            "methodRationale": "Detailed explanation of statistical reasoning",
-            "alternativeCandidates": [X, Y, Z],
-            "skipRecommendation": "reason or null"
+                "methodRationale": "Detailed explanation",
+                "alternativeCandidates": [X, Y],
+                "skipReason": "reason or null"
             }
 
-            === CRITICAL REMINDERS ===
-            - You are not just predicting - you are strategically selecting only high-certainty battles
-            - The platform adapts to your patterns - maintain unpredictability
-            - Statistical rigor is your only defense against market randomness
-            - When in doubt, reduce confidence or skip the trade entirely
-            - Your goal is long-term survival, not short-term gains
-
-            Generate your prediction based on the statistical evidence provided. Remember: predict the digit that will NOT appear in the next tick.
+            Generate your prediction with accurate confidence scoring for Kelly Criterion integration.
         `;
     }
 
     static calculateFrequencyStats(digits) {
         const counts = Array(10).fill(0);
         digits.forEach(d => counts[d]++);
-
         const total = digits.length;
         return counts.map((count, digit) => ({
             digit,
@@ -241,51 +674,56 @@ class EnhancedAIPrompt {
         if (tickHistory.length < 50) {
             return { level: 'Unknown', value: 0 };
         }
-
-        // Calculate rolling standard deviation
         const recent = tickHistory.slice(-50);
         const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
         const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
         const stdDev = Math.sqrt(variance);
-
         let level = 'Low';
         if (stdDev > 3) level = 'High';
         else if (stdDev > 2) level = 'Medium';
-
         return { level, value: stdDev };
     }
 
     static calculateSerialCorrelation(tickHistory) {
         if (tickHistory.length < 50) return 0;
-
         const recent = tickHistory.slice(-50);
         const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
-
         let numerator = 0;
         let denominator = 0;
-
         for (let i = 0; i < recent.length - 1; i++) {
             numerator += (recent[i] - mean) * (recent[i + 1] - mean);
             denominator += Math.pow(recent[i] - mean, 2);
         }
-
         return denominator > 0 ? numerator / denominator : 0;
     }
 
     static formatFrequencyStats(stats) {
         return stats
             .sort((a, b) => parseFloat(a.frequency) - parseFloat(b.frequency))
-            .map(s => `Digit ${s.digit}: ${s.frequency}% (${s.count}/500) | Deviation: ${s.deviation}%`)
+            .map(s => `Digit ${s.digit}: ${s.frequency}% | Deviation: ${s.deviation}%`)
             .join('\n');
     }
 }
 
+// ==================== MAIN BOT CLASS ====================
+
 class AIDigitDifferBot {
     constructor(config = {}) {
         // Deriv Configuration
-        this.token = config.derivToken || process.env.DERIV_TOKENs;
+        this.token = config.derivToken || process.env.DERIV_TOKEN;
 
-        // AI Model API Keys - Fixed parsing
+        // Initialize Kelly Criterion Manager with investment capital
+        this.kellyManager = new KellyCriterionManager({
+            investmentCapital: config.investmentCapital || 500,
+            kellyFraction: config.kellyFraction || 0.25,
+            minStake: config.minStake || 0.35,
+            maxStakePercent: config.maxStakePercent || 5,
+            maxDrawdownPercent: config.maxDrawdownPercent || 25,
+            dailyLossLimit: config.dailyLossLimit || 50,
+            dailyProfitTarget: config.dailyProfitTarget || 100
+        });
+
+        // AI Model API Keys
         this.aiModels = {
             gemini: {
                 keys: this.parseGeminiKeys(process.env.GEMINI_API_nKEYS),
@@ -323,28 +761,9 @@ class AIDigitDifferBot {
                 enabled: false,
                 name: 'SambaNova',
                 weight: 1.0
-            },
-            qwen: {
-                key: (process.env.DASHSCOPE_API_KEY || '').trim(),
-                enabled: false,
-                name: 'Qwen',
-                weight: 1.1
-            },
-            kimi: {
-                key: (process.env.MOONSHOT_API_KEY || '').trim(),
-                enabled: false,
-                name: 'Kimi',
-                weight: 1.1
-            },
-            siliconflow: {
-                key: (process.env.SILICONFLOW_API_KEY || '').trim(),
-                enabled: false,
-                name: 'SiliconFlow',
-                weight: 1.2
             }
         };
 
-        // Enable models with valid keys
         this.initializeAIModels();
 
         // WebSocket
@@ -357,45 +776,33 @@ class AIDigitDifferBot {
             'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
         ];
 
-        // Trading Configuration - UPGRADED WITH SAFE RISK MANAGEMENT
+        // Trading Configuration
         this.config = {
-            initialStake: config.initialStake || 5,
-            baseStake: config.baseStake || 5,
-            maxStakePercent: config.maxStakePercent || 2, // Max 2% of balance per trade
-            maxConsecutiveLosses: config.maxConsecutiveLosses || 5, // Increased from 3
-            stopLoss: config.stopLoss || 25, // Reduced from 67% to 25%
-            takeProfit: config.takeProfit || 50, // Reduced from 100% to 50%
-            multiplier: config.multiplier || 11.3,
             requiredHistoryLength: config.requiredHistoryLength || 500,
-            minConfidence: config.minConfidence || 75, // Increased from 60 to 75
+            minConfidence: config.minConfidence || 70,
             minModelsAgreement: config.minModelsAgreement || 2,
+            maxConsecutiveLosses: config.maxConsecutiveLosses || 6,
             maxReconnectAttempts: config.maxReconnectAttempts || 10000,
             reconnectInterval: config.reconnectInterval || 5000,
-            tradeCooldown: config.tradeCooldown || 5000, // Increased from 3000
-            minWaitTime: config.minWaitTime || 15000, // Increased from 10000
-            maxWaitTime: config.maxWaitTime || 90000, // Increased from 60000
+            tradeCooldown: config.tradeCooldown || 5000,
+            minWaitTime: config.minWaitTime || 15000,
+            maxWaitTime: config.maxWaitTime || 90000,
         };
 
         // Trading State
-        this.currentStake = this.config.initialStake;
-        this.consecutiveWins = 0; // Track wins for Anti-Martingale
         this.currentAsset = null;
         this.usedAssets = new Set();
         this.consecutiveLosses = 0;
+        this.consecutiveWins = 0;
         this.currentTradeId = null;
         this.tickSubscriptionId = null;
-        this.tradingHistory = []; // Track all trades for performance analysis
-        this.lastTradeResult = null; // 'won' or 'lost'
+        this.tradingHistory = [];
+        this.lastTradeResult = null;
 
         // Statistics
         this.totalTrades = 0;
         this.totalWins = 0;
         this.totalLosses = 0;
-        this.consecutiveLosses2 = 0;
-        this.consecutiveLosses3 = 0;
-        this.consecutiveLosses4 = 0;
-        this.consecutiveLosses5 = 0;
-        this.totalPnL = 0;
         this.balance = 0;
         this.sessionStartBalance = 0;
 
@@ -410,7 +817,6 @@ class AIDigitDifferBot {
         this.lastConfidence = 0;
         this.previousPredictions = [];
         this.predictionOutcomes = [];
-        this.winningPatterns = new Map();
         this.tradeMethod = [];
         this.currentPrediction = null;
         this.RestartTrading = true;
@@ -434,26 +840,23 @@ class AIDigitDifferBot {
         this.isShuttingDown = false;
         this.isReconnecting = false;
 
-        // Telegram Configuration (using Token 2 and Chat ID 2)
-        this.telegramToken = process.env.TELEGRAM_BOT_TOKEN2;
-        this.telegramChatId = process.env.TELEGRAM_CHAT_ID2;
+        // Telegram Configuration
+        this.telegramToken = process.env.TELEGRAM_BOT_TOKEN;
+        this.telegramChatId = process.env.TELEGRAM_CHAT_ID;
         this.telegramEnabled = !!(this.telegramToken && this.telegramChatId);
 
         if (this.telegramEnabled) {
             this.telegramBot = new TelegramBot(this.telegramToken, { polling: false });
-        } else {
-            console.log('📱 Telegram notifications disabled (missing API keys).');
         }
 
-        // Session tracking
         this.sessionStartTime = new Date();
 
         console.log('\n' + '='.repeat(60));
-        console.log('🤖 AI DIGIT DIFFER TRADING BOT v3.0');
+        console.log('🤖 AI DIGIT DIFFER TRADING BOT v4.0');
+        console.log('   Kelly Criterion Risk Management System');
         console.log('='.repeat(60));
         this.logActiveModels();
 
-        // Start telegram timer
         if (this.telegramEnabled) {
             this.startTelegramTimer();
         }
@@ -461,34 +864,21 @@ class AIDigitDifferBot {
 
     // ==================== INITIALIZATION ====================
 
-    // Fixed: Properly parse Gemini keys
     parseGeminiKeys(keysString) {
         if (!keysString || typeof keysString !== 'string') return [];
-
-        // Remove quotes, newlines, and extra whitespace
         const cleaned = keysString.replace(/["'\r\n]/g, ' ').trim();
         if (!cleaned) return [];
-
-        // Check if it contains commas (multiple keys)
         if (cleaned.includes(',')) {
-            return cleaned.split(',')
-                .map(k => k.trim())
-                .filter(k => k.length > 20); // API keys are typically long
+            return cleaned.split(',').map(k => k.trim()).filter(k => k.length > 20);
         }
-
-        // Single key or space-separated
-        const parts = cleaned.split(/\s+/).filter(k => k.length > 20);
-        return parts;
+        return cleaned.split(/\s+/).filter(k => k.length > 20);
     }
 
     initializeAIModels() {
-        // Check and enable Gemini
         if (this.aiModels.gemini.keys.length > 0) {
             this.aiModels.gemini.enabled = true;
         }
-
-        // Check and enable other models
-        for (const key of ['groq', 'openrouter', 'mistral', 'cerebras', 'sambanova', 'qwen', 'kimi', 'siliconflow']) {
+        for (const key of ['groq', 'openrouter', 'mistral', 'cerebras', 'sambanova']) {
             const apiKey = this.aiModels[key].key;
             if (apiKey && apiKey.length > 10) {
                 this.aiModels[key].enabled = true;
@@ -499,41 +889,26 @@ class AIDigitDifferBot {
     logActiveModels() {
         console.log('\n📊 Active AI Models:');
         let activeCount = 0;
-
         for (const [key, model] of Object.entries(this.aiModels)) {
             const status = model.enabled ? '✅' : '❌';
             let extra = '';
-
             if (key === 'gemini' && model.enabled) {
                 extra = `(${model.keys.length} key${model.keys.length > 1 ? 's' : ''})`;
             }
-
             console.log(`   ${status} ${model.name} ${extra}`);
             if (model.enabled) activeCount++;
         }
-
         console.log(`\n   Total Active: ${activeCount} models`);
-
         if (activeCount === 0) {
             console.log('\n⚠️  WARNING: No AI models configured!');
-            console.log('   The bot will use statistical analysis only.');
-            console.log('   Add API keys to .env file for better predictions.\n');
         }
         console.log('='.repeat(60) + '\n');
     }
 
-    // ==================== WEBSOCKET CONNECTION (FIXED) ====================
+    // ==================== WEBSOCKET CONNECTION ====================
 
     connect() {
-        if (this.isShuttingDown) {
-            console.log('Bot is shutting down, not reconnecting.');
-            return;
-        }
-
-        if (this.connected) {
-            console.log('Already connected.');
-            return;
-        }
+        if (this.isShuttingDown || this.connected) return;
 
         console.log('🔌 Connecting to Deriv API...');
 
@@ -562,12 +937,11 @@ class AIDigitDifferBot {
                 console.error('❌ WebSocket error:', error.message);
             });
 
-            this.ws.on('close', (code, reason) => {
-                console.log(`🔌 Disconnected from Deriv API (code: ${code})`);
+            this.ws.on('close', (code) => {
+                console.log(`🔌 Disconnected (code: ${code})`);
                 this.connected = false;
                 this.wsReady = false;
                 this.ws = null;
-
                 if (!this.isPaused && !this.isShuttingDown) {
                     this.handleDisconnect();
                 }
@@ -588,37 +962,28 @@ class AIDigitDifferBot {
                 console.error('Error sending request:', error.message);
                 return false;
             }
-        } else {
-            console.log('⏳ WebSocket not ready.');
-            return false;
         }
+        return false;
     }
 
-    // Fixed: Improved reconnection logic
     handleDisconnect() {
-        if (this.isReconnecting || this.isShuttingDown) {
-            return;
-        }
+        if (this.isReconnecting || this.isShuttingDown) return;
 
         this.connected = false;
         this.wsReady = false;
         this.isReconnecting = true;
 
-        // Clean up old WebSocket
         if (this.ws) {
             try {
                 this.ws.removeAllListeners();
                 this.ws.terminate();
-            } catch (e) {
-                // Ignore cleanup errors
-            }
+            } catch (e) { }
             this.ws = null;
         }
 
         this.reconnectAttempts++;
-
         const delay = Math.min(this.config.reconnectInterval * (this.reconnectAttempts + 1), 30000);
-        console.log(`🔄 Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts + 1})...`);
+        console.log(`🔄 Reconnecting in ${delay / 1000}s...`);
 
         setTimeout(() => {
             this.isReconnecting = false;
@@ -631,34 +996,25 @@ class AIDigitDifferBot {
         this.sendRequest({ authorize: this.token });
     }
 
-    // Fixed: Proper disconnect method
     disconnect() {
-        console.log('Disconnecting...');
         this.connected = false;
         this.wsReady = false;
-
         if (this.ws) {
             try {
                 this.ws.removeAllListeners();
                 this.ws.close();
-            } catch (e) {
-                // Ignore
-            }
+            } catch (e) { }
             this.ws = null;
         }
     }
 
     shutdown() {
-        console.log('\n🛑 Bot task completed. Entering SUSPEND mode...');
+        console.log('\n🛑 Shutting down...');
         this.isShuttingDown = true;
         this.isPaused = true;
         this.logFinalSummary();
         this.disconnect();
-
-        console.log('💤 Bot is now sleeping to prevent auto-restart on VPS.');
-        console.log('👉 Press Ctrl+C or use your process manager to stop it manually.');
-
-        // Keep process alive indefinitely to prevent PM2/VPS restart
+        console.log('💤 Bot stopped.');
         setInterval(() => { }, 1000 * 60 * 60);
     }
 
@@ -670,7 +1026,7 @@ class AIDigitDifferBot {
                 this.handleAuthorize(message);
                 break;
             case 'balance':
-                this.handleBalance(message);
+                // this.handleBalance(message);
                 break;
             case 'history':
                 this.handleTickHistory(message.history);
@@ -686,9 +1042,6 @@ class AIDigitDifferBot {
                     this.handleTradeResult(message.proposal_open_contract);
                 }
                 break;
-            case 'forget':
-                this.tickSubscriptionId = null;
-                break;
             default:
                 if (message.error) {
                     this.handleError(message.error);
@@ -699,24 +1052,24 @@ class AIDigitDifferBot {
     handleAuthorize(message) {
         if (message.error) {
             console.error('❌ Authentication failed:', message.error.message);
-            console.log('🔄 Retrying in 5 seconds...');
             this.scheduleReconnect(5000);
             return;
         }
 
         console.log('✅ Authentication successful');
         console.log(`👤 Account: ${message.authorize.loginid}`);
-        this.balance = message.authorize.balance;
-        this.sessionStartBalance = this.balance;
+        this.balance = this.kellyManager.investmentCapital;
+        // this.sessionStartBalance = this.balance;
+
+        // Sync Kelly Manager with actual balance
+        // this.kellyManager.currentCapital = this.balance;
+        // this.kellyManager.investmentCapital = this.balance;
+        // this.kellyManager.peakCapital = this.balance;
+
         console.log(`💰 Balance: $${this.balance.toFixed(2)}`);
 
-        // Subscribe to balance updates
         this.sendRequest({ balance: 1, subscribe: 1 });
-
-        // Reset trading state
         this.resetTradingState();
-
-        // Start trading
         this.startTrading();
     }
 
@@ -728,19 +1081,18 @@ class AIDigitDifferBot {
         this.tickSubscriptionId = null;
     }
 
-    handleBalance(message) {
-        if (message.balance) {
-            this.balance = message.balance.balance;
-        }
-    }
+    // handleBalance(message) {
+    //     if (message.balance) {
+    //         this.balance = message.balance.balance;
+    //         this.kellyManager.currentCapital = this.balance;
+    //     }
+    // }
 
     handleBuyResponse(message) {
         if (message.error) {
             console.error('❌ Trade error:', message.error.message);
             this.tradeInProgress = false;
             this.predictionInProgress = false;
-
-            // Schedule next trade attempt after error
             this.scheduleNextTrade();
             return;
         }
@@ -759,19 +1111,15 @@ class AIDigitDifferBot {
 
         switch (error.code) {
             case 'InvalidToken':
-                console.error('Invalid token. Please check your API token.');
                 this.shutdown();
                 break;
             case 'RateLimit':
-                console.log('Rate limited. Waiting 60 seconds...');
                 this.scheduleReconnect(60000);
                 break;
             case 'MarketIsClosed':
-                console.log('Market closed. Waiting 5 minutes...');
                 this.scheduleReconnect(300000);
                 break;
             default:
-                // For other errors, try to continue
                 if (!this.tradeInProgress) {
                     this.scheduleNextTrade();
                 }
@@ -782,16 +1130,15 @@ class AIDigitDifferBot {
 
     startTrading() {
         console.log('\n📈 Starting trading session...');
+        console.log(`💰 Investment Capital: $${this.kellyManager.investmentCapital.toFixed(2)}`);
         this.selectNextAsset();
     }
 
     selectNextAsset() {
-        // Reset used assets if all have been used
         if (this.usedAssets.size >= this.assets.length) {
             this.usedAssets.clear();
         }
 
-        // Select random unused asset
         if (this.RestartTrading) {
             const availableAssets = this.assets.filter(a => !this.usedAssets.has(a));
             this.currentAsset = availableAssets[Math.floor(Math.random() * availableAssets.length)];
@@ -799,20 +1146,16 @@ class AIDigitDifferBot {
         }
 
         this.RestartTrading = false;
-
         console.log(`\n🎯 Selected asset: ${this.currentAsset}`);
 
-        // Reset tick data
         this.tickHistory = [];
         this.digitCounts = Array(10).fill(0);
 
-        // Unsubscribe from previous ticks then subscribe to new
         if (this.tickSubscriptionId) {
             this.sendRequest({ forget: this.tickSubscriptionId });
         }
 
         setTimeout(() => {
-            // Request tick history
             this.sendRequest({
                 ticks_history: this.currentAsset,
                 adjust_start_time: 1,
@@ -822,7 +1165,6 @@ class AIDigitDifferBot {
                 style: 'ticks'
             });
 
-            // Subscribe to live ticks
             this.sendRequest({
                 ticks: this.currentAsset,
                 subscribe: 1
@@ -856,18 +1198,14 @@ class AIDigitDifferBot {
         if (!tick || !tick.quote) return;
 
         const lastDigit = this.getLastDigit(tick.quote, this.currentAsset);
-
-        // Add to history
         this.tickHistory.push(lastDigit);
         if (this.tickHistory.length > this.config.requiredHistoryLength) {
             this.tickHistory.shift();
         }
-
         this.digitCounts[lastDigit]++;
 
         console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
 
-        // Check if ready to analyze
         if (this.tickHistory.length >= this.config.requiredHistoryLength &&
             !this.tradeInProgress && !this.predictionInProgress) {
             this.analyzeTicks();
@@ -879,13 +1217,25 @@ class AIDigitDifferBot {
     async analyzeTicks() {
         if (this.tradeInProgress || this.predictionInProgress) return;
 
+        // Check if we should continue trading
+        const tradingStatus = this.kellyManager.shouldContinueTrading();
+        if (!tradingStatus.canTrade) {
+            console.log('\n🛑 Trading stopped by Kelly Manager:');
+            tradingStatus.reasons.forEach(r => console.log(`   - ${r}`));
+            this.shutdown();
+            return;
+        }
+
+        if (tradingStatus.warning) {
+            console.log(`\n⚠️ WARNING: Drawdown at ${tradingStatus.currentDrawdown.toFixed(1)}%`);
+        }
+
         this.predictionInProgress = true;
         console.log('\n🧠 Starting AI ensemble prediction...');
 
         const startTime = Date.now();
 
         try {
-            // Get predictions from all enabled models
             const predictions = await this.getEnsemblePredictions();
             const processingTime = (Date.now() - startTime) / 1000;
 
@@ -893,12 +1243,11 @@ class AIDigitDifferBot {
 
             if (predictions.length === 0) {
                 console.log('⚠️  No valid predictions received');
-                this.predictionInProgress = false;
+                this.predictionInProgress = true;
                 this.scheduleNextTrade();
                 return;
             }
 
-            // Calculate ensemble result
             const ensemble = this.calculateEnsembleResult(predictions);
 
             console.log('\n📊 Ensemble Result:');
@@ -906,184 +1255,114 @@ class AIDigitDifferBot {
             console.log(`   Confidence: ${ensemble.confidence}%`);
             console.log(`   Models Agree: ${ensemble.agreement}/${predictions.length}`);
             console.log(`   Risk Level: ${ensemble.risk}`);
-            console.log(`   Primary Strategy: ${ensemble.strategy || 'Mixed'}`);
 
             this.lastPrediction = ensemble.digit;
             this.lastConfidence = ensemble.confidence;
 
-            // Check if we should trade
-            // if (ensemble.confidence >= this.config.minConfidence &&
-            //     ensemble.agreement >= Math.min(this.config.minModelsAgreement, predictions.length) &&
-            //     ensemble.risk !== 'high' &&
-            //     ensemble.risk !== 'medium' &&
-            //     processingTime.toFixed(2) < 3 &&
-            //     this.lastPrediction !== this.xDigit
-            //     && ensemble.digit !== this.tickHistory[this.tickHistory.length - 1]
-            // ) {
-            //     this.xDigit = ensemble.digit;
-            //     this.placeTrade(ensemble.digit, ensemble.confidence);
-            // } else {
-            //     console.log(`⏭️  Skipping trade: conf=${ensemble.confidence}%, agree=${ensemble.agreement}, risk=${ensemble.risk}`);
-            //     this.predictionInProgress = false;
-            //     this.scheduleNextTrade();
-            // }
-
-            // NEW CODE:
+            // Get market analysis
             const marketRegime = this.detectMarketRegime(this.tickHistory);
-            const tradeDecision = this.shouldExecuteTrade(ensemble, marketRegime, this.config);
+            const volatility = this.getVolatilityLevel(this.tickHistory);
 
-            if (tradeDecision.execute && processingTime.toFixed(2) < 3) {
-                this.placeTrade(ensemble.digit, ensemble.confidence);
+            // Calculate optimal stake using Kelly Criterion
+            const winRate = this.kellyManager.getRollingWinRate();
+            const payout = this.kellyManager.getPayoutForAsset(this.currentAsset);
+
+            const kellyResult = this.kellyManager.calculateOptimalStake({
+                winProbability: Math.max(0.4, Math.min(0.7, winRate + (ensemble.confidence - 50) / 200)),
+                payout: payout,
+                confidence: ensemble.confidence,
+                marketRegime: marketRegime,
+                consecutiveLosses: this.consecutiveLosses,
+                consecutiveWins: this.consecutiveWins,
+                volatility: volatility
+            });
+
+            console.log(`\n💰 Kelly Criterion Result:`);
+            console.log(`   Optimal Stake: $${kellyResult.stake.toFixed(2)}`);
+            console.log(`   Risk Level: ${kellyResult.riskLevel}`);
+            console.log(`   Recommendation: ${kellyResult.recommendation}`);
+
+            // Decide whether to trade
+            const tradeDecision = this.shouldExecuteTrade(ensemble, marketRegime, kellyResult);
+
+            if (tradeDecision.execute && processingTime < 3) {
+                this.placeTrade(ensemble.digit, ensemble.confidence, kellyResult.stake);
             } else {
                 console.log(`⏭️ Skipping trade: ${tradeDecision.reason}`);
-                this.predictionInProgress = false;
+                this.predictionInProgress = true;
                 this.scheduleNextTrade();
             }
 
-
         } catch (error) {
             console.error('❌ Prediction error:', error.message);
-            this.predictionInProgress = false;
+            this.predictionInProgress = true;
             this.scheduleNextTrade();
         }
     }
 
-    /**
-     * Intelligent Trade Decision Logic
-     * Determines if a trade should be executed based on multiple factors
-     */
-    shouldExecuteTrade(ensemble, marketRegime, config) {
+    shouldExecuteTrade(ensemble, marketRegime, kellyResult) {
         const reasons = [];
         let execute = true;
 
-        // 1. Confidence Check
-        if (ensemble.confidence < config.minConfidence) {
+        if (ensemble.confidence < this.config.minConfidence) {
             execute = false;
-            reasons.push(`Low confidence: ${ensemble.confidence}% < ${config.minConfidence}%`);
+            reasons.push(`Low confidence: ${ensemble.confidence}%`);
         }
 
-        // 2. Model Agreement Check
-        const minAgreement = Math.min(config.minModelsAgreement, ensemble.totalModels || 1);
-        if (ensemble.agreement < minAgreement) {
+        if (kellyResult.recommendation === 'SKIP - Confidence too low') {
             execute = false;
-            reasons.push(`Low agreement: ${ensemble.agreement}/${ensemble.totalModels || 'N/A'} models`);
+            reasons.push('Kelly recommends skip');
         }
 
-        // 3. Risk Assessment Check
         if (ensemble.risk === 'high') {
             execute = false;
-            reasons.push(`High risk assessment`);
+            reasons.push('High risk assessment');
         }
 
-        // 4. Medium Risk in Volatile Markets
-        // if (ensemble.risk === 'medium' && (marketRegime === 'volatile' || marketRegime === 'random')) {
-        //     execute = false;
-        //     reasons.push(`Medium risk in ${marketRegime} market`);
-        // }
-
-        // 5. Regime-Specific Confidence Adjustment
-        if (marketRegime === 'volatile' && ensemble.confidence < config.minConfidence + 10) {
+        if (marketRegime === 'volatile' && ensemble.confidence < 80) {
             execute = false;
-            reasons.push(`Volatile market requires ${config.minConfidence + 10}% confidence`);
+            reasons.push('Volatile market needs 80%+ confidence');
         }
 
-        if (marketRegime === 'random' && ensemble.confidence < config.minConfidence + 15) {
+        if (marketRegime === 'random' && ensemble.confidence < 85) {
             execute = false;
-            reasons.push(`Random market requires ${config.minConfidence + 15}% confidence`);
+            reasons.push('Random market needs 85%+ confidence');
         }
 
-        // 6. Avoid Repeating Same Prediction
-        if (this.lastPrediction === ensemble.digit && this.xDigit === ensemble.digit) {
-            execute = false;
-            reasons.push(`Already predicted digit ${ensemble.digit}`);
-        }
-
-        // 7. Avoid Predicting Current Tick's Digit
         const lastTickDigit = this.tickHistory[this.tickHistory.length - 1];
         if (ensemble.digit === lastTickDigit) {
             execute = false;
-            reasons.push(`Digit ${ensemble.digit} just appeared in last tick`);
+            reasons.push(`Digit ${ensemble.digit} just appeared`);
         }
 
-        // 8. Check Comprehensive Analysis (if available)
-        if (this.tickHistory.length >= 100) {
-            const analysis = this.performComprehensiveAnalysis(this.tickHistory, 100);
-
-            // If market is highly uniform (random), require higher confidence
-            if (analysis.uniformityTest && analysis.uniformityTest.isUniform) {
-                if (ensemble.confidence < config.minConfidence + 10) {
-                    execute = false;
-                    reasons.push(`Uniform distribution requires higher confidence`);
-                }
-            }
-
-            // If entropy is very high (random), be more cautious
-            if (analysis.entropy && analysis.entropy > 0.95) {
-                if (ensemble.confidence < config.minConfidence + 15) {
-                    execute = false;
-                    reasons.push(`High entropy (${analysis.entropy.toFixed(2)}) requires higher confidence`);
-                }
-            }
-
-            // Check if predicted digit has a significant gap
-            if (analysis.gapAnalysis && analysis.gapAnalysis.absentDigits) {
-                const isAbsent = analysis.gapAnalysis.absentDigits.includes(ensemble.digit);
-                if (isAbsent) {
-                    // Boost confidence for absent digits
-                    console.log(`✅ Digit ${ensemble.digit} has been absent - good prediction target`);
-                } else {
-                    // Digit appeared recently, be more cautious
-                    if (ensemble.confidence < config.minConfidence + 5) {
-                        execute = false;
-                        reasons.push(`Digit ${ensemble.digit} appeared recently, needs higher confidence`);
-                    }
-                }
-            }
-        }
-
-        // 9. Balance Check
-        // if (this.balance < config.initialStake * 2) {
-        //     execute = false;
-        //     reasons.push(`Low balance: $${this.balance.toFixed(2)}`);
-        // }
-
-        // 10. Consecutive Losses Check (extra caution)
-        if (this.consecutiveLosses >= 3 && ensemble.confidence < config.minConfidence + 10) {
+        if (this.consecutiveLosses >= 4 && ensemble.confidence < 85) {
             execute = false;
-            reasons.push(`${this.consecutiveLosses} consecutive losses - need ${config.minConfidence + 10}% confidence`);
+            reasons.push('4+ losses need 85%+ confidence');
         }
 
-        // Build result
-        const result = {
-            execute: execute,
-            reason: execute
-                ? `✅ All checks passed (Conf: ${ensemble.confidence}%, Risk: ${ensemble.risk}, Regime: ${marketRegime})`
-                : reasons.join(' | '),
-            confidence: ensemble.confidence,
-            risk: ensemble.risk,
-            regime: marketRegime
+        return {
+            execute,
+            reason: execute ? 'All checks passed' : reasons.join(' | ')
         };
+    }
 
-        // Log decision details
-        if (!execute) {
-            console.log(`\n🚫 Trade Decision: SKIP`);
-            console.log(`   Reasons: ${result.reason}`);
-        } else {
-            console.log(`\n✅ Trade Decision: EXECUTE`);
-            console.log(`   Confidence: ${ensemble.confidence}%`);
-            console.log(`   Risk: ${ensemble.risk}`);
-            console.log(`   Market Regime: ${marketRegime}`);
-            console.log(`   Agreement: ${ensemble.agreement} models`);
-        }
+    getVolatilityLevel(tickHistory) {
+        if (tickHistory.length < 50) return 'medium';
+        const recent = tickHistory.slice(-50);
+        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+        const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
+        const stdDev = Math.sqrt(variance);
 
-        return result;
+        if (stdDev > 3.5) return 'extreme';
+        if (stdDev > 2.8) return 'high';
+        if (stdDev > 2.0) return 'medium';
+        return 'low';
     }
 
     async getEnsemblePredictions() {
         const predictions = [];
         const promises = [];
 
-        // Launch all AI predictions in parallel
         if (this.aiModels.gemini.enabled) {
             promises.push(
                 this.predictWithGemini()
@@ -1126,42 +1405,15 @@ class AIDigitDifferBot {
                     .catch(e => ({ error: e.message, model: 'sambanova' }))
             );
         }
-        if (this.aiModels.qwen.enabled) {
-            promises.push(
-                this.predictWithQwen()
-                    .then(r => { r.model = 'qwen'; return r; })
-                    .catch(e => ({ error: e.message, model: 'qwen' }))
-            );
-        }
-        if (this.aiModels.kimi.enabled) {
-            promises.push(
-                this.predictWithKimi()
-                    .then(r => { r.model = 'kimi'; return r; })
-                    .catch(e => ({ error: e.message, model: 'kimi' }))
-            );
-        }
-        if (this.aiModels.siliconflow.enabled) {
-            promises.push(
-                this.predictWithSiliconFlow()
-                    .then(r => { r.model = 'siliconflow'; return r; })
-                    .catch(e => ({ error: e.message, model: 'siliconflow' }))
-            );
-        }
 
-        // Wait for all predictions with timeout
         const results = await Promise.race([
             Promise.all(promises),
             new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 45000))
-        ]).catch(e => {
-            console.log(`⚠️ Prediction timeout or error: ${e.message}`);
-            return [];
-        });
+        ]).catch(() => []);
 
-        // Process results
         for (const result of results) {
             if (result && !result.error && typeof result.predictedDigit === 'number') {
                 predictions.push(result);
-                // Store current prediction for feedback loop
                 if (this.modelPerformance[result.model]) {
                     this.modelPerformance[result.model].currentPrediction = result.predictedDigit;
                 }
@@ -1171,27 +1423,23 @@ class AIDigitDifferBot {
             }
         }
 
-        // Always add statistical prediction as baseline
         const statPrediction = this.statisticalPrediction();
         predictions.push(statPrediction);
-        console.log(`   📈 Statistical: digit=${statPrediction.predictedDigit}, conf = ${statPrediction.confidence}% `);
+        console.log(`   📈 Statistical: digit=${statPrediction.predictedDigit}, conf=${statPrediction.confidence}%`);
 
         return predictions;
     }
 
     calculateEnsembleResult(predictions) {
-        // Weighted voting
         const votes = Array(10).fill(0);
         const confidences = Array(10).fill().map(() => []);
         let totalRisk = 0;
         let regime = null;
-        let strategy = null;
 
         for (const pred of predictions) {
             const digit = pred.predictedDigit;
             const weight = this.aiModels[pred.model]?.weight || 1.0;
 
-            // Apply performance-based weight adjustment
             const perf = this.modelPerformance[pred.model];
             let performanceMultiplier = 1.0;
             if (perf && (perf.wins + perf.losses) >= 5) {
@@ -1206,10 +1454,8 @@ class AIDigitDifferBot {
                 totalRisk += pred.riskAssessment === 'high' ? 3 : pred.riskAssessment === 'medium' ? 2 : 1;
             }
             if (pred.marketRegime && !regime) regime = pred.marketRegime;
-            if (pred.primaryStrategy && !strategy) strategy = pred.primaryStrategy;
         }
 
-        // Find digit with highest weighted votes
         let maxVotes = 0;
         let winningDigit = 0;
         for (let i = 0; i < 10; i++) {
@@ -1219,17 +1465,14 @@ class AIDigitDifferBot {
             }
         }
 
-        // Count raw agreement
         const rawVotes = Array(10).fill(0);
         predictions.forEach(p => rawVotes[p.predictedDigit]++);
         const agreement = rawVotes[winningDigit];
 
-        // Calculate average confidence
         const avgConfidence = confidences[winningDigit].length > 0
             ? Math.round(confidences[winningDigit].reduce((a, b) => a + b, 0) / confidences[winningDigit].length)
             : 50;
 
-        // Determine overall risk
         const avgRisk = totalRisk / predictions.length;
         const risk = avgRisk >= 2.5 ? 'high' : avgRisk >= 1.5 ? 'medium' : 'low';
 
@@ -1239,92 +1482,100 @@ class AIDigitDifferBot {
             agreement,
             risk,
             regime,
-            strategy
+            totalModels: predictions.length
         };
     }
 
-    // Add comprehensive statistical analysis
+    detectMarketRegime(tickHistory) {
+        if (tickHistory.length < 100) return 'unknown';
+
+        const recent = tickHistory.slice(-100);
+        const volatility = this.calculateVolatility(recent);
+        const entropy = this.calculateEntropy(recent);
+
+        if (volatility > 2.8) return 'volatile';
+        if (entropy > 0.97) return 'random';
+        if (volatility < 2.0) return 'stable';
+        return 'ranging';
+    }
+
+    calculateVolatility(digits) {
+        if (digits.length < 20) return 0;
+        const mean = digits.reduce((a, b) => a + b, 0) / digits.length;
+        const variance = digits.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / digits.length;
+        return Math.sqrt(variance);
+    }
+
+    calculateEntropy(digits) {
+        const counts = Array(10).fill(0);
+        digits.forEach(d => counts[d]++);
+        const total = digits.length;
+        let entropy = 0;
+        for (const count of counts) {
+            if (count > 0) {
+                const p = count / total;
+                entropy -= p * Math.log2(p);
+            }
+        }
+        return entropy / Math.log2(10);
+    }
+
     performComprehensiveAnalysis(tickHistory, minSampleSize = 100) {
         if (tickHistory.length < minSampleSize) {
-            return { error: 'Insufficient data for statistical analysis' };
+            return { error: 'Insufficient data' };
         }
 
         const sample = tickHistory.slice(-minSampleSize);
-
-        return {
-            frequencyAnalysis: this.analyzeDigitFrequency(sample),
-            gapAnalysis: this.analyzeDigitGaps(sample),
-            serialCorrelation: this.calculateSerialCorrelation(sample),
-            entropy: this.calculateEntropy(sample),
-            uniformityTest: this.performChiSquareTest(sample),
-            volatility: this.calculateVolatility(sample),
-            regime: this.detectMarketRegime(sample)
-        };
-    }
-
-    // Add frequency analysis
-    analyzeDigitFrequency(digits) {
         const counts = Array(10).fill(0);
-        digits.forEach(d => counts[d]++);
+        sample.forEach(d => counts[d]++);
 
-        const total = digits.length;
-        return counts.map((count, digit) => ({
-            digit,
-            count,
-            frequency: count / total,
-            deviation: (count / total - 0.1) * 100,
-            zScore: (count / total - 0.1) / Math.sqrt(0.1 * 0.9 / total)
-        }));
-    }
-
-    /**
-     * Analyze digit gaps - which digits haven't appeared recently
-     */
-    analyzeDigitGaps(digits) {
-        if (digits.length < 25) return { gaps: [], maxGap: 0, absentDigits: [] };
-
-        const last25 = new Set(digits.slice(-25));
+        const last25 = new Set(sample.slice(-25));
         const gaps = [];
-
         for (let i = 0; i < 10; i++) {
             if (!last25.has(i)) {
-                // Find how long this digit has been absent
                 let gapLength = 0;
-                for (let j = digits.length - 1; j >= 0; j--) {
-                    if (digits[j] === i) break;
+                for (let j = sample.length - 1; j >= 0; j--) {
+                    if (sample[j] === i) break;
                     gapLength++;
                 }
                 gaps.push({ digit: i, gapLength });
             }
         }
 
-        const maxGap = gaps.length > 0 ? Math.max(...gaps.map(g => g.gapLength)) : 0;
-
         return {
-            gaps: gaps.sort((a, b) => b.gapLength - a.gapLength),
-            maxGap,
-            absentDigits: gaps.map(g => g.digit)
+            sampleSize: sample.length,
+            frequencyAnalysis: counts.map((count, digit) => ({
+                digit,
+                count,
+                frequency: count / sample.length
+            })),
+            gapAnalysis: {
+                gaps: gaps.sort((a, b) => b.gapLength - a.gapLength),
+                absentDigits: gaps.map(g => g.digit)
+            },
+            entropy: this.calculateEntropy(sample),
+            serialCorrelation: this.calculateSerialCorrelation(sample),
+            uniformityTest: this.performChiSquareTest(sample),
+            regime: this.detectMarketRegime(sample)
         };
     }
 
-    /**
-     * Calculate serial correlation (already exists but adding here for completeness)
-     * This is a duplicate - will be handled by the existing one
-     */
-    // calculateSerialCorrelation is already defined in Kelly Criterion section
-
-    /**
-     * Perform Chi-Square test for uniformity
-     * Tests if digit distribution is significantly different from uniform
-     */
-    performChiSquareTest(digits) {
-        if (digits.length < 100) {
-            return { chiSquare: 0, pValue: 1, isUniform: true };
+    calculateSerialCorrelation(digits) {
+        if (digits.length < 50) return 0;
+        const mean = digits.reduce((a, b) => a + b, 0) / digits.length;
+        let numerator = 0, denominator = 0;
+        for (let i = 0; i < digits.length - 1; i++) {
+            numerator += (digits[i] - mean) * (digits[i + 1] - mean);
+            denominator += Math.pow(digits[i] - mean, 2);
         }
+        return denominator > 0 ? numerator / denominator : 0;
+    }
+
+    performChiSquareTest(digits) {
+        if (digits.length < 100) return { chiSquare: 0, pValue: 1, isUniform: true };
 
         const counts = Array(10).fill(0);
         digits.forEach(d => counts[d]++);
-
         const expected = digits.length / 10;
         let chiSquare = 0;
 
@@ -1332,206 +1583,26 @@ class AIDigitDifferBot {
             chiSquare += Math.pow(count - expected, 2) / expected;
         }
 
-        // Degrees of freedom = 10 - 1 = 9
-        // Critical value at p=0.05 for df=9 is 16.919
-        const criticalValue = 16.919;
-        const isUniform = chiSquare < criticalValue;
-
-        // Approximate p-value (simplified)
-        const pValue = chiSquare < criticalValue ? 0.5 : 0.01;
-
+        const isUniform = chiSquare < 16.919;
         return {
             chiSquare: chiSquare.toFixed(3),
-            pValue: pValue.toFixed(3),
+            pValue: isUniform ? '> 0.05' : '< 0.05',
             isUniform,
-            interpretation: isUniform
-                ? 'Distribution is uniform (random)'
-                : 'Distribution is non-uniform (potential pattern)'
+            interpretation: isUniform ? 'Uniform (random)' : 'Non-uniform (pattern)'
         };
     }
 
-    /**
-     * Calculate serial correlation (autocorrelation)
-     * Measures if current digit is correlated with previous digit
-     */
-    calculateSerialCorrelation(digits) {
-        if (digits.length < 50) return 0;
-
-        const recent = digits.slice(-50);
-        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
-
-        let numerator = 0;
-        let denominator = 0;
-
-        for (let i = 0; i < recent.length - 1; i++) {
-            numerator += (recent[i] - mean) * (recent[i + 1] - mean);
-            denominator += Math.pow(recent[i] - mean, 2);
-        }
-
-        return denominator > 0 ? numerator / denominator : 0;
-    }
-
-
-    /**
-     * Kelly Criterion - Optimal position sizing based on win rate and payout
-     * Replaces dangerous Martingale strategy
-     */
-    calculateKellyStake(winRate, payout, balance, maxRiskPercent = 2) {
-        // Bound win rate between 10% and 90% to avoid extreme values
-        const p = Math.max(0.1, Math.min(0.9, winRate));
-        const q = 1 - p;
-        const b = payout; // Payout ratio (typically ~1.1 for digit differ)
-
-        // Kelly formula: f = (bp - q) / b
-        const kellyFraction = (b * p - q) / b;
-
-        // Use half-Kelly for safety (Kelly is known to be aggressive)
-        const safeKellyFraction = Math.max(0, kellyFraction * 0.5);
-
-        // Maximum risk amount (2% of balance by default)
-        const maxRiskAmount = balance * (maxRiskPercent / 100);
-
-        // Calculate optimal stake
-        const optimalStake = Math.min(
-            balance * safeKellyFraction,
-            maxRiskAmount
-        );
-
-        // Ensure stake is at least 1 and at most baseStake * 3
-        return Math.max(1, Math.min(Math.floor(optimalStake), this.config.baseStake * 3));
-    }
-
-    /**
-     * Anti-Martingale - Increase stake after wins, reset after losses
-     * Safer alternative to Martingale
-     */
-    calculateAntiMartingaleStake(lastTradeResult, currentStake, baseStake, consecutiveWins = 0) {
-        if (lastTradeResult === 'won') {
-            // Increase stake after win, but cap at 4x base
-            const multiplier = Math.min(Math.pow(1.5, consecutiveWins + 1), 4);
-            return Math.floor(currentStake * multiplier);
-        } else {
-            // Reset to base stake after loss (key difference from Martingale)
-            return baseStake;
-        }
-    }
-
-    /**
-     * Volatility-Adjusted Position Sizing
-     * Reduce stake during high volatility, increase during low volatility
-     */
-    calculateVolatilityAdjustedStake(baseStake, currentVolatility, averageVolatility) {
-        if (currentVolatility <= 0 || averageVolatility <= 0) return baseStake;
-
-        // Volatility ratio: if current > average, reduce stake
-        const volatilityRatio = averageVolatility / currentVolatility;
-
-        // Limit adjustment factor between 0.3x and 3x
-        const adjustmentFactor = Math.max(0.3, Math.min(volatilityRatio, 3));
-
-        const adjustedStake = baseStake * adjustmentFactor;
-        return Math.max(1, Math.floor(adjustedStake));
-    }
-
-    /**
-     * Calculate volatility from recent tick history
-     */
-    calculateVolatility(digits) {
-        if (digits.length < 20) return 0;
-
-        const recent = digits.slice(-50);
-        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
-        const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
-        return Math.sqrt(variance);
-    }
-
-    /**
-     * Market Regime Detection
-     * Determines if market is trending, ranging, volatile, or stable
-     */
-    detectMarketRegime(tickHistory) {
-        if (tickHistory.length < 100) return 'insufficient_data';
-
-        const recent = tickHistory.slice(-100);
-        const volatility = this.calculateVolatility(recent);
-        const trend = this.detectTrend(recent);
-        const entropy = this.calculateEntropy(recent);
-
-        // High volatility = volatile regime
-        if (volatility > 2.5) return 'volatile';
-
-        // Strong trend = trending regime
-        if (Math.abs(trend.strength) > 0.3) return 'trending';
-
-        // High entropy = random regime
-        if (entropy > 0.95) return 'random';
-
-        // Otherwise stable
-        return 'stable';
-    }
-
-    /**
-     * Detect trend strength and direction
-     */
-    detectTrend(digits) {
-        if (digits.length < 20) return { strength: 0, direction: 'neutral' };
-
-        const first = digits.slice(0, 10);
-        const last = digits.slice(-10);
-
-        const firstAvg = first.reduce((a, b) => a + b, 0) / first.length;
-        const lastAvg = last.reduce((a, b) => a + b, 0) / last.length;
-
-        const diff = lastAvg - firstAvg;
-        const strength = Math.abs(diff) / 5; // Normalize to 0-1 range
-        const direction = diff > 0 ? 'up' : diff < 0 ? 'down' : 'neutral';
-
-        return { strength, direction };
-    }
-
-    /**
-     * Calculate Shannon entropy (measure of randomness)
-     */
-    calculateEntropy(digits) {
-        const counts = Array(10).fill(0);
-        digits.forEach(d => counts[d]++);
-
-        const total = digits.length;
-        let entropy = 0;
-
-        for (const count of counts) {
-            if (count > 0) {
-                const p = count / total;
-                entropy -= p * Math.log2(p);
-            }
-        }
-
-        // Normalize to 0-1 range (max entropy for 10 digits is log2(10) ≈ 3.32)
-        return entropy / Math.log2(10);
-    }
-
-
     getPrompt(modelName = 'unknown') {
-        // Get model specific history
         const modelStats = this.modelPerformance[modelName] || {};
         const lastPred = modelStats.lastPrediction !== undefined ? modelStats.lastPrediction : 'None';
         const lastOutcome = modelStats.lastOutcome !== undefined ? modelStats.lastOutcome : 'None';
-
-        // Recent methods used
         const recentMethods = this.tradeMethod.slice(-5).join(', ');
-
-        // Detect market regime
         const marketRegime = this.detectMarketRegime(this.tickHistory);
-
-        // Calculate volatility
         const volatility = this.calculateVolatility(this.tickHistory);
-
-        // Perform comprehensive statistical analysis
         const comprehensiveAnalysis = this.tickHistory.length >= 100
             ? this.performComprehensiveAnalysis(this.tickHistory, 100)
             : null;
 
-        // Prepare market data for EnhancedAIPrompt
         const marketData = {
             currentAsset: this.currentAsset,
             tickHistory: this.tickHistory,
@@ -1541,31 +1612,30 @@ class AIDigitDifferBot {
             recentMethods: recentMethods,
             volatility: volatility,
             marketRegime: marketRegime,
-            comprehensiveAnalysis: comprehensiveAnalysis // Add full statistical analysis
+            comprehensiveAnalysis: comprehensiveAnalysis
         };
 
-        // Use EnhancedAIPrompt for better adversarial-aware predictions
-        return EnhancedAIPrompt.generatePrompt(marketData, this.modelPerformance, {});
+        return EnhancedAIPrompt.generatePrompt(
+            marketData,
+            this.modelPerformance,
+            this.kellyManager.getStatus()
+        );
     }
 
     parseAIResponse(text, modelName = 'unknown') {
         if (!text) throw new Error('Empty response');
 
         try {
-            // Try to find JSON in the response - more robust greedy matching
             const firstBrace = text.indexOf('{');
             const lastBrace = text.lastIndexOf('}');
 
             if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) {
-                // Log the first 100 chars of failed response to help debug
-                console.log(`   ⚠️ ${modelName} raw response (first 100 chars): ${text.substring(0, 100).replace(/\n/g, ' ')}...`);
-                throw new Error('No JSON found in response');
+                throw new Error('No JSON found');
             }
 
             const jsonStr = text.substring(firstBrace, lastBrace + 1);
             const prediction = JSON.parse(jsonStr);
 
-            // Validate
             if (typeof prediction.predictedDigit !== 'number' ||
                 prediction.predictedDigit < 0 ||
                 prediction.predictedDigit > 9) {
@@ -1578,15 +1648,11 @@ class AIDigitDifferBot {
 
             return prediction;
         } catch (e) {
-            if (e.message.includes('JSON')) {
-                console.log(`   ⚠️ ${modelName} JSON Parse Error: ${e.message}`);
-                console.log(`   ⚠️ ${modelName} offending text: ${text.substring(0, 150)}...`);
-            }
             throw e;
         }
     }
 
-    // ==================== AI MODEL INTEGRATIONS (FIXED) ====================
+    // ==================== AI MODEL INTEGRATIONS ====================
 
     async predictWithGemini() {
         const keys = this.aiModels.gemini.keys;
@@ -1596,20 +1662,16 @@ class AIDigitDifferBot {
         this.aiModels.gemini.currentIndex++;
 
         const response = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
             {
                 contents: [{ parts: [{ text: this.getPrompt('gemini') }] }],
                 generationConfig: {
-                    temperature: 0.1, // Lower temperature for more consistent JSON
-                    maxOutputTokens: 256,
-                    candidateCount: 1,
-                    response_mime_type: "application/json" // Force JSON output for Gemini
+                    temperature: 0.1,
+                    maxOutputTokens: 512,
+                    response_mime_type: "application/json"
                 }
             },
-            {
-                timeout: 30000,
-                headers: { 'Content-Type': 'application/json' }
-            }
+            { timeout: 30000, headers: { 'Content-Type': 'application/json' } }
         );
 
         const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -1621,22 +1683,19 @@ class AIDigitDifferBot {
         if (!key) throw new Error('No Groq API key');
 
         const response = await axios.post(
-            'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://api.groq.com/openai/v1/chat/completions',
+            'https://api.groq.com/openai/v1/chat/completions',
             {
-                model: 'groq/compound',//'groq/compound-mini',
+                model: 'llama-3.3-70b-versatile',
                 messages: [
-                    { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
+                    { role: 'system', content: 'You are a trading AI that outputs JSON only.' },
                     { role: 'user', content: this.getPrompt('groq') }
                 ],
                 temperature: 0.1,
-                max_tokens: 256,
+                max_tokens: 512,
                 response_format: { type: "json_object" }
             },
             {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${key}`
-                },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
                 timeout: 30000
             }
         );
@@ -1650,23 +1709,21 @@ class AIDigitDifferBot {
         if (!key) throw new Error('No OpenRouter API key');
 
         const response = await axios.post(
-            'https://api.cerebras.ai/v1/chat/completions',//https://openrouter.ai/api/v1/chat/completions',
+            'https://openrouter.ai/api/v1/chat/completions',
             {
-                model: 'qwen-3-235b-a22b-instruct-2507',//'meta-llama/llama-3.2-3b-instruct:free',
+                model: 'meta-llama/llama-3.2-3b-instruct:free',
                 messages: [
-                    { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
+                    { role: 'system', content: 'You are a trading AI that outputs JSON only.' },
                     { role: 'user', content: this.getPrompt('openrouter') }
                 ],
                 temperature: 0.1,
-                max_tokens: 256,
-                // response_format: { type: "json_object" }
+                max_tokens: 512
             },
             {
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${key}`,
-                    // 'HTTP-Referer': 'https://github.com/digit-differ-bot',
-                    // 'X-Title': 'Digit Differ Bot'
+                    'HTTP-Referer': 'https://github.com/digit-differ-bot'
                 },
                 timeout: 30000
             }
@@ -1685,17 +1742,14 @@ class AIDigitDifferBot {
             {
                 model: 'mistral-small-latest',
                 messages: [
-                    { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
+                    { role: 'system', content: 'You are a trading AI that outputs JSON only.' },
                     { role: 'user', content: this.getPrompt('mistral') }
                 ],
                 temperature: 0.1,
-                max_tokens: 256
+                max_tokens: 512
             },
             {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${key}`
-                },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
                 timeout: 30000
             }
         );
@@ -1704,7 +1758,6 @@ class AIDigitDifferBot {
         return this.parseAIResponse(text, 'mistral');
     }
 
-    // NEW: Cerebras (very fast, free)
     async predictWithCerebras() {
         const key = this.aiModels.cerebras.key;
         if (!key) throw new Error('No Cerebras API key');
@@ -1712,20 +1765,16 @@ class AIDigitDifferBot {
         const response = await axios.post(
             'https://api.cerebras.ai/v1/chat/completions',
             {
-                model: 'zai-glm-4.6',
+                model: 'llama-3.3-70b',
                 messages: [
-                    { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
+                    { role: 'system', content: 'You are a trading AI that outputs JSON only.' },
                     { role: 'user', content: this.getPrompt('cerebras') }
                 ],
                 temperature: 0.1,
-                max_tokens: 256,
-                response_format: { type: "json_object" }
+                max_tokens: 512
             },
             {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${key}`
-                },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
                 timeout: 30000
             }
         );
@@ -1734,28 +1783,23 @@ class AIDigitDifferBot {
         return this.parseAIResponse(text, 'cerebras');
     }
 
-    // NEW: SambaNova (free tier)
     async predictWithSambaNova() {
         const key = this.aiModels.sambanova.key;
         if (!key) throw new Error('No SambaNova API key');
 
         const response = await axios.post(
-            'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://api.sambanova.ai/v1/chat/completions',
+            'https://api.sambanova.ai/v1/chat/completions',
             {
-                model: 'llama-3.3-70b-versatile',//'perplexity-fast',//'Meta-Llama-3.1-8B-Instruct',
+                model: 'Meta-Llama-3.1-8B-Instruct',
                 messages: [
-                    { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
+                    { role: 'system', content: 'You are a trading AI that outputs JSON only.' },
                     { role: 'user', content: this.getPrompt('sambanova') }
                 ],
                 temperature: 0.1,
-                max_tokens: 256,
-                response_format: { type: "json_object" }
+                max_tokens: 512
             },
             {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${key}`
-                },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
                 timeout: 30000
             }
         );
@@ -1764,114 +1808,21 @@ class AIDigitDifferBot {
         return this.parseAIResponse(text, 'sambanova');
     }
 
-    // NEW: Qwen (Alibaba DashScope)
-    async predictWithQwen() {
-        const key = this.aiModels.qwen.key;
-        if (!key) throw new Error('No DashScope API key');
-
-        // Use compatible-mode endpoint
-        const response = await axios.post(
-            'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
-            {
-                model: 'meta-llama/llama-4-scout-17b-16e-instruct',//'claude-fast',//'openai-fast',//'gemini-fast',//'claude-fast',//'qwen/qwen3-coder:free',//'qwen-turbo',
-                messages: [
-                    { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
-                    { role: 'user', content: this.getPrompt('qwen') }
-                ],
-                temperature: 0.1,
-                max_tokens: 256,
-                response_format: { type: "json_object" }
-            },
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${key}`,
-                },
-                timeout: 30000
-            }
-        );
-
-        const text = response.data.choices?.[0]?.message?.content;
-        return this.parseAIResponse(text, 'qwen');
-    }
-
-    // NEW: Kimi (Moonshot AI)
-    async predictWithKimi() {
-        const key = this.aiModels.kimi.key;
-        if (!key) throw new Error('No Moonshot API key');
-
-        const response = await axios.post(
-            'https://api.groq.com/openai/v1/chat/completions',//'https://gen.pollinations.ai/v1/chat/completions',//'https://openrouter.ai/api/v1/chat/completions',//'https://api.moonshot.cn/v1/chat/completions',
-            {
-                model: 'moonshotai/kimi-k2-instruct-0905',//'gemini-fast',//'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
-                messages: [
-                    { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
-                    { role: 'user', content: this.getPrompt('kimi') }
-                ],
-                temperature: 0.1,
-                max_tokens: 256,
-                response_format: { type: "json_object" }
-            },
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${key}`
-                },
-                timeout: 30000
-            }
-        );
-
-        const text = response.data.choices?.[0]?.message?.content;
-        return this.parseAIResponse(text, 'kimi');
-    }
-
-    // NEW: SiliconFlow (Fast Alternative)
-    async predictWithSiliconFlow() {
-        const key = this.aiModels.siliconflow.key;
-        if (!key) throw new Error('No SiliconFlow API key');
-
-        const response = await axios.post(
-            'https://gen.pollinations.ai/v1/chat/completions',//'https://openrouter.ai/api/v1/chat/completions',//'https://api.moonshot.cn/v1/chat/completions',
-            {
-                model: 'gemini-fast',//'kwaipilot/kat-coder-pro:free',//'moonshot-v1-8k',
-                messages: [
-                    { role: 'system', content: 'You are a trading bot that ONLY outputs JSON.' },
-                    { role: 'user', content: this.getPrompt('siliconflow') }
-                ],
-                temperature: 0.1,
-            },
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${key}`
-                },
-                timeout: 30000
-            }
-        );
-
-        const text = response.data.choices?.[0]?.message?.content;
-        return this.parseAIResponse(text, 'siliconflow');
-    }
-
-    // ==================== STATISTICAL PREDICTION (FALLBACK) ====================
+    // ==================== STATISTICAL PREDICTION ====================
 
     statisticalPrediction() {
         const last100 = this.tickHistory.slice(-300);
-        const last50 = this.tickHistory.slice(-50);
         const last20 = this.tickHistory.slice(-20);
 
-        // Frequency analysis
         const counts = Array(10).fill(0);
         last100.forEach(d => counts[d]++);
 
-        // Gap analysis - digits not appearing recently
         const last15Set = new Set(this.tickHistory.slice(-15));
         const gaps = [];
         for (let i = 0; i < 10; i++) {
             if (!last15Set.has(i)) gaps.push(i);
         }
 
-        // Transition analysis
         const lastDigit = this.tickHistory[this.tickHistory.length - 1];
         const transitions = Array(10).fill(0);
         for (let i = 1; i < last100.length; i++) {
@@ -1880,31 +1831,18 @@ class AIDigitDifferBot {
             }
         }
 
-        // Combine analyses
         const scores = Array(10).fill(0);
 
         for (let i = 0; i < 10; i++) {
-            // Lower frequency = more likely to NOT appear = good for differ
             scores[i] += (10 - counts[i]) * 2;
-
-            // If digit is in gaps, it might appear soon (bad for differ)
-            if (gaps.includes(i)) {
-                scores[i] -= 7;
-            }
-
-            // Higher transition probability = more likely to appear = bad
+            if (gaps.includes(i)) scores[i] -= 7;
             scores[i] -= transitions[i];
 
-            // Check recent momentum
             const recentCount = last20.filter(d => d === i).length;
-            if (recentCount === 0) {
-                scores[i] -= 2;
-            } else if (recentCount >= 4) {
-                scores[i] += 3;
-            }
+            if (recentCount === 0) scores[i] -= 2;
+            else if (recentCount >= 4) scores[i] += 3;
         }
 
-        // Find digit with highest score
         let maxScore = -Infinity;
         let predictedDigit = 0;
 
@@ -1915,7 +1853,6 @@ class AIDigitDifferBot {
             }
         }
 
-        // Calculate confidence
         const avgScore = scores.reduce((a, b) => a + b, 0) / 10;
         const scoreDiff = maxScore - avgScore;
         const confidence = Math.min(85, Math.max(50, Math.round(50 + scoreDiff * 5)));
@@ -1932,42 +1869,23 @@ class AIDigitDifferBot {
 
     // ==================== TRADE EXECUTION ====================
 
-    placeTrade(digit, confidence) {
+    placeTrade(digit, confidence, stake) {
         if (this.tradeInProgress) return;
 
         this.tradeInProgress = true;
         this.predictionInProgress = true;
 
-        // Apply volatility adjustment to stake if enough history
-        let adjustedStake = parseFloat(this.currentStake.toFixed(2));
+        // Ensure stake is valid
+        stake = Math.max(0.35, Math.min(stake, this.balance * 0.1));
+        stake = Math.round(stake * 100) / 100;
 
-        // if (this.tickHistory.length >= 100) {
-        //     const currentVolatility = this.calculateVolatility(this.tickHistory.slice(-50));
-        //     const averageVolatility = this.calculateVolatility(this.tickHistory.slice(-100));
-
-        //     if (currentVolatility > 0 && averageVolatility > 0) {
-        //         adjustedStake = this.calculateVolatilityAdjustedStake(
-        //             this.currentStake,
-        //             currentVolatility,
-        //             averageVolatility
-        //         );
-
-        //         if (adjustedStake !== this.currentStake) {
-        //             console.log(`📊 Volatility Adjustment: $${this.currentStake.toFixed(2)} → $${adjustedStake.toFixed(2)}`);
-        //         }
-        //     }
-        // }
-
-        // Ensure stake is within limits
-        // adjustedStake = Math.max(1, Math.min(adjustedStake, this.balance * 0.1));
-
-        console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${adjustedStake.toFixed(2)} (${confidence}% confidence)`);
+        console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${stake.toFixed(2)} (${confidence}% confidence)`);
 
         this.sendRequest({
             buy: 1,
-            price: adjustedStake,
+            price: stake,
             parameters: {
-                amount: adjustedStake,
+                amount: stake,
                 basis: 'stake',
                 contract_type: 'DIGITDIFF',
                 currency: 'USD',
@@ -1978,52 +1896,38 @@ class AIDigitDifferBot {
             }
         });
 
-        this.currentPrediction = { digit, confidence };
+        this.currentPrediction = { digit, confidence, stake };
     }
 
     handleTradeResult(contract) {
         const won = contract.status === 'won';
         const profit = parseFloat(contract.profit);
         const exitSpot = contract.exit_tick_display_value;
-        this.actualDigit = this.getLastDigit(exitSpot, this.currentAsset);
+        const actualDigit = this.getLastDigit(exitSpot, this.currentAsset);
 
         console.log('\n' + '='.repeat(40));
         console.log(won ? '🎉 TRADE WON!' : '😔 TRADE LOST');
-        console.log(`   Predicted: ${this.lastPrediction} | Actual: ${this.actualDigit}`);
+        console.log(`   Predicted: ${this.lastPrediction} | Actual: ${actualDigit}`);
         console.log(`   Profit: ${won ? '+' : ''}$${profit.toFixed(2)}`);
         console.log('='.repeat(40));
 
         // Update statistics
         this.totalTrades++;
-        this.totalPnL += profit;
 
-        // Track prediction outcomes
-        this.previousPredictions.push(this.lastPrediction);
-        this.predictionOutcomes.push(won);
-        if (this.previousPredictions.length > 100) {
-            this.previousPredictions.shift();
-            this.predictionOutcomes.shift();
-        }
+        // Update Kelly Manager
+        this.kellyManager.updateAfterTrade(profit, won);
 
-        // Update model specific performance
+        // Update model performance
         for (const key in this.modelPerformance) {
             const stats = this.modelPerformance[key];
             const currentPred = stats.currentPrediction;
 
             if (currentPred !== null && currentPred !== undefined) {
-                // Differ trade: Won if Prediction != Actual
-                // AI predicts the digit that will NOT appear.
-                // So if AI says "5" and Actual is "8", AI wins.
-                // If AI says "5" and Actual is "5", AI loses.
-                const modelWon = currentPred !== this.actualDigit;
-
+                const modelWon = currentPred !== actualDigit;
                 stats.lastPrediction = currentPred;
                 stats.lastOutcome = modelWon ? 'WON' : 'LOST';
-
                 if (modelWon) stats.wins++;
                 else stats.losses++;
-
-                // Clear current prediction
                 stats.currentPrediction = null;
             }
         }
@@ -2031,77 +1935,25 @@ class AIDigitDifferBot {
         if (won) {
             this.totalWins++;
             this.consecutiveLosses = 0;
-            this.consecutiveWins++; // Track wins for Anti-Martingale
+            this.consecutiveWins++;
             this.lastTradeResult = 'won';
-
-            this.currentStake = this.config.initialStake;
-
-            // Use Anti-Martingale: increase stake after wins (safer than Martingale)
-            // this.currentStake = this.calculateAntiMartingaleStake(
-            //     'won',
-            //     this.currentStake,
-            //     this.config.baseStake,
-            //     this.consecutiveWins
-            // );
-
-            // Track winning pattern
-            const pattern = this.tickHistory.slice(-5).join('');
-            this.winningPatterns.set(pattern, (this.winningPatterns.get(pattern) || 0) + 1);
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
-            this.consecutiveWins = 0; // Reset win streak
+            this.consecutiveWins = 0;
             this.lastTradeResult = 'lost';
-
-            if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
-            else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
-            else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
-            else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
-
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-
-            // REPLACED DANGEROUS MARTINGALE WITH KELLY CRITERION
-            // Calculate win rate from history
-            // const winRate = this.totalTrades > 0 ? this.totalWins / this.totalTrades : 0.5;
-            // const payout = 1.1; // Typical payout for digit differ
-
-            // // Use Kelly Criterion for optimal position sizing
-            // this.currentStake = this.calculateKellyStake(
-            //     winRate,
-            //     payout,
-            //     this.balance,
-            //     this.config.maxStakePercent
-            // );
-
-            // // Ensure stake doesn't exceed balance limits
-            // this.currentStake = Math.min(
-            //     this.currentStake,
-            //     this.balance * (this.config.maxStakePercent / 100)
-            // );
-
-            // console.log(`📊 Kelly Criterion Stake: $${this.currentStake.toFixed(2)} (Win Rate: ${(winRate * 100).toFixed(1)}%)`);
         }
 
-        // Track trade in history
-        this.tradingHistory.push({
-            timestamp: Date.now(),
-            asset: this.currentAsset,
-            predicted: this.lastPrediction,
-            actual: this.actualDigit,
-            result: won ? 'won' : 'lost',
-            profit: profit,
-            stake: this.currentStake,
-            confidence: this.lastConfidence
-        });
+        this.balance = this.kellyManager.currentCapital;
 
-        // this.RestartTrading = false;
+        // Log Kelly status
+        const kellyStatus = this.kellyManager.getStatus();
+        console.log(`\n📊 Kelly Status:`);
+        console.log(`   Capital: $${kellyStatus.currentCapital.toFixed(2)} (Peak: $${kellyStatus.peakCapital.toFixed(2)})`);
+        console.log(`   Drawdown: ${kellyStatus.currentDrawdown.toFixed(1)}%`);
+        console.log(`   Session P/L: $${kellyStatus.sessionPnL.toFixed(2)}`);
+        console.log(`   Win Rate: ${(kellyStatus.rollingWinRate * 100).toFixed(1)}%`);
 
-        // Send Telegram notification for loss
-        if (!won && this.telegramEnabled) {
-            this.sendTelegramLossAlert(this.actualDigit, profit);
-        }
-
-        // Log summary
         this.logTradingSummary();
 
         // Check stop conditions
@@ -2109,27 +1961,34 @@ class AIDigitDifferBot {
             return;
         }
 
-        // Reset state and schedule next trade
+        // Send Telegram notification for loss
+        if (!won && this.telegramEnabled) {
+            this.sendTelegramLossAlert(actualDigit, profit);
+        }
+
         this.tradeInProgress = false;
         this.predictionInProgress = false;
         this.scheduleNextTrade();
     }
 
     checkStopConditions() {
+        const kellyStatus = this.kellyManager.shouldContinueTrading();
+
+        if (!kellyStatus.canTrade) {
+            console.log('\n🛑 Kelly Manager stopping trading:');
+            kellyStatus.reasons.forEach(r => console.log(`   - ${r}`));
+            this.shutdown();
+            return true;
+        }
+
         if (this.consecutiveLosses >= this.config.maxConsecutiveLosses) {
-            console.log('\n🛑 Max consecutive losses reached. Stopping.');
+            console.log('\n🛑 Max consecutive losses reached.');
             this.shutdown();
             return true;
         }
 
-        if (this.totalPnL <= -this.config.stopLoss) {
-            console.log('\n🛑 Stop loss reached. Stopping.');
-            this.shutdown();
-            return true;
-        }
-
-        if (this.totalPnL >= this.config.takeProfit) {
-            console.log('\n🎉 Take profit reached! Stopping.');
+        if (kellyStatus.reachedDailyTarget) {
+            console.log('\n🎉 Daily profit target reached!');
             this.shutdown();
             return true;
         }
@@ -2137,15 +1996,12 @@ class AIDigitDifferBot {
         return false;
     }
 
-    // Fixed: Proper scheduling for next trade
     scheduleNextTrade() {
-        // Cycle to next API key for Gemini
         if (this.aiModels.gemini.enabled && this.aiModels.gemini.keys.length > 1) {
             this.aiModels.gemini.currentIndex =
                 (this.aiModels.gemini.currentIndex + 1) % this.aiModels.gemini.keys.length;
         }
 
-        // Random wait time between trades
         const waitTime = Math.floor(
             Math.random() * (this.config.maxWaitTime - this.config.minWaitTime) +
             this.config.minWaitTime
@@ -2153,7 +2009,6 @@ class AIDigitDifferBot {
 
         console.log(`\n⏳ Waiting ${Math.round(waitTime / 1000)}s before next trade...`);
 
-        // Disconnect and schedule reconnect
         this.isPaused = true;
         this.disconnect();
 
@@ -2166,10 +2021,7 @@ class AIDigitDifferBot {
         }, waitTime);
     }
 
-    // Fixed: Proper reconnect scheduling
     scheduleReconnect(delay) {
-        console.log(`⏳ Scheduling reconnect in ${delay / 1000}s...`);
-
         this.isPaused = true;
         this.disconnect();
 
@@ -2189,14 +2041,15 @@ class AIDigitDifferBot {
             ? ((this.totalWins / this.totalTrades) * 100).toFixed(1)
             : 0;
 
+        const kellyStatus = this.kellyManager.getStatus();
+
         console.log('\n📊 Trading Summary:');
         console.log(`   Total Trades: ${this.totalTrades}`);
         console.log(`   Wins/Losses: ${this.totalWins}/${this.totalLosses}`);
         console.log(`   Win Rate: ${winRate}%`);
-        console.log(`   Total P/L: $${this.totalPnL.toFixed(2)}`);
-        console.log(`   Current Stake: $${this.currentStake.toFixed(2)}`);
-        console.log(`   Balance: $${this.balance.toFixed(2)}`);
-        console.log(`   Consecutive Losses: ${this.consecutiveLosses}`);
+        console.log(`   Session P/L: $${kellyStatus.sessionPnL.toFixed(2)}`);
+        console.log(`   Balance: $${kellyStatus.currentCapital.toFixed(2)}`);
+        console.log(`   Max Drawdown: ${kellyStatus.maxDrawdownReached.toFixed(1)}%`);
     }
 
     logFinalSummary() {
@@ -2204,6 +2057,7 @@ class AIDigitDifferBot {
         const winRate = this.totalTrades > 0
             ? ((this.totalWins / this.totalTrades) * 100).toFixed(1)
             : 0;
+        const kellyStatus = this.kellyManager.getStatus();
 
         console.log('\n' + '='.repeat(60));
         console.log('📊 FINAL TRADING SUMMARY');
@@ -2213,12 +2067,13 @@ class AIDigitDifferBot {
         console.log(`   Wins: ${this.totalWins}`);
         console.log(`   Losses: ${this.totalLosses}`);
         console.log(`   Win Rate: ${winRate}%`);
-        console.log(`   Total P/L: $${this.totalPnL.toFixed(2)}`);
-        console.log(`   Starting Balance: $${this.sessionStartBalance.toFixed(2)}`);
-        console.log(`   Final Balance: $${this.balance.toFixed(2)}`);
+        console.log(`   Session P/L: $${kellyStatus.sessionPnL.toFixed(2)}`);
+        console.log(`   Starting Capital: $${kellyStatus.investmentCapital.toFixed(2)}`);
+        console.log(`   Final Capital: $${kellyStatus.currentCapital.toFixed(2)}`);
+        console.log(`   Max Drawdown: ${kellyStatus.maxDrawdownReached.toFixed(1)}%`);
+        console.log(`   ROI: ${((kellyStatus.currentCapital - kellyStatus.investmentCapital) / kellyStatus.investmentCapital * 100).toFixed(2)}%`);
         console.log('='.repeat(60) + '\n');
 
-        // Send telegram notification if configured
         if (this.telegramEnabled) {
             this.sendTelegramMessage(`<b>⏹ Bot Stopped</b>\n\n${this.getTelegramSummary()}`);
         }
@@ -2236,21 +2091,20 @@ class AIDigitDifferBot {
         const winRate = this.totalTrades > 0
             ? ((this.totalWins / this.totalTrades) * 100).toFixed(1)
             : 0;
+        const kellyStatus = this.kellyManager.getStatus();
 
-        return `<b>Trading Session Summary</b>
+        return `<b>Kelly Criterion Trading Summary</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━
 📊 <b>Total Trades:</b> ${this.totalTrades}
 ✅ <b>Wins:</b> ${this.totalWins}
 ❌ <b>Losses:</b> ${this.totalLosses}
-� <b>Win Rate:</b> ${winRate}%
+📈 <b>Win Rate:</b> ${winRate}%
 
-<b>x2 Losses:</b> ${this.consecutiveLosses2}
-<b>x3 Losses:</b> ${this.consecutiveLosses3}
-<b>x4 Losses:</b> ${this.consecutiveLosses4}
-<b>x5 Losses:</b> ${this.consecutiveLosses5}
-
-💰 <b>Total P/L:</b> $${this.totalPnL.toFixed(2)}
-🏦 <b>Final Balance:</b> $${this.balance.toFixed(2)}`;
+💰 <b>Investment:</b> $${kellyStatus.investmentCapital.toFixed(2)}
+💵 <b>Current Capital:</b> $${kellyStatus.currentCapital.toFixed(2)}
+📉 <b>Max Drawdown:</b> ${kellyStatus.maxDrawdownReached.toFixed(1)}%
+📊 <b>Session P/L:</b> $${kellyStatus.sessionPnL.toFixed(2)}
+📈 <b>ROI:</b> ${((kellyStatus.currentCapital - kellyStatus.investmentCapital) / kellyStatus.investmentCapital * 100).toFixed(2)}%`;
     }
 
     async sendTelegramMessage(message) {
@@ -2258,46 +2112,31 @@ class AIDigitDifferBot {
 
         try {
             await this.telegramBot.sendMessage(this.telegramChatId, message, { parse_mode: 'HTML' });
-            console.log('� Telegram notification sent');
         } catch (error) {
-            console.error('❌ Failed to send Telegram message:', error.message);
+            console.error('❌ Telegram error:', error.message);
         }
     }
 
     startTelegramTimer() {
-        // Send summary every 30 minutes
         setInterval(() => {
             if (this.totalTrades > 0 && !this.isShuttingDown) {
-                this.sendTelegramMessage(`📊 <b>Regular Performance Summary</b>\n\n${this.getTelegramSummary()}`);
+                this.sendTelegramMessage(`📊 <b>Performance Update</b>\n\n${this.getTelegramSummary()}`);
             }
         }, 30 * 60 * 1000);
     }
 
     async sendTelegramLossAlert(actualDigit, profit) {
-        let riskWarning = '';
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses - 1) {
-            riskWarning = `\n⚠️ <b>CRITICAL RISK:</b> ${this.consecutiveLosses} consecutive losses! Next loss will trigger STOP.`;
-        }
+        const kellyStatus = this.kellyManager.getStatus();
 
-        const body = `🚨 <b>TRADE LOSS ALERT</b>
-━━━━━━━━━━━━━━━━━━━━━━━━
-<b>Asset:</b> <code>${this.currentAsset}</code>
-<b>Prediction:</b> ${this.lastPrediction}
-<b>Actual Digit:</b> ${actualDigit}
+        const body = `🚨 <b>TRADE LOSS</b>
+━━━━━━━━━━━━━━━━━━━━
+<b>Asset:</b> ${this.currentAsset}
+<b>Predicted:</b> ${this.lastPrediction} | <b>Actual:</b> ${actualDigit}
 <b>Loss:</b> -$${Math.abs(profit).toFixed(2)}
 
-<b>Consecutive Losses:</b> ${this.consecutiveLosses} / ${this.config.maxConsecutiveLosses}${riskWarning}
-
-<b>x2 Losses:</b> ${this.consecutiveLosses2}
-<b>x3 Losses:</b> ${this.consecutiveLosses3}
-<b>x4 Losses:</b> ${this.consecutiveLosses4}
-<b>x5 Losses:</b> ${this.consecutiveLosses5}
-
-<b>Current Balance:</b> $${this.balance.toFixed(2)}
-<b>Total P/L:</b> $${this.totalPnL.toFixed(2)}
-
-<b>Session Stats:</b>
-Wins: ${this.totalWins} | Losses: ${this.totalLosses}`;
+<b>Consecutive Losses:</b> ${this.consecutiveLosses}/${this.config.maxConsecutiveLosses}
+<b>Drawdown:</b> ${kellyStatus.currentDrawdown.toFixed(1)}%
+<b>Capital:</b> $${kellyStatus.currentCapital.toFixed(2)}`;
 
         await this.sendTelegramMessage(body);
     }
@@ -2305,32 +2144,20 @@ Wins: ${this.totalWins} | Losses: ${this.totalLosses}`;
     // ==================== START BOT ====================
 
     start() {
-        console.log('🚀 Starting AI Digit Differ Trading Bot v3.0...\n');
+        console.log('🚀 Starting AI Digit Differ Bot v4.0...');
+        console.log('   Kelly Criterion Risk Management Active\n');
 
         if (!this.token) {
             console.error('❌ Error: DERIV_TOKEN is required');
             process.exit(1);
         }
 
-        // Handle graceful shutdown
-        // process.on('SIGINT', () => {
-        //     console.log('\n\n⚠️  Received SIGINT. Shutting down gracefully...');
-        //     this.shutdown();
-        // });
-
-        // process.on('SIGTERM', () => {
-        //     console.log('\n\n⚠️  Received SIGTERM. Shutting down gracefully...');
-        //     this.shutdown();
-        // });
-
         process.on('uncaughtException', (error) => {
             console.error('Uncaught Exception:', error.message);
-            // Don't exit, try to continue
         });
 
-        process.on('unhandledRejection', (reason, promise) => {
+        process.on('unhandledRejection', (reason) => {
             console.error('Unhandled Rejection:', reason);
-            // Don't exit, try to continue
         });
 
         this.connect();
@@ -2339,26 +2166,36 @@ Wins: ${this.totalWins} | Losses: ${this.totalLosses}`;
 
 // ==================== STARTUP ====================
 
-// Validate required environment variable
-if (!process.env.DERIV_TOKENs) {
+if (!process.env.DERIV_TOKEN) {
     console.error('❌ Error: DERIV_TOKEN is required in .env file');
-    console.log('   Create a .env file with: DERIV_TOKEN=your_token_here');
     process.exit(1);
 }
 
-// Create and start bot
 const bot = new AIDigitDifferBot({
-    derivToken: process.env.DERIV_TOKENs,
-    initialStake: parseFloat(process.env.INITIAL_STAKE) || 5,
-    multiplier: parseFloat(process.env.MULTIPLIER) || 11.3,
-    maxConsecutiveLosses: parseInt(process.env.MAX_CONSECUTIVE_LOSSES) || 3,
-    stopLoss: parseFloat(process.env.STOP_LOSS) || 67,
-    takeProfit: parseFloat(process.env.TAKE_PROFIT) || 100,
-    minConfidence: parseInt(process.env.MIN_CONFIDENCE) || 60,
+    derivToken: process.env.DERIV_TOKEN,
+
+    // Investment Capital (default $500)
+    investmentCapital: parseFloat(process.env.INVESTMENT_CAPITAL) || 500,
+
+    // Kelly Criterion Settings
+    kellyFraction: parseFloat(process.env.KELLY_FRACTION) || 0.25, // Quarter Kelly (conservative)
+    minStake: parseFloat(process.env.MIN_STAKE) || 0.35,
+    maxStakePercent: parseFloat(process.env.MAX_STAKE_PERCENT) || 5, // Max 5% per trade
+
+    // Risk Management
+    maxDrawdownPercent: parseFloat(process.env.MAX_DRAWDOWN_PERCENT) || 25,
+    dailyLossLimit: parseFloat(process.env.DAILY_LOSS_LIMIT) || 50,
+    dailyProfitTarget: parseFloat(process.env.DAILY_PROFIT_TARGET) || 100,
+    maxConsecutiveLosses: parseInt(process.env.MAX_CONSECUTIVE_LOSSES) || 6,
+
+    // Trading Configuration
+    minConfidence: parseInt(process.env.MIN_CONFIDENCE) || 70,
     minModelsAgreement: parseInt(process.env.MIN_MODELS_AGREEMENT) || 2,
     requiredHistoryLength: parseInt(process.env.REQUIRED_HISTORY_LENGTH) || 500,
-    minWaitTime: parseInt(process.env.MIN_WAIT_TIME) || 10000,
-    maxWaitTime: parseInt(process.env.MAX_WAIT_TIME) || 60000,
+    minWaitTime: parseInt(process.env.MIN_WAIT_TIME) || 15000,
+    maxWaitTime: parseInt(process.env.MAX_WAIT_TIME) || 90000,
+
+    // Assets
     assets: process.env.ASSETS ? process.env.ASSETS.split(',').map(a => a.trim()) : undefined
 });
 
