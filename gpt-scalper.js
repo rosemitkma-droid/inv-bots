@@ -402,8 +402,8 @@ class MultiplierBot {
         };
 
         // Telegram Configuration
-        this.telegramToken = process.env.TELEGRAM_BOT_TOKEN6;
-        this.telegramChatId = process.env.TELEGRAM_CHAT_ID2;
+        this.telegramToken = process.env.TELEGRAM_BOT_TOKEN;
+        this.telegramChatId = process.env.TELEGRAM_CHAT_ID;
         this.telegramEnabled = !!(this.telegramToken && this.telegramChatId);
 
         if (this.telegramEnabled) {
@@ -441,6 +441,13 @@ class MultiplierBot {
             },
             'Bot started'
         );
+
+        // Performance summary every 30 minutes
+        this.perfInterval = setInterval(() => {
+            if (this.telegramEnabled && (this.stats.trades > 0 || round2(this.stats.sumProfit - this.stats.sumLoss) !== 0)) {
+                this.sendTelegram(this.getTelegramSummary());
+            }
+        }, 1800000);
     }
 
     async _authorize() {
@@ -845,7 +852,6 @@ class MultiplierBot {
 
         this.stats.trades++;
         log.info({ contractId, direction, refEntryPrice: refPrice, layers: this.currentCampaign.layers, stake }, 'Position opened');
-        this.notifyTradeOpen(buy, direction);
         journalWrite({ event: 'OPEN', contractId, direction, contract_type, stake, multiplier: this.multiplier, refEntryPrice: refPrice });
 
         const sub = await this.c.subscribe(
@@ -933,7 +939,6 @@ class MultiplierBot {
                 },
                 'Position Closed'
             );
-            this.notifyTradeClose(pos, realized, result === 'WIN');
 
             journalWrite({ event: 'CLOSE', contractId, realized: round2(realized), realizedPnlTotal: round2(this.realizedPnl) });
 
