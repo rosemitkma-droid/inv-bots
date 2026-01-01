@@ -5,7 +5,7 @@ const TelegramBot = require('node-telegram-bot-api');
 // ================= CONFIGURATION =================
 const CONFIG = {
     app_id: 1089, // Replace with your App ID if you have one, or keep 1089 (Deriv generic)
-    token: 'hsj0tA0XJoIzJG5', // REPLACE THIS with your actual API Token
+    token: 'hsj0tA0XJoIzJG5' || process.env.DERIV_API_TOKEN, // Use env variable or fallback
 
     // MULTI-ASSET CONFIGURATION
     symbols: [
@@ -16,7 +16,7 @@ const CONFIG = {
         { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 60, enabled: true }
     ],
 
-    // SESSIONS CONFIGURATION
+    // SESSIONS CONFIGURATION 
     sessions: {
         london: { name: 'London', time: '07:00', enabled: true },
         new_york: { name: 'New York', time: '13:00', enabled: true }
@@ -57,6 +57,7 @@ class QuickFlipBot {
         this.tradeLog = [];
         this.pingTimer = null;
         this.isConnected = false;
+        this.requestIdCounter = 100; // Counter for unique request IDs
 
         this.initializeAssets();
     }
@@ -106,7 +107,7 @@ class QuickFlipBot {
 
         this.ws.on('message', (data) => {
             try {
-                const msg = JSON.parse(data);
+                const msg = JSON.parse(data.toString());
                 this.handleMessage(msg);
             } catch (err) {
                 this.log(`❌ Error parsing message: ${err.message}`, 'ERROR');
@@ -127,9 +128,8 @@ class QuickFlipBot {
 
     startPingInterval() {
         this.pingTimer = setInterval(() => {
-            if (this.isConnected) {
+            if (this.isConnected && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.send(JSON.stringify({ ping: 1 }));
-                // this.log('📡 Keep-alive ping sent', 'SYSTEM');
             }
         }, CONFIG.ping_interval);
     }
@@ -229,16 +229,33 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
 
     handleMessage(msg) {
         // Handle pong
-        if (msg.msg_type === 'ping') {
-            // this.log('📡 Pong received', 'SYSTEM');
+        if (msg.msg_type === 'ping' || msg.msg_type === 'pong') {
             return;
         }
 
         if (msg.error) {
             this.log(`❌ API Error: ${msg.error.message} (Code: ${msg.error.code})`, 'ERROR');
+
+            // Log the full request for debugging
+            if (msg.echo_req) {
+                this.log(`📋 Failed Request: ${JSON.stringify(msg.echo_req, null, 2)}`, 'ERROR');
+            }
+
             if (msg.error.code === 'InvalidToken') {
                 this.log('🛑 Invalid API Token. Please update CONFIG.token', 'ERROR');
                 process.exit(1);
+            }
+
+            // Handle trade execution errors - reset state
+            if (msg.echo_req && msg.echo_req.buy) {
+                const sym = msg.echo_req.passthrough?.symbol;
+                if (sym) {
+                    const asset = this.assets.get(sym);
+                    if (asset) {
+                        asset.state = 'WAITING_FOR_OPEN';
+                        this.log(`⚠️ Trade failed for ${sym}, resetting state`, 'ERROR');
+                    }
+                }
             }
             return;
         }
@@ -386,7 +403,7 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
             }
 
             // Log periodic heartbeat
-            const currentMinute = nowString.substring(14, 16);
+            const currentMinute = now.toISOString().substring(14, 16);
             if (['00', '15', '30', '45'].includes(currentMinute)) {
                 if (Date.now() - asset.lastTimeLog > 60000) { // Every minute during heartbeat check
                     const atrStatus = this.dailyATR[symbol] ? '✅' : '❌';
@@ -523,8 +540,7 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
             this.log(`❌ LIQUIDITY FAILED (${rangePercent}% of ATR is below 11%)`, 'ERROR', symbol);
             this.sendTelegramMessage(`❌ <b>Liquidity Failed</b> [${symbol}]\nRange ${rangePercent}% of ATR is too low.`);
 
-            // Mark session as "traded/handled" even if failed liquidity, or wait? 
-            // Usually if liquidity fails, we don't trade that session.
+            // Mark session as "traded/handled" even if failed liquidity
             const sessionTag = `${new Date().toISOString().split('T')[0]}:${asset.session}`;
             asset.lastSessionTraded = sessionTag;
 
@@ -584,65 +600,80 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
         const asset = this.assets.get(symbol);
         asset.state = 'EXECUTING';
 
-        // Calculation: 1% risk = SL. 3% TP = RR 1:3.
-        const stake = (CONFIG.INVESTMENT_CAPITAL * (CONFIG.RISK_PERCENT / 100)).toFixed(2);
-        const stopLossAmount = Math.max(0, stake); // 100% of stake = SL
-        const takeProfitAmount = (stake * CONFIG.RR_RATIO).toFixed(2); // 300% of stake = TP
+        // Calculate stake as a NUMBER (not string)
+        const stakeAmount = parseFloat((CONFIG.INVESTMENT_CAPITAL * (CONFIG.RISK_PERCENT / 100)).toFixed(2));
+        const stopLossAmount = stakeAmount; // 100% of stake = SL
+        const takeProfitAmount = parseFloat((stakeAmount * CONFIG.RR_RATIO).toFixed(2)); // 300% of stake = TP
 
         const direction = contractType === 'MULTUP' ? '🔼 LONG' : '🔻 SHORT';
 
         const tradeInfo =
             `🚀 EXECUTING TRADE: ${symbol}\n` +
             `• Direction: ${direction}\n` +
-            `• Stake:     $${stake} (Risk: ${CONFIG.RISK_PERCENT}%)\n` +
+            `• Stake:     $${stakeAmount.toFixed(2)} (Risk: ${CONFIG.RISK_PERCENT}%)\n` +
             `• Multiplier: x${asset.multiplier}\n` +
-            `• SL Amount: -$${stake} (Fixed 100% of Stake)\n` +
-            `• TP Amount: +$${takeProfitAmount} (Target RR 1:3)`;
+            `• SL Amount: -$${stopLossAmount.toFixed(2)} (Fixed 100% of Stake)\n` +
+            `• TP Amount: +$${takeProfitAmount.toFixed(2)} (Target RR 1:3)`;
 
         this.log(tradeInfo, 'TRADE', symbol, true);
 
         this.ws.send(JSON.stringify({ forget_all: 'candles' }));
+
         this.sendTelegramMessage(
-            `🚀 <b>Scaling Trade Execution</b> [${symbol}]\n` +
+            `🚀 <b>Executing Trade</b> [${symbol}]\n` +
             `<b>Session:</b> ${CONFIG.sessions[asset.session].name}\n` +
             `<b>Side:</b> ${direction}\n\n` +
-            `💰 <b>Stake:</b> $${stake}\n` +
+            `💰 <b>Stake:</b> $${stakeAmount.toFixed(2)}\n` +
             `⚙️ <b>Mult:</b> x${asset.multiplier}\n` +
-            `🛑 <b>SL:</b> $${stake}\n` +
-            `🎯 <b>TP:</b> $${takeProfitAmount}`
+            `🛑 <b>SL:</b> $${stopLossAmount.toFixed(2)}\n` +
+            `🎯 <b>TP:</b> $${takeProfitAmount.toFixed(2)}`
         );
 
-        this.ws.send(JSON.stringify({
+        // ============================================
+        // FIX: Correct API format for multiplier contracts
+        // The 'amount' field MUST be inside 'parameters'
+        // ============================================
+        const buyRequest = {
             buy: 1,
-            price: stake,
+            price: stakeAmount + 1, // Maximum price willing to pay (slightly higher to ensure execution)
             parameters: {
                 contract_type: contractType,
                 symbol: symbol,
                 currency: 'USD',
+                amount: stakeAmount,  // ← THIS IS THE FIX: stake amount goes here
                 multiplier: asset.multiplier,
                 limit_order: {
-                    take_profit: parseFloat(takeProfitAmount),
-                    stop_loss: parseFloat(stopLossAmount)
+                    take_profit: takeProfitAmount,
+                    stop_loss: stopLossAmount
                 }
             },
-            passthrough: { symbol: symbol }
-        }));
+            passthrough: { symbol: symbol },
+            req_id: ++this.requestIdCounter
+        };
+
+        this.log(`📤 Sending buy request: ${JSON.stringify(buyRequest, null, 2)}`, 'INFO', symbol);
+        this.ws.send(JSON.stringify(buyRequest));
     }
 
     handleBuyResponse(msg) {
         if (msg.buy) {
-            const sym = msg.echo_req.passthrough.symbol;
-            const asset = this.assets.get(sym);
+            const sym = msg.echo_req.passthrough?.symbol || msg.buy.shortcode?.split('_')[1];
+            const asset = sym ? this.assets.get(sym) : null;
 
-            this.log('✅ TRADE EXECUTED SUCCESSFULLY!', 'SUCCESS', sym);
-            asset.currentContractId = msg.buy.contract_id;
-            asset.state = 'IN_TRADE';
+            this.log('✅ TRADE EXECUTED SUCCESSFULLY!', 'SUCCESS', sym || '');
+            this.log(`   Contract ID: ${msg.buy.contract_id}`, 'INFO');
+            this.log(`   Buy Price: ${msg.buy.buy_price}`, 'INFO');
+
+            if (asset) {
+                asset.currentContractId = msg.buy.contract_id;
+                asset.state = 'IN_TRADE';
+            }
 
             this.tradeLog.push({
-                symbol: sym,
+                symbol: sym || 'UNKNOWN',
                 contractId: msg.buy.contract_id,
                 entryTime: new Date().toISOString(),
-                direction: msg.buy.contract_type,
+                direction: msg.buy.contract_type || msg.echo_req.parameters?.contract_type,
                 stake: msg.buy.buy_price
             });
 
@@ -651,10 +682,10 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
     }
 
     monitorTrade(symbol) {
-        const asset = this.assets.get(symbol);
-        this.log('📊 Starting trade monitoring...', 'TRADE', symbol);
+        const asset = symbol ? this.assets.get(symbol) : null;
+        this.log('📊 Starting trade monitoring...', 'TRADE', symbol || '');
 
-        if (asset.currentContractId) {
+        if (asset && asset.currentContractId) {
             this.ws.send(JSON.stringify({
                 proposal_open_contract: 1,
                 contract_id: asset.currentContractId,
@@ -675,8 +706,8 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
         const profit = parseFloat(contract.profit || 0);
         const profitPercent = ((profit / contract.buy_price) * 100).toFixed(2);
 
-        // Log update every few mins or significant profit changes
-        if (Math.random() < 0.3) {
+        // Log update occasionally
+        if (Math.random() < 0.1) {
             this.log(`📈 Monitoring ${asset.symbol}: ${profitPercent}% | $${profit.toFixed(2)}`, 'TRADE', asset.symbol);
         }
     }
@@ -732,11 +763,13 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
         let losses = 0;
 
         this.tradeLog.forEach((trade, index) => {
-            const result = trade.result === 'WIN' ? '✅ WIN ' : '❌ LOSS';
-            this.log(`${index + 1}. [${trade.symbol}] ${trade.direction}: ${result} | P/L: $${trade.profit.toFixed(2)}`, 'INFO');
-            totalProfit += trade.profit;
-            if (trade.result === 'WIN') wins++;
-            else losses++;
+            if (trade.profit !== undefined) {
+                const result = trade.result === 'WIN' ? '✅ WIN ' : '❌ LOSS';
+                this.log(`${index + 1}. [${trade.symbol}] ${trade.direction}: ${result} | P/L: $${trade.profit.toFixed(2)}`, 'INFO');
+                totalProfit += trade.profit;
+                if (trade.result === 'WIN') wins++;
+                else losses++;
+            }
         });
 
         const winRate = (wins + losses) > 0 ? (wins / (wins + losses) * 100).toFixed(1) : 0;
@@ -777,4 +810,12 @@ process.on('SIGINT', async () => {
     bot.printTradeLog();
     bot.cleanup();
     process.exit(0);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
