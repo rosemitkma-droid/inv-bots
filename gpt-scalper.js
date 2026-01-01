@@ -25,6 +25,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const TelegramBot = require('node-telegram-bot-api');
 
 let pino;
 try { pino = require('pino'); } catch { pino = null; }
@@ -117,6 +118,64 @@ if (CFG.tpPct <= CFG.slPct) {
 const DERIV_WS =
     CFG.wsUrl ||
     `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(CFG.appId)}`;
+
+// -------------------- Telegram Notifications --------------------
+
+async function sendTelegram(message) {
+    if (!this.telegramEnabled || !this.telegramBot) return;
+    try {
+        await this.telegramBot.sendMessage(this.telegramChatId, message, { parse_mode: 'HTML' });
+    } catch (e) {
+        log.error({ err: safeErr(e) }, 'Failed to send telegram message');
+    }
+}
+
+function getTelegramSummary() {
+    const net = round2(this.stats.sumProfit - this.stats.sumLoss);
+    const winRate = this.stats.trades > 0 ? round2((this.stats.wins / this.stats.trades) * 100) : 0;
+    const uptime = Math.floor((now() - this.stats.startTime) / 60000);
+
+    return `<b>📊 GPT Scalper Summary</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+<b>Asset:</b> <code>${CFG.symbol}</code>
+<b>Uptime:</b> ${uptime} min
+<b>Trades:</b> ${this.stats.trades}
+<b>Win Rate:</b> ${winRate}%
+
+✅ <b>Wins:</b> ${this.stats.wins}
+❌ <b>Losses:</b> ${this.stats.losses}
+📉 <b>Max Consec Loss:</b> ${this.stats.maxConsecLoss}
+
+💰 <b>Net P/L:</b> $${net.toFixed(2)}
+🏦 <b>Balance:</b> $${round2(this.balance).toFixed(2)}
+━━━━━━━━━━━━━━━━━━━━━━━━`;
+}
+
+async function notifyTradeOpen(contract, side) {
+    const msg = `🚀 <b>TRADE OPENED</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+<b>Side:</b> ${side === 'UP' ? '⬆️ CALL (Up)' : '⬇️ PUT (Down)'}
+<b>Asset:</b> <code>${CFG.symbol}</code>
+<b>Stake:</b> $${CFG.stake}
+<b>Multiplier:</b> x${CFG.multiplier}
+<b>Contract ID:</b> <code>${contract.contract_id}</code>
+━━━━━━━━━━━━━━━━━━━━━━━━`;
+    await this.sendTelegram(msg);
+}
+
+async function notifyTradeClose(contract, profit, isWin) {
+    const emoji = isWin ? '✅ WIN' : '❌ LOSS';
+    const msg = `${isWin ? '💰' : '📉'} <b>TRADE CLOSED: ${emoji}</b>
+━━━━━━━━━━━━━━━━━━━━━━━━
+<b>Asset:</b> <code>${CFG.symbol}</code>
+<b>Profit/Loss:</b> $${round2(profit).toFixed(2)}
+<b>Contract ID:</b> <code>${contract.contract_id}</code>
+
+<b>Net P/L:</b> $${round2(this.stats.sumProfit - this.stats.sumLoss).toFixed(2)}
+<b>Win Rate:</b> ${this.stats.trades > 0 ? round2((this.stats.wins / this.stats.trades) * 100) : 0}%
+━━━━━━━━━━━━━━━━━━━━━━━━`;
+    await this.sendTelegram(msg);
+}
 
 // -------------------- Indicators --------------------
 class EMA {
@@ -330,6 +389,31 @@ class MultiplierBot {
         this.ctDown = CFG.contractTypeDown;
         this.multiplier = CFG.multiplier;
         this.supportsLimitOrder = true;
+
+        this.stats = {
+            trades: 0,
+            wins: 0,
+            losses: 0,
+            sumProfit: 0,
+            sumLoss: 0,
+            consecLoss: 0,
+            maxConsecLoss: 0,
+            startTime: now(),
+        };
+
+        // Telegram Configuration
+        this.telegramToken = process.env.TELEGRAM_BOT_TOKEN6;
+        this.telegramChatId = process.env.TELEGRAM_CHAT_ID2;
+        this.telegramEnabled = !!(this.telegramToken && this.telegramChatId);
+
+        if (this.telegramEnabled) {
+            this.telegramBot = new TelegramBot(this.telegramToken, { polling: false });
+            log.info('📱 Telegram notifications enabled');
+            this.sendTelegram = sendTelegram.bind(this);
+            this.getTelegramSummary = getTelegramSummary.bind(this);
+            this.notifyTradeOpen = notifyTradeOpen.bind(this);
+            this.notifyTradeClose = notifyTradeClose.bind(this);
+        }
     }
 
     async start() {
@@ -363,11 +447,15 @@ class MultiplierBot {
         const res = await this.c.send({ authorize: CFG.token });
         const a = res?.authorize;
         log.info({ loginid: a?.loginid, currency: a?.currency, country: a?.country }, 'Authorized');
+        if (this.telegramEnabled) {
+            this.sendTelegram(`🚀 <b>Bot Started: GPT Scalper</b>\n\n<b>Asset:</b> ${CFG.symbol}\n<b>Stake:</b> $${CFG.stake}\n<b>Balance:</b> $${a?.balance}`);
+        }
     }
 
     async _logBalance() {
         try {
-            const res = await this.c.send({ balance: 1, subscribe: 0 });
+            const res = await this.c.send({ balance: 1, subscribe: 1 });
+            this.balance = res?.balance?.balance; // Store balance for summary
             log.info({ balance: res?.balance?.balance, currency: res?.balance?.currency }, 'Balance snapshot');
         } catch (e) {
             log.warn({ err: safeErr(e) }, 'Balance request failed');
@@ -533,11 +621,13 @@ class MultiplierBot {
         if (this.realizedPnl <= -Math.abs(CFG.dailyLossLimit)) {
             this.tradingEnabled = false;
             log.error({ realizedPnl: this.realizedPnl, limit: CFG.dailyLossLimit }, 'Daily loss limit hit; trading disabled');
+            this.sendTelegram(`🚨 <b>DAILY LOSS LIMIT HIT!</b>\n\nRealized P/L: $${round2(this.realizedPnl).toFixed(2)}\nLimit: $${CFG.dailyLossLimit}\n\nTrading disabled.`);
             return false;
         }
         if (this.consecLosses >= CFG.maxConsecLosses) {
             this.tradingEnabled = false;
             log.error({ consecLosses: this.consecLosses, limit: CFG.maxConsecLosses }, 'Max consecutive losses hit; trading disabled');
+            this.sendTelegram(`🚨 <b>MAX CONSECUTIVE LOSSES HIT!</b>\n\nConsecutive Losses: ${this.consecLosses}\nLimit: ${CFG.maxConsecLosses}\n\nTrading disabled.`);
             return false;
         }
         if (now() < this.cooldownUntil) return false;
@@ -753,7 +843,9 @@ class MultiplierBot {
         this.currentCampaign.layers += 1;
         this.currentCampaign.lastAddPrice = refPrice;
 
+        this.stats.trades++;
         log.info({ contractId, direction, refEntryPrice: refPrice, layers: this.currentCampaign.layers, stake }, 'Position opened');
+        this.notifyTradeOpen(buy, direction);
         journalWrite({ event: 'OPEN', contractId, direction, contract_type, stake, multiplier: this.multiplier, refEntryPrice: refPrice });
 
         const sub = await this.c.subscribe(
@@ -816,9 +908,16 @@ class MultiplierBot {
             if (result === 'LOSS') {
                 this.consecLosses += 1;
                 this.losses += 1;
+                this.stats.losses++;
+                this.stats.sumLoss += Math.abs(realized);
+                this.stats.consecLoss++;
+                this.stats.maxConsecLoss = Math.max(this.stats.maxConsecLoss, this.stats.consecLoss);
             } else {
                 this.consecLosses = 0;
                 this.wins += 1;
+                this.stats.wins++;
+                this.stats.sumProfit += realized;
+                this.stats.consecLoss = 0;
             }
 
             log.info(
@@ -834,6 +933,7 @@ class MultiplierBot {
                 },
                 'Position Closed'
             );
+            this.notifyTradeClose(pos, realized, result === 'WIN');
 
             journalWrite({ event: 'CLOSE', contractId, realized: round2(realized), realizedPnlTotal: round2(this.realizedPnl) });
 
