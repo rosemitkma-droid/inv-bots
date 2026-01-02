@@ -364,7 +364,7 @@ const ASSET_CONFIGS = {
     }
 };
 
-let ACTIVE_ASSETS = ['R_75', 'R_100', '1HZ10V', '1HZ50V', 'frxXAUUSD'];
+let ACTIVE_ASSETS = ['R_75', 'R_100', '1HZ10V', '1HZ50V'];
 
 // ============================================
 // STATE MANAGEMENT
