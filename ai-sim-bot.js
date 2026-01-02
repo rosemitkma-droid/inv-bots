@@ -2393,8 +2393,7 @@ class AILogicDigitDifferBot {
 
         console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
 
-        if (this.tickHistory.length >= this.config.requiredHistoryLength &&
-            !this.tradeInProgress && !this.predictionInProgress) {
+        if (!this.tradeInProgress) {
             this.analyzeTicks();
         }
     }
@@ -2402,7 +2401,7 @@ class AILogicDigitDifferBot {
     // ==================== SIMULATED AI PREDICTION ENGINE ====================
 
     async analyzeTicks() {
-        if (this.tradeInProgress || this.predictionInProgress) return;
+        if (this.tradeInProgress) return;
 
         const tradingStatus = this.kellyManager.shouldContinueTrading();
         if (!tradingStatus.canTrade) {
@@ -2416,7 +2415,7 @@ class AILogicDigitDifferBot {
             console.log(`\n⚠️ WARNING: Drawdown at ${tradingStatus.currentDrawdown.toFixed(1)}%`);
         }
 
-        this.predictionInProgress = true;
+        // this.predictionInProgress = true;
         console.log('\n🧠 Starting Simulated AI Ensemble Analysis...');
 
         const startTime = Date.now();
@@ -2431,7 +2430,7 @@ class AILogicDigitDifferBot {
             if (predictions.length === 0) {
                 console.log('⚠️  No valid predictions received');
                 this.predictionInProgress = false;
-                this.scheduleNextTrade();
+                // this.scheduleNextTrade();
                 return;
             }
 
@@ -2477,7 +2476,7 @@ class AILogicDigitDifferBot {
             else {
                 console.log(`⏭️ Skipping trade: ${tradeDecision.reason}`);
                 this.predictionInProgress = false;
-                this.scheduleNextTrade();
+                // this.scheduleNextTrade();
             }
 
         } catch (error) {
@@ -2703,8 +2702,8 @@ class AILogicDigitDifferBot {
 
     scheduleNextTrade() {
         const waitTime = Math.floor(
-            Math.random() * (30000 - 15000) +
-            15000
+            Math.random() * (30000 - 25000) +
+            1000
         );
 
         console.log(`\n⏳ Waiting ${Math.round(waitTime / 1000)}s before next trade...`);
@@ -2934,7 +2933,7 @@ const bot = new AILogicDigitDifferBot({
     maxConsecutiveLosses: 6,
 
     minConfidence: 80,
-    minEnginesAgreement: 5,
+    minEnginesAgreement: 7,
     requiredHistoryLength: 200,
     minWaitTime: 15000,
     maxWaitTime: 50000,
