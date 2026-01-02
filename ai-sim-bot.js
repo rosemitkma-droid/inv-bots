@@ -2935,8 +2935,8 @@ const bot = new AILogicDigitDifferBot({
     minConfidence: 80,
     minEnginesAgreement: 7,
     requiredHistoryLength: 200,
-    minWaitTime: 15000,
-    maxWaitTime: 50000,
+    minWaitTime: 150000,
+    maxWaitTime: 500000,
 
     assets: process.env.ASSETS ? process.env.ASSETS.split(',').map(a => a.trim()) : undefined
 });
