@@ -640,6 +640,7 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
                 contract_type: contractType,
                 symbol: symbol,
                 currency: 'USD',
+                basis: 'stake',
                 amount: stakeAmount,  // ← THIS IS THE FIX: stake amount goes here
                 multiplier: asset.multiplier,
                 limit_order: {
