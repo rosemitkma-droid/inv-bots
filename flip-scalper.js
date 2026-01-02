@@ -13,7 +13,7 @@ const CONFIG = {
         { name: '1HZ25V', label: 'Volatility 25 (1s)', multiplier: 400, enabled: true },
         { name: '1HZ50V', label: 'Volatility 50 (1s)', multiplier: 200, enabled: true },
         { name: '1HZ75V', label: 'Volatility 75 (1s)', multiplier: 100, enabled: true },
-        { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 60, enabled: true }
+        { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 100, enabled: true }
     ],
 
     // SESSIONS CONFIGURATION 
