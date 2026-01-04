@@ -2022,7 +2022,8 @@ class AILogicDigitDifferBot {
             minConfidence: config.minConfidence || 70,
             minStake: config.minStake || 0.61,
             multiplier: config.multiplier || 11.3,
-            minEnginesAgreement: config.minEnginesAgreement || 3,
+            minEnginesAgreement: config.minEnginesAgreement || 4,
+            minEnginesAgreement2: config.minEnginesAgreement2 || 5,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 6,
             maxReconnectAttempts: config.maxReconnectAttempts || 10000,
             reconnectInterval: config.reconnectInterval || 5000,
@@ -2905,7 +2906,21 @@ class AILogicDigitDifferBot {
     }
 
     async sendTelegramLossAlert(actualDigit, profit) {
+
+        const winRate = this.totalTrades > 0
+            ? ((this.totalWins / this.totalTrades) * 100).toFixed(1)
+            : 0;
         const kellyStatus = this.kellyManager.getStatus();
+
+        let engineStats = '';
+        for (const [key, engine] of Object.entries(this.aiEngines)) {
+            if (key === 'eml') continue;
+            const total = engine.wins + engine.losses;
+            if (total > 0) {
+                const wr = ((engine.wins / total) * 100).toFixed(0);
+                engineStats += `${engine.name}: ${wr}% | `;
+            }
+        }
 
         const body = `🚨 <b>TRADE LOSS</b>
             ━━━━━━━━━━━━━━━━━━━━
@@ -2977,8 +2992,9 @@ const bot = new AILogicDigitDifferBot({
     dailyProfitTarget: 100,
     maxConsecutiveLosses: 3,//6
 
-    minConfidence: 60,
-    minEnginesAgreement: 4,
+    minConfidence: 91,
+    minEnginesAgreement: 1,
+    minEnginesAgreement: 5,
     requiredHistoryLength: 100,
     minWaitTime: 1000,
     maxWaitTime: 1000,
