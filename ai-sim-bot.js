@@ -173,7 +173,7 @@ class MarkovChainPredictor {
     }
 
     analyze(tickHistory) {
-        if (tickHistory.length < 200) {
+        if (tickHistory.length < 100) {
             return { error: 'Insufficient data for Markov analysis' };
         }
 
@@ -2020,6 +2020,7 @@ class AILogicDigitDifferBot {
         this.config = {
             requiredHistoryLength: config.requiredHistoryLength || 500,
             minConfidence: config.minConfidence || 70,
+            minStake: config.minStake || 0.61,
             minEnginesAgreement: config.minEnginesAgreement || 3,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 6,
             maxReconnectAttempts: config.maxReconnectAttempts || 10000,
@@ -2580,6 +2581,8 @@ class AILogicDigitDifferBot {
         if (stdDev > 3.5) return 'extreme';
         if (stdDev > 2.8) return 'high';
         if (stdDev > 2.0) return 'medium';
+
+        console.log(`Volatility stdDev: ${stdDev.toFixed(2)}`);
         return 'low';
     }
 
@@ -2593,15 +2596,16 @@ class AILogicDigitDifferBot {
 
         // stake = Math.max(this.config.minStake, Math.min(stake, this.balance * 0.1));
         // stake = Math.round(stake * 100) / 100;
-        stake = this.currentStake;
+        this.currentStake = this.currentStake.toFixed(2);
 
-        console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${stake.toFixed(2)} (${confidence}% confidence)`);
+        // console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${stake.toFixed(2)} (${confidence}% confidence)`);
+        console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${this.currentStake} (${confidence}% confidence)`);
 
         this.sendRequest({
             buy: 1,
-            price: stake.toFixed(2),
+            price: this.currentStake, //stake.toFixed(2),
             parameters: {
-                amount: stake.toFixed(2),
+                amount: this.currentStake, //stake.toFixed(2),
                 basis: 'stake',
                 contract_type: 'DIGITDIFF',
                 currency: 'USD',
@@ -2972,11 +2976,11 @@ const bot = new AILogicDigitDifferBot({
     dailyProfitTarget: 100,
     maxConsecutiveLosses: 3,//6
 
-    minConfidence: 80,
-    minEnginesAgreement: 7,
-    requiredHistoryLength: 200,
-    minWaitTime: 150000,
-    maxWaitTime: 500000,
+    minConfidence: 60,
+    minEnginesAgreement: 4,
+    requiredHistoryLength: 100,
+    minWaitTime: 1000,
+    maxWaitTime: 1000,
 
     assets: process.env.ASSETS ? process.env.ASSETS.split(',').map(a => a.trim()) : undefined
 });
