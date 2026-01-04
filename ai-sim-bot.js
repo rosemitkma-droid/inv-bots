@@ -1999,15 +1999,15 @@ class AILogicDigitDifferBot {
 
         // Initialize Simulated AI Engines
         this.aiEngines = {
-            // fda: new FrequencyDeviationAnalyzer(),
+            fda: new FrequencyDeviationAnalyzer(),
             mcp: new MarkovChainPredictor(),
-            // eite: new EntropyInformationEngine(),
-            // prnn: new PatternRecognitionEngine(),
-            // bpe: new BayesianProbabilityEstimator(),
-            // gamr: new GapMeanReversionAnalyzer(),
-            // mtd: new MomentumTrendDetector(),
-            // ctaf: new ChaosTheoryAnalyzer(),
-            // mcs: new MonteCarloSimulator(),
+            eite: new EntropyInformationEngine(),
+            prnn: new PatternRecognitionEngine(),
+            bpe: new BayesianProbabilityEstimator(),
+            gamr: new GapMeanReversionAnalyzer(),
+            mtd: new MomentumTrendDetector(),
+            ctaf: new ChaosTheoryAnalyzer(),
+            mcs: new MonteCarloSimulator(),
             eml: new EnsembleMetaLearner()
         };
 
