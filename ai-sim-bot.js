@@ -2048,7 +2048,7 @@ class AILogicDigitDifferBot {
         this.consecutiveLosses3 = 0;
         this.consecutiveLosses4 = 0;
         this.consecutiveLosses5 = 0;
-        this.currenStake = this.config.minStake;
+        this.currentStake = this.config.minStake;
 
         // Tick Data
         this.tickHistory = [];
@@ -2593,7 +2593,7 @@ class AILogicDigitDifferBot {
 
         // stake = Math.max(this.config.minStake, Math.min(stake, this.balance * 0.1));
         // stake = Math.round(stake * 100) / 100;
-        stake = this.currenStake;
+        stake = this.currentStake;
 
         console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${stake.toFixed(2)} (${confidence}% confidence)`);
 
@@ -2652,7 +2652,7 @@ class AILogicDigitDifferBot {
             this.consecutiveLosses = 0;
             this.consecutiveWins++;
             this.lastTradeResult = 'won';
-            this.currenStake = this.config.minStake;
+            this.currentStake = this.config.minStake;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
