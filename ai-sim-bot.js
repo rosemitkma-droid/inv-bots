@@ -1984,7 +1984,8 @@ class AILogicDigitDifferBot {
         this.kellyManager = new KellyCriterionManager({
             investmentCapital: config.investmentCapital || 500,
             kellyFraction: config.kellyFraction || 0.25,
-            minStake: config.minStake || 0.35,
+            minStake: config.minStake || 0.61,
+            multiplier: config.multiplier || 11.3,
             maxStakePercent: config.maxStakePercent || 5,
             maxDrawdownPercent: config.maxDrawdownPercent || 25,
             dailyLossLimit: config.dailyLossLimit || 50,
@@ -2043,6 +2044,11 @@ class AILogicDigitDifferBot {
         this.totalLosses = 0;
         this.balance = 0;
         this.sessionStartBalance = 0;
+        this.consecutiveLosses2 = 0;
+        this.consecutiveLosses3 = 0;
+        this.consecutiveLosses4 = 0;
+        this.consecutiveLosses5 = 0;
+        this.currenStake = this.config.minStake;
 
         // Tick Data
         this.tickHistory = [];
@@ -2585,16 +2591,17 @@ class AILogicDigitDifferBot {
         this.tradeInProgress = true;
         this.predictionInProgress = true;
 
-        stake = Math.max(0.35, Math.min(stake, this.balance * 0.1));
-        stake = Math.round(stake * 100) / 100;
+        // stake = Math.max(this.config.minStake, Math.min(stake, this.balance * 0.1));
+        // stake = Math.round(stake * 100) / 100;
+        stake = this.currenStake;
 
         console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${stake.toFixed(2)} (${confidence}% confidence)`);
 
         this.sendRequest({
             buy: 1,
-            price: stake,
+            price: stake.toFixed(2),
             parameters: {
-                amount: stake,
+                amount: stake.toFixed(2),
                 basis: 'stake',
                 contract_type: 'DIGITDIFF',
                 currency: 'USD',
@@ -2645,11 +2652,24 @@ class AILogicDigitDifferBot {
             this.consecutiveLosses = 0;
             this.consecutiveWins++;
             this.lastTradeResult = 'won';
+            this.currenStake = this.config.minStake;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.consecutiveWins = 0;
             this.lastTradeResult = 'lost';
+
+            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+
+            if (this.consecutiveLosses === 2) {
+                this.consecutiveLosses2++;
+            } else if (this.consecutiveLosses === 3) {
+                this.consecutiveLosses3++;
+            } else if (this.consecutiveLosses === 4) {
+                this.consecutiveLosses4++;
+            } else if (this.consecutiveLosses === 5) {
+                this.consecutiveLosses5++;
+            }
         }
 
         const kellyStatus = this.kellyManager.getStatus();
@@ -2792,6 +2812,8 @@ class AILogicDigitDifferBot {
         console.log(`   Total Trades: ${this.totalTrades}`);
         console.log(`   Wins: ${this.totalWins}`);
         console.log(`   Losses: ${this.totalLosses}`);
+        console.log(`   x2Losses: ${this.consecutiveLosses2}`);
+        console.log(`   x3Losses: ${this.consecutiveLosses3}`);
         console.log(`   Win Rate: ${winRate}%`);
         console.log(`   Session P/L: $${kellyStatus.sessionPnL.toFixed(2)}`);
         console.log(`   Starting Capital: $${kellyStatus.investmentCapital.toFixed(2)}`);
@@ -2839,20 +2861,24 @@ class AILogicDigitDifferBot {
         }
 
         return `<b>AI-Logic Trading Summary</b>
-━━━━━━━━━━━━━━━━━━━━━━━━
-📊 <b>Total Trades:</b> ${this.totalTrades}
-✅ <b>Wins:</b> ${this.totalWins}
-❌ <b>Losses:</b> ${this.totalLosses}
-📈 <b>Win Rate:</b> ${winRate}%
+            ━━━━━━━━━━━━━━━━━━━━━━━━
+            📊 <b>Total Trades:</b> ${this.totalTrades}
+            ✅ <b>Wins:</b> ${this.totalWins}
+            ❌ <b>Losses:</b> ${this.totalLosses}
+            ❌ <b>x2 Losses:</b> ${this.consecutiveLosses2}
+            ❌ <b>x3 Losses:</b> ${this.consecutiveLosses3}
+            
+            📈 <b>Win Rate:</b> ${winRate}%
 
-💰 <b>Investment:</b> $${kellyStatus.investmentCapital.toFixed(2)}
-💵 <b>Current Capital:</b> $${kellyStatus.currentCapital.toFixed(2)}
-📉 <b>Max Drawdown:</b> ${kellyStatus.maxDrawdownReached.toFixed(1)}%
-📊 <b>Session P/L:</b> $${kellyStatus.sessionPnL.toFixed(2)}
-📈 <b>ROI:</b> ${((kellyStatus.currentCapital - kellyStatus.investmentCapital) / kellyStatus.investmentCapital * 100).toFixed(2)}%
+            💰 <b>Investment:</b> $${kellyStatus.investmentCapital.toFixed(2)}
+            💵 <b>Current Capital:</b> $${kellyStatus.currentCapital.toFixed(2)}
+            📉 <b>Max Drawdown:</b> ${kellyStatus.maxDrawdownReached.toFixed(1)}%
+            📊 <b>Session P/L:</b> $${kellyStatus.sessionPnL.toFixed(2)}
+            📈 <b>ROI:</b> ${((kellyStatus.currentCapital - kellyStatus.investmentCapital) / kellyStatus.investmentCapital * 100).toFixed(2)}%
 
-🧠 <b>Engine Stats:</b>
-${engineStats}`;
+            🧠 <b>Engine Stats:</b>
+            ${engineStats}
+        `;
     }
 
     async sendTelegramMessage(message) {
@@ -2877,14 +2903,27 @@ ${engineStats}`;
         const kellyStatus = this.kellyManager.getStatus();
 
         const body = `🚨 <b>TRADE LOSS</b>
-━━━━━━━━━━━━━━━━━━━━
-<b>Asset:</b> ${this.currentAsset}
-<b>Predicted:</b> ${this.lastPrediction} | <b>Actual:</b> ${actualDigit}
-<b>Loss:</b> -$${Math.abs(profit).toFixed(2)}
+            ━━━━━━━━━━━━━━━━━━━━
+            <b>Asset:</b> ${this.currentAsset}
+            <b>Predicted:</b> ${this.lastPrediction} | <b>Actual:</b> ${actualDigit}
+            <b>Loss:</b> -$${Math.abs(profit).toFixed(2)}
+            
+            📊 <b>Total Trades:</b> ${this.totalTrades}
+            ✅ <b>Wins:</b> ${this.totalWins}
+            <b>Consecutive Losses:</b> ${this.consecutiveLosses}/${this.config.maxConsecutiveLosses}
+            ❌ <b>Losses:</b> ${this.totalLosses}
+            ❌ <b>x2 Losses:</b> ${this.consecutiveLosses2}
+            ❌ <b>x3 Losses:</b> ${this.consecutiveLosses3}
+            
+            📈 <b>Win Rate:</b> ${winRate}%
 
-<b>Consecutive Losses:</b> ${this.consecutiveLosses}/${this.config.maxConsecutiveLosses}
-<b>Drawdown:</b> ${kellyStatus.currentDrawdown.toFixed(1)}%
-<b>Capital:</b> $${kellyStatus.currentCapital.toFixed(2)}`;
+            💰 <b>Investment:</b> $${kellyStatus.investmentCapital.toFixed(2)}
+            💵 <b>Current Capital:</b> $${kellyStatus.currentCapital.toFixed(2)}
+            📉 <b>Max Drawdown:</b> ${kellyStatus.maxDrawdownReached.toFixed(1)}%
+            📊 <b>Session P/L:</b> $${kellyStatus.sessionPnL.toFixed(2)}
+            <b>Drawdown:</b> ${kellyStatus.currentDrawdown.toFixed(1)}%
+            <b>Capital:</b> $${kellyStatus.currentCapital.toFixed(2)}
+        `;
 
         await this.sendTelegramMessage(body);
     }
@@ -2926,11 +2965,12 @@ const bot = new AILogicDigitDifferBot({
     kellyFraction: 0.25,
     minStake: 0.61,
     maxStakePercent: 5,
+    multiplier: 11.3,
 
     maxDrawdownPercent: 25,
     dailyLossLimit: 50,
     dailyProfitTarget: 100,
-    maxConsecutiveLosses: 6,
+    maxConsecutiveLosses: 3,//6
 
     minConfidence: 80,
     minEnginesAgreement: 7,
