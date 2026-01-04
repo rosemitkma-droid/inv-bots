@@ -48,7 +48,7 @@ class FrequencyDeviationAnalyzer {
             return { error: 'Insufficient data' };
         }
 
-        const sample = tickHistory.slice(-500);
+        const sample = tickHistory.slice(-100);
         const counts = Array(10).fill(0);
         sample.forEach(d => counts[d]++);
 
@@ -125,7 +125,7 @@ class FrequencyDeviationAnalyzer {
             predictedDigit: predicted.digit,
             confidence: Math.round(confidence),
             primaryStrategy: 'Frequency Deviation Analysis',
-            riskAssessment: confidence >= 75 ? 'low' : confidence >= 60 ? 'medium' : 'high',
+            riskAssessment: confidence >= 85 ? 'low' : confidence >= 70 ? 'medium' : 'high',
             marketRegime: isUniform ? 'random' : 'patterned',
             statisticalEvidence: {
                 chiSquare: chiSquare.toFixed(2),
@@ -814,11 +814,13 @@ class GapMeanReversionAnalyzer {
             return { error: 'Insufficient data' };
         }
 
+        const recent = tickHistory.slice(-100)
+
         // Calculate gap for each digit (how long since it last appeared)
-        const gaps = this.calculateCurrentGaps(tickHistory);
+        const gaps = this.calculateCurrentGaps(recent);
 
         // Calculate historical gap statistics
-        const historicalGaps = this.calculateHistoricalGaps(tickHistory);
+        const historicalGaps = this.calculateHistoricalGaps(recent);
 
         // Mean reversion analysis
         const meanReversionScores = [];
@@ -985,19 +987,22 @@ class MomentumTrendDetector {
         this.lastOutcome = null;
     }
 
+    
     analyze(tickHistory) {
         if (tickHistory.length < 100) {
             return { error: 'Insufficient data' };
         }
 
+        const recent = tickHistory.slice(-50)
+
         // Calculate momentum for each digit
-        const momentum = this.calculateDigitMomentum(tickHistory);
+        const momentum = this.calculateDigitMomentum(recent);
 
         // Calculate trend strength
-        const trend = this.calculateTrendStrength(tickHistory);
+        const trend = this.calculateTrendStrength(recent);
 
         // Rate of change analysis
-        const roc = this.calculateRateOfChange(tickHistory);
+        const roc = this.calculateRateOfChange(recent);
 
         // Combine analyses
         const predictions = [];
@@ -1376,8 +1381,8 @@ class MonteCarloSimulator {
 
         // Calculate overall confidence
         let confidence = 50;
-        if (predicted.probability > 0.15) confidence += 15;
-        if (predicted.probability > 0.20) confidence += 10;
+        if (predicted.probability < 0.15) confidence += 15;
+        if (predicted.probability < 0.10) confidence += 10;
 
         // Consistency across simulations
         const consistencyScore = this.calculateConsistency(results, predicted.digit);
@@ -1683,23 +1688,23 @@ class EnsembleMetaLearner {
         };
     }
 
-    fallbackAnalysis(tickHistory) {
-        const counts = Array(10).fill(0);
-        tickHistory.slice(-100).forEach(d => counts[d]++);
+    // fallbackAnalysis(tickHistory) {
+    //     const counts = Array(10).fill(0);
+    //     tickHistory.slice(-100).forEach(d => counts[d]++);
 
-        const maxCount = Math.max(...counts);
-        const predicted = counts.indexOf(maxCount);
+    //     const maxCount = Math.max(...counts);
+    //     const predicted = counts.indexOf(maxCount);
 
-        return {
-            predictedDigit: predicted,
-            confidence: 55,
-            primaryStrategy: 'Ensemble Meta-Learning (Fallback)',
-            riskAssessment: 'medium',
-            marketRegime: 'unknown',
-            statisticalEvidence: { method: 'fallback-frequency' },
-            alternativeCandidates: []
-        };
-    }
+    //     return {
+    //         predictedDigit: predicted,
+    //         confidence: 55,
+    //         primaryStrategy: 'Ensemble Meta-Learning (Fallback)',
+    //         riskAssessment: 'medium',
+    //         marketRegime: 'unknown',
+    //         statisticalEvidence: { method: 'fallback-frequency' },
+    //         alternativeCandidates: []
+    //     };
+    // }
 
     updatePerformance(engineName, won) {
         if (!this.enginePerformance[engineName]) {
@@ -1994,16 +1999,16 @@ class AILogicDigitDifferBot {
 
         // Initialize Simulated AI Engines
         this.aiEngines = {
-            fda: new FrequencyDeviationAnalyzer(),
+            // fda: new FrequencyDeviationAnalyzer(),
             mcp: new MarkovChainPredictor(),
-            eite: new EntropyInformationEngine(),
-            prnn: new PatternRecognitionEngine(),
-            bpe: new BayesianProbabilityEstimator(),
-            gamr: new GapMeanReversionAnalyzer(),
-            mtd: new MomentumTrendDetector(),
-            ctaf: new ChaosTheoryAnalyzer(),
-            mcs: new MonteCarloSimulator(),
-            eml: new EnsembleMetaLearner()
+            // eite: new EntropyInformationEngine(),
+            // prnn: new PatternRecognitionEngine(),
+            // bpe: new BayesianProbabilityEstimator(),
+            // gamr: new GapMeanReversionAnalyzer(),
+            // mtd: new MomentumTrendDetector(),
+            // ctaf: new ChaosTheoryAnalyzer(),
+            // mcs: new MonteCarloSimulator(),
+            // eml: new EnsembleMetaLearner()
         };
 
         // WebSocket
@@ -2992,10 +2997,10 @@ const bot = new AILogicDigitDifferBot({
     dailyProfitTarget: 100,
     maxConsecutiveLosses: 3,//6
 
-    minConfidence: 91,
-    minEnginesAgreement: 1,
-    minEnginesAgreement: 5,
-    requiredHistoryLength: 100,
+    minConfidence: 65,
+    minEnginesAgreement: 7,
+    minEnginesAgreement: 2,
+    requiredHistoryLength: 1000,
     minWaitTime: 1000,
     maxWaitTime: 1000,
 
