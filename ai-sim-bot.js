@@ -2000,14 +2000,14 @@ class AILogicDigitDifferBot {
         // Initialize Simulated AI Engines
         this.aiEngines = {
             fda: new FrequencyDeviationAnalyzer(),
-            mcp: new MarkovChainPredictor(),
-            eite: new EntropyInformationEngine(),
-            prnn: new PatternRecognitionEngine(),
-            bpe: new BayesianProbabilityEstimator(),
+            // mcp: new MarkovChainPredictor(),
+            // eite: new EntropyInformationEngine(),
+            // prnn: new PatternRecognitionEngine(),
+            // bpe: new BayesianProbabilityEstimator(),
             gamr: new GapMeanReversionAnalyzer(),
-            mtd: new MomentumTrendDetector(),
-            ctaf: new ChaosTheoryAnalyzer(),
-            mcs: new MonteCarloSimulator(),
+            // mtd: new MomentumTrendDetector(),
+            // ctaf: new ChaosTheoryAnalyzer(),
+            // mcs: new MonteCarloSimulator(),
             eml: new EnsembleMetaLearner()
         };
 
@@ -2997,8 +2997,8 @@ const bot = new AILogicDigitDifferBot({
     dailyProfitTarget: 100,
     maxConsecutiveLosses: 3,//6
 
-    minConfidence: 65,
-    minEnginesAgreement: 7,
+    minConfidence: 91,
+    minEnginesAgreement: 2,
     minEnginesAgreement: 2,
     requiredHistoryLength: 1000,
     minWaitTime: 1000,
