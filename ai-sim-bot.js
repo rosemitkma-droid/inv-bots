@@ -2008,7 +2008,7 @@ class AILogicDigitDifferBot {
             // mtd: new MomentumTrendDetector(),
             // ctaf: new ChaosTheoryAnalyzer(),
             // mcs: new MonteCarloSimulator(),
-            // eml: new EnsembleMetaLearner()
+            eml: new EnsembleMetaLearner()
         };
 
         // WebSocket
