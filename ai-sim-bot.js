@@ -2021,6 +2021,7 @@ class AILogicDigitDifferBot {
             requiredHistoryLength: config.requiredHistoryLength || 500,
             minConfidence: config.minConfidence || 70,
             minStake: config.minStake || 0.61,
+            multiplier: config.multiplier || 11.3,
             minEnginesAgreement: config.minEnginesAgreement || 3,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 6,
             maxReconnectAttempts: config.maxReconnectAttempts || 10000,
