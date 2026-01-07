@@ -73,7 +73,7 @@ class QuickFlipBot {
                     multiplier: s.multiplier,
                     state: 'WAITING_FOR_OPEN',
                     openTimeEpoch: null,
-                    session: null, // 'london' or 'new_york'
+                    session: null, // 'Tokyo, london' or 'new_york'
                     box: { high: null, low: null, direction: null, valid: false },
                     lastCandle: null,
                     entryCandle: null,
@@ -206,13 +206,14 @@ class QuickFlipBot {
         });
 
         return `
-📊 <b>Flip Scalper Session Summary</b>
-========================
-<b>Total Trades:</b> ${wins + losses}
-✅ <b>Wins:</b> ${wins} | ❌ <b>Losses:</b> ${losses}
-🔥 <b>Win Rate:</b> ${winRate}%
-💰 <b>Total P/L:</b> $${totalProfit.toFixed(2)}
-${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
+            📊 <b>Flip Scalper Session Summary</b>
+            ========================
+            <b>Total Trades:</b> ${wins + losses}
+            ✅ <b>Wins:</b> ${wins} | ❌ <b>Losses:</b> ${losses}
+            🔥 <b>Win Rate:</b> ${winRate}%
+            💰 <b>Total P/L:</b> $${totalProfit.toFixed(2)}
+            ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}
+        `;
     }
 
     startTelegramTimer() {
@@ -459,12 +460,12 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
         }
 
         this.dailyATR[symbol] = trSum / validIntervals;
-        const threshold = this.dailyATR[symbol] * 0.11;
+        const threshold = this.dailyATR[symbol] * 0.14;
 
         const atrOutput =
             `✅ Daily ATR Result: ${this.dailyATR[symbol].toFixed(4)}\n` +
             `• Lookback: ${validIntervals} days\n` +
-            `• Required Box Range (11%): ≥ ${threshold.toFixed(4)}`;
+            `• Required Box Range (14%): ≥ ${threshold.toFixed(4)}`;
 
         this.log(atrOutput, 'SUCCESS', symbol, true);
     }
@@ -501,7 +502,7 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
         const isGreen = candle.close > candle.open;
         const candleColor = isGreen ? '🟢 GREEN' : '🔴 RED';
         const atr = this.dailyATR[symbol] || 0;
-        const liquidityThreshold = 0.11 * atr;
+        const liquidityThreshold = 0.14 * atr;
         const rangePercent = ((range / (atr || 1)) * 100).toFixed(2);
 
         const analysisOutput =
@@ -539,7 +540,7 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
 
             this.startHunting(symbol);
         } else {
-            this.log(`❌ LIQUIDITY FAILED (${rangePercent}% of ATR is below 11%)`, 'ERROR', symbol);
+            this.log(`❌ LIQUIDITY FAILED (${rangePercent}% of ATR is below 14%)`, 'ERROR', symbol);
             this.sendTelegramMessage(`❌ <b>Liquidity Failed</b> [${symbol}]\nRange ${rangePercent}% of ATR is too low.`);
 
             // Mark session as "traded/handled" even if failed liquidity
@@ -601,7 +602,7 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
         // Calculate stake as a NUMBER (not string)
         const stakeAmount = parseFloat((CONFIG.INVESTMENT_CAPITAL * (CONFIG.RISK_PERCENT / 100)).toFixed(2));
         const stopLossAmount = stakeAmount; // 100% of stake = SL
-        const takeProfitAmount = parseFloat((stakeAmount * CONFIG.RR_RATIO).toFixed(2)); // 300% of stake = TP
+        const takeProfitAmount = parseFloat((stakeAmount * CONFIG.RR_RATIO).toFixed(2)); // 150% of stake = TP
 
         const direction = contractType === 'MULTUP' ? '🔼 LONG' : '🔻 SHORT';
 
@@ -639,7 +640,7 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
                 symbol: symbol,
                 currency: 'USD',
                 basis: 'stake',
-                amount: stakeAmount,  // ← THIS IS THE FIX: stake amount goes here
+                amount: stakeAmount,  
                 multiplier: asset.multiplier,
                 limit_order: {
                     take_profit: takeProfitAmount,
