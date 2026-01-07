@@ -44,98 +44,140 @@ class FrequencyDeviationAnalyzer {
     }
 
     analyze(tickHistory) {
-        if (tickHistory.length < 100) {
+        if (tickHistory.length < 150) {
             return { error: 'Insufficient data' };
         }
 
-        const sample = tickHistory.slice(-100);
-        const counts = Array(10).fill(0);
-        sample.forEach(d => counts[d]++);
+        const lastDigit = tickHistory[tickHistory.length - 1];
 
-        const total = sample.length;
-        const expected = total / 10;
+        const longWindow = Math.min(1000, tickHistory.length);
+        const longSample = tickHistory.slice(-longWindow);
+        const shortWindow = Math.min(60, tickHistory.length);
+        const shortSample = tickHistory.slice(-shortWindow);
 
-        // Calculate deviations and z-scores
-        const analysis = counts.map((count, digit) => {
-            const deviation = (count - expected) / expected * 100;
-            const variance = expected * (1 - 1 / 10);
-            const zScore = (count - expected) / Math.sqrt(variance);
-            const pValue = this.calculatePValue(Math.abs(zScore));
+        const longCounts = Array(10).fill(0);
+        const shortCounts = Array(10).fill(0);
+        longSample.forEach(d => longCounts[d]++);
+        shortSample.forEach(d => shortCounts[d]++);
 
-            return {
-                digit,
-                count,
-                frequency: count / total,
-                deviation,
+        const longTotal = longSample.length;
+        const shortTotal = shortSample.length;
+        const expectedLong = longTotal / 10;
+        const expectedShort = shortTotal / 10;
+
+        const baseline = 0.1;
+        const clamp01 = (x) => Math.max(0, Math.min(1, x));
+
+        // Compute deviation and significance for each digit
+        const analysis = [];
+        for (let d = 0; d < 10; d++) {
+            const longFreq = longCounts[d] / longTotal;
+            const shortFreq = shortCounts[d] / shortTotal;
+            const longDeviation = (longFreq - baseline) / baseline;
+            const shortDeviation = (shortFreq - baseline) / baseline;
+
+            // Chi-square component for this digit
+            const chiContribution = Math.pow(longCounts[d] - expectedLong, 2) / expectedLong;
+
+            // Z-score approximation for binomial
+            const varLong = baseline * (1 - baseline) / longTotal;
+            const zScore = varLong > 0 ? (longFreq - baseline) / Math.sqrt(varLong) : 0;
+
+            // For DIGITDIFF: we want digits that are OVERREPRESENTED (likely to appear)
+            // So we can bet that they will NOT appear next
+            const overrepStrength = clamp01((longFreq - baseline) / baseline);
+            const recentOverrepStrength = clamp01((shortFreq - baseline) / baseline);
+            const combinedOverrep = 0.7 * overrepStrength + 0.3 * recentOverrepStrength;
+
+            // Penalize if digit just appeared (gap = 0)
+            const gap = this.calculateGap(tickHistory, d);
+            const gapPenalty = gap === 0 ? 1 : 0;
+
+            // Score: higher = more overrepresented = better for DIGITDIFF (bet against)
+            const score =
+                (1.2 * combinedOverrep) +
+                (0.4 * clamp01(Math.abs(zScore) / 2)) +
+                (0.3 * clamp01(chiContribution / 2)) -
+                (0.9 * gapPenalty);
+
+            analysis.push({
+                digit: d,
+                longFreq,
+                shortFreq,
+                longDeviation,
+                shortDeviation,
                 zScore,
-                pValue,
-                isSignificant: Math.abs(zScore) > 1.96 // 95% confidence
-            };
-        });
-
-        // Chi-square test for uniformity
-        let chiSquare = 0;
-        for (const count of counts) {
-            chiSquare += Math.pow(count - expected, 2) / expected;
+                chiContribution,
+                overrepStrength,
+                recentOverrepStrength,
+                combinedOverrep,
+                gap,
+                score
+            });
         }
+
+        // Overall chi-square for uniformity
+        const chiSquare = analysis.reduce((sum, a) => sum + a.chiContribution, 0);
         const isUniform = chiSquare < 16.919; // df=9, p=0.05
 
-        // Find digits with highest positive deviation (appear too often)
-        // These are good candidates for "will NOT appear"
-        const sortedByDeviation = [...analysis].sort((a, b) => b.deviation - a.deviation);
+        const sorted = analysis.sort((a, b) => b.score - a.score);
+        const predicted = sorted.find(s => s.digit !== lastDigit) || sorted[0];
 
-        // Primary candidate: digit appearing most frequently
-        const primaryCandidate = sortedByDeviation[0];
+        // Confidence (can reach 100% with strong evidence)
+        const evidenceStrength = clamp01((1 - Math.exp(-longTotal / 300)) * (1 - Math.exp(-Math.abs(predicted.zScore) / 2)));
+        const runnerUp = sorted.find(s => s.digit !== predicted.digit && s.digit !== lastDigit) || sorted[1] || sorted[0];
+        const separation = predicted.score - runnerUp.score;
+        const separationStrength = clamp01(separation / 0.8);
 
-        // Secondary: check recent window for confirmation
-        const last50 = tickHistory.slice(-50);
-        const recentCounts = Array(10).fill(0);
-        last50.forEach(d => recentCounts[d]++);
+        const composite =
+            (0.45 * predicted.combinedOverrep) +
+            (0.25 * separationStrength) +
+            (0.15 * clamp01(Math.abs(predicted.zScore) / 2)) +
+            (0.15 * clamp01(predicted.chiContribution / 2));
 
-        // Combine long-term and short-term analysis
-        const combinedScores = analysis.map(a => {
-            const recentFreq = recentCounts[a.digit] / 50;
-            const longTermFreq = a.frequency;
+        let confidence = 40 + 60 * (composite * (0.4 + 0.6 * evidenceStrength));
 
-            // Higher score = more likely to NOT appear
-            let score = a.deviation * 0.4; // Long-term overrepresentation
-            score += (recentFreq - 0.1) * 100 * 0.3; // Recent overrepresentation
+        // Strong overrepresentation bonus
+        const strongOverrepBonus =
+            20 * predicted.combinedOverrep * clamp01(separation / 0.6) * clamp01(evidenceStrength);
+        confidence = Math.min(100, confidence + strongOverrepBonus);
+        confidence = Math.max(0, confidence);
 
-            // Penalize if digit just appeared
-            const lastDigit = tickHistory[tickHistory.length - 1];
-            if (a.digit === lastDigit) score -= 20;
-
-            // Bonus for statistically significant deviation
-            if (a.isSignificant && a.deviation > 0) score += 15;
-
-            return { digit: a.digit, score, ...a };
-        });
-
-        const sorted = combinedScores.sort((a, b) => b.score - a.score);
-        const predicted = sorted[0];
-
-        // Calculate confidence based on statistical significance
-        let confidence = 50;
-        if (predicted.isSignificant) confidence += 20;
-        if (Math.abs(predicted.zScore) > 2.5) confidence += 10;
-        if (!isUniform) confidence += 10;
-        confidence = Math.min(95, Math.max(50, confidence + predicted.score * 0.5));
+        this.lastPrediction = predicted.digit;
 
         return {
             predictedDigit: predicted.digit,
             confidence: Math.round(confidence),
             primaryStrategy: 'Frequency Deviation Analysis',
-            riskAssessment: confidence >= 85 ? 'low' : confidence >= 70 ? 'medium' : 'high',
+            riskAssessment: (predicted.combinedOverrep < 0.08 || evidenceStrength < 0.3) ? 'high' : (predicted.combinedOverrep < 0.12 || evidenceStrength < 0.5) ? 'medium' : 'low',
             marketRegime: isUniform ? 'random' : 'patterned',
             statisticalEvidence: {
+                lastState: lastDigit,
                 chiSquare: chiSquare.toFixed(2),
                 isUniform,
-                topDeviation: predicted.deviation.toFixed(2),
+                longDeviation: predicted.longDeviation.toFixed(3),
+                shortDeviation: predicted.shortDeviation.toFixed(3),
                 zScore: predicted.zScore.toFixed(3),
-                pValue: predicted.pValue.toFixed(4)
+                overrepStrength: predicted.overrepStrength.toFixed(3),
+                recentOverrepStrength: predicted.recentOverrepStrength.toFixed(3),
+                combinedOverrep: predicted.combinedOverrep.toFixed(3),
+                gap: predicted.gap,
+                evidenceStrength: evidenceStrength.toFixed(3)
             },
-            alternativeCandidates: [sorted[1].digit, sorted[2].digit]
+            alternativeCandidates: sorted
+                .filter(s => s.digit !== predicted.digit && s.digit !== lastDigit)
+                .slice(0, 2)
+                .map(s => s.digit)
         };
+    }
+
+    calculateGap(tickHistory, digit) {
+        for (let i = tickHistory.length - 1; i >= 0; i--) {
+            if (tickHistory[i] === digit) {
+                return tickHistory.length - 1 - i;
+            }
+        }
+        return tickHistory.length;
     }
 
     calculatePValue(zScore) {
@@ -160,7 +202,6 @@ class FrequencyDeviationAnalyzer {
 // SIMULATED AI ENGINE 2: Markov Chain Predictor (MCP)
 // Uses transition probability matrices
 // ============================================================
-
 class MarkovChainPredictor {
     constructor() {
         this.name = 'MCP';
@@ -282,12 +323,12 @@ class MarkovChainPredictor {
 // SIMULATED AI ENGINE 3: Entropy & Information Theory (EITE)
 // Uses Shannon entropy and information gain
 // ============================================================
-
 class EntropyInformationEngine {
     constructor() {
         this.name = 'EITE';
         this.fullName = 'Entropy Information Theory Engine';
         this.weight = 1.1;
+
         this.wins = 0;
         this.losses = 0;
         this.lastPrediction = null;
@@ -299,91 +340,125 @@ class EntropyInformationEngine {
             return { error: 'Insufficient data' };
         }
 
-        const recent = tickHistory.slice(-100)
+        const window200 = tickHistory.slice(-200);
+        const window100 = tickHistory.slice(-100);
+        const window50 = tickHistory.slice(-50);
 
         // Calculate entropy at different time scales
         const windows = [25, 50, 100, 200];
         const entropyByWindow = {};
-
         for (const w of windows) {
-            if (recent.length >= w) {
-                const sample = recent.slice(-w);
-                entropyByWindow[w] = this.calculateEntropy(sample);
+            const src = w === 25 ? tickHistory.slice(-25) : w === 50 ? window50 : w === 100 ? window100 : window200;
+            if (src.length >= Math.min(w, 100)) {
+                entropyByWindow[w] = this.calculateEntropy(src);
             }
         }
 
         // Calculate conditional entropy H(X|X-1)
-        const conditionalEntropy = this.calculateConditionalEntropy(recent.slice(-200));
+        const conditionalEntropy = this.calculateConditionalEntropy(window200);
 
         // Calculate mutual information
-        const mutualInfo = this.calculateMutualInformation(recent.slice(-200));
+        const mutualInfo = this.calculateMutualInformation(window200);
 
-        // Information gain analysis
-        const sample = recent.slice(-200);
-        const fullEntropy = this.calculateEntropy(sample);
+        const fullEntropy = this.calculateEntropy(window200);
 
-        // Calculate information gain for each digit
-        const infoGains = [];
-        for (let d = 0; d < 10; d++) {
-            // Entropy if we exclude this digit
-            const withoutD = sample.filter(x => x !== d);
-            const entropyWithout = withoutD.length > 10 ? this.calculateEntropy(withoutD) : fullEntropy;
-            const infoGain = fullEntropy - entropyWithout;
+        const counts200 = Array(10).fill(0);
+        for (const d of window200) counts200[d]++;
+        const probs200 = counts200.map(c => c / window200.length);
 
-            // Calculate surprise value (negative log probability)
-            const prob = sample.filter(x => x === d).length / sample.length;
-            const surprise = prob > 0 ? -Math.log2(prob) : 10;
-
-            infoGains.push({
-                digit: d,
-                infoGain,
-                surprise,
-                probability: prob,
-                score: (surprise - 3.32) * 10 + infoGain * 50 // 3.32 = log2(10) expected
-            });
+        const transitions = Array(10).fill(null).map(() => Array(10).fill(0));
+        const transCounts = Array(10).fill(0);
+        for (let i = 0; i < window200.length - 1; i++) {
+            const a = window200[i];
+            const b = window200[i + 1];
+            transitions[a][b]++;
+            transCounts[a]++;
         }
 
-        // For DIFFER: choose digit with lowest surprise (most common = won't appear)
-        // Actually, for Differ we want digit that appeared too often and is "due" not to appear
-        const sorted = infoGains.sort((a, b) => {
-            // High probability + low surprise = appeared too much = good for DIFFER
-            return (b.probability - 0.1) - (a.probability - 0.1);
+        const lastDigit = window200[window200.length - 1];
+        const baseline = 0.1;
+
+        const getCondProbs = (window) => {
+            if (window.length < 2) return null;
+            const t = Array(10).fill(null).map(() => Array(10).fill(0));
+            const c = Array(10).fill(0);
+            for (let i = 0; i < window.length - 1; i++) {
+                const a = window[i];
+                const b = window[i + 1];
+                t[a][b]++;
+                c[a]++;
+            }
+            if (c[lastDigit] <= 0) return null;
+            return t[lastDigit].map(v => v / c[lastDigit]);
+        };
+
+        const condProbs200 = transCounts[lastDigit] > 0
+            ? transitions[lastDigit].map(v => v / transCounts[lastDigit])
+            : probs200;
+
+        const condProbs100 = getCondProbs(window100);
+        const condProbs50 = getCondProbs(window50);
+
+        const candidates = condProbs200.map((p, digit) => {
+            const marginalP = probs200[digit];
+            const surprise = marginalP > 0 ? -Math.log2(marginalP) : 10;
+            const differScore = (baseline - p) / baseline;
+            return {
+                digit,
+                probability: p,
+                marginalProbability: marginalP,
+                surprise,
+                differScore
+            };
         });
 
-        const predicted = sorted[0];
+        const sorted = candidates.sort((a, b) => b.differScore - a.differScore);
 
-        // Don't predict the last digit
-        let finalPrediction = predicted;
-        if (predicted.digit === tickHistory[tickHistory.length - 1]) {
+        let finalPrediction = sorted[0];
+        if (finalPrediction.digit === lastDigit && sorted.length > 1) {
             finalPrediction = sorted[1];
         }
 
-        // Calculate confidence based on entropy characteristics
+        const predictedIndex = sorted.findIndex(s => s.digit === finalPrediction.digit);
+        const nextCandidate = predictedIndex >= 0 ? sorted[predictedIndex + 1] : null;
+
+        const p = finalPrediction.probability;
+        const rarityScore = Math.max(0, baseline - p) / baseline;
+        const separation = nextCandidate ? Math.max(0, nextCandidate.probability - p) : 0;
+        const separationScore = Math.min(1, separation / baseline);
+        const predictabilityScore = Math.min(1, Math.max(0, 1 - conditionalEntropy));
+        const mutualInfoScore = Math.min(1, Math.max(0, mutualInfo / 0.2));
+
+        const p100 = condProbs100 ? condProbs100[finalPrediction.digit] : null;
+        const p50 = condProbs50 ? condProbs50[finalPrediction.digit] : null;
+        const stability100 = p100 === null ? 0.5 : 1 - Math.min(1, Math.abs(p100 - p) / 0.05);
+        const stability50 = p50 === null ? 0.5 : 1 - Math.min(1, Math.abs(p50 - p) / 0.05);
+        const stabilityScore = Math.max(0, Math.min(1, (stability100 + stability50) / 2));
+
         let confidence = 50;
+        confidence += rarityScore * 35;
+        confidence += separationScore * 20;
+        confidence += predictabilityScore * 15;
+        confidence += stabilityScore * 10;
+        confidence += mutualInfoScore * 10;
+        if (p < 0.01) confidence += 5;
+        if (p < 0.005) confidence += 5;
+        confidence = Math.min(100, Math.max(50, confidence));
 
-        // Low entropy = more predictable = higher confidence
-        if (fullEntropy < 0.9) confidence += 20;
-        else if (fullEntropy < 0.95) confidence += 10;
-
-        // High mutual information = patterns exist
-        if (mutualInfo > 0.1) confidence += 15;
-
-        // Significant probability deviation
-        if (Math.abs(finalPrediction.probability - 0.1) > 0.03) confidence += 10;
-
-        confidence = Math.min(95, Math.max(50, confidence));
+        this.lastPrediction = finalPrediction.digit;
 
         return {
             predictedDigit: finalPrediction.digit,
             confidence: Math.round(confidence),
             primaryStrategy: 'Entropy Information Theory',
-            riskAssessment: fullEntropy > 0.97 ? 'high' : fullEntropy > 0.92 ? 'medium' : 'low',
-            marketRegime: fullEntropy > 0.97 ? 'random' : fullEntropy > 0.9 ? 'semi-random' : 'patterned',
+            riskAssessment: finalPrediction.marginalProbability.toFixed(4) >= 0.1000 ? 'high' : finalPrediction.marginalProbability.toFixed(4) > 0.0900 ? 'medium' : 'low',
+            marketRegime: finalPrediction.marginalProbability.toFixed(4) >= 0.1000 ? 'random' : finalPrediction.marginalProbability.toFixed(4) > 0.0900 ? 'semi-random' : 'patterned',
             statisticalEvidence: {
                 entropy: fullEntropy.toFixed(4),
                 conditionalEntropy: conditionalEntropy.toFixed(4),
                 mutualInformation: mutualInfo.toFixed(4),
-                surpriseValue: finalPrediction.surprise.toFixed(3)
+                surpriseValue: finalPrediction.surprise.toFixed(3),
+                marginalProbability: finalPrediction.marginalProbability.toFixed(4)
             },
             alternativeCandidates: [sorted[1].digit, sorted[2].digit]
         };
@@ -447,7 +522,6 @@ class EntropyInformationEngine {
 // SIMULATED AI ENGINE 4: Pattern Recognition Neural Network (PRNN)
 // Uses n-gram analysis and pattern matching
 // ============================================================
-
 class PatternRecognitionEngine {
     constructor() {
         this.name = 'PRNN';
@@ -689,12 +763,12 @@ class PatternRecognitionEngine {
 // SIMULATED AI ENGINE 5: Bayesian Probability Estimator (BPE)
 // Uses Bayesian updating and posterior probabilities
 // ============================================================
-
 class BayesianProbabilityEstimator {
     constructor() {
         this.name = 'BPE';
         this.fullName = 'Bayesian Probability Estimator';
         this.weight = 1.15;
+
         this.wins = 0;
         this.losses = 0;
         this.lastPrediction = null;
@@ -705,29 +779,30 @@ class BayesianProbabilityEstimator {
     }
 
     analyze(tickHistory) {
-        if (tickHistory.length < 50) {
+        if (tickHistory.length < 100) {
             return { error: 'Insufficient data' };
         }
 
-        const recentTicks = tickHistory.slice(-100)
+        const window = tickHistory.slice(-1000);
+        const lastDigit = window[window.length - 1];
+        const baseline = 0.1;
 
-        // Count observations
-        const counts = Array(10).fill(0);
-        recentTicks.forEach(d => counts[d]++);
+        // Build conditional transition counts: count(lastDigit -> nextDigit)
+        const transitionCounts = Array(10).fill(null).map(() => Array(10).fill(0));
+        const stateCounts = Array(10).fill(0);
+        for (let i = 0; i < window.length - 1; i++) {
+            const a = window[i];
+            const b = window[i + 1];
+            transitionCounts[a][b]++;
+            stateCounts[a]++;
+        }
 
-        // Posterior parameters (Dirichlet-Multinomial conjugate)
-        const posteriorAlpha = this.priorAlpha.map((a, i) => a + counts[i]);
+        const n = stateCounts[lastDigit];
+        const posteriorAlpha = this.priorAlpha.map((a, j) => a + transitionCounts[lastDigit][j]);
         const totalAlpha = posteriorAlpha.reduce((a, b) => a + b, 0);
-
-        // Posterior mean probabilities
         const posteriorMean = posteriorAlpha.map(a => a / totalAlpha);
+        const posteriorVariance = posteriorAlpha.map(a => (a * (totalAlpha - a)) / (totalAlpha * totalAlpha * (totalAlpha + 1)));
 
-        // Posterior variance (for confidence estimation)
-        const posteriorVariance = posteriorAlpha.map(a => {
-            return (a * (totalAlpha - a)) / (totalAlpha * totalAlpha * (totalAlpha + 1));
-        });
-
-        // Calculate 95% credible intervals
         const credibleIntervals = posteriorMean.map((mean, i) => {
             const std = Math.sqrt(posteriorVariance[i]);
             return {
@@ -736,65 +811,69 @@ class BayesianProbabilityEstimator {
             };
         });
 
-        // Bayesian surprise: How unexpected was recent data?
-        const recent = tickHistory.slice(-20);
-        let bayesianSurprise = 0;
-        for (const d of recent) {
-            bayesianSurprise -= Math.log(posteriorMean[d] + 0.001);
-        }
-        bayesianSurprise /= recent.length;
-
-        // For DIFFER: predict digit with highest posterior (most likely to appear = won't differ)
-        // Actually, we want highest posterior because it's overrepresented
+        // For DIGITDIFF: choose the digit least likely to appear next
         const predictions = posteriorMean.map((prob, digit) => ({
             digit,
             posteriorProb: prob,
             variance: posteriorVariance[digit],
             credibleInterval: credibleIntervals[digit],
-            // Score: how much above expected (0.1) is the posterior?
-            excessProbability: prob - 0.1
+            // Higher is better for DIFFER when prob < 0.1
+            differScore: (baseline - prob) / baseline
         }));
 
-        // Sort by excess probability (highest = appeared too much = good for DIFFER)
-        const sorted = predictions.sort((a, b) => b.excessProbability - a.excessProbability);
-
+        const sorted = predictions.sort((a, b) => b.differScore - a.differScore);
         let predicted = sorted[0];
-
-        // Don't predict last digit
-        if (predicted.digit === tickHistory[tickHistory.length - 1]) {
+        if (predicted.digit === lastDigit && sorted.length > 1) {
             predicted = sorted[1];
         }
 
-        // Calculate confidence using Bayesian criteria
+        // Confidence: rarity + separation + evidence strength + credible interval below baseline
+        const p = predicted.posteriorProb;
+        const p2 = sorted.find(s => s.digit !== predicted.digit)?.posteriorProb ?? baseline;
+        const separation = Math.max(0, p2 - p);
+
+        const rarityScore = Math.max(0, baseline - p) / baseline;
+        const separationScore = Math.min(1, separation / baseline);
+        const evidenceScore = Math.min(1, n / 25);
+
         let confidence = 50;
+        confidence += rarityScore * 40;
+        confidence += separationScore * 25;
+        confidence += evidenceScore * 15;
+        if (predicted.credibleInterval.upper < baseline) confidence += 10;
+        if (p < 0.05) confidence += 5;
+        if (p < 0.02) confidence += 5;
+        confidence = Math.min(100, Math.max(50, confidence));
 
-        // Higher excess probability = more confident
-        if (predicted.excessProbability > 0.02) confidence += 15;
-        if (predicted.excessProbability > 0.04) confidence += 10;
+        // Entropy of the conditional distribution
+        let entropy = 0;
+        for (const prob of posteriorMean) {
+            if (prob > 0) entropy -= prob * Math.log2(prob);
+        }
+        const normalizedEntropy = entropy / Math.log2(10);
 
-        // Lower variance = more confident
-        if (predicted.variance < 0.001) confidence += 10;
+        this.lastPrediction = predicted.digit;
 
-        // More data = more confident
-        if (recentTicks.length > 300) confidence += 10;
-        if (recentTicks.length > 500) confidence += 5;
-
-        confidence = Math.min(95, Math.max(50, confidence));
+        const alternativeCandidates = sorted
+            .filter(s => s.digit !== predicted.digit)
+            .slice(0, 2)
+            .map(s => s.digit);
 
         return {
             predictedDigit: predicted.digit,
             confidence: Math.round(confidence),
-            primaryStrategy: 'Bayesian Probability Estimation',
-            riskAssessment: predicted.variance > 0.002 ? 'high' : predicted.variance > 0.001 ? 'medium' : 'low',
-            marketRegime: bayesianSurprise > 2.5 ? 'volatile' : bayesianSurprise > 2.3 ? 'normal' : 'stable',
+            primaryStrategy: 'Bayesian Conditional Transition Estimation',
+            riskAssessment: normalizedEntropy > 0.99 ? 'low' : normalizedEntropy > 0.98 ? 'medium' : 'high',
+            marketRegime: normalizedEntropy > 0.99 ? 'stable' : 'volatile',
             statisticalEvidence: {
+                lastState: lastDigit,
+                transitionCount: n,
                 posteriorProbability: predicted.posteriorProb.toFixed(4),
-                excessProbability: predicted.excessProbability.toFixed(4),
                 variance: predicted.variance.toFixed(6),
-                bayesianSurprise: bayesianSurprise.toFixed(3),
-                credibleInterval: `[${predicted.credibleInterval.lower.toFixed(3)}, ${predicted.credibleInterval.upper.toFixed(3)}]`
+                credibleInterval: `[${predicted.credibleInterval.lower.toFixed(3)}, ${predicted.credibleInterval.upper.toFixed(3)}]`,
+                entropyLevel: normalizedEntropy.toFixed(4)
             },
-            alternativeCandidates: [sorted[1].digit, sorted[2].digit]
+            alternativeCandidates: alternativeCandidates
         };
     }
 }
@@ -803,7 +882,6 @@ class BayesianProbabilityEstimator {
 // SIMULATED AI ENGINE 6: Gap Analysis & Mean Reversion (GAMR)
 // Uses gap lengths and mean reversion principles
 // ============================================================
-
 class GapMeanReversionAnalyzer {
     constructor() {
         this.name = 'GAMR';
@@ -816,20 +894,53 @@ class GapMeanReversionAnalyzer {
     }
 
     analyze(tickHistory) {
-        if (tickHistory.length < 100) {
+        if (tickHistory.length < 150) {
             return { error: 'Insufficient data' };
         }
 
-        const recent = tickHistory.slice(-100)
+        const lastDigit = tickHistory[tickHistory.length - 1];
+
+        const historyWindow = Math.min(800, tickHistory.length);
+        const history = tickHistory.slice(-historyWindow);
+
+        const freqWindow = Math.min(60, tickHistory.length);
+        const recentFreqSlice = tickHistory.slice(-freqWindow);
 
         // Calculate gap for each digit (how long since it last appeared)
-        const gaps = this.calculateCurrentGaps(recent);
+        const gaps = this.calculateCurrentGaps(history);
 
         // Calculate historical gap statistics
-        const historicalGaps = this.calculateHistoricalGaps(recent);
+        const historicalGaps = this.calculateHistoricalGaps(history);
 
-        // Mean reversion analysis
+        // Recent/long frequencies (mean reversion signal)
+        const longCounts = Array(10).fill(0);
+        for (const d of history) longCounts[d]++;
+        const longFreq = longCounts.map(c => c / history.length);
+
+        const recentCounts = Array(10).fill(0);
+        for (const d of recentFreqSlice) recentCounts[d]++;
+        const recentFreq = recentCounts.map(c => c / recentFreqSlice.length);
+
+        // Conditional posterior from lastDigit -> nextDigit (Dirichlet smoothing)
+        const alpha = 0.6;
+        const fromCounts = Array(10).fill(0);
+        let totalFromLast = 0;
+        for (let i = 1; i < history.length; i++) {
+            if (history[i - 1] === lastDigit) {
+                fromCounts[history[i]]++;
+                totalFromLast++;
+            }
+        }
+        const denom = totalFromLast + 10 * alpha;
+        const posteriorMean = fromCounts.map(c => (c + alpha) / denom);
+
+        // Mean reversion analysis for DIGITDIFF: pick the least-likely next digit
+        // based on (1) low conditional probability, (2) short gap, (3) recent overrepresentation.
         const meanReversionScores = [];
+
+        const clamp01 = (x) => Math.max(0, Math.min(1, x));
+        const baseline = 0.1;
+        const condReliability = clamp01(totalFromLast / 25);
 
         for (let d = 0; d < 10; d++) {
             const currentGap = gaps[d];
@@ -838,14 +949,27 @@ class GapMeanReversionAnalyzer {
             const maxGap = historicalGaps[d].max;
 
             // Z-score of current gap
-            const gapZScore = stdGap > 0 ? (currentGap - avgGap) / stdGap : 0;
+            const gapZScore = stdGap > 1e-9 ? (currentGap - avgGap) / stdGap : 0;
 
             // Percentile of current gap
             const gapPercentile = historicalGaps[d].percentile(currentGap);
 
-            // Mean reversion score: higher = more overdue (bad for DIFFER)
-            // For DIFFER: we want digits that are NOT overdue
-            const meanReversionScore = -gapZScore; // Negative because we want non-overdue digits
+            const pCond = posteriorMean[d];
+
+            // Strength signals (0..1)
+            const lowProbStrength = clamp01((baseline - pCond) / baseline);
+            const gapSmallStrength = clamp01((avgGap - currentGap) / Math.max(1, avgGap));
+            const overrep = recentFreq[d] - longFreq[d];
+            const overrepStrength = clamp01(overrep / 0.12);
+            const overduePenalty = clamp01((currentGap - avgGap) / Math.max(1, 2 * stdGap + 1));
+            const longBelowUniformStrength = clamp01((baseline - longFreq[d]) / baseline);
+
+            const score =
+                (1.25 * lowProbStrength * condReliability) +
+                (0.55 * overrepStrength) +
+                (0.45 * gapSmallStrength) +
+                (0.25 * longBelowUniformStrength) -
+                (0.85 * overduePenalty);
 
             meanReversionScores.push({
                 digit: d,
@@ -854,66 +978,65 @@ class GapMeanReversionAnalyzer {
                 maxGap,
                 gapZScore,
                 gapPercentile,
-                meanReversionScore,
+                meanReversionScore: score,
+                pCond,
+                lowProbStrength,
+                gapSmallStrength,
+                overrepStrength,
+                overduePenalty,
                 isOverdue: currentGap > avgGap * 1.5
             });
         }
 
-        // Sort by mean reversion score (highest = least likely to appear = best for DIFFER)
-        // Digits with small gaps (recently appeared) have high positive scores
         const sorted = meanReversionScores.sort((a, b) => b.meanReversionScore - a.meanReversionScore);
 
-        let predicted = sorted[0];
+        // Don't predict the last digit
+        const predicted = sorted.find(s => s.digit !== lastDigit) || sorted[0];
 
-        // Don't predict last digit (gap = 0)
-        if (predicted.currentGap === 0) {
-            predicted = sorted[1];
-        }
+        // Calculate confidence (can reach 100% with strong evidence)
+        const evidenceStrength = clamp01((1 - Math.exp(-totalFromLast / 40)) * (1 - Math.exp(-history.length / 300)));
+        const runnerUp = sorted.find(s => s.digit !== predicted.digit && s.digit !== lastDigit) || sorted[1] || sorted[0];
+        const separation = predicted.meanReversionScore - runnerUp.meanReversionScore;
+        const separationStrength = clamp01(separation / 0.9);
 
-        // Also consider: digit that appeared very recently but has been appearing too much
-        const recentCounts = Array(10).fill(0);
-        tickHistory.slice(-30).forEach(d => recentCounts[d]++);
+        const composite =
+            (0.45 * predicted.lowProbStrength) +
+            (0.20 * predicted.gapSmallStrength) +
+            (0.20 * predicted.overrepStrength) +
+            (0.15 * separationStrength);
 
-        // Adjust score based on recent frequency
-        for (const item of sorted) {
-            if (recentCounts[item.digit] > 4) {
-                item.meanReversionScore += 0.5; // Boost if appeared too much recently
-            }
-        }
+        let confidence = 40 + 60 * (composite * (0.35 + 0.65 * evidenceStrength));
 
-        // Re-sort after adjustment
-        sorted.sort((a, b) => b.meanReversionScore - a.meanReversionScore);
-        predicted = sorted[0].currentGap === 0 ? sorted[1] : sorted[0];
+        // Strong posterior + strong evidence bonus
+        const strongPosteriorBonus =
+            20 * clamp01((baseline - predicted.pCond) / baseline) * clamp01(totalFromLast / 120) * clamp01(separation / 1.0);
+        confidence = Math.min(100, confidence + strongPosteriorBonus);
+        confidence = Math.max(0, confidence);
 
-        // Calculate confidence
-        let confidence = 50;
-
-        // Small gap = recently appeared = likely won't appear again
-        if (predicted.currentGap <= 3) confidence += 15;
-        if (predicted.currentGap <= 1) confidence += 10;
-
-        // Negative z-score = appeared more than expected
-        if (predicted.gapZScore < -1) confidence += 10;
-
-        // High recent frequency
-        if (recentCounts[predicted.digit] >= 4) confidence += 10;
-
-        confidence = Math.min(95, Math.max(50, confidence));
+        this.lastPrediction = predicted.digit;
 
         return {
             predictedDigit: predicted.digit,
             confidence: Math.round(confidence),
             primaryStrategy: 'Gap Analysis Mean Reversion',
-            riskAssessment: Math.abs(predicted.gapZScore) > 2 ? 'high' : Math.abs(predicted.gapZScore) > 1 ? 'medium' : 'low',
-            marketRegime: this.detectGapRegime(historicalGaps),
+            riskAssessment: (predicted.pCond > 0.12 || predicted.overduePenalty > 0.5) ? 'high' : (evidenceStrength < 0.35 || predicted.pCond > 0.10) ? 'medium' : 'low',
+            marketRegime: predicted.pCond.toFixed(4) >= 0.1 ? 'volatile' : predicted.pCond.toFixed(4) > 0.06 ? 'normal' : 'stable',//this.detectGapRegime(historicalGaps),
             statisticalEvidence: {
+                lastState: lastDigit,
+                transitionsFromLast: totalFromLast,
                 currentGap: predicted.currentGap,
                 averageGap: predicted.avgGap.toFixed(2),
                 gapZScore: predicted.gapZScore.toFixed(3),
                 gapPercentile: (predicted.gapPercentile * 100).toFixed(1) + '%',
-                isOverdue: predicted.isOverdue
+                conditionalProbability: predicted.pCond.toFixed(4),
+                evidenceStrength: evidenceStrength.toFixed(3),
+                isOverdue: predicted.isOverdue,
+                detectGapRegime: this.detectGapRegime(historicalGaps),
             },
-            alternativeCandidates: [sorted[1].digit, sorted[2].digit]
+            alternativeCandidates: sorted
+                .filter(s => s.digit !== predicted.digit && s.digit !== lastDigit)
+                .slice(0, 2)
+                .map(s => s.digit)
         };
     }
 
@@ -971,6 +1094,7 @@ class GapMeanReversionAnalyzer {
 
     detectGapRegime(historicalGaps) {
         const avgStd = historicalGaps.reduce((a, b) => a + b.std, 0) / 10;
+        // console.log('Average standard deviation:', avgStd);
         if (avgStd > 5) return 'volatile';
         if (avgStd > 3) return 'normal';
         return 'stable';
@@ -981,7 +1105,6 @@ class GapMeanReversionAnalyzer {
 // SIMULATED AI ENGINE 7: Momentum & Trend Detector (MTD)
 // Uses momentum indicators and trend analysis
 // ============================================================
-
 class MomentumTrendDetector {
     constructor() {
         this.name = 'MTD';
@@ -994,84 +1117,111 @@ class MomentumTrendDetector {
     }
 
     analyze(tickHistory) {
-        if (tickHistory.length < 100) {
+        if (tickHistory.length < 150) {
             return { error: 'Insufficient data' };
         }
 
-        const recent = tickHistory.slice(-900)
+        const lastDigit = tickHistory[tickHistory.length - 1];
 
-        // Calculate momentum for each digit
-        const momentum = this.calculateDigitMomentum(recent);
+        const historyWindow = Math.min(900, tickHistory.length);
+        const history = tickHistory.slice(-historyWindow);
 
-        // Calculate trend strength
-        const trend = this.calculateTrendStrength(recent);
+        // Momentum and RoC
+        const momentum = this.calculateDigitMomentum(history);
+        const roc = this.calculateRateOfChange(history);
+        const trend = this.calculateTrendStrength(history);
 
-        // Rate of change analysis
-        const roc = this.calculateRateOfChange(recent);
-
-        // Combine analyses
-        const predictions = [];
+        // For DIGITDIFF: score digits that are hot and likely to exhaust soon
+        const scores = [];
+        const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
         for (let d = 0; d < 10; d++) {
-            // High momentum = digit is "hot" = might continue OR might exhaust
-            // For DIFFER: we bet on exhaustion of hot streaks
-            const isHot = momentum[d] > 0.5;
-            const isAccelerating = roc[d] > 0;
+            const m = momentum[d];
+            const r = roc[d];
+            const isHot = m > 0.5;
+            const isAccelerating = r > 0;
+            const isDecelerating = r < -0.1;
+            const isVeryHot = m > 1.0;
+            const isMildlyHot = m > 0.3;
 
-            // Score: hot + accelerating = might exhaust soon = good for DIFFER
+            // Exhaustion signals (higher = better for DIGITDIFF)
             let score = 0;
-            if (isHot) score += momentum[d] * 20;
-            if (isAccelerating && isHot) score += 10;
-            if (momentum[d] > 1.0) score += 15; // Very hot
-
-            // Also consider: digits that are slowing down after being hot
-            if (momentum[d] > 0.3 && roc[d] < 0) {
-                score += 10; // Slowing down = exhaustion
+            if (isHot) {
+                score += 0.45 * clamp01(m); // hotness
+                if (isAccelerating) score += 0.25 * clamp01(m); // hot + accelerating = may exhaust soon
+                if (isDecelerating) score += 0.35 * clamp01(m); // hot + decelerating = exhaustion
+                if (isVeryHot) score += 0.30;
             }
+            if (isMildlyHot && isDecelerating) score += 0.20; // mild but slowing
 
-            predictions.push({
+            // Trend penalty: strong trends make exhaustion less reliable
+            const trendPenalty = clamp01(trend.strength / 0.4);
+            score *= (1 - 0.5 * trendPenalty);
+
+            scores.push({
                 digit: d,
-                momentum: momentum[d],
-                roc: roc[d],
+                momentum: m,
+                roc: r,
                 isHot,
                 isAccelerating,
+                isDecelerating,
+                isVeryHot,
                 score
             });
         }
 
-        // Sort by score
-        const sorted = predictions.sort((a, b) => b.score - a.score);
+        const sorted = scores.sort((a, b) => b.score - a.score);
+        const predicted = sorted.find(s => s.digit !== lastDigit) || sorted[0];
 
-        let predicted = sorted[0];
-        if (predicted.digit === tickHistory[tickHistory.length - 1]) {
-            predicted = sorted[1];
-        }
+        // Confidence (can reach 100% with strong evidence)
+        const evidenceStrength = clamp01((1 - Math.exp(-history.length / 300)) * (1 - Math.exp(-Math.abs(trend.slope) / 0.02)));
+        const runnerUp = sorted.find(s => s.digit !== predicted.digit && s.digit !== lastDigit) || sorted[1] || sorted[0];
+        const separation = predicted.score - runnerUp.score;
+        const separationStrength = clamp01(separation / 0.8);
 
-        // Confidence based on momentum strength
-        let confidence = 50;
-        if (predicted.momentum > 0.8) confidence += 20;
-        else if (predicted.momentum > 0.5) confidence += 10;
-        if (predicted.isHot && predicted.roc < 0) confidence += 15; // Exhaustion signal
+        const hotnessStrength = clamp01(predicted.momentum);
+        const decelerationBonus = predicted.isDecelerating ? 0.2 : 0;
+        const acceleratingBonus = predicted.isAccelerating ? 0.1 : 0;
 
-        // Trend regime affects confidence
-        if (trend.strength > 0.3) confidence -= 10; // Trending = harder to predict
+        const composite =
+            (0.35 * hotnessStrength) +
+            (0.25 * separationStrength) +
+            (0.20 * decelerationBonus) +
+            (0.10 * acceleratingBonus) +
+            (0.10 * (predicted.isVeryHot ? 1 : 0));
 
-        confidence = Math.min(95, Math.max(50, confidence));
+        let confidence = 40 + 60 * (composite * (0.4 + 0.6 * evidenceStrength));
+
+        // Strong exhaustion bonus
+        const strongExhaustionBonus =
+            15 * clamp01(predicted.momentum) * clamp01(separation / 0.6) * clamp01(evidenceStrength);
+        confidence = Math.min(100, confidence + strongExhaustionBonus);
+        confidence = Math.max(0, confidence);
+
+        this.lastPrediction = predicted.digit;
 
         return {
             predictedDigit: predicted.digit,
             confidence: Math.round(confidence),
             primaryStrategy: 'Momentum Trend Detection',
-            riskAssessment: trend.strength > 0.3 ? 'high' : trend.strength > 0.15 ? 'medium' : 'low',
+            riskAssessment: (predicted.momentum < 0.3 || trend.strength > 0.35) ? 'high' : (evidenceStrength < 0.3 || predicted.momentum < 0.5) ? 'medium' : 'low',
             marketRegime: trend.strength > 0.3 ? 'trending' : trend.strength > 0.1 ? 'ranging' : 'stable',
             statisticalEvidence: {
+                lastState: lastDigit,
                 momentum: predicted.momentum.toFixed(3),
                 rateOfChange: predicted.roc.toFixed(3),
                 isHot: predicted.isHot,
+                isAccelerating: predicted.isAccelerating,
+                isDecelerating: predicted.isDecelerating,
+                isVeryHot: predicted.isVeryHot,
                 trendStrength: trend.strength.toFixed(3),
-                trendDirection: trend.direction
+                trendDirection: trend.direction,
+                evidenceStrength: evidenceStrength.toFixed(3)
             },
-            alternativeCandidates: [sorted[1].digit, sorted[2].digit]
+            alternativeCandidates: sorted
+                .filter(s => s.digit !== predicted.digit && s.digit !== lastDigit)
+                .slice(0, 2)
+                .map(s => s.digit)
         };
     }
 
@@ -1139,10 +1289,10 @@ class MomentumTrendDetector {
     }
 }
 
+
 // SIMULATED AI ENGINE 8: Chaos Theory Attractor Finder (CTAF)
 // Uses chaos theory concepts like attractors and phase space
 // ============================================================
-
 class ChaosTheoryAnalyzer {
     constructor() {
         this.name = 'CTAF';
@@ -1377,7 +1527,6 @@ class ChaosTheoryAnalyzer {
 // SIMULATED AI ENGINE 9: Monte Carlo Simulator (MCS)
 // Uses random sampling and probability distributions
 // ============================================================
-
 class MonteCarloSimulator {
     constructor() {
         this.name = 'MCS';
@@ -1623,7 +1772,6 @@ class MonteCarloSimulator {
 // SIMULATED AI ENGINE 10: Ensemble Meta-Learner (EML)
 // Combines insights from all other engines
 // ============================================================
-
 class EnsembleMetaLearner {
     constructor() {
         this.name = 'EML';
@@ -2085,6 +2233,7 @@ class AILogicDigitDifferBot {
         // Assets
         this.assets = config.assets || [
             'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
+            // 'R_100',
         ];
 
         // Trading Configuration
@@ -2140,14 +2289,15 @@ class AILogicDigitDifferBot {
         this.currentEngineSetup = null;
         this.tradesInCurrentCycle = 0;
         this.engineSetups = [
-            // { name: 'FDA_GAMR', check: (p) => p.find(e => e.name === 'FDA' && e.confidence >= 95) && p.find(e => e.name === 'GAMR' && e.confidence >= 95) },
-            { name: 'MCP', check: (p) => p.find(e => e.name === 'MCP' && e.confidence >= 63) },
-            // { name: 'EITE', check: (p) => p.find(e => e.name === 'EITE' && e.confidence <= 65) },
-            // { name: 'PRNN', check: (p) => p.find(e => e.name === 'PRNN' && e.confidence >= 85) },
-            // { name: 'BPE', check: (p) => p.find(e => e.name === 'BPE' && e.confidence <= 60) },
-            // { name: 'MTD', check: (p) => p.find(e => e.name === 'MTD' && e.confidence <= 50) },
-            // { name: 'CTAF', check: (p) => p.find(e => e.name === 'CTAF' && e.confidence >= 90) },
-            // { name: 'MCS', check: (p) => p.find(e => e.name === 'MCS' && e.confidence >= 90) }
+            { name: 'FDA', check: (p) => p.find(e => e.name === 'FDA' && e.confidence >= 70) },
+            { name: 'MCP', check: (p) => p.find(e => e.name === 'MCP' && e.confidence >= 63) },// Good
+            { name: 'EITE', check: (p) => p.find(e => e.name === 'EITE' && e.confidence >= 100) },//Good
+            { name: 'PRNN', check: (p) => p.find(e => e.name === 'PRNN' && e.confidence >= 85) }, //Good
+            { name: 'BPE', check: (p) => p.find(e => e.name === 'BPE' && e.confidence >= 100) }, //Good
+            { name: 'GAMR', check: (p) => p.find(e => e.name === 'GAMR' && e.confidence >= 70) },
+            { name: 'MTD', check: (p) => p.find(e => e.name === 'MTD' && e.confidence >= 87) }, //Good
+            { name: 'CTAF', check: (p) => p.find(e => e.name === 'CTAF' && e.confidence >= 91) }, //Good
+            { name: 'MCS', check: (p) => p.find(e => e.name === 'MCS' && e.confidence >= 92) } //Good
         ];
         this.selectRandomEngineSetup();
 
@@ -2566,97 +2716,179 @@ class AILogicDigitDifferBot {
 
             console.log(`\n🎲 Current Engine Setup: ${this.currentEngineSetup.name} (${this.tradesInCurrentCycle}/10 trades)`);
 
-            const FDA_Engine = predictions.find(p => p.name === 'FDA' && p.confidence >= 95);
-            const MCP_Engine = predictions.find(p => p.name === 'MCP' && p.confidence >= 63);
-            const EITE_Engine = predictions.find(p => p.name === 'EITE' && p.confidence <= 65);
-            const PRNN_Engine = predictions.find(p => p.name === 'PRNN' && p.confidence >= 85);
-            const BPE_Engine = predictions.find(p => p.name === 'BPE' && p.confidence <= 60);
-            const GAMR_Engine = predictions.find(p => p.name === 'GAMR' && p.confidence >= 95);
-            const MTD_Engine = predictions.find(p => p.name === 'MTD' && p.confidence <= 50);
-            const CTAF_Engine = predictions.find(p => p.name === 'CTAF' && p.confidence >= 90);
-            const MCS_Engine = predictions.find(p => p.name === 'MCS' && p.confidence >= 90);
+            
+            const tradeDecision = this.aiEngines.fda.analyze(this.tickHistory);
+            const tradeDecision2 = this.aiEngines.mcp.analyze(this.tickHistory);
+            const tradeDecision3 = this.aiEngines.eite.analyze(this.tickHistory);
+            const tradeDecision4 = this.aiEngines.prnn.analyze(this.tickHistory);
+            const tradeDecision5 = this.aiEngines.bpe.analyze(this.tickHistory);
+            const tradeDecision6 = this.aiEngines.gamr.analyze(this.tickHistory);
+            const tradeDecision7 = this.aiEngines.mtd.analyze(this.tickHistory);
+            const tradeDecision8 = this.aiEngines.ctaf.analyze(this.tickHistory);
+            const tradeDecision9 = this.aiEngines.mcs.analyze(this.tickHistory);
 
-            let tradeExecuted = false;
+            const FDA_Engine = (tradeDecision.predictedDigit !== tradeDecision2.predictedDigit && 
+                tradeDecision.predictedDigit !== tradeDecision3.predictedDigit && 
+                tradeDecision.predictedDigit !== tradeDecision4 && 
+                tradeDecision.predictedDigit !== tradeDecision5.predictedDigit && 
+                tradeDecision.predictedDigit !== tradeDecision6.predictedDigit && 
+                tradeDecision.predictedDigit !== tradeDecision7.predictedDigit && 
+                tradeDecision.predictedDigit !== tradeDecision8.predictedDigit && 
+                tradeDecision.predictedDigit !== tradeDecision9.predictedDigit &&
+                tradeDecision.confidence >= 75 && tradeDecision.riskAssessment === 'low' && tradeDecision.marketRegime === 'random'  
+            );
+            const MCP_Engine = (tradeDecision2.predictedDigit !== tradeDecision.predictedDigit && 
+                tradeDecision2.predictedDigit !== tradeDecision3.predictedDigit && 
+                tradeDecision2.predictedDigit !== tradeDecision4 && 
+                tradeDecision2.predictedDigit !== tradeDecision5.predictedDigit && 
+                tradeDecision2.predictedDigit !== tradeDecision6.predictedDigit && 
+                tradeDecision2.predictedDigit !== tradeDecision7.predictedDigit && 
+                tradeDecision2.predictedDigit !== tradeDecision8.predictedDigit && 
+                tradeDecision2.predictedDigit !== tradeDecision9.predictedDigit &&
+                tradeDecision2.confidence >= 63 
+            );
+            const EITE_Engine = (tradeDecision3.predictedDigit !== tradeDecision.predictedDigit && 
+                tradeDecision3.predictedDigit !== tradeDecision2.predictedDigit && 
+                tradeDecision3.predictedDigit !== tradeDecision4 && 
+                tradeDecision3.predictedDigit !== tradeDecision5.predictedDigit && 
+                tradeDecision3.predictedDigit !== tradeDecision6.predictedDigit && 
+                tradeDecision3.predictedDigit !== tradeDecision7.predictedDigit && 
+                tradeDecision3.predictedDigit !== tradeDecision8.predictedDigit && 
+                tradeDecision3.predictedDigit !== tradeDecision9.predictedDigit && 
+                tradeDecision3.confidence >= 100
+            );
+            const PRNN_Engine = (tradeDecision4.predictedDigit !== tradeDecision.predictedDigit && 
+                tradeDecision4.predictedDigit !== tradeDecision2.predictedDigit && 
+                tradeDecision4.predictedDigit !== tradeDecision3 && 
+                tradeDecision4.predictedDigit !== tradeDecision5.predictedDigit && 
+                tradeDecision4.predictedDigit !== tradeDecision6.predictedDigit && 
+                tradeDecision4.predictedDigit !== tradeDecision7.predictedDigit && 
+                tradeDecision4.predictedDigit !== tradeDecision8.predictedDigit && 
+                tradeDecision4.predictedDigit !== tradeDecision9.predictedDigit &&
+                tradeDecision4.confidence >= 85
+            );
+            const BPE_Engine = (tradeDecision5.predictedDigit !== tradeDecision.predictedDigit && 
+                tradeDecision5.predictedDigit !== tradeDecision2.predictedDigit && 
+                tradeDecision5.predictedDigit !== tradeDecision3 && 
+                tradeDecision5.predictedDigit !== tradeDecision4.predictedDigit && 
+                tradeDecision5.predictedDigit !== tradeDecision6.predictedDigit && 
+                tradeDecision5.predictedDigit !== tradeDecision7.predictedDigit && 
+                tradeDecision5.predictedDigit !== tradeDecision8.predictedDigit && 
+                tradeDecision5.predictedDigit !== tradeDecision9.predictedDigit &&
+                tradeDecision5.confidence >= 100 && tradeDecision5.riskAssessment === 'low'
+            );
+            const GAMR_Engine = (tradeDecision6.predictedDigit !== tradeDecision.predictedDigit && 
+                tradeDecision6.predictedDigit !== tradeDecision2.predictedDigit && 
+                tradeDecision6.predictedDigit !== tradeDecision3 && 
+                tradeDecision6.predictedDigit !== tradeDecision4.predictedDigit && 
+                tradeDecision6.predictedDigit !== tradeDecision5.predictedDigit && 
+                tradeDecision6.predictedDigit !== tradeDecision7.predictedDigit && 
+                tradeDecision6.predictedDigit !== tradeDecision8.predictedDigit && 
+                tradeDecision6.predictedDigit !== tradeDecision9.predictedDigit &&
+                tradeDecision6.confidence >= 70 && tradeDecision6.riskAssessment === 'low'
+            );
+            const MTD_Engine = (tradeDecision7.predictedDigit !== tradeDecision.predictedDigit && 
+                tradeDecision7.predictedDigit !== tradeDecision2.predictedDigit && 
+                tradeDecision7.predictedDigit !== tradeDecision3 && 
+                tradeDecision7.predictedDigit !== tradeDecision4.predictedDigit && 
+                tradeDecision7.predictedDigit !== tradeDecision5.predictedDigit && 
+                tradeDecision7.predictedDigit !== tradeDecision6.predictedDigit && 
+                tradeDecision7.predictedDigit !== tradeDecision8.predictedDigit && 
+                tradeDecision7.predictedDigit !== tradeDecision9.predictedDigit &&
+                tradeDecision7.confidence >= 87 && tradeDecision7.riskAssessment === 'low'
+            );
+            const CTAF_Engine = (tradeDecision8.predictedDigit !== tradeDecision.predictedDigit && 
+                tradeDecision8.predictedDigit !== tradeDecision2.predictedDigit && 
+                tradeDecision8.predictedDigit !== tradeDecision3 && 
+                tradeDecision8.predictedDigit !== tradeDecision4.predictedDigit && 
+                tradeDecision8.predictedDigit !== tradeDecision5.predictedDigit && 
+                tradeDecision8.predictedDigit !== tradeDecision6.predictedDigit && 
+                tradeDecision8.predictedDigit !== tradeDecision7.predictedDigit && 
+                tradeDecision8.predictedDigit !== tradeDecision9.predictedDigit &&
+                tradeDecision8.confidence >= 90
+            );
+            const MCS_Engine = (tradeDecision9.predictedDigit !== tradeDecision.predictedDigit && 
+                tradeDecision9.predictedDigit !== tradeDecision2.predictedDigit && 
+                tradeDecision9.predictedDigit !== tradeDecision3 && 
+                tradeDecision9.predictedDigit !== tradeDecision4.predictedDigit && 
+                tradeDecision9.predictedDigit !== tradeDecision5.predictedDigit && 
+                tradeDecision9.predictedDigit !== tradeDecision6.predictedDigit && 
+                tradeDecision9.predictedDigit !== tradeDecision7.predictedDigit && 
+                tradeDecision9.predictedDigit !== tradeDecision8.predictedDigit &&
+                tradeDecision9.confidence >= 90
+            );
 
-            switch (this.currentEngineSetup.name) {
-                case 'FDA_GAMR':
-                    // if (FDA_Engine && GAMR_Engine) {
-                        console.log(`🎯 Using FDA && GAMR: FDA (${FDA_Engine.confidence}%) && GAMR (${GAMR_Engine.confidence}%)`);
-                        this.lastPrediction = FDA_Engine.predictedDigit;
-                        this.lastConfidence = FDA_Engine.confidence;
-                        this.placeTrade(FDA_Engine.predictedDigit, FDA_Engine.confidence, kellyResult.stake);
-                        tradeExecuted = true;
-                    // }
-                    break;
-                case 'MCP':
-                    // if (MCP_Engine) {
-                        console.log(`🎯 Using MCP: ${MCP_Engine.confidence}% confidence`);
-                        this.lastPrediction = MCP_Engine.predictedDigit;
-                        this.lastConfidence = MCP_Engine.confidence;
-                        this.placeTrade(MCP_Engine.predictedDigit, MCP_Engine.confidence, kellyResult.stake);
-                        tradeExecuted = true;
-                    // }
-                    break;
-                case 'EITE':
-                    // if (EITE_Engine) {
-                        console.log(`🎯 Using EITE: ${EITE_Engine.confidence}% confidence`);
-                        this.lastPrediction = EITE_Engine.predictedDigit;
-                        this.lastConfidence = EITE_Engine.confidence;
-                        this.placeTrade(EITE_Engine.predictedDigit, EITE_Engine.confidence, kellyResult.stake);
-                        tradeExecuted = true;
-                    // }
-                    break;
-                case 'PRNN':
-                    // if (PRNN_Engine) {
-                        console.log(`🎯 Using PRNN: ${PRNN_Engine.confidence}% confidence`);
-                        this.lastPrediction = PRNN_Engine.predictedDigit;
-                        this.lastConfidence = PRNN_Engine.confidence;
-                        this.placeTrade(PRNN_Engine.predictedDigit, PRNN_Engine.confidence, kellyResult.stake);
-                        tradeExecuted = true;
-                    // }
-                    break;
-                case 'BPE':
-                    // if (BPE_Engine) {
-                        console.log(`🎯 Using BPE: ${BPE_Engine.confidence}% confidence`);
-                        this.lastPrediction = BPE_Engine.predictedDigit;
-                        this.lastConfidence = BPE_Engine.confidence;
-                        this.placeTrade(BPE_Engine.predictedDigit, BPE_Engine.confidence, kellyResult.stake);
-                        tradeExecuted = true;
-                    // }
-                    break;
-                case 'MTD':
-                    // if (MTD_Engine) {
-                        console.log(`🎯 Using MTD: ${MTD_Engine.confidence}% confidence`);
-                        this.lastPrediction = MTD_Engine.predictedDigit;
-                        this.lastConfidence = MTD_Engine.confidence;
-                        this.placeTrade(MTD_Engine.predictedDigit, MTD_Engine.confidence, kellyResult.stake);
-                        tradeExecuted = true;
-                    // }
-                    break;
-                case 'CTAF':
-                    // if (CTAF_Engine) {
-                        console.log(`🎯 Using CTAF: ${CTAF_Engine.confidence}% confidence`);
-                        this.lastPrediction = CTAF_Engine.predictedDigit;
-                        this.lastConfidence = CTAF_Engine.confidence;
-                        this.placeTrade(CTAF_Engine.predictedDigit, CTAF_Engine.confidence, kellyResult.stake);
-                        tradeExecuted = true;
-                    // }
-                    break;
-                case 'MCS':
-                    // if (MCS_Engine) {
-                        console.log(`🎯 Using MCS: ${MCS_Engine.confidence}% confidence`);
-                        this.lastPrediction = MCS_Engine.predictedDigit;
-                        this.lastConfidence = MCS_Engine.confidence;
-                        this.placeTrade(MCS_Engine.predictedDigit, MCS_Engine.confidence, kellyResult.stake);
-                        tradeExecuted = true;
-                    // }
-                    break;
-            }
+            
+            console.log('FDA Prediction:', tradeDecision.predictedDigit, '(Alt:', tradeDecision.alternativeCandidates.join(','), ') | Confidence:', tradeDecision.confidence, '| Risk:', tradeDecision.riskAssessment, '| Market Regime:', tradeDecision.marketRegime);
+            console.log('MCP Prediction:', tradeDecision2.predictedDigit, '(Alt:', tradeDecision2.alternativeCandidates.join(','), ') | Confidence:', tradeDecision2.confidence, '| Risk:', tradeDecision2.riskAssessment, '| Market Regime:', tradeDecision2.marketRegime);
+            console.log('EITE Prediction:', tradeDecision3.predictedDigit, '(Alt:', tradeDecision3.alternativeCandidates.join(','), ') | Confidence:', tradeDecision3.confidence, '| Risk:', tradeDecision3.riskAssessment, '| Market Regime:', tradeDecision3.marketRegime);
+            console.log('PRNN Prediction:', tradeDecision4.predictedDigit, '(Alt:', tradeDecision4.alternativeCandidates.join(','), ') | Confidence:', tradeDecision4.confidence, '| Risk:', tradeDecision4.riskAssessment, '| Market Regime:', tradeDecision4.marketRegime);
+            console.log('BPE Prediction:', tradeDecision5.predictedDigit, '(Alt:', tradeDecision5.alternativeCandidates.join(','), ') | Confidence:', tradeDecision5.confidence, '| Risk:', tradeDecision5.riskAssessment, '| Market Regime:', tradeDecision5.marketRegime);
+            console.log('GAMR Prediction:', tradeDecision6.predictedDigit, '(Alt:', tradeDecision6.alternativeCandidates.join(','), ') | Confidence:', tradeDecision6.confidence, '| Risk:', tradeDecision6.riskAssessment, '| Market Regime:', tradeDecision6.marketRegime);
+            console.log('MTD Prediction:', tradeDecision7.predictedDigit, '(Alt:', tradeDecision7.alternativeCandidates.join(','), ') | Confidence:', tradeDecision7.confidence, '| Risk:', tradeDecision7.riskAssessment, '| Market Regime:', tradeDecision7.marketRegime);
+            console.log('CTAF Prediction:', tradeDecision8.predictedDigit, '(Alt:', tradeDecision8.alternativeCandidates.join(','), ') | Confidence:', tradeDecision8.confidence, '| Risk:', tradeDecision8.riskAssessment, '| Market Regime:', tradeDecision8.marketRegime);
+            console.log('MCS Prediction:', tradeDecision9.predictedDigit, '(Alt:', tradeDecision9.alternativeCandidates.join(','), ') | Confidence:', tradeDecision9.confidence, '| Risk:', tradeDecision9.riskAssessment, '| Market Regime:', tradeDecision9.marketRegime);
 
-            if (!tradeExecuted) {
-                console.log(`⏭️ Skipping trade: ${this.currentEngineSetup.name} setup not met`);
-                this.predictionInProgress = false;
-            }
+
+
+        if (FDA_Engine) {
+            console.log(`🎯 Using FDA: (${tradeDecision.confidence}%)`);
+            this.lastPrediction = tradeDecision.predictedDigit;
+            this.lastConfidence = tradeDecision.confidence;
+            this.placeTrade(tradeDecision.predictedDigit, tradeDecision.confidence, kellyResult.stake);
+        } else
+        if (MCP_Engine) {
+            console.log(`🎯 Using MCP: ${tradeDecision2.confidence}% confidence`);
+            this.lastPrediction = tradeDecision2.predictedDigit;
+            this.lastConfidence = tradeDecision2.confidence;
+            this.placeTrade(tradeDecision2.predictedDigit, tradeDecision2.confidence, kellyResult.stake);
+        } else
+        // if (EITE_Engine) {
+        //     console.log(`🎯 Using EITE: ${tradeDecision3.confidence}% confidence`);
+        //     this.lastPrediction = tradeDecision3.predictedDigit;
+        //     this.lastConfidence = tradeDecision3.confidence;
+        //     this.placeTrade(tradeDecision3.predictedDigit, tradeDecision3.confidence, kellyResult.stake);
+        // } else
+        if (PRNN_Engine) {
+            console.log(`🎯 Using PRNN: ${tradeDecision4.confidence}% confidence`);
+            this.lastPrediction = tradeDecision4.predictedDigit;
+            this.lastConfidence = tradeDecision4.confidence;
+            this.placeTrade(tradeDecision4.predictedDigit, tradeDecision4.confidence, kellyResult.stake);
+        } else
+        if (BPE_Engine) {
+            console.log(`🎯 Using BPE: ${tradeDecision5.confidence}% confidence`);
+            this.lastPrediction = tradeDecision5.predictedDigit;
+            this.lastConfidence = tradeDecision5.confidence;
+            this.placeTrade(tradeDecision5.predictedDigit, tradeDecision5.confidence, kellyResult.stake);
+        } else
+        if (GAMR_Engine) {
+            console.log(`🎯 Using GAMR: ${tradeDecision6.confidence}% confidence`);
+            this.lastPrediction = tradeDecision6.predictedDigit;
+            this.lastConfidence = tradeDecision6.confidence;
+            this.placeTrade(tradeDecision6.predictedDigit, tradeDecision6.confidence, kellyResult.stake);
+        } else
+        if (MTD_Engine) {
+            console.log(`🎯 Using MTD: ${tradeDecision7.confidence}% confidence`);
+            this.lastPrediction = tradeDecision7.predictedDigit;
+            this.lastConfidence = tradeDecision7.confidence;
+            this.placeTrade(tradeDecision7.predictedDigit, tradeDecision7.confidence, kellyResult.stake);
+        } else
+        if (CTAF_Engine) {
+            console.log(`🎯 Using CTAF: ${tradeDecision8.confidence}% confidence`);
+            this.lastPrediction = tradeDecision8.predictedDigit;
+            this.lastConfidence = tradeDecision8.confidence;
+            this.placeTrade(tradeDecision8.predictedDigit, tradeDecision8.confidence, kellyResult.stake);
+        } else
+        if (MCS_Engine) {
+            console.log(`🎯 Using MCS: ${tradeDecision9.confidence}% confidence`);
+            this.lastPrediction = tradeDecision9.predictedDigit;
+            this.lastConfidence = tradeDecision9.confidence;
+            this.placeTrade(tradeDecision9.predictedDigit, tradeDecision9.confidence, kellyResult.stake);
+        } else {
+            console.log('⏭️ No engine met the criteria for trade execution.');
+            this.predictionInProgress = false;
+        }
+
 
         } catch (error) {
             console.error('❌ Analysis error:', error.message);
@@ -2681,7 +2913,7 @@ class AILogicDigitDifferBot {
                     result.name = engine.name;
                     result.weight = engine.weight;
                     predictions.push(result);
-                    console.log(`   ✅ ${engine.name}: digit=${result.predictedDigit}, conf=${result.confidence}%`);
+                    // console.log(`   ✅ ${engine.name}: digit=${result.predictedDigit}, conf=${result.confidence}%`);
                 } else if (result && result.error) {
                     console.log(`   ❌ ${engine.name}: ${result.error}`);
                 }
@@ -2716,10 +2948,10 @@ class AILogicDigitDifferBot {
         const agreement = parseInt(agreementParts[0]);
         const total = parseInt(agreementParts[1]);
 
-        if (agreement < this.config.minEnginesAgreement && total >= this.config.minEnginesAgreement) {
-            execute = false;
-            reasons.push(`Low agreement: ${agreement}/${total}`);
-        }
+        // if (agreement < this.config.minEnginesAgreement && total >= this.config.minEnginesAgreement) {
+        //     execute = false;
+        //     reasons.push(`Low agreement: ${agreement}/${total}`);
+        // }
 
         if (['volatile', 'chaotic', 'random'].includes(ensemble.marketRegime) && ensemble.confidence < 80) {
             execute = false;
@@ -2869,7 +3101,7 @@ class AILogicDigitDifferBot {
         this.predictionInProgress = false;
 
         this.tradesInCurrentCycle++;
-        if (this.tradesInCurrentCycle >= 30000) {
+        if (this.tradesInCurrentCycle >= 3) {
             this.selectRandomEngineSetup();
         }
 
@@ -3154,7 +3386,7 @@ if (!process.env.DERIV_TOKEN) {
 }
 
 const bot = new AILogicDigitDifferBot({
-    derivToken: '0P94g4WdSrSrzir',
+    derivToken: '0P94g4WdSrSrzir', //process.env.DERIV_TOKEN,
 
     investmentCapital: 100,
     kellyFraction: 0.25,
@@ -3164,12 +3396,11 @@ const bot = new AILogicDigitDifferBot({
 
     maxDrawdownPercent: 25,
     dailyLossLimit: 50,
-    dailyProfitTarget: 1,
+    dailyProfitTarget: 0.15,
     maxConsecutiveLosses: 3,//6
 
-    minConfidence: 85,
-    minEnginesAgreement: 5,
-    minEnginesAgreement: 5,
+    minConfidence: 95,
+    minEnginesAgreement: 1,
     requiredHistoryLength: 1000,
     minWaitTime: 1000,
     maxWaitTime: 1000,
