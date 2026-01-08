@@ -294,17 +294,17 @@ const CONFIG = {
 // ============================================
 
 const ASSET_CONFIGS = {
-    'R_10': {
-        name: 'Volatility 10 Index',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [400, 1000, 2000, 3000, 4000],
-        defaultMultiplier: 4000,
-        maxTradesPerDay: 100,
-        minStake: 1.00,
-        maxStake: 2000,
-        tradingHours: '24/7'
-    },
+    // 'R_10': {
+    //     name: 'Volatility 10 Index',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [400, 1000, 2000, 3000, 4000],
+    //     defaultMultiplier: 4000,
+    //     maxTradesPerDay: 100,
+    //     minStake: 1.00,
+    //     maxStake: 2000,
+    //     tradingHours: '24/7'
+    // },
     'R_75': {
         name: 'Volatility 75 Index',
         category: 'synthetic',
@@ -316,28 +316,28 @@ const ASSET_CONFIGS = {
         maxStake: 3000,
         tradingHours: '24/7'
     },
-    'R_100': {
-        name: 'Volatility 100 Index',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [40, 100, 200, 300, 500],
-        defaultMultiplier: 500,
-        maxTradesPerDay: 50,
-        minStake: 1.00,
-        maxStake: 3000,
-        tradingHours: '24/7'
-    },
-    '1HZ10V': {
-        name: 'Volatility 10 (1s) Index',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [400, 1000, 2000, 3000, 4000],
-        defaultMultiplier: 4000,
-        maxTradesPerDay: 150,
-        minStake: 1.00,
-        maxStake: 1000,
-        tradingHours: '24/7'
-    },
+    // 'R_100': {
+    //     name: 'Volatility 100 Index',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [40, 100, 200, 300, 500],
+    //     defaultMultiplier: 500,
+    //     maxTradesPerDay: 50,
+    //     minStake: 1.00,
+    //     maxStake: 3000,
+    //     tradingHours: '24/7'
+    // },
+    // '1HZ10V': {
+    //     name: 'Volatility 10 (1s) Index',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [400, 1000, 2000, 3000, 4000],
+    //     defaultMultiplier: 4000,
+    //     maxTradesPerDay: 150,
+    //     minStake: 1.00,
+    //     maxStake: 1000,
+    //     tradingHours: '24/7'
+    // },
     '1HZ50V': {
         name: 'Volatility 50 (1s) Index',
         category: 'synthetic',
@@ -362,7 +362,7 @@ const ASSET_CONFIGS = {
     }
 };
 
-let ACTIVE_ASSETS = ['R_75', 'R_100', '1HZ10V', '1HZ50V'];
+let ACTIVE_ASSETS = ['R_75', 'frxXAUUSD', '1HZ50V'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -1083,8 +1083,8 @@ class RiskManager {
         if (!SessionManager.isSessionActive()) return false;
         if (SessionManager.checkSessionTargets()) return false;
         if (state.portfolio.activePositions.length >= CONFIG.MAX_OPEN_POSITIONS) return false;
-        if (state.capital < CONFIG.INITIAL_STAKE * 2) {
-            LOGGER.error('Insufficient capital');
+        if (state.capital < CONFIG.INITIAL_STAKE) {
+            LOGGER.error(`Insufficient capital: $${state.capital.toFixed(2)} available, $${CONFIG.INITIAL_STAKE.toFixed(2)} required`);
             return false;
         }
         return true;
@@ -1098,12 +1098,18 @@ class RiskManager {
             return { allowed: false, reason: 'Asset not configured' };
         }
 
+        // Check trading hours
+        if (!TradingHoursManager.isWithinTradingHours(symbol)) {
+            return { allowed: false, reason: `Outside trading hours (${config.tradingHours})` };
+        }
+
         if (assetState.dailyTrades >= config.maxTradesPerDay) {
-            return { allowed: false, reason: 'Daily trade limit reached' };
+            return { allowed: false, reason: `Daily trade limit reached (${assetState.dailyTrades}/${config.maxTradesPerDay})` };
         }
 
         if (Date.now() < assetState.blacklistedUntil) {
-            return { allowed: false, reason: 'Asset blacklisted' };
+            const remaining = Math.ceil((assetState.blacklistedUntil - Date.now()) / 1000);
+            return { allowed: false, reason: `Asset blacklisted for ${remaining}s` };
         }
 
         return { allowed: true };
@@ -1146,6 +1152,63 @@ class RiskManager {
         assetState.winRate = recentTrades.length > 0
             ? recentTrades.filter(t => t.profit > 0).length / recentTrades.length
             : 0.5;
+    }
+}
+
+// ============================================
+// TRADING HOURS MANAGER
+// ============================================
+
+class TradingHoursManager {
+    /**
+     * Check if asset is within trading hours
+     * frxXAUUSD trades Sun 23:00 - Fri 21:55 GMT
+     */
+    static isWithinTradingHours(symbol) {
+        const config = ASSET_CONFIGS[symbol];
+        if (!config) return false;
+
+        // Synthetic indices trade 24/7
+        if (config.tradingHours === '24/7') {
+            return true;
+        }
+
+        // Parse trading hours for frxXAUUSD: Sun 23:00 - Fri 21:55 GMT
+        if (symbol === 'frxXAUUSD') {
+            return this.checkGoldTradingHours();
+        }
+
+        // Default: allow trading if hours not specified
+        return true;
+    }
+
+    static checkGoldTradingHours() {
+        const now = new Date();
+        const day = now.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+        const hours = now.getUTCHours();
+        const minutes = now.getUTCMinutes();
+        const timeInMinutes = hours * 60 + minutes;
+
+        // Trading hours: Sun 23:00 - Fri 21:55 GMT
+        // Market OPENS Sunday 23:00, CLOSES Friday 21:55
+
+        // Saturday: Market closed all day
+        if (day === 6) {
+            return false;
+        }
+
+        // Sunday: Only open from 23:00 onwards
+        if (day === 0) {
+            return timeInMinutes >= 23 * 60; // >= 23:00
+        }
+
+        // Friday: Only open until 21:55
+        if (day === 5) {
+            return timeInMinutes < 21 * 60 + 55; // < 21:55
+        }
+
+        // Mon-Thu: Open all day
+        return true;
     }
 }
 
@@ -1206,6 +1269,13 @@ class ConnectionManager {
             LOGGER.info(`💰 Balance: ${response.authorize.balance} ${response.authorize.currency}`);
             state.isAuthorized = true;
             state.accountBalance = response.authorize.balance;
+
+            // Synchronize capital with real balance if it's the first authorization
+            if (state.capital === CONFIG.INITIAL_CAPITAL) {
+                state.capital = response.authorize.balance;
+                LOGGER.info(`⚖️ Initializing session capital to: $${state.capital.toFixed(2)}`);
+            }
+
             bot.start();
         }
 
