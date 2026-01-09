@@ -19,9 +19,9 @@ const CONFIG = {
 
     // SESSIONS CONFIGURATION 
     sessions: {
-        tokyo: { name: 'Tokyo', time: '23:00', enabled: true },
+        tokyo: { name: 'Tokyo', time: '00:00', enabled: true },
         london: { name: 'London', time: '07:00', enabled: true },
-        new_york: { name: 'New York', time: '12:00', enabled: true },
+        new_york: { name: 'New York', time: '13:00', enabled: true },
     },
 
     market_open_duration: 90, // Minutes to look for trade after open (Strategy: 90 mins)
@@ -33,7 +33,7 @@ const CONFIG = {
     // Investment Management
     INVESTMENT_CAPITAL: 500,
     RISK_PERCENT: 1, // 1% risk per trade (Stop Loss)
-    RR_RATIO: 1.5,     // 1:3 Risk-Reward (Take Profit)
+    RR_RATIO: 1.1,     // 1:3 Risk-Reward (Take Profit)
 };
 // =================================================
 
@@ -44,7 +44,7 @@ class QuickFlipBot {
         this.dailyATR = {}; // ATR values per symbol
 
         // Telegram Configuration
-        this.telegramToken = process.env.TELEGRAM_BOT_TOKEN5;
+        this.telegramToken = process.env.TELEGRAM_BOT_TOKEN4;
         this.telegramChatId = process.env.TELEGRAM_CHAT_ID;
         this.telegramEnabled = !!(this.telegramToken && this.telegramChatId);
 
@@ -578,17 +578,15 @@ class QuickFlipBot {
         const upperWick = candle.high - Math.max(candle.open, candle.close);
         const lowerWick = Math.min(candle.open, candle.close) - candle.low;
 
-        // Long (Hammer) below box
-        // if (asset.box.direction === 'DOWN' && candle.close < asset.box.low) {
-        if (asset.box.direction === 'DOWN') {
+        // Long when Above box
+        if (asset.box.direction === 'UP' && candle.close > asset.box.high) {
             this.sendTelegramMessage(`🔥 <b>Buy Pattern</b> [${symbol}]\nExecuting LONG.`);
             asset.entryCandle = candle;
             this.executeTrade(symbol, 'MULTUP');
         }
 
-        // Short (Shooting Star) above box
-        // if (asset.box.direction === 'UP' && candle.close > asset.box.high) {
-        if (asset.box.direction === 'UP') {
+        // Short when Below box
+        if (asset.box.direction === 'DOWN' && candle.close < asset.box.low) {
             this.sendTelegramMessage(`🔥 <b>Sell Pattern</b> [${symbol}]\nExecuting SHORT.`);
             asset.entryCandle = candle;
             this.executeTrade(symbol, 'MULTDOWN');
@@ -640,7 +638,7 @@ class QuickFlipBot {
                 symbol: symbol,
                 currency: 'USD',
                 basis: 'stake',
-                amount: stakeAmount,  
+                amount: stakeAmount,
                 multiplier: asset.multiplier,
                 limit_order: {
                     take_profit: takeProfitAmount,
