@@ -655,7 +655,7 @@ class AILogicDigitDifferBot {
         }
         this.digitCounts[lastDigit]++;
 
-        // console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
+        console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
 
         if (!this.tradeInProgress) {
             this.analyzeTicks();
@@ -715,7 +715,7 @@ class AILogicDigitDifferBot {
             // console.log(`   Optimal Stake: $${kellyResult.stake.toFixed(2)}`);
             // console.log(`   Risk Level: ${kellyResult.riskLevel}`);
             // console.log(`   Recommendation: ${kellyResult.recommendation}`);
-            // console.log(`   Volatility Level: ${this.volatilityLevel}`);
+            console.log(`   Volatility Level: ${this.volatilityLevel}`);
 
             if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.volatilityLevel === 'medium') {
                 this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
@@ -798,6 +798,7 @@ class AILogicDigitDifferBot {
         if (won) {
             this.totalWins++;
             this.consecutiveLosses = 0;
+            this.consecutiveLossesn = 0;
             this.consecutiveWins++;
             this.lastTradeResult = 'won';
             this.currentStake = this.config.minStake;
@@ -1089,12 +1090,12 @@ const bot = new AILogicDigitDifferBot({
 
     investmentCapital: 100,
     kellyFraction: 0.2, // 20% of full Kelly
-    minStake: 1,
+    minStake: 0.35,
     maxStakePercent: 5,
     multiplier: 2,
 
     maxDrawdownPercent: 100,
-    dailyLossLimit: 100,
+    dailyLossLimit: 200,
     dailyProfitTarget: 1000,
     maxConsecutiveLosses: 100,//6
 
