@@ -654,7 +654,7 @@ class AILogicDigitDifferBot {
         }
         this.digitCounts[lastDigit]++;
 
-        console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
+        // console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
 
         if (!this.tradeInProgress) {
             this.analyzeTicks();
@@ -709,14 +709,14 @@ class AILogicDigitDifferBot {
 
             this.volatilityLevel = this.getVolatilityLevel(this.tickHistory)
 
-            console.log(`\n💰 Kelly Criterion Result:`);
-            console.log(`   Prediction: ${this.lastPrediction}`);
-            console.log(`   Optimal Stake: $${kellyResult.stake.toFixed(2)}`);
-            console.log(`   Risk Level: ${kellyResult.riskLevel}`);
-            console.log(`   Recommendation: ${kellyResult.recommendation}`);
-            console.log(`   Volatility Level: ${this.volatilityLevel}`);
+            // console.log(`\n💰 Kelly Criterion Result:`);
+            // console.log(`   Prediction: ${this.lastPrediction}`);
+            // console.log(`   Optimal Stake: $${kellyResult.stake.toFixed(2)}`);
+            // console.log(`   Risk Level: ${kellyResult.riskLevel}`);
+            // console.log(`   Recommendation: ${kellyResult.recommendation}`);
+            // console.log(`   Volatility Level: ${this.volatilityLevel}`);
 
-            if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.lastPrediction === this.tickHistory[this.tickHistory.length - 3] && this.volatilityLevel === 'medium') {
+            if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.volatilityLevel === 'medium') {
                 this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
             }
             else {
@@ -754,16 +754,17 @@ class AILogicDigitDifferBot {
         this.tradeInProgress = true;
         this.predictionInProgress = true;
 
-        stake = Math.max(this.config.minStake, Math.min(stake, this.balance * 0.1));
-        stake = Math.round(stake * 100) / 100;
+        // stake = Math.max(this.config.minStake, Math.min(stake, this.balance * 0.1));
+        // stake = Math.round(stake * 100) / 100;
 
-        console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${stake.toFixed(2)} (${confidence}% confidence)`);
+        // console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${stake.toFixed(2)} (${confidence}% confidence)`);
+        console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${this.currentStake.toFixed(2)} (${confidence}% confidence)`)
 
         this.sendRequest({
             buy: 1,
-            price: stake.toFixed(2),
+            price: this.currentStake.toFixed(2), //stake.toFixed(2),
             parameters: {
-                amount: stake.toFixed(2),
+                amount: this.currentStake.toFixed(2), //stake.toFixed(2),
                 basis: 'stake',
                 contract_type: 'DIGITDIFF',
                 currency: 'USD',
@@ -798,7 +799,7 @@ class AILogicDigitDifferBot {
             this.consecutiveLosses = 0;
             this.consecutiveWins++;
             this.lastTradeResult = 'won';
-            // this.currentStake = this.config.minStake;
+            this.currentStake = this.config.minStake;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
@@ -810,6 +811,7 @@ class AILogicDigitDifferBot {
             if (this.consecutiveLosses === 2) {
                 this.consecutiveLosses2++;
             } else if (this.consecutiveLosses === 3) {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
                 this.consecutiveLosses3++;
             } else if (this.consecutiveLosses === 4) {
                 this.consecutiveLosses4++;
@@ -1086,7 +1088,7 @@ const bot = new AILogicDigitDifferBot({
 
     investmentCapital: 100,
     kellyFraction: 0.2, // 20% of full Kelly
-    minStake: 0.61,
+    minStake: 1,
     maxStakePercent: 5,
     multiplier: 11.3,
 
