@@ -2666,7 +2666,7 @@ class AILogicDigitDifferBot {
         }
 
         // this.predictionInProgress = true;
-        console.log('\n🧠 Starting Simulated AI Ensemble Analysis...');
+        // console.log('\n🧠 Starting Simulated AI Ensemble Analysis...');
 
         const startTime = Date.now();
 
