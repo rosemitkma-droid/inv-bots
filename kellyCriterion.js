@@ -664,13 +664,13 @@ class AILogicDigitDifferBot {
     async analyzeTicks() {
         if (this.tradeInProgress) return;
 
-        const tradingStatus = this.kellyManager.shouldContinueTrading();
-        if (!tradingStatus.canTrade) {
-            console.log('\n🛑 Trading stopped by Kelly Manager:');
-            tradingStatus.reasons.forEach(r => console.log(`   - ${r}`));
-            this.shutdown();
-            return;
-        }
+        // const tradingStatus = this.kellyManager.shouldContinueTrading();
+        // if (!tradingStatus.canTrade) {
+        //     console.log('\n🛑 Trading stopped by Kelly Manager:');
+        //     tradingStatus.reasons.forEach(r => console.log(`   - ${r}`));
+        //     this.shutdown();
+        //     return;
+        // }
 
         if (tradingStatus.warning) {
             console.log(`\n⚠️ WARNING: Drawdown at ${tradingStatus.currentDrawdown.toFixed(1)}%`);
@@ -1085,10 +1085,10 @@ if (!process.env.DERIV_TOKEN) {
 const bot = new AILogicDigitDifferBot({
     derivToken: '0P94g4WdSrSrzir',
 
-    investmentCapital: 100,
+    investmentCapital: 1000,
     kellyFraction: 0.2, // 20% of full Kelly
     minStake: 0.61,
-    maxStakePercent: 5,
+    maxStakePercent: 100,
     multiplier: 11.3,
 
     maxDrawdownPercent: 100,
