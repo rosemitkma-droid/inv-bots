@@ -664,17 +664,17 @@ class AILogicDigitDifferBot {
     async analyzeTicks() {
         if (this.tradeInProgress) return;
 
-        const tradingStatus = this.kellyManager.shouldContinueTrading();
-        if (!tradingStatus.canTrade) {
-            console.log('\n🛑 Trading stopped by Kelly Manager:');
-            tradingStatus.reasons.forEach(r => console.log(`   - ${r}`));
-            this.shutdown();
-            return;
-        }
+        // const tradingStatus = this.kellyManager.shouldContinueTrading();
+        // if (!tradingStatus.canTrade) {
+        //     console.log('\n🛑 Trading stopped by Kelly Manager:');
+        //     tradingStatus.reasons.forEach(r => console.log(`   - ${r}`));
+        //     this.shutdown();
+        //     return;
+        // }
 
-        if (tradingStatus.warning) {
-            console.log(`\n⚠️ WARNING: Drawdown at ${tradingStatus.currentDrawdown.toFixed(1)}%`);
-        }
+        // if (tradingStatus.warning) {
+        //     console.log(`\n⚠️ WARNING: Drawdown at ${tradingStatus.currentDrawdown.toFixed(1)}%`);
+        // }
 
 
         const startTime = Date.now();
@@ -832,7 +832,7 @@ class AILogicDigitDifferBot {
             return;
         }
 
-        if (!won && this.telegramEnabled) {
+        if (won && this.telegramEnabled) {
             this.sendTelegramLossAlert(actualDigit, profit);
         }
 
@@ -1023,11 +1023,11 @@ class AILogicDigitDifferBot {
             : 0;
         const kellyStatus = this.kellyManager.getStatus();
 
-        const body = `🚨 TRADE LOSS - Kelly Criterion2
+        const body = `🚨 TRADE WIN - Kelly Criterion2
             ━━━━━━━━━━━━━━━━━━━━
             Asset: ${this.currentAsset}
             Predicted: ${this.lastPrediction} | Actual: ${actualDigit}
-            Loss: -$${Math.abs(profit).toFixed(2)}
+            Profit: $${Math.abs(profit).toFixed(2)}
             
             📊 Total Trades: ${this.totalTrades}
             ✅ Wins: ${this.totalWins}
