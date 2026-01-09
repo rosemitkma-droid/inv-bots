@@ -672,9 +672,9 @@ class AILogicDigitDifferBot {
         //     return;
         // }
 
-        if (tradingStatus.warning) {
-            console.log(`\n⚠️ WARNING: Drawdown at ${tradingStatus.currentDrawdown.toFixed(1)}%`);
-        }
+        // if (tradingStatus.warning) {
+        //     console.log(`\n⚠️ WARNING: Drawdown at ${tradingStatus.currentDrawdown.toFixed(1)}%`);
+        // }
 
 
         const startTime = Date.now();
