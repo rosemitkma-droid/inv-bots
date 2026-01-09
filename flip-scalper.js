@@ -13,13 +13,15 @@ const CONFIG = {
         { name: '1HZ25V', label: 'Volatility 25 (1s)', multiplier: 400, enabled: true },
         { name: '1HZ50V', label: 'Volatility 50 (1s)', multiplier: 200, enabled: true },
         { name: '1HZ75V', label: 'Volatility 75 (1s)', multiplier: 100, enabled: true },
-        { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 100, enabled: true }
+        { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 100, enabled: true },
+        // { name: 'STP100', label: 'Step Index', multiplier: 2000, enabled: true },
     ],
 
     // SESSIONS CONFIGURATION 
     sessions: {
+        tokyo: { name: 'Tokyo', time: '00:00', enabled: true },
         london: { name: 'London', time: '07:00', enabled: true },
-        new_york: { name: 'New York', time: '13:00', enabled: true }
+        new_york: { name: 'New York', time: '13:00', enabled: true },
     },
 
     market_open_duration: 90, // Minutes to look for trade after open (Strategy: 90 mins)
@@ -29,7 +31,7 @@ const CONFIG = {
     ping_interval: 25000, // Keep-alive ping every 25 seconds
 
     // Investment Management
-    INVESTMENT_CAPITAL: process.env.INITIAL_CAPITAL ? parseFloat(process.env.INITIAL_CAPITAL) : 500,
+    INVESTMENT_CAPITAL: 500,
     RISK_PERCENT: 1, // 1% risk per trade (Stop Loss)
     RR_RATIO: 3,     // 1:3 Risk-Reward (Take Profit)
 };
