@@ -654,7 +654,7 @@ class AILogicDigitDifferBot {
         }
         this.digitCounts[lastDigit]++;
 
-        console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
+        // console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
 
         if (!this.tradeInProgress) {
             this.analyzeTicks();
@@ -709,12 +709,12 @@ class AILogicDigitDifferBot {
 
             this.volatilityLevel = this.getVolatilityLevel(this.tickHistory)
 
-            console.log(`\n💰 Kelly Criterion Result:`);
-            console.log(`   Prediction: ${this.lastPrediction}`);
-            console.log(`   Optimal Stake: $${kellyResult.stake.toFixed(2)}`);
-            console.log(`   Risk Level: ${kellyResult.riskLevel}`);
-            console.log(`   Recommendation: ${kellyResult.recommendation}`);
-            console.log(`   Volatility Level: ${this.volatilityLevel}`);
+            // console.log(`\n💰 Kelly Criterion Result:`);
+            // console.log(`   Prediction: ${this.lastPrediction}`);
+            // console.log(`   Optimal Stake: $${kellyResult.stake.toFixed(2)}`);
+            // console.log(`   Risk Level: ${kellyResult.riskLevel}`);
+            // console.log(`   Recommendation: ${kellyResult.recommendation}`);
+            // console.log(`   Volatility Level: ${this.volatilityLevel}`);
 
             if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.volatilityLevel === 'medium') {
                 this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
@@ -754,16 +754,17 @@ class AILogicDigitDifferBot {
         this.tradeInProgress = true;
         this.predictionInProgress = true;
 
-        stake = Math.max(this.config.minStake, Math.min(stake, this.balance * 0.1));
-        stake = Math.round(stake * 100) / 100;
+        // stake = Math.max(this.config.minStake, Math.min(stake, this.balance * 0.1));
+        // stake = Math.round(stake * 100) / 100;
 
-        console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${stake.toFixed(2)} (${confidence}% confidence)`);
+        // console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${stake.toFixed(2)} (${confidence}% confidence)`);
+        console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${this.currentStake.toFixed(2)} (${confidence}% confidence)`)
 
         this.sendRequest({
             buy: 1,
-            price: stake.toFixed(2),
+            price: this.currentStake.toFixed(2), //stake.toFixed(2),
             parameters: {
-                amount: stake.toFixed(2),
+                amount: this.currentStake.toFixed(2), //stake.toFixed(2),
                 basis: 'stake',
                 contract_type: 'DIGITDIFF',
                 currency: 'USD',
@@ -798,14 +799,14 @@ class AILogicDigitDifferBot {
             this.consecutiveLosses = 0;
             this.consecutiveWins++;
             this.lastTradeResult = 'won';
-            // this.currentStake = this.config.minStake;
+            this.currentStake = this.config.minStake;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.consecutiveWins = 0;
             this.lastTradeResult = 'lost';
 
-            // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
 
             if (this.consecutiveLosses === 2) {
                 this.consecutiveLosses2++;
@@ -979,7 +980,7 @@ class AILogicDigitDifferBot {
             : 0;
         const kellyStatus = this.kellyManager.getStatus();
 
-        return `<b>AI-Logic Trading Summary</b>
+        return `<b>Kelly Criterion Trading Summary</b>
             ━━━━━━━━━━━━━━━━━━━━━━━━
             📊 <b>Total Trades:</b> ${this.totalTrades}
             ✅ <b>Wins:</b> ${this.totalWins}
@@ -1022,7 +1023,7 @@ class AILogicDigitDifferBot {
             : 0;
         const kellyStatus = this.kellyManager.getStatus();
 
-        const body = `🚨 TRADE LOSS
+        const body = `🚨 Kelly Criterion TRADE LOSS
             ━━━━━━━━━━━━━━━━━━━━
             Asset: ${this.currentAsset}
             Predicted: ${this.lastPrediction} | Actual: ${actualDigit}
@@ -1093,7 +1094,7 @@ const bot = new AILogicDigitDifferBot({
     maxDrawdownPercent: 100,
     dailyLossLimit: 100,
     dailyProfitTarget: 1000,
-    maxConsecutiveLosses: 8,//6
+    maxConsecutiveLosses: 4,//6
 
     requiredHistoryLength: 1000,
     minWaitTime: 1000,
