@@ -1091,7 +1091,7 @@ const bot = new AILogicDigitDifferBot({
     kellyFraction: 0.2, // 20% of full Kelly
     minStake: 1,
     maxStakePercent: 5,
-    multiplier: 11.3,
+    multiplier: 2,
 
     maxDrawdownPercent: 100,
     dailyLossLimit: 100,
