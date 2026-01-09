@@ -654,7 +654,7 @@ class AILogicDigitDifferBot {
         }
         this.digitCounts[lastDigit]++;
 
-        console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
+        // console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
 
         if (!this.tradeInProgress) {
             this.analyzeTicks();
@@ -709,12 +709,12 @@ class AILogicDigitDifferBot {
 
             this.volatilityLevel = this.getVolatilityLevel(this.tickHistory)
 
-            console.log(`\n💰 Kelly Criterion Result:`);
-            console.log(`   Prediction: ${this.lastPrediction}`);
-            console.log(`   Optimal Stake: $${kellyResult.stake.toFixed(2)}`);
-            console.log(`   Risk Level: ${kellyResult.riskLevel}`);
-            console.log(`   Recommendation: ${kellyResult.recommendation}`);
-            console.log(`   Volatility Level: ${this.volatilityLevel}`);
+            // console.log(`\n💰 Kelly Criterion Result:`);
+            // console.log(`   Prediction: ${this.lastPrediction}`);
+            // console.log(`   Optimal Stake: $${kellyResult.stake.toFixed(2)}`);
+            // console.log(`   Risk Level: ${kellyResult.riskLevel}`);
+            // console.log(`   Recommendation: ${kellyResult.recommendation}`);
+            // console.log(`   Volatility Level: ${this.volatilityLevel}`);
 
             if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.lastPrediction === this.tickHistory[this.tickHistory.length - 3] && this.lastPrediction === this.tickHistory[this.tickHistory.length - 4] && this.volatilityLevel === 'medium') {
                 this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
