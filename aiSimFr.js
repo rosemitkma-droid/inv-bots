@@ -2641,7 +2641,7 @@ class AILogicDigitDifferBot {
         }
         this.digitCounts[lastDigit]++;
 
-        console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
+        // console.log(`📍 Last 5 digits: ${this.tickHistory.slice(-5).join(', ')} | History: ${this.tickHistory.length}`);
 
         if (!this.tradeInProgress) {
             this.analyzeTicks();
@@ -2687,13 +2687,13 @@ class AILogicDigitDifferBot {
             // Use Meta-Learner for final ensemble decision
             const ensemble = this.aiEngines.eml.analyze(this.tickHistory, predictions);
 
-            console.log('\n📊 Ensemble Result:');
-            console.log(`   Predicted Digit: ${ensemble.predictedDigit}`);
-            console.log(`   Confidence: ${ensemble.confidence}%`);
-            console.log(`   Risk Level: ${ensemble.riskAssessment}`);
-            console.log(`   Market Regime: ${ensemble.marketRegime}`);
-            console.log(`   Engines Consulted: ${ensemble.statisticalEvidence.enginesConsulted}`);
-            console.log(`   Agreement: ${ensemble.statisticalEvidence.agreement}`);
+            // console.log('\n📊 Ensemble Result:');
+            // console.log(`   Predicted Digit: ${ensemble.predictedDigit}`);
+            // console.log(`   Confidence: ${ensemble.confidence}%`);
+            // console.log(`   Risk Level: ${ensemble.riskAssessment}`);
+            // console.log(`   Market Regime: ${ensemble.marketRegime}`);
+            // console.log(`   Engines Consulted: ${ensemble.statisticalEvidence.enginesConsulted}`);
+            // console.log(`   Agreement: ${ensemble.statisticalEvidence.agreement}`);
 
             // Calculate optimal stake
             const winRate = this.kellyManager.getRollingWinRate();
@@ -2709,12 +2709,12 @@ class AILogicDigitDifferBot {
                 volatility: this.getVolatilityLevel(this.tickHistory)
             });
 
-            console.log(`\n💰 Kelly Criterion Result:`);
-            console.log(`   Optimal Stake: $${kellyResult.stake.toFixed(2)}`);
-            console.log(`   Risk Level: ${kellyResult.riskLevel}`);
-            console.log(`   Recommendation: ${kellyResult.recommendation}`);
+            // console.log(`\n💰 Kelly Criterion Result:`);
+            // console.log(`   Optimal Stake: $${kellyResult.stake.toFixed(2)}`);
+            // console.log(`   Risk Level: ${kellyResult.riskLevel}`);
+            // console.log(`   Recommendation: ${kellyResult.recommendation}`);
 
-            console.log(`\n🎲 Current Engine Setup: ${this.currentEngineSetup.name} (${this.tradesInCurrentCycle}/10 trades)`);
+            // console.log(`\n🎲 Current Engine Setup: ${this.currentEngineSetup.name} (${this.tradesInCurrentCycle}/10 trades)`);
 
 
             const tradeDecision = this.aiEngines.fda.analyze(this.tickHistory);
