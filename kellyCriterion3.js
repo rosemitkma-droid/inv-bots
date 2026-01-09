@@ -682,7 +682,7 @@ class AILogicDigitDifferBot {
         try {
             const processingTime = (Date.now() - startTime) / 1000;
 
-            console.log(`⏱️  Analysis time: ${processingTime.toFixed(2)}s`);
+            // console.log(`⏱️  Analysis time: ${processingTime.toFixed(2)}s`);
 
             this.lastPrediction = this.tickHistory[this.tickHistory.length - 1];
             this.lastConfidence = 85; // Default confidence for simulated AI
@@ -719,10 +719,10 @@ class AILogicDigitDifferBot {
             if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.lastPrediction === this.tickHistory[this.tickHistory.length - 3] && this.lastPrediction === this.tickHistory[this.tickHistory.length - 4] && this.volatilityLevel === 'medium') {
                 this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
             }
-            else {
-                console.log(`⏭️ Skipping trade - Wating for proper Digit setup`);
-                this.predictionInProgress = false;
-            }
+            // else {
+            //     console.log(`⏭️ Skipping trade - Wating for proper Digit setup`);
+            //     this.predictionInProgress = false;
+            // }
 
         } catch (error) {
             console.error('❌ Analysis error:', error.message);
