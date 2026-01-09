@@ -758,7 +758,7 @@ class AILogicDigitDifferBot {
         // stake = Math.round(stake * 100) / 100;
 
         // console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${stake.toFixed(2)} (${confidence}% confidence)`);
-        console.log(`\n💰 Placing trade: DIFFER ${digit} @ $${this.currentStake.toFixed(2)} (${confidence}% confidence)`)
+        console.log(`\n💰 Placing trade: MATCH ${digit} @ $${this.currentStake.toFixed(2)} (${confidence}% confidence)`)
 
         this.sendRequest({
             buy: 1,
@@ -766,7 +766,7 @@ class AILogicDigitDifferBot {
             parameters: {
                 amount: this.currentStake.toFixed(2), //stake.toFixed(2),
                 basis: 'stake',
-                contract_type: 'DIGITDIFF',
+                contract_type: 'DIGITMATCH',
                 currency: 'USD',
                 duration: 1,
                 duration_unit: 't',
@@ -811,7 +811,6 @@ class AILogicDigitDifferBot {
             if (this.consecutiveLosses === 2) {
                 this.consecutiveLosses2++;
             } else if (this.consecutiveLosses === 3) {
-                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
                 this.consecutiveLosses3++;
             } else if (this.consecutiveLosses === 4) {
                 this.consecutiveLosses4++;
@@ -1033,11 +1032,7 @@ class AILogicDigitDifferBot {
             📊 Total Trades: ${this.totalTrades}
             ✅ Wins: ${this.totalWins}
 
-            ❌ Losses: ${this.totalLosses}
-            ❌ x2 Losses: ${this.consecutiveLosses2}
-            ❌ x3 Losses: ${this.consecutiveLosses3}
-            ❌ x4 Losses: ${this.consecutiveLosses4}
-            ❌ x5 Losses: ${this.consecutiveLosses5}
+            <b>Consecutive Losses:</b> ${this.consecutiveLosses}/${this.config.maxConsecutiveLosses}
 
             Volatility Level: ${this.volatilityLevel}
             
@@ -1095,7 +1090,7 @@ const bot = new AILogicDigitDifferBot({
     maxDrawdownPercent: 100,
     dailyLossLimit: 100,
     dailyProfitTarget: 1000,
-    maxConsecutiveLosses: 8,//6
+    maxConsecutiveLosses: 100,//6
 
     requiredHistoryLength: 1000,
     minWaitTime: 1000,
