@@ -2675,7 +2675,7 @@ class AILogicDigitDifferBot {
             const predictions = await this.runAllEngines();
             const processingTime = (Date.now() - startTime) / 1000;
 
-            console.log(`⏱️  Analysis time: ${processingTime.toFixed(2)}s`);
+            // console.log(`⏱️  Analysis time: ${processingTime.toFixed(2)}s`);
 
             if (predictions.length === 0) {
                 console.log('⚠️  No valid predictions received');
@@ -2819,7 +2819,7 @@ class AILogicDigitDifferBot {
             );
 
 
-            console.log('FDA Prediction:', tradeDecision.predictedDigit, '(Alt:', tradeDecision.alternativeCandidates.join(','), ') | Confidence:', tradeDecision.confidence, '| Risk:', tradeDecision.riskAssessment, '| Market Regime:', tradeDecision.marketRegime);
+            // console.log('FDA Prediction:', tradeDecision.predictedDigit, '(Alt:', tradeDecision.alternativeCandidates.join(','), ') | Confidence:', tradeDecision.confidence, '| Risk:', tradeDecision.riskAssessment, '| Market Regime:', tradeDecision.marketRegime);
             // console.log('MCP Prediction:', tradeDecision2.predictedDigit, '(Alt:', tradeDecision2.alternativeCandidates.join(','), ') | Confidence:', tradeDecision2.confidence, '| Risk:', tradeDecision2.riskAssessment, '| Market Regime:', tradeDecision2.marketRegime);
             // console.log('EITE Prediction:', tradeDecision3.predictedDigit, '(Alt:', tradeDecision3.alternativeCandidates.join(','), ') | Confidence:', tradeDecision3.confidence, '| Risk:', tradeDecision3.riskAssessment, '| Market Regime:', tradeDecision3.marketRegime);
             // console.log('PRNN Prediction:', tradeDecision4.predictedDigit, '(Alt:', tradeDecision4.alternativeCandidates.join(','), ') | Confidence:', tradeDecision4.confidence, '| Risk:', tradeDecision4.riskAssessment, '| Market Regime:', tradeDecision4.marketRegime);
@@ -2886,10 +2886,10 @@ class AILogicDigitDifferBot {
             //     this.lastConfidence = tradeDecision9.confidence;
             //     this.placeTrade(tradeDecision9.predictedDigit, tradeDecision9.confidence, kellyResult.stake);
             // } else 
-            {
-                console.log('⏭️ No engine met the criteria for trade execution.');
-                this.predictionInProgress = false;
-            }
+            // {
+            //     console.log('⏭️ No engine met the criteria for trade execution.');
+            //     this.predictionInProgress = false;
+            // }
 
 
         } catch (error) {
@@ -2902,7 +2902,7 @@ class AILogicDigitDifferBot {
     async runAllEngines() {
         const predictions = [];
 
-        console.log('\n   Running AI Engines:');
+        // console.log('\n   Running AI Engines:');
 
         // Run each engine (except meta-learner)
         for (const [key, engine] of Object.entries(this.aiEngines)) {
