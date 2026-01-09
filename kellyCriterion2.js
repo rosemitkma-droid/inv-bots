@@ -313,6 +313,7 @@ class AILogicDigitDifferBot {
         this.currentAsset = null;
         this.usedAssets = new Set();
         this.consecutiveLosses = 0;
+        this.consecutiveLossesn = 0;
         this.consecutiveWins = 0;
         this.currentTradeId = null;
         this.tickSubscriptionId = null;
@@ -805,6 +806,7 @@ class AILogicDigitDifferBot {
             this.consecutiveLosses++;
             this.consecutiveWins = 0;
             this.lastTradeResult = 'lost';
+            this.consecutiveLossesn++;
 
             // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
 
@@ -816,6 +818,11 @@ class AILogicDigitDifferBot {
                 this.consecutiveLosses4++;
             } else if (this.consecutiveLosses === 5) {
                 this.consecutiveLosses5++;
+            }
+
+            if (this.consecutiveLossesn === 5) {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+                this.consecutiveLossesn = 0;
             }
         }
 
@@ -1031,10 +1038,9 @@ class AILogicDigitDifferBot {
             
             📊 Total Trades: ${this.totalTrades}
             ✅ Wins: ${this.totalWins}
+            Stake: $${this.currentStake.toFixed(2)}
 
-            <b>Consecutive Losses:</b> ${this.consecutiveLosses}/${this.config.maxConsecutiveLosses}
-
-            Volatility Level: ${this.volatilityLevel}
+            Total Consecutive Losses: ${this.consecutiveLossesn}
             
             📈 Win Rate: ${winRate}%
 
