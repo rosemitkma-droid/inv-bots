@@ -1088,7 +1088,7 @@ if (!process.env.DERIV_TOKEN) {
 const bot = new AILogicDigitDifferBot({
     derivToken: 'rgNedekYXvCaPeP',
 
-    investmentCapital: 100,
+    investmentCapital: 200,
     kellyFraction: 0.2, // 20% of full Kelly
     minStake: 0.35,
     maxStakePercent: 5,
