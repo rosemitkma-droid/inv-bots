@@ -1588,14 +1588,14 @@ async function main() {
                 Logger.globalStats();
                 Logger.printAssetTable();
             }
-        }, 30000);
+        }, 300000);
 
         // Live position update display (every 10 seconds if positions open)
         setInterval(() => {
             if (STATE.totalOpenPositions > 0) {
                 Logger.printAssetTable();
             }
-        }, 10000);
+        }, 30000);
 
         process.stdin.resume();
 
