@@ -821,7 +821,7 @@ class AILogicDigitDifferBot {
                 this.consecutiveLosses5++;
             }
 
-            if (this.consecutiveLossesn === 5) {
+            if (this.consecutiveLossesn === 10) {
                 this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
                 this.consecutiveLossesn = 0;
             }
