@@ -343,23 +343,23 @@ const TelegramNotifier = {
 
         const dirEmoji = direction === 'MULTUP' ? '🟢 BUY' : '🔴 SELL';
         const message = `
-🔔 Trade Opened
+            🔔 Trade Opened
 
-📊 ${symbol} - ${ASSET_CONFIGS[symbol]?.name || symbol}
-${dirEmoji}
+            📊 ${symbol} - ${ASSET_CONFIGS[symbol]?.name || symbol}
+            ${dirEmoji}
 
-💰 Stake: $${stake.toFixed(2)}
-📈 Multiplier: ${multiplier}x
-📍 Entry: ${entry.toFixed(4)}
+            💰 Stake: $${stake.toFixed(2)}
+            📈 Multiplier: ${multiplier}x
+            📍 Entry: ${entry.toFixed(4)}
 
-⏰ ${new Date().toLocaleTimeString()}
+            ⏰ ${new Date().toLocaleTimeString()}
         `.trim();
 
         try {
             await this.send(message);
-            Logger.debug('Telegram: Trade opened notification sent', symbol);
+            // Logger.debug('Telegram: Trade opened notification sent', symbol);
         } catch (error) {
-            Logger.debug(`Telegram send failed: ${error.message}`);
+            // Logger.debug(`Telegram send failed: ${error.message}`);
         }
     },
 
@@ -371,23 +371,23 @@ ${dirEmoji}
         const pnlColor = pnl >= 0 ? '🟢' : '🔴';
 
         const message = `
-${resultEmoji}
+            ${resultEmoji}
 
-📊 ${symbol}
-${pnlColor} P&L: ${pnlStr}
+            📊 ${symbol}
+            ${pnlColor} P&L: ${pnlStr}
 
-📈 Daily P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
-🎯 Win Rate: ${STATE.globalWins + STATE.globalLosses > 0 ? ((STATE.globalWins / (STATE.globalWins + STATE.globalLosses)) * 100).toFixed(1) : 0}%
-📊 Trades Today: ${STATE.totalTradesToday}
+            📈 Daily P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
+            🎯 Win Rate: ${STATE.globalWins + STATE.globalLosses > 0 ? ((STATE.globalWins / (STATE.globalWins + STATE.globalLosses)) * 100).toFixed(1) : 0}%
+            📊 Trades Today: ${STATE.totalTradesToday}
 
-⏰ ${new Date().toLocaleTimeString()}
+            ⏰ ${new Date().toLocaleTimeString()}
         `.trim();
 
         try {
             await this.send(message);
-            Logger.debug('Telegram: Trade closed notification sent', symbol);
+            //Logger.debug('Telegram: Trade closed notification sent', symbol);
         } catch (error) {
-            Logger.debug(`Telegram send failed: ${error.message}`);
+            //Logger.debug(`Telegram send failed: ${error.message}`);
         }
     },
 
@@ -395,10 +395,10 @@ ${pnlColor} P&L: ${pnlStr}
         if (!CONFIG.telegram.sendHourlySummary) return;
 
         const stats = STATE.hourlyStats;
-        if (stats.trades === 0) {
-            Logger.debug('Telegram: No trades in last hour, skipping summary');
-            return;
-        }
+        // if (stats.trades === 0) {
+        //     Logger.debug('Telegram: No trades in last hour, skipping summary');
+        //     return;
+        // }
 
         const winRate = stats.wins + stats.losses > 0
             ? ((stats.wins / (stats.wins + stats.losses)) * 100).toFixed(1)
@@ -417,29 +417,29 @@ ${pnlColor} P&L: ${pnlStr}
         }
 
         const message = `
-⏰ Hourly Trade Summary
+            ⏰ Hourly Trade Summary
 
-📊 Last Hour
-├ Trades: ${stats.trades}
-├ Wins: ${stats.wins} | Losses: ${stats.losses}
-├ Win Rate: ${winRate}%
-└ ${pnlEmoji} P&L: ${pnlStr}
+            📊 Last Hour
+            ├ Trades: ${stats.trades}
+            ├ Wins: ${stats.wins} | Losses: ${stats.losses}
+            ├ Win Rate: ${winRate}%
+            └ ${pnlEmoji} P&L: ${pnlStr}
 
-📈 Daily Totals
-├ Total Trades: ${STATE.totalTradesToday}
-├ Total W/L: ${STATE.globalWins}/${STATE.globalLosses}
-├ Daily P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
-└ Capital: $${STATE.currentCapital.toFixed(2)}
+            📈 Daily Totals
+            ├ Total Trades: ${STATE.totalTradesToday}
+            ├ Total W/L: ${STATE.globalWins}/${STATE.globalLosses}
+            ├ Daily P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
+            └ Capital: $${STATE.currentCapital.toFixed(2)}
 
-${assetBreakdown ? 'Per Asset:\n' + assetBreakdown : ''}
-⏰ ${new Date().toLocaleString()}
+            ${assetBreakdown ? 'Per Asset:\n' + assetBreakdown : ''}
+            ⏰ ${new Date().toLocaleString()}
         `.trim();
 
         try {
             await this.send(message);
-            Logger.info('📱 Telegram: Hourly Summary sent successfully');
+            // Logger.info('📱 Telegram: Hourly Summary sent successfully');
         } catch (error) {
-            Logger.debug(`Telegram hourly summary failed: ${error.message}`);
+            // Logger.debug(`Telegram hourly summary failed: ${error.message}`);
         }
 
         // Reset hourly stats
@@ -474,29 +474,29 @@ ${assetBreakdown ? 'Per Asset:\n' + assetBreakdown : ''}
         }
 
         const message = `
-📊 Daily Trading Summary
+            📊 Daily Trading Summary
 
-💰 Performance
-├ ${pnlEmoji} Daily P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
-├ Total Trades: ${STATE.totalTradesToday}
-├ Wins: ${STATE.globalWins} | Losses: ${STATE.globalLosses}
-└ Win Rate: ${winRate}%
+            💰 Performance
+            ├ ${pnlEmoji} Daily P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
+            ├ Total Trades: ${STATE.totalTradesToday}
+            ├ Wins: ${STATE.globalWins} | Losses: ${STATE.globalLosses}
+            └ Win Rate: ${winRate}%
 
-💵 Capital
-├ Starting: $${STATE.investmentCapital.toFixed(2)}
-├ Current: $${STATE.currentCapital.toFixed(2)}
-└ Return: ${capitalChange >= 0 ? '+' : ''}${capitalChange}%
+            💵 Capital
+            ├ Starting: $${STATE.investmentCapital.toFixed(2)}
+            ├ Current: $${STATE.currentCapital.toFixed(2)}
+            └ Return: ${capitalChange >= 0 ? '+' : ''}${capitalChange}%
 
-📈 Per Asset:
-${assetTable}
-📅 ${new Date().toLocaleDateString()}
+            📈 Per Asset:
+            ${assetTable}
+            📅 ${new Date().toLocaleDateString()}
         `.trim();
 
         try {
             await this.send(message);
-            Logger.info('📱 Telegram: Daily Summary sent successfully');
+            // Logger.info('📱 Telegram: Daily Summary sent successfully');
         } catch (error) {
-            Logger.debug(`Telegram daily summary failed: ${error.message}`);
+            // Logger.debug(`Telegram daily summary failed: ${error.message}`);
         }
     },
 
@@ -504,23 +504,23 @@ ${assetTable}
         if (!CONFIG.telegram.enabled) return;
 
         const message = `
-🚀 Bot Started
+            🚀 Bot Started
 
-📊 Trading ${CONFIG.activeAssets.length} assets:
-${CONFIG.activeAssets.map(s => `  • ${s}`).join('\n')}
+            📊 Trading ${CONFIG.activeAssets.length} assets:
+            ${CONFIG.activeAssets.map(s => `  • ${s}`).join('\n')}
 
-💰 Investment Capital: $${CONFIG.investmentCapital || 'Account Balance'}
-📈 Max Positions: ${CONFIG.maxTotalOpenPositions}
-🛡️ Daily Loss Limit: ${CONFIG.maxDailyLossPercent}%
+            💰 Investment Capital: $${CONFIG.investmentCapital || 'Account Balance'}
+            📈 Max Positions: ${CONFIG.maxTotalOpenPositions}
+            🛡️ Daily Loss Limit: ${CONFIG.maxDailyLossPercent}%
 
-⏰ ${new Date().toLocaleString()}
+            ⏰ ${new Date().toLocaleString()}
         `.trim();
 
         try {
             await this.send(message);
-            Logger.success('📱 Telegram: Startup notification sent');
+            // Logger.success('📱 Telegram: Startup notification sent');
         } catch (error) {
-            Logger.debug(`Telegram startup failed: ${error.message}`);
+            // Logger.debug(`Telegram startup failed: ${error.message}`);
         }
     },
 
@@ -530,12 +530,12 @@ ${CONFIG.activeAssets.map(s => `  • ${s}`).join('\n')}
         await this.sendDailySummary();
 
         const message = `
-🛑 Bot Stopped
+            🛑 Bot Stopped
 
-Final P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
-Total Trades: ${STATE.totalTradesToday}
+            Final P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
+            Total Trades: ${STATE.totalTradesToday}
 
-⏰ ${new Date().toLocaleString()}
+            ⏰ ${new Date().toLocaleString()}
         `.trim();
 
         try {
