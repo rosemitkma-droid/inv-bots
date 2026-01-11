@@ -23,7 +23,7 @@ const ASSET_CONFIGS = {
         tradingHours: '24/7',
         swingLookback: 5,
         minImpulsePercent: 0.0005,
-        rrRatio: 1.5
+        rrRatio: 0.5
     },
     'R_100': {
         name: 'Volatility 100',
@@ -31,13 +31,13 @@ const ASSET_CONFIGS = {
         contractType: 'multiplier',
         multipliers: [40, 100, 200, 300, 500],
         defaultMultiplier: 200,
-        maxTradesPerDay: 50,
+        maxTradesPerDay: 5000,
         minStake: 1.00,
         maxStake: 3000,
         tradingHours: '24/7',
         swingLookback: 5,
         minImpulsePercent: 0.0005,
-        rrRatio: 1.5
+        rrRatio: 0.5
     },
     '1HZ25V': {
         name: 'Volatility 25 (1s)',
@@ -45,13 +45,13 @@ const ASSET_CONFIGS = {
         contractType: 'multiplier',
         multipliers: [160, 400, 800, 1200, 1600],
         defaultMultiplier: 800,
-        maxTradesPerDay: 120,
+        maxTradesPerDay: 12000,
         minStake: 1.00,
         maxStake: 1000,
         tradingHours: '24/7',
         swingLookback: 4,
         minImpulsePercent: 0.0005,
-        rrRatio: 1.3
+        rrRatio: 0.5
     },
     '1HZ50V': {
         name: 'Volatility 50 (1s)',
@@ -59,13 +59,13 @@ const ASSET_CONFIGS = {
         contractType: 'multiplier',
         multipliers: [80, 200, 400, 600, 800],
         defaultMultiplier: 400,
-        maxTradesPerDay: 120,
+        maxTradesPerDay: 12000,
         minStake: 1.00,
         maxStake: 1000,
         tradingHours: '24/7',
         swingLookback: 4,
         minImpulsePercent: 0.0005,
-        rrRatio: 1.4
+        rrRatio: 0.5
     },
     '1HZ100V': {
         name: 'Volatility 100 (1s)',
@@ -73,13 +73,13 @@ const ASSET_CONFIGS = {
         contractType: 'multiplier',
         multipliers: [40, 100, 200, 300, 500],
         defaultMultiplier: 200,
-        maxTradesPerDay: 120,
+        maxTradesPerDay: 12000,
         minStake: 1.00,
         maxStake: 1000,
         tradingHours: '24/7',
         swingLookback: 4,
         minImpulsePercent: 0.0005,
-        rrRatio: 1.4
+        rrRatio: 0.5
     },
     'stpRNG': {
         name: 'Step Index',
@@ -87,13 +87,13 @@ const ASSET_CONFIGS = {
         contractType: 'multiplier',
         multipliers: [750, 2000, 3500, 5500, 7500],
         defaultMultiplier: 3500,
-        maxTradesPerDay: 120,
+        maxTradesPerDay: 12000,
         minStake: 1.00,
         maxStake: 1000,
         tradingHours: '24/7',
         swingLookback: 6,
         minImpulsePercent: 0.0005,
-        rrRatio: 1.2
+        rrRatio: 0.5
     },
     'frxXAUUSD': {
         name: 'Gold/USD',
@@ -101,13 +101,13 @@ const ASSET_CONFIGS = {
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 400, 500],
         defaultMultiplier: 300,
-        maxTradesPerDay: 5,
+        maxTradesPerDay: 5000,
         minStake: 5,
         maxStake: 5000,
         tradingHours: 'Sun 23:00 - Fri 21:55 GMT',
         swingLookback: 5,
         minImpulsePercent: 0.0005,
-        rrRatio: 1.5
+        rrRatio: 0.5
     }
 };
 
@@ -138,10 +138,10 @@ const CONFIG = {
     fibLowerZone: 0.5,
 
     // Global risk management
-    maxDailyLossPercent: 10,
-    maxDailyLoss: 50,
+    maxDailyLossPercent: 50,
+    maxDailyLoss: 500,
     maxTotalOpenPositions: 7,
-    maxConsecutiveLosses: 5,
+    maxConsecutiveLosses: 20,
     cooldownMinutes: 15,
 
     // Telegram settings
@@ -252,15 +252,24 @@ function createAssetState(symbol) {
         subscriptionId: null,
         lastProcessedTime: null,
 
-        // Strategy state
+        // Strategy state - ENHANCED
         swingHighs: [],
         swingLows: [],
         currentTrend: null,
+        previousTrend: null,
         bosDetected: false,
+        bosTime: null,                    // NEW: When BoS was detected
+        bosCandle: null,                  // NEW: Which candle BoS occurred on
         impulseStart: null,
         impulseEnd: null,
         fibLevels: null,
+        fibSetupTime: null,               // NEW: When Fib was calculated
+        fibCandleCount: 0,                // NEW: Candles since Fib setup
         waitingForEntry: false,
+
+        // NEW: Signal cooldown tracking
+        lastSignalTime: null,
+        signalsGenerated: 0,
 
         // Position tracking with live P&L
         activeContract: null,
@@ -273,7 +282,7 @@ function createAssetState(symbol) {
         stake: 0,
         multiplier: 0,
 
-        // Live position data (updated from contract subscription)
+        // Live position data
         currentPrice: null,
         unrealizedPnl: 0,
 
@@ -612,6 +621,13 @@ const Logger = {
     debug(message, symbol = null) {
         if (process.env.DEBUG === 'true') {
             console.log(this.format('DEBUG', this.colors.dim, message, symbol));
+        }
+    },
+
+    // NEW: Strategy debug for diagnosing issues
+    strategy(message, symbol = null) {
+        if (process.env.DEBUG === 'true' || process.env.STRATEGY_DEBUG === 'true') {
+            console.log(this.format('STRAT', this.colors.cyan + this.colors.dim, message, symbol));
         }
     },
 
@@ -1034,6 +1050,13 @@ const CandleManager = {
 
         this.checkDailyReset();
         this.checkHourlyReset();
+
+        // Increment Fib candle counter if setup exists
+        const asset = STATE.assets[symbol];
+        if (asset.fibLevels) {
+            asset.fibCandleCount++;
+        }
+
         StrategyEngine.analyze(symbol);
     },
 
@@ -1194,7 +1217,9 @@ const StrategyEngine = {
         const asset = STATE.assets[symbol];
         if (!asset) return;
 
+        // Skip if we have an active position
         if (asset.activeContract) {
+            Logger.strategy('Skipping - active contract exists', symbol);
             return;
         }
 
@@ -1215,19 +1240,51 @@ const StrategyEngine = {
             asset.swingHighs, asset.swingLows, CONFIG.minTrendSwings
         );
 
-        if (asset.currentTrend !== previousTrend && asset.currentTrend) {
-            Logger.signal(`Trend: ${asset.currentTrend.toUpperCase()}`, symbol);
+        // Log trend changes
+        if (asset.currentTrend !== asset.previousTrend) {
+            if (asset.currentTrend) {
+                Logger.signal(`Trend: ${asset.currentTrend.toUpperCase()}`, symbol);
+            }
+            // NEW: Reset BoS on trend change
+            this.resetSetup(symbol, 'trend changed');
         }
 
+        // if (asset.currentTrend !== previousTrend && asset.currentTrend) {
+        //     Logger.signal(`Trend: ${asset.currentTrend.toUpperCase()}`, symbol);
+        // }
+
         if (!asset.currentTrend) {
-            asset.bosDetected = false;
-            asset.fibLevels = null;
+            Logger.strategy('No clear trend', symbol);
             return;
         }
 
+        // if (!asset.currentTrend) {
+        //     asset.bosDetected = false;
+        //     asset.fibLevels = null;
+        //     return;
+        // }
+
         const lastCandle = candles[candles.length - 1];
+        const currentPrice = lastCandle.close;
+
+        // Check if existing Fib setup should expire
+        if (asset.fibLevels) {
+            const expiryCandles = assetConfig.fibExpiryCandles || 10;
+
+            // Check candle expiry
+            if (asset.fibCandleCount >= expiryCandles) {
+                this.resetSetup(symbol, `Fib expired after ${expiryCandles} candles`);
+            }
+            // Check price invalidation
+            else if (FibCalculator.isSetupInvalidated(currentPrice, asset.fibLevels, asset.currentTrend)) {
+                this.resetSetup(symbol, 'price invalidated setup');
+            }
+        }
+
+        // Detect Break of Structure
         this.detectBoS(symbol, lastCandle);
 
+        // Process entry if we have a valid setup
         if (asset.bosDetected && asset.fibLevels) {
             const inGoldenZone = FibCalculator.isCandleInGoldenZone(lastCandle, asset.fibLevels);
 
@@ -1240,6 +1297,15 @@ const StrategyEngine = {
                 }
             }
         }
+    },
+
+    // NEW: Check signal cooldown
+    isSignalCooldownActive(symbol) {
+        const asset = STATE.assets[symbol];
+        if (!asset.lastSignalTime) return false;
+
+        const elapsed = (Date.now() - asset.lastSignalTime) / 1000;
+        return elapsed < CONFIG.signalCooldownSeconds;
     },
 
     detectBoS(symbol, lastCandle) {
@@ -1321,13 +1387,38 @@ const StrategyEngine = {
         }
     },
 
-    reset(symbol) {
+    // reset(symbol) {
+    //     const asset = STATE.assets[symbol];
+    //     if (asset) {
+    //         asset.bosDetected = false;
+    //         asset.fibLevels = null;
+    //         asset.waitingForEntry = false;
+    //     }
+    // }
+
+    // NEW: Properly reset setup state
+    resetSetup(symbol, reason = 'unknown') {
         const asset = STATE.assets[symbol];
-        if (asset) {
-            asset.bosDetected = false;
-            asset.fibLevels = null;
-            asset.waitingForEntry = false;
+        if (!asset) return;
+
+        if (asset.bosDetected || asset.fibLevels) {
+            Logger.strategy(`Resetting setup: ${reason}`, symbol);
         }
+
+        asset.bosDetected = false;
+        asset.bosTime = null;
+        asset.bosCandle = null;
+        asset.fibLevels = null;
+        asset.fibSetupTime = null;
+        asset.fibCandleCount = 0;
+        asset.impulseStart = null;
+        asset.impulseEnd = null;
+        asset.waitingForEntry = false;
+    },
+
+    // Alias for backward compatibility
+    reset(symbol) {
+        this.resetSetup(symbol, 'trade closed');
     }
 };
 
@@ -1441,6 +1532,12 @@ const TradeExecutor = {
     async executeSignal(symbol, signal) {
         const asset = STATE.assets[symbol];
 
+        // Double-check no active contract
+        if (asset.activeContract) {
+            Logger.warn('Trade rejected - position already open', symbol);
+            return;
+        }
+
         try {
             const stake = RiskManager.getStake(symbol);
             const multiplier = RiskManager.getMultiplier(symbol);
@@ -1495,6 +1592,8 @@ const TradeExecutor = {
             }
         } catch (error) {
             Logger.error(`Trade execution failed: ${error.message}`, symbol);
+            // Reset setup on trade failure so new setup can form
+            StrategyEngine.resetSetup(symbol, 'trade execution failed');
         }
     },
 
@@ -1556,9 +1655,11 @@ const TradeExecutor = {
         asset.unrealizedPnl = 0;
         STATE.totalOpenPositions--;
 
-        StrategyEngine.reset(symbol);
+        // StrategyEngine.reset(symbol);
 
-        // Update display
+        // CRITICAL FIX: Reset strategy setup to allow new trades
+        StrategyEngine.resetSetup(symbol, 'trade closed');
+
         Logger.printAssetTable();
     },
 
@@ -1614,14 +1715,14 @@ async function main() {
                 Logger.globalStats();
                 Logger.printAssetTable();
             }
-        }, 300000); // 5 minutes
+        }, 30000); // 5 minutes
 
         // Live position update display (every 10 seconds if positions open)
         setInterval(() => {
             if (STATE.totalOpenPositions > 0) {
                 Logger.printAssetTable();
             }
-        }, 30000);
+        }, 2000);
 
         process.stdin.resume();
 
@@ -1649,7 +1750,7 @@ function setupHourlySummaryTimer() {
         // Then run every hour
         setInterval(() => {
             TelegramNotifier.sendHourlySummary();
-        }, 60 * 60 * 1000);
+        }, 3600000); // 1 hour
     }, timeUntilNextHour);
 
     Logger.info(`Hourly summaries scheduled. First in ${Math.ceil(timeUntilNextHour / 60000)} minutes.`);
