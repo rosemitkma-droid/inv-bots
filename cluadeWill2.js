@@ -294,57 +294,57 @@ const CONFIG = {
 // ============================================
 
 const ASSET_CONFIGS = {
-    // 'R_10': {
-    //     name: 'Volatility 10 Index',
-    //     category: 'synthetic',
-    //     contractType: 'multiplier',
-    //     multipliers: [400, 1000, 2000, 3000, 4000],
-    //     defaultMultiplier: 4000,
-    //     maxTradesPerDay: 100,
-    //     minStake: 1.00,
-    //     maxStake: 2000,
-    //     tradingHours: '24/7'
-    // },
     'R_75': {
         name: 'Volatility 75 Index',
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 500],
-        defaultMultiplier: 500,
+        defaultMultiplier: 200,
         maxTradesPerDay: 500000,
         minStake: 1.00,
         maxStake: 3000,
         tradingHours: '24/7'
     },
-    // 'R_100': {
-    //     name: 'Volatility 100 Index',
-    //     category: 'synthetic',
-    //     contractType: 'multiplier',
-    //     multipliers: [40, 100, 200, 300, 500],
-    //     defaultMultiplier: 500,
-    //     maxTradesPerDay: 50,
-    //     minStake: 1.00,
-    //     maxStake: 3000,
-    //     tradingHours: '24/7'
-    // },
-    // '1HZ10V': {
-    //     name: 'Volatility 10 (1s) Index',
-    //     category: 'synthetic',
-    //     contractType: 'multiplier',
-    //     multipliers: [400, 1000, 2000, 3000, 4000],
-    //     defaultMultiplier: 4000,
-    //     maxTradesPerDay: 150,
-    //     minStake: 1.00,
-    //     maxStake: 1000,
-    //     tradingHours: '24/7'
-    // },
+    'R_100': {
+        name: 'Volatility 100 Index',
+        category: 'synthetic',
+        contractType: 'multiplier',
+        multipliers: [40, 100, 200, 300, 500],
+        defaultMultiplier: 200,
+        maxTradesPerDay: 50000,
+        minStake: 1.00,
+        maxStake: 3000,
+        tradingHours: '24/7'
+    },
+    '1HZ25V': {
+        name: 'Volatility 25 (1s) Index',
+        category: 'synthetic',
+        contractType: 'multiplier',
+        multipliers: [160, 400, 800, 1200, 1600],
+        defaultMultiplier: 800,
+        maxTradesPerDay: 120000,
+        minStake: 1.00,
+        maxStake: 1000,
+        tradingHours: '24/7'
+    },
     '1HZ50V': {
         name: 'Volatility 50 (1s) Index',
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [80, 200, 400, 600, 800],
-        defaultMultiplier: 800,
-        maxTradesPerDay: 120,
+        defaultMultiplier: 400,
+        maxTradesPerDay: 120000,
+        minStake: 1.00,
+        maxStake: 1000,
+        tradingHours: '24/7'
+    },
+    '1HZ100V': {
+        name: 'Volatility 100 (1s) Index',
+        category: 'synthetic',
+        contractType: 'multiplier',
+        multipliers: [80, 200, 400, 600, 800],
+        defaultMultiplier: 400,
+        maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
         tradingHours: '24/7'
@@ -354,8 +354,8 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [750, 2000, 3500, 5500, 7500],
-        defaultMultiplier: 7500,
-        maxTradesPerDay: 120,
+        defaultMultiplier: 3500,
+        maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
         tradingHours: '24/7'
@@ -365,15 +365,15 @@ const ASSET_CONFIGS = {
         category: 'commodity',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 400, 500],
-        defaultMultiplier: 500,
+        defaultMultiplier: 500000,
         maxTradesPerDay: 5,
-        minStake: 5,
+        minStake: 1,
         maxStake: 5000,
         tradingHours: 'Sun 23:00 - Fri 21:55 GMT'
     }
 };
 
-let ACTIVE_ASSETS = ['R_75', 'frxXAUUSD', '1HZ50V', 'stpRNG'];
+let ACTIVE_ASSETS = ['R_75', 'frxXAUUSD', '1HZ50V', 'stpRNG', '1HZ25V', 'R_100', '1HZ100V'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -514,7 +514,7 @@ class TechnicalIndicators {
     /**
      * Calculate Williams Percent Range (WPR) - ONLY on closed candles
      */
-    static calculateWPR(candles, period = 14) {
+    static calculateWPR(candles, period = 80) {
         if (!candles || candles.length < period) {
             return -50;
         }
@@ -1090,10 +1090,17 @@ class SessionManager {
 // ============================================
 
 class RiskManager {
-    static canTrade() {
-        if (!SessionManager.isSessionActive()) return false;
-        if (SessionManager.checkSessionTargets()) return false;
+    static canTrade(isReversal = false) {
+        // If it's a reversal, we allow trading even if session is technically "ended" or paused
+        // This ensures recovery trades can execute
+        if (!isReversal) {
+            if (!SessionManager.isSessionActive()) return false;
+            if (SessionManager.checkSessionTargets()) return false;
+        }
+
         if (state.portfolio.activePositions.length >= CONFIG.MAX_OPEN_POSITIONS) return false;
+
+        // Always check capital limits
         if (state.capital < CONFIG.INITIAL_STAKE) {
             LOGGER.error(`Insufficient capital: $${state.capital.toFixed(2)} available, $${CONFIG.INITIAL_STAKE.toFixed(2)} required`);
             return false;
@@ -1705,6 +1712,11 @@ class ConnectionManager {
             position.currentProfit = contract.profit;
             position.currentPrice = contract.current_spot;
 
+            // Log profit updates periodically
+            if (Math.random() < 0.05) { // Log ~5% of updates to avoid spam
+                LOGGER.debug(`${position.symbol} Live P/L: $${position.currentProfit.toFixed(2)} | Price: ${position.currentPrice.toFixed(5)}`);
+            }
+
             const assetState = state.assets[position.symbol];
             if (assetState && StakeManager.shouldAutoClose(position.symbol, contract.profit)) {
                 LOGGER.recovery(`${position.symbol}: Profit $${contract.profit.toFixed(2)} >= Loss $${assetState.accumulatedLoss.toFixed(2)} - AUTO CLOSING`);
@@ -1850,7 +1862,7 @@ class DerivBot {
     }
 
     executeTrade(symbol, direction, isReversal = false, previousLoss = 0) {
-        if (!RiskManager.canTrade()) return;
+        if (!RiskManager.canTrade(isReversal)) return;
 
         const assetCheck = RiskManager.canAssetTrade(symbol);
         if (!assetCheck.allowed) {
