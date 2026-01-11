@@ -580,16 +580,16 @@ class QuickFlipBot {
 
         // Long when Above box
         if (asset.box.direction === 'UP' && candle.close > asset.box.high) {
-            this.sendTelegramMessage(`🔥 <b>Buy Pattern</b> [${symbol}]\nExecuting LONG.`);
+            this.sendTelegramMessage(`🔥 <b>Sell Pattern</b> [${symbol}]\nExecuting LONG.`);
             asset.entryCandle = candle;
-            this.executeTrade(symbol, 'MULTUP');
+            this.executeTrade(symbol, 'MULTDOWN');
         }
 
         // Short when Below box
         if (asset.box.direction === 'DOWN' && candle.close < asset.box.low) {
-            this.sendTelegramMessage(`🔥 <b>Sell Pattern</b> [${symbol}]\nExecuting SHORT.`);
+            this.sendTelegramMessage(`🔥 <b>Buy Pattern</b> [${symbol}]\nExecuting SHORT.`);
             asset.entryCandle = candle;
-            this.executeTrade(symbol, 'MULTDOWN');
+            this.executeTrade(symbol, 'MULTUP');
         }
     }
 
