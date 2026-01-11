@@ -3398,7 +3398,7 @@ const bot = new AILogicDigitDifferBot({
 
     maxDrawdownPercent: 25,
     dailyLossLimit: 50,
-    dailyProfitTarget: 15,
+    dailyProfitTarget: 1500,
     maxConsecutiveLosses: 3,//6
 
     minConfidence: 95,
