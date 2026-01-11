@@ -736,12 +736,17 @@ const DerivAPI = {
                 STATE.connected = true;
                 STATE.reconnectAttempts = 0;
                 Logger.success('WebSocket connected');
+
+                // Start Ping Interval
+                this.startPing();
+
                 resolve();
             });
 
             STATE.ws.on('close', () => {
                 STATE.connected = false;
                 STATE.authorized = false;
+                this.stopPing();
                 Logger.warn('WebSocket disconnected');
                 this.handleDisconnect();
             });
@@ -760,6 +765,24 @@ const DerivAPI = {
                 }
             });
         });
+    },
+
+    pingInterval: null,
+
+    startPing() {
+        this.stopPing();
+        this.pingInterval = setInterval(() => {
+            if (STATE.connected && STATE.ws.readyState === WebSocket.OPEN) {
+                STATE.ws.send(JSON.stringify({ ping: 1 }));
+            }
+        }, 30000); // Ping every 30 seconds
+    },
+
+    stopPing() {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
     },
 
     async handleDisconnect() {
@@ -1148,12 +1171,17 @@ const FibCalculator = {
         };
     },
 
-    isInGoldenZone(price, fibLevels) {
+    isCandleInGoldenZone(candle, fibLevels) {
         const upperLevel = fibLevels.levels[CONFIG.fibLowerZone.toString()];
         const lowerLevel = fibLevels.levels[CONFIG.fibUpperZone.toString()];
         const zoneTop = Math.max(upperLevel, lowerLevel);
         const zoneBottom = Math.min(upperLevel, lowerLevel);
-        return price >= zoneBottom && price <= zoneTop;
+
+        // Check if candle interacts with the Golden Zone (wick or body)
+        // For Uptrend (Retracing down): Low should be <= Top
+        // For Downtrend (Retracing up): High should be >= Bottom
+        // General overlap:
+        return (candle.low <= zoneTop && candle.high >= zoneBottom);
     }
 };
 
@@ -1201,8 +1229,7 @@ const StrategyEngine = {
         this.detectBoS(symbol, lastCandle);
 
         if (asset.bosDetected && asset.fibLevels) {
-            const currentPrice = lastCandle.close;
-            const inGoldenZone = FibCalculator.isInGoldenZone(currentPrice, asset.fibLevels);
+            const inGoldenZone = FibCalculator.isCandleInGoldenZone(lastCandle, asset.fibLevels);
 
             if (inGoldenZone && this.checkConfirmation(asset, lastCandle)) {
                 const signal = this.generateSignal(symbol, lastCandle);
@@ -1587,7 +1614,7 @@ async function main() {
                 Logger.globalStats();
                 Logger.printAssetTable();
             }
-        }, 300000);
+        }, 300000); // 5 minutes
 
         // Live position update display (every 10 seconds if positions open)
         setInterval(() => {
