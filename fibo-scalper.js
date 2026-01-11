@@ -736,12 +736,17 @@ const DerivAPI = {
                 STATE.connected = true;
                 STATE.reconnectAttempts = 0;
                 Logger.success('WebSocket connected');
+
+                // Start Ping Interval
+                this.startPing();
+
                 resolve();
             });
 
             STATE.ws.on('close', () => {
                 STATE.connected = false;
                 STATE.authorized = false;
+                this.stopPing();
                 Logger.warn('WebSocket disconnected');
                 this.handleDisconnect();
             });
@@ -760,6 +765,24 @@ const DerivAPI = {
                 }
             });
         });
+    },
+
+    pingInterval: null,
+
+    startPing() {
+        this.stopPing();
+        this.pingInterval = setInterval(() => {
+            if (STATE.connected && STATE.ws.readyState === WebSocket.OPEN) {
+                STATE.ws.send(JSON.stringify({ ping: 1 }));
+            }
+        }, 30000); // Ping every 30 seconds
+    },
+
+    stopPing() {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
     },
 
     async handleDisconnect() {
@@ -1588,7 +1611,7 @@ async function main() {
                 Logger.globalStats();
                 Logger.printAssetTable();
             }
-        }, 300000);
+        }, 300000); // 5 minutes
 
         // Live position update display (every 10 seconds if positions open)
         setInterval(() => {
