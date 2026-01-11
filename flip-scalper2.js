@@ -578,16 +578,16 @@ class QuickFlipBot {
         const upperWick = candle.high - Math.max(candle.open, candle.close);
         const lowerWick = Math.min(candle.open, candle.close) - candle.low;
 
-        // Long when Above box
-        if (asset.box.direction === 'UP' && candle.close > asset.box.high) {
-            this.sendTelegramMessage(`🔥 <b>Sell Pattern</b> [${symbol}]\nExecuting LONG.`);
+        // Short when Below box
+        if (asset.box.direction === 'UP' && candle.close < asset.box.low) {
+            this.sendTelegramMessage(`🔥 <b>Sell Pattern</b> [${symbol}]\nExecuting SHORT.`);
             asset.entryCandle = candle;
             this.executeTrade(symbol, 'MULTDOWN');
         }
 
-        // Short when Below box
-        if (asset.box.direction === 'DOWN' && candle.close < asset.box.low) {
-            this.sendTelegramMessage(`🔥 <b>Buy Pattern</b> [${symbol}]\nExecuting SHORT.`);
+        // Long when Above box
+        if (asset.box.direction === 'DOWN' && candle.close > asset.box.high) {
+            this.sendTelegramMessage(`🔥 <b>Buy Pattern</b> [${symbol}]\nExecuting LONG.`);
             asset.entryCandle = candle;
             this.executeTrade(symbol, 'MULTUP');
         }
