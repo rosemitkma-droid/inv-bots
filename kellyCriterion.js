@@ -716,7 +716,7 @@ class AILogicDigitDifferBot {
             // console.log(`   Recommendation: ${kellyResult.recommendation}`);
             // console.log(`   Volatility Level: ${this.volatilityLevel}`);
 
-            if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.volatilityLevel === 'medium') {
+            if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.volatilityLevel === 'high') {
                 this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
             }
             // else {
