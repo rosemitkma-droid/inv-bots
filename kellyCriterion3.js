@@ -716,7 +716,7 @@ class AILogicDigitDifferBot {
             // console.log(`   Recommendation: ${kellyResult.recommendation}`);
             // console.log(`   Volatility Level: ${this.volatilityLevel}`);
 
-            if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.lastPrediction === this.tickHistory[this.tickHistory.length - 3] && this.lastPrediction === this.tickHistory[this.tickHistory.length - 4] && this.volatilityLevel === 'medium') {
+            if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.lastPrediction === this.tickHistory[this.tickHistory.length - 3] && this.lastPrediction === this.tickHistory[this.tickHistory.length - 4] && this.lastPrediction === this.tickHistory[this.tickHistory.length - 5] && this.volatilityLevel === 'medium') {
                 this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
             }
             // else {
