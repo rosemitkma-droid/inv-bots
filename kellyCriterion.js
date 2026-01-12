@@ -329,6 +329,8 @@ class AILogicDigitDifferBot {
         this.consecutiveLosses4 = 0;
         this.consecutiveLosses5 = 0;
         this.currentStake = this.config.minStake;
+        this.randomNumCount = 0;
+        this.radomNum = 0;
 
         // Tick Data
         this.tickHistory = [];
@@ -716,14 +718,18 @@ class AILogicDigitDifferBot {
             // console.log(`   Recommendation: ${kellyResult.recommendation}`);
             // console.log(`   Volatility Level: ${this.volatilityLevel}`);
 
-            if(this.consecutivelosses === 0 || this.consecutivelosses === 2) {
-                if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.volatilityLevel === 'high') {
+            if (this.consecutivelosses === 0) {
+                if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.volatilityLevel === 'medium') {
+                    this.radomNum = Math.floor(Math.random() * (17 - 1)) + 1;
                     this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
                 }
             }
             else {
                 if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.volatilityLevel === 'medium') {
-                    this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
+                    this.randomNumCount++;
+                    if (this.randomNumCount >= this.radomNum) {
+                        this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
+                    }
                 }
             }
 
@@ -838,6 +844,9 @@ class AILogicDigitDifferBot {
         if (!won && this.telegramEnabled) {
             this.sendTelegramLossAlert(actualDigit, profit);
         }
+
+        this.randomNumCount = 0; 
+        this.radomNum = Math.floor(Math.random() * (17 - 1)) + 1;
 
         this.tradeInProgress = false;
         this.predictionInProgress = false;
