@@ -414,7 +414,7 @@ const TelegramNotifier = {
 
         const dirEmoji = direction === 'MULTUP' ? '🟢 BUY' : '🔴 SELL';
         const message = `
-🔔 Trade Opened
+🔔 Trade Opened Bot 3
 
 📊 ${symbol} - ${ASSET_CONFIGS[symbol]?.name || symbol}
 ${dirEmoji}
@@ -444,11 +444,11 @@ ${dirEmoji}
 ${resultEmoji}
 
 📊 ${symbol}
-${pnlColor} P&L: ${pnlStr}
+${pnlColor} P&L Bot 3: ${pnlStr}
 
-📈 Daily P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
-🎯 Win Rate: ${STATE.globalWins + STATE.globalLosses > 0 ? ((STATE.globalWins / (STATE.globalWins + STATE.globalLosses)) * 100).toFixed(1) : 0}%
-📊 Trades Today: ${STATE.totalTradesToday}
+📈 Daily P&L Bot 3: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
+🎯 Win Rate Bot 3: ${STATE.globalWins + STATE.globalLosses > 0 ? ((STATE.globalWins / (STATE.globalWins + STATE.globalLosses)) * 100).toFixed(1) : 0}%
+📊 Trades Today Bot 3: ${STATE.totalTradesToday}
 
 ⏰ ${new Date().toLocaleTimeString()}
         `.trim();
@@ -480,15 +480,15 @@ ${pnlColor} P&L: ${pnlStr}
         }
 
         const message = `
-⏰ Hourly Trade Summary
+⏰ Hourly Trade Summary Bot 3
 
-📊 Last Hour
+📊 Last Hour Bot 3
 ├ Trades: ${stats.trades}
 ├ Wins: ${stats.wins} | Losses: ${stats.losses}
 ├ Win Rate: ${winRate}%
 └ ${pnlEmoji} P&L: ${pnlStr}
 
-📈 Daily Totals
+📈 Daily Totals Bot 3
 ├ Total Trades: ${STATE.totalTradesToday}
 ├ Total W/L: ${STATE.globalWins}/${STATE.globalLosses}
 ├ Daily P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
@@ -536,7 +536,7 @@ ${assetBreakdown ? 'Per Asset:\n' + assetBreakdown : ''}
         }
 
         const message = `
-📊 Daily Trading Summary
+📊 Daily Trading Summary Bot 3
 
 💰 Performance
 ├ ${pnlEmoji} Daily P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
@@ -566,7 +566,7 @@ ${assetTable}
         if (!CONFIG.telegram.enabled) return;
 
         const message = `
-🚀 Bot Started (v2.1 - Continuous Trading)
+🚀 Bot 3 Started (v2.1 - Continuous Trading)
 
 📊 Trading ${CONFIG.activeAssets.length} assets:
 ${CONFIG.activeAssets.map(s => `  • ${s}`).join('\n')}
@@ -594,7 +594,7 @@ ${CONFIG.activeAssets.map(s => `  • ${s}`).join('\n')}
         await this.sendDailySummary();
 
         const message = `
-🛑 Bot Stopped
+🛑 Bot 3 Stopped
 
 Final P&L: ${(STATE.totalDailyPnl >= 0 ? '+' : '')}$${STATE.totalDailyPnl.toFixed(2)}
 Total Trades: ${STATE.totalTradesToday}
