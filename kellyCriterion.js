@@ -716,13 +716,16 @@ class AILogicDigitDifferBot {
             // console.log(`   Recommendation: ${kellyResult.recommendation}`);
             // console.log(`   Volatility Level: ${this.volatilityLevel}`);
 
-            if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.volatilityLevel === 'high') {
-                this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
+            if(this.consecutivelosses === 0 || this.consecutivelosses === 2) {
+                if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.volatilityLevel === 'high') {
+                    this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
+                }
             }
-            // else {
-            //     console.log(`⏭️ Skipping trade - Wating for proper Digit setup`);
-            //     this.predictionInProgress = false;
-            // }
+            else {
+                if (this.lastPrediction === this.tickHistory[this.tickHistory.length - 2] && this.volatilityLevel === 'medium') {
+                    this.placeTrade(this.lastPrediction, this.lastConfidence, kellyResult.stake);
+                }
+            }
 
         } catch (error) {
             console.error('❌ Analysis error:', error.message);
