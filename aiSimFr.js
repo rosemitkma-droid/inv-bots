@@ -2823,8 +2823,8 @@ class AILogicDigitDifferBot {
             // console.log('MCP Prediction:', tradeDecision2.predictedDigit, '(Alt:', tradeDecision2.alternativeCandidates.join(','), ') | Confidence:', tradeDecision2.confidence, '| Risk:', tradeDecision2.riskAssessment, '| Market Regime:', tradeDecision2.marketRegime);
             // console.log('EITE Prediction:', tradeDecision3.predictedDigit, '(Alt:', tradeDecision3.alternativeCandidates.join(','), ') | Confidence:', tradeDecision3.confidence, '| Risk:', tradeDecision3.riskAssessment, '| Market Regime:', tradeDecision3.marketRegime);
             // console.log('PRNN Prediction:', tradeDecision4.predictedDigit, '(Alt:', tradeDecision4.alternativeCandidates.join(','), ') | Confidence:', tradeDecision4.confidence, '| Risk:', tradeDecision4.riskAssessment, '| Market Regime:', tradeDecision4.marketRegime);
-            console.log('BPE Prediction:', tradeDecision5.predictedDigit, '(Alt:', tradeDecision5.alternativeCandidates.join(','), ') | Confidence:', tradeDecision5.confidence, '| Risk:', tradeDecision5.riskAssessment, '| Market Regime:', tradeDecision5.marketRegime);
-            // console.log('GAMR Prediction:', tradeDecision6.predictedDigit, '(Alt:', tradeDecision6.alternativeCandidates.join(','), ') | Confidence:', tradeDecision6.confidence, '| Risk:', tradeDecision6.riskAssessment, '| Market Regime:', tradeDecision6.marketRegime);
+            // console.log('BPE Prediction:', tradeDecision5.predictedDigit, '(Alt:', tradeDecision5.alternativeCandidates.join(','), ') | Confidence:', tradeDecision5.confidence, '| Risk:', tradeDecision5.riskAssessment, '| Market Regime:', tradeDecision5.marketRegime);
+            console.log('GAMR Prediction:', tradeDecision6.predictedDigit, '(Alt:', tradeDecision6.alternativeCandidates.join(','), ') | Confidence:', tradeDecision6.confidence, '| Risk:', tradeDecision6.riskAssessment, '| Market Regime:', tradeDecision6.marketRegime);
             // console.log('MTD Prediction:', tradeDecision7.predictedDigit, '(Alt:', tradeDecision7.alternativeCandidates.join(','), ') | Confidence:', tradeDecision7.confidence, '| Risk:', tradeDecision7.riskAssessment, '| Market Regime:', tradeDecision7.marketRegime);
             // console.log('CTAF Prediction:', tradeDecision8.predictedDigit, '(Alt:', tradeDecision8.alternativeCandidates.join(','), ') | Confidence:', tradeDecision8.confidence, '| Risk:', tradeDecision8.riskAssessment, '| Market Regime:', tradeDecision8.marketRegime);
             // console.log('MCS Prediction:', tradeDecision9.predictedDigit, '(Alt:', tradeDecision9.alternativeCandidates.join(','), ') | Confidence:', tradeDecision9.confidence, '| Risk:', tradeDecision9.riskAssessment, '| Market Regime:', tradeDecision9.marketRegime);
@@ -2856,18 +2856,18 @@ class AILogicDigitDifferBot {
             //     this.lastConfidence = tradeDecision4.confidence;
             //     this.placeTrade(tradeDecision4.predictedDigit, tradeDecision4.confidence, kellyResult.stake);
             // } else
-            if (BPE_Engine) {
-                console.log(`🎯 Using BPE: ${tradeDecision5.confidence}% confidence`);
-                this.lastPrediction = tradeDecision5.predictedDigit;
-                this.lastConfidence = tradeDecision5.confidence;
-                this.placeTrade(tradeDecision5.predictedDigit, tradeDecision5.confidence, kellyResult.stake);
-            } else
-            // if (GAMR_Engine) {
-            //     console.log(`🎯 Using GAMR: ${tradeDecision6.confidence}% confidence`);
-            //     this.lastPrediction = tradeDecision6.predictedDigit;
-            //     this.lastConfidence = tradeDecision6.confidence;
-            //     this.placeTrade(tradeDecision6.predictedDigit, tradeDecision6.confidence, kellyResult.stake);
+            // if (BPE_Engine) {
+            //     console.log(`🎯 Using BPE: ${tradeDecision5.confidence}% confidence`);
+            //     this.lastPrediction = tradeDecision5.predictedDigit;
+            //     this.lastConfidence = tradeDecision5.confidence;
+            //     this.placeTrade(tradeDecision5.predictedDigit, tradeDecision5.confidence, kellyResult.stake);
             // } else
+            if (GAMR_Engine) {
+                console.log(`🎯 Using GAMR: ${tradeDecision6.confidence}% confidence`);
+                this.lastPrediction = tradeDecision6.predictedDigit;
+                this.lastConfidence = tradeDecision6.confidence;
+                this.placeTrade(tradeDecision6.predictedDigit, tradeDecision6.confidence, kellyResult.stake);
+            } else
             // if (MTD_Engine) {
             //     console.log(`🎯 Using MTD: ${tradeDecision7.confidence}% confidence`);
             //     this.lastPrediction = tradeDecision7.predictedDigit;
