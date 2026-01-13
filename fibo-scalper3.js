@@ -38,7 +38,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 500],
-        defaultMultiplier: 500,
+        defaultMultiplier: 200,
         maxTradesPerDay: 500000,
         minStake: 1.00,
         maxStake: 3000,
@@ -53,7 +53,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [40, 100, 200, 300, 500],
-        defaultMultiplier: 500,
+        defaultMultiplier: 200,
         maxTradesPerDay: 50,
         minStake: 1.00,
         maxStake: 3000,
@@ -68,7 +68,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [160, 400, 800, 1200, 1600],
-        defaultMultiplier: 1600,
+        defaultMultiplier: 800,
         maxTradesPerDay: 120,
         minStake: 1.00,
         maxStake: 1000,
@@ -83,7 +83,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [80, 200, 400, 600, 800],
-        defaultMultiplier: 800,
+        defaultMultiplier: 400,
         maxTradesPerDay: 120,
         minStake: 1.00,
         maxStake: 1000,
@@ -98,7 +98,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [40, 100, 200, 300, 400],
-        defaultMultiplier: 400,
+        defaultMultiplier: 200,
         maxTradesPerDay: 120,
         minStake: 1.00,
         maxStake: 1000,
@@ -113,7 +113,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [750, 2000, 3500, 5500, 7500],
-        defaultMultiplier: 7500,
+        defaultMultiplier: 3500,
         maxTradesPerDay: 120,
         minStake: 1.00,
         maxStake: 1000,
@@ -675,15 +675,15 @@ const Logger = {
     },
 
     debug(message, symbol = null) {
-        if (process.env.DEBUG === 'true') {
-            console.log(this.format('DEBUG', this.colors.dim, message, symbol));
-        }
+        // if (process.env.DEBUG === 'true') {
+        console.log(this.format('DEBUG', this.colors.dim, message, symbol));
+        // }
     },
 
     strategy(message, symbol = null) {
-        if (process.env.DEBUG === 'true' || process.env.STRATEGY_DEBUG === 'true') {
-            console.log(this.format('STRAT', this.colors.cyan + this.colors.dim, message, symbol));
-        }
+        // if (process.env.DEBUG === 'true' || process.env.STRATEGY_DEBUG === 'true') {
+        console.log(this.format('STRAT', this.colors.cyan + this.colors.dim, message, symbol));
+        // }
     },
 
     banner() {
@@ -1463,6 +1463,7 @@ const StrategyEngine = {
         }
 
         const currentCandle = candles[candles.length - 1];
+        const previousCandle = candles[candles.length - 2];
         const currentPrice = currentCandle.close;
 
         // === CONTINUOUS BOS DETECTION ===
@@ -1480,6 +1481,11 @@ const StrategyEngine = {
             return;
         }
 
+        if (!asset.bosDetected) {
+            asset.lastAnalysisResult = 'No Bos detected';
+            // return;
+        }
+
         // Note: Fib expiry check removed since we now recalculate on every candle
 
         // Check if price is in golden zone
@@ -1487,7 +1493,13 @@ const StrategyEngine = {
 
         if (!inGoldenZone) {
             asset.lastAnalysisResult = `Price ${currentPrice.toFixed(2)} outside zone`;
-            return;
+            // return;
+        }
+
+        const inFibRange = FibCalculator.isInFibRange(currentPrice, asset.fibLevels);
+        if (!inFibRange) {
+            asset.lastAnalysisResult = `Price ${currentPrice.toFixed(2)} outside zone`;
+            // return;
         }
 
         // Check signal cooldown
@@ -1498,17 +1510,17 @@ const StrategyEngine = {
         }
 
         // Optional confirmation
-        if (CONFIG.requireConfirmation && !this.checkConfirmation(asset, currentCandle)) {
+        if (!this.checkConfirmation(asset, previousCandle)) {
             asset.lastAnalysisResult = 'Awaiting confirmation candle';
-            return;
+            // return;
         }
 
         // Generate signal
-        const signal = this.generateSignal(symbol, currentCandle);
+        const signal = this.generateSignal(symbol, previousCandle);
 
         if (!signal) {
             asset.lastAnalysisResult = 'Signal rejected (impulse too small)';
-            return;
+            // return;
         }
 
         // Check risk management
@@ -1518,11 +1530,13 @@ const StrategyEngine = {
         }
 
         // Execute trade!
-        Logger.signal(`Entry: ${signal.direction} @ ${signal.entry.toFixed(4)}`, symbol);
-        asset.lastSignalTime = Date.now();
-        asset.signalsGenerated++;
-        asset.lastAnalysisResult = 'Signal generated';
-        TradeExecutor.executeSignal(symbol, signal);
+        if (asset.fibLevels && inGoldenZone && inFibRange && signal) {
+            Logger.signal(`Entry: ${signal.direction} @ ${signal.entry.toFixed(4)}`, symbol);
+            asset.lastSignalTime = Date.now();
+            asset.signalsGenerated++;
+            asset.lastAnalysisResult = 'Signal generated';
+            TradeExecutor.executeSignal(symbol, signal);
+        }
     },
 
     // NEW: Continuous BoS detection with duplicate log prevention
@@ -1614,7 +1628,7 @@ const StrategyEngine = {
     },
 
     checkConfirmation(asset, candle) {
-        if (asset.currentTrend === 'up') {
+        if (candle.close > candle.open) {
             return candle.close > candle.open;
         } else {
             return candle.close < candle.open;
@@ -1964,13 +1978,13 @@ async function main() {
         // Periodic stats display
         setInterval(() => {
             Logger.globalStats();
-            Logger.printAssetTable();
+            // Logger.printAssetTable();
         }, 300000);
 
         // Live position update display
         setInterval(() => {
             if (STATE.totalOpenPositions > 0) {
-                Logger.printAssetTable();
+                // Logger.printAssetTable();
             }
         }, 10000);
 
