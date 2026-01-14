@@ -259,7 +259,7 @@ class AIWeightedEnsembleBot {
             this.tickHistories[asset].shift();
         }
 
-        console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
+        // console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
 
         if (!this.tradeInProgress) {
             this.analyzeTicks(asset);
@@ -293,7 +293,7 @@ class AIWeightedEnsembleBot {
         console.log(`Volatility stdDev: ${stdDev.toFixed(2)}`);
 
         if (stdDev > 3.1) return 'extreme';
-        if (stdDev > 2.6) return 'high';
+        if (stdDev > 2.5) return 'high';
         if (stdDev > 2.0) return 'medium';
 
         return 'low';
