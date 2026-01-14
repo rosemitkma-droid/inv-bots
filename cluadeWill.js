@@ -1,38 +1,41 @@
 /**
- * DERIV MULTIPLIER BOT v6.3
+ * DERIV MULTIPLIER BOT v7.0
  * =========================
- * WPR Strategy with Price Breakout Confirmation
- * 
+ * WPR ONLY Strategy with Persistent Breakout Levels
+ *
  * BUY SETUP:
- * 1. WPR crosses above -20 (first time from oversold -80) - Set breakout levels
- * 2. Wait for price to close ABOVE the high breakout level - Execute BUY
- * 3. Reversal: If price closes BELOW low level - Close BUY, Open SELL (2x stake)
- * 4. Repeat reversals until Take Profit reached (max 6 times)
- * 
+ * - WPR crosses above -20 (Previous WPR ≤ -20, Current WPR > -20)
+ * - Must be FIRST crossing above -20 since coming from oversold (-80)
+ * - Execute BUY immediately, mark previous candle High/Low as breakout levels
+ *
  * SELL SETUP:
- * 1. WPR crosses below -80 (first time from overbought -20) - Set breakout levels
- * 2. Wait for price to close BELOW the low breakout level - Execute SELL
- * 3. Reversal: If price closes ABOVE high level - Close SELL, Open BUY (2x stake)
- * 4. Repeat reversals until Take Profit reached (max 6 times)
- * 
- * BREAKOUT LEVELS:
- * - Set using the candle that triggered the WPR signal
- * - Levels remain LOCKED throughout the entire trade cycle
- * - Only cleared when trade cycle completes (TP hit or max reversals)
+ * - WPR crosses below -80 (Previous WPR ≥ -80, Current WPR < -80)
+ * - Must be FIRST crossing below -80 since coming from overbought (-20)
+ * - Execute SELL immediately, mark previous candle High/Low as breakout levels
+ *
+ * REVERSAL SYSTEM:
+ * - BUY reverses to SELL when candle CLOSES BELOW lower breakout level
+ * - SELL reverses to BUY when candle CLOSES ABOVE higher breakout level
+ * - Each reversal: 2x stake, add loss to TP target (max 6 reversals)
+ *
+ * PERSISTENT BREAKOUT LEVELS:
+ * - Breakout levels stay active until opposite type is formed
+ * - After TP reached, wait for price action between levels
+ * - New trades triggered when price closes above/below levels
+ *
+ * Dependencies: npm install ws mathjs
+ * Usage: API_TOKEN=your_token node deriv-bot.js
  */
 
 const WebSocket = require('ws');
-const math = require('mathjs');
 const https = require('https');
 
 // ============================================
 // TELEGRAM SERVICE
 // ============================================
-
 class TelegramService {
     static async sendMessage(message) {
         if (!CONFIG.TELEGRAM_ENABLED) return;
-
         try {
             const url = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`;
             const data = JSON.stringify({
@@ -63,12 +66,10 @@ class TelegramService {
                         }
                     });
                 });
-
                 req.on('error', (error) => {
                     LOGGER.error(`Telegram request error: ${error.message}`);
                     reject(error);
                 });
-
                 req.write(data);
                 req.end();
             });
@@ -80,96 +81,81 @@ class TelegramService {
     static async sendTradeAlert(type, symbol, direction, stake, multiplier, details = {}) {
         const emoji = type === 'OPEN' ? '🚀' : (type === 'WIN' ? '✅' : '❌');
         const message = `
-${emoji} ${type} TRADE ALERT
-
+${emoji} <b>${type} TRADE ALERT</b>
 Asset: ${symbol}
 Direction: ${direction}
 Stake: $${stake.toFixed(2)}
 Multiplier: x${multiplier}
 ${details.profit !== undefined ? `Profit: $${details.profit.toFixed(2)}` : ''}
 ${details.reversalLevel !== undefined ? `Reversal Level: ${details.reversalLevel}/6` : ''}
-
+${details.breakoutType ? `Breakout Type: ${details.breakoutType}` : ''}
 Time: ${new Date().toUTCString()}
         `.trim();
-
         await this.sendMessage(message);
     }
 
-    static async sendLossAlert(symbol, lossAmount, consecutiveLosses) {
+    static async sendBreakoutAlert(symbol, type, highLevel, lowLevel) {
+        const emoji = type === 'BUY' ? '🟢' : '🔴';
         const message = `
-❌ LOSS ALERT
-
+${emoji} <b>BREAKOUT LEVELS SET</b>
 Asset: ${symbol}
-Loss Amount: $${lossAmount.toFixed(2)}
-Consecutive Losses: ${consecutiveLosses}
-
-Current Capital: $${state.capital.toFixed(2)}
-Session Net P/L: $${state.session.netPL.toFixed(2)}
-
+Type: ${type}
+High Level: ${highLevel.toFixed(5)}
+Low Level: ${lowLevel.toFixed(5)}
 Time: ${new Date().toUTCString()}
         `.trim();
-
         await this.sendMessage(message);
     }
 
-    static async sendSignalAlert(symbol, signalType, wpr, stoch) {
+    static async sendSignalAlert(symbol, signalType, wpr) {
         const emoji = signalType.includes('BUY') ? '🟢' : '🔴';
         const message = `
-${emoji} SIGNAL ALERT
-
+${emoji} <b>WPR SIGNAL - TRADE EXECUTED</b>
 Asset: ${symbol}
 Signal: ${signalType}
 WPR: ${wpr.toFixed(2)}
-Stoch K/D: ${stoch.k.toFixed(2)} / ${stoch.d.toFixed(2)}
 Timeframe: ${CONFIG.TIMEFRAME_LABEL}
-
 Time: ${new Date().toUTCString()}
         `.trim();
-
         await this.sendMessage(message);
     }
 
     static async sendSessionSummary() {
         const stats = SessionManager.getSessionStats();
         const message = `
-📊 SESSION SUMMARY
-
+📊 <b>SESSION SUMMARY</b>
 Duration: ${stats.duration}
 Trades: ${stats.trades}
 Wins: ${stats.wins} | Losses: ${stats.losses}
 Win Rate: ${stats.winRate}
-
 Net P/L: $${stats.netPL.toFixed(2)}
 Current Capital: $${state.capital.toFixed(2)}
-
 Active Assets: ${Object.keys(state.assets).length}
 Timeframe: ${CONFIG.TIMEFRAME_LABEL}
-
+Strategy: WPR Only
 Time: ${new Date().toUTCString()}
         `.trim();
-
         await this.sendMessage(message);
     }
 
     static async sendStartupMessage() {
         const message = `
-🤖 DERIV BOT v6.2 STARTED
-
+🤖 <b>DERIV BOT v7.0 STARTED</b>
+Strategy: WPR Only (No Stochastic)
 Capital: $${CONFIG.INITIAL_CAPITAL}
 Stake: $${CONFIG.INITIAL_STAKE}
 Timeframe: ${CONFIG.TIMEFRAME_LABEL}
 Assets: ${ACTIVE_ASSETS.join(', ')}
-
 Session Target: $${CONFIG.SESSION_PROFIT_TARGET}
 Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
 Max Reversals: ${CONFIG.MAX_REVERSAL_LEVEL}
 
-Strategy: WPR 
-Signals: Only on CANDLE CLOSE
-
+<b>Trade Logic:</b>
+BUY: WPR crosses above -20 (from oversold)
+SELL: WPR crosses below -80 (from overbought)
+Persistent Breakout Levels Active
 Time: ${new Date().toUTCString()}
         `.trim();
-
         await this.sendMessage(message);
     }
 }
@@ -177,7 +163,6 @@ Time: ${new Date().toUTCString()}
 // ============================================
 // LOGGER UTILITY
 // ============================================
-
 const getGMTTime = () => new Date().toISOString().split('T')[1].split('.')[0] + ' GMT';
 
 const LOGGER = {
@@ -186,7 +171,7 @@ const LOGGER = {
     signal: (msg) => console.log(`\x1b[36m[SIGNAL] ${getGMTTime()} - ${msg}\x1b[0m`),
     breakout: (msg) => console.log(`\x1b[35m[BREAKOUT] ${getGMTTime()} - ${msg}\x1b[0m`),
     recovery: (msg) => console.log(`\x1b[33m[RECOVERY] ${getGMTTime()} - ${msg}\x1b[0m`),
-    stoch: (msg) => console.log(`\x1b[34m[STOCH] ${getGMTTime()} - ${msg}\x1b[0m`),
+    wpr: (msg) => console.log(`\x1b[34m[WPR] ${getGMTTime()} - ${msg}\x1b[0m`),
     candle: (msg) => console.log(`\x1b[95m[CANDLE] ${getGMTTime()} - ${msg}\x1b[0m`),
     warn: (msg) => console.warn(`\x1b[33m[WARN] ${getGMTTime()} - ${msg}\x1b[0m`),
     error: (msg) => console.error(`\x1b[31m[ERROR] ${getGMTTime()} - ${msg}\x1b[0m`),
@@ -196,7 +181,6 @@ const LOGGER = {
 // ============================================
 // TIMEFRAME CONFIGURATION
 // ============================================
-
 const TIMEFRAMES = {
     '1m': { seconds: 60, granularity: 60, label: '1 Minute' },
     '2m': { seconds: 120, granularity: 120, label: '2 Minutes' },
@@ -210,14 +194,12 @@ const TIMEFRAMES = {
     '4h': { seconds: 14400, granularity: 14400, label: '4 Hours' }
 };
 
-// Default to 5 minutes, user can override with TIMEFRAME env variable
-const SELECTED_TIMEFRAME = process.env.TIMEFRAME || '5m';
-const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME] || TIMEFRAMES['5m'];
+const SELECTED_TIMEFRAME = process.env.TIMEFRAME || '1m';
+const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME] || TIMEFRAMES['1m'];
 
 // ============================================
 // CONFIGURATION
 // ============================================
-
 const CONFIG = {
     // API Settings
     API_TOKEN: process.env.API_TOKEN || '0P94g4WdSrSrzir',
@@ -235,28 +217,19 @@ const CONFIG = {
 
     // Reversal Settings
     REVERSAL_STAKE_MULTIPLIER: 2,
-    MAX_REVERSAL_LEVEL: 6,
+    MAX_REVERSAL_LEVEL: 7,
     AUTO_CLOSE_ON_RECOVERY: true,
 
-    // Timeframe Settings (DEFAULT 5 MINUTES)
+    // Timeframe Settings
     TIMEFRAME: SELECTED_TIMEFRAME,
     GRANULARITY: TIMEFRAME_CONFIG.granularity,
     TIMEFRAME_LABEL: TIMEFRAME_CONFIG.label,
     TIMEFRAME_SECONDS: TIMEFRAME_CONFIG.seconds,
 
-    // WPR Settings
+    // WPR Settings (Only indicator now)
     WPR_PERIOD: 80,
-    WPR_OVERBOUGHT: -20,
-    WPR_OVERSOLD: -80,
-    WPR_BUY_INVALIDATION: -60,
-    WPR_SELL_INVALIDATION: -40,
-
-    // Stochastic Settings
-    STOCH_K_PERIOD: 5,
-    STOCH_D_PERIOD: 3,
-    STOCH_SMOOTH: 3,
-    STOCH_OVERBOUGHT: 80,
-    STOCH_OVERSOLD: 20,
+    WPR_OVERBOUGHT: -20,  // Trigger BUY when crossing above
+    WPR_OVERSOLD: -80,    // Trigger SELL when crossing below
 
     // Trade Settings
     MAX_TRADES_PER_ASSET: 20000,
@@ -272,8 +245,8 @@ const CONFIG = {
     BLACKLIST_PERIOD: 1 * 60 * 1000,
 
     // Performance
-    MAX_TICKS_STORED: 100,
-    MAX_CANDLES_STORED: 150,
+    MAX_TICKS_STORED: 200,
+    MAX_CANDLES_STORED: 3000,
     DASHBOARD_UPDATE_INTERVAL: 60000,
 
     // Debug
@@ -288,21 +261,9 @@ const CONFIG = {
 // ============================================
 // ASSET CONFIGURATION
 // ============================================
-
 const ASSET_CONFIGS = {
-    // 'R_10': {
-    //     name: 'Volatility 10 Index',
-    //     category: 'synthetic',
-    //     contractType: 'multiplier',
-    //     multipliers: [400, 1000, 2000, 3000, 4000],
-    //     defaultMultiplier: 4000,
-    //     maxTradesPerDay: 100,
-    //     minStake: 1.00,
-    //     maxStake: 2000,
-    //     tradingHours: '24/7'
-    // },
     'R_75': {
-        name: 'Volatility 75 Index',
+        name: 'Volatility 75',
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 500],
@@ -312,37 +273,48 @@ const ASSET_CONFIGS = {
         maxStake: 3000,
         tradingHours: '24/7'
     },
-    // 'R_100': {
-    //     name: 'Volatility 100 Index',
-    //     category: 'synthetic',
-    //     contractType: 'multiplier',
-    //     multipliers: [40, 100, 200, 300, 500],
-    //     defaultMultiplier: 500,
-    //     maxTradesPerDay: 50,
-    //     minStake: 1.00,
-    //     maxStake: 3000,
-    //     tradingHours: '24/7'
-    // },
-    // '1HZ10V': {
-    //     name: 'Volatility 10 (1s) Index',
-    //     category: 'synthetic',
-    //     contractType: 'multiplier',
-    //     multipliers: [400, 1000, 2000, 3000, 4000],
-    //     defaultMultiplier: 4000,
-    //     maxTradesPerDay: 150,
-    //     minStake: 1.00,
-    //     maxStake: 1000,
-    //     tradingHours: '24/7'
-    // },
+    'R_100': {
+        name: 'Volatility 100',
+        category: 'synthetic',
+        contractType: 'multiplier',
+        multipliers: [40, 100, 200, 300, 400],
+        defaultMultiplier: 400,
+        maxTradesPerDay: 50000,
+        minStake: 1.00,
+        maxStake: 3000,
+        tradingHours: '24/7'
+    },
+    '1HZ25V': {
+        name: 'Volatility 25 (1s)',
+        category: 'synthetic',
+        contractType: 'multiplier',
+        multipliers: [160, 400, 800, 1200, 1600],
+        defaultMultiplier: 1600,
+        maxTradesPerDay: 120000,
+        minStake: 1.00,
+        maxStake: 1000,
+        tradingHours: '24/7'
+    },
     '1HZ50V': {
-        name: 'Volatility 50 (1s) Index',
+        name: 'Volatility 50 (1s)',
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [80, 200, 400, 600, 800],
         defaultMultiplier: 800,
-        maxTradesPerDay: 120,
+        maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
+        tradingHours: '24/7'
+    },
+    '1HZ100V': {
+        name: 'Volatility 100 (1s)',
+        category: 'synthetic',
+        contractType: 'multiplier',
+        multipliers: [40, 100, 200, 300, 400],
+        defaultMultiplier: 400,
+        maxTradesPerDay: 50000,
+        minStake: 1.00,
+        maxStake: 3000,
         tradingHours: '24/7'
     },
     'stpRNG': {
@@ -350,8 +322,8 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [750, 2000, 3500, 5500, 7500],
-        defaultMultiplier: 7500,
-        maxTradesPerDay: 120,
+        defaultMultiplier: 3500,
+        maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
         tradingHours: '24/7'
@@ -362,23 +334,21 @@ const ASSET_CONFIGS = {
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 400, 500],
         defaultMultiplier: 500,
-        maxTradesPerDay: 5,
-        minStake: 5,
+        maxTradesPerDay: 5000,
+        minStake: 1,
         maxStake: 5000,
         tradingHours: 'Sun 23:00 - Fri 21:55 GMT'
     }
 };
 
-let ACTIVE_ASSETS = ['R_75', 'frxXAUUSD', '1HZ50V', 'stpRNG'];
+let ACTIVE_ASSETS = ['frxXAUUSD', '1HZ50V', '1HZ25V', 'R_100', '1HZ100V'];
 
 // ============================================
 // STATE MANAGEMENT
 // ============================================
-
 const state = {
     capital: CONFIG.INITIAL_CAPITAL,
     accountBalance: 0,
-
     session: {
         profit: 0,
         loss: 0,
@@ -393,11 +363,9 @@ const state = {
         startTime: Date.now(),
         startCapital: CONFIG.INITIAL_CAPITAL
     },
-
     isConnected: false,
     isAuthorized: false,
     assets: {},
-
     portfolio: {
         dailyProfit: 0,
         dailyLoss: 0,
@@ -407,13 +375,14 @@ const state = {
         topRankedAssets: [],
         lastScoring: Date.now()
     },
-
     subscriptions: new Map(),
     pendingRequests: new Map(),
     requestId: 1
 };
 
-// Initialize asset states
+/**
+ * Initialize asset states with WPR-only tracking
+ */
 function initializeAssetStates() {
     ACTIVE_ASSETS.forEach(symbol => {
         if (ASSET_CONFIGS[symbol]) {
@@ -424,49 +393,39 @@ function initializeAssetStates() {
                 currentPrice: 0,
 
                 // CLOSED candle tracking for indicators
-                closedCandles: [],  // Only completed candles
+                closedCandles: [],
                 lastClosedCandleEpoch: 0,
+                lastProcessedCandleOpenTime: 0,
 
                 // Current forming candle tracking
                 currentFormingCandle: null,
 
-                // WPR tracking (calculated on CLOSED candles only)
+                // WPR tracking
                 wpr: -50,
                 prevWpr: -50,
 
-                // WPR Zone tracking
-                wprZone: 'neutral',
-                hasVisitedOversold: false,   // Set to true when entering oversold (-80)
-                hasVisitedOverbought: false, // Set to true when entering overbought (-20)
+                // WPR Zone flags (PERSISTENT through trading lifecycle)
+                buyFlagActive: false,      // Activated when WPR goes below -80
+                sellFlagActive: false,     // Activated when WPR goes above -20
 
-                // Signal states (kept for compatibility but not used for waiting)
-                buySignalActive: false,
-                sellSignalActive: false,
-                signalCandle: null,
-
-                // Stochastic tracking (still calculated for display/logging)
-                stochastic: {
-                    k: 50,
-                    d: 50,
-                    prevK: 50,
-                    prevD: 50
-                },
-
-                // Breakout levels - Set when WPR crosses overbought/oversold
+                // Breakout levels (PERSISTENT until replaced by opposite type)
                 breakout: {
                     active: false,
+                    type: null,            // 'BUY' or 'SELL' - which signal created this breakout
                     highLevel: 0,
                     lowLevel: 0,
                     triggerCandle: 0,
-                    initialDirection: null
+                    canBeReplaced: true    // Can new breakout replace this one?
                 },
 
                 // Active trade tracking
                 activePosition: null,
                 currentDirection: null,
 
-                // Trade cycle tracking
-                inTradeCycle: false,
+                // Trade cycle state
+                inTradeCycle: false,       // Currently in active trade with reversals
+                waitingForReentry: false,  // TP reached, waiting for price action
+                lastTradeDirection: null,  // Last trade direction before TP
 
                 // Stake management
                 currentStake: CONFIG.INITIAL_STAKE,
@@ -486,32 +445,26 @@ function initializeAssetStates() {
                 score: 0,
                 lastBarTime: 0,
 
-                // Candle close tracking
-                lastProcessedCandleEpoch: 0,
-
                 // Indicator readiness
                 indicatorsReady: false
             };
         }
     });
-
     LOGGER.info(`Initialized ${Object.keys(state.assets).length} assets`);
     LOGGER.info(`⏱️ Timeframe: ${CONFIG.TIMEFRAME_LABEL} (${CONFIG.GRANULARITY}s candles)`);
-    LOGGER.info(`📊 Signals generated ONLY on candle CLOSE`);
-    LOGGER.info(`🚀 IMMEDIATE EXECUTION on WPR cross (no Stochastic wait)`);
+    LOGGER.info(`📊 Strategy: WPR ONLY - Signals on candle CLOSE`);
 }
 
 initializeAssetStates();
 
 // ============================================
-// TECHNICAL INDICATORS
+// TECHNICAL INDICATORS (WPR ONLY)
 // ============================================
-
 class TechnicalIndicators {
     /**
      * Calculate Williams Percent Range (WPR) - ONLY on closed candles
      */
-    static calculateWPR(candles, period = 14) {
+    static calculateWPR(candles, period = 80) {
         if (!candles || candles.length < period) {
             return -50;
         }
@@ -530,227 +483,235 @@ class TechnicalIndicators {
         const wpr = ((highestHigh - currentClose) / range) * -100;
         return wpr;
     }
-
-    /**
-     * Calculate Stochastic Oscillator (5, 3, 3) - ONLY on closed candles
-     * Returns current AND previous values for crossover detection
-     */
-    static calculateStochastic(candles, kPeriod = 5, dPeriod = 3, smoothK = 3) {
-        const minLength = kPeriod + smoothK + dPeriod;
-
-        if (!candles || candles.length < minLength) {
-            return { k: 50, d: 50, prevK: 50, prevD: 50 };
-        }
-
-        const closes = candles.map(c => c.close);
-        const highs = candles.map(c => c.high);
-        const lows = candles.map(c => c.low);
-
-        // Calculate raw %K values
-        const rawK = [];
-        for (let i = kPeriod - 1; i < closes.length; i++) {
-            const periodHighs = highs.slice(i - kPeriod + 1, i + 1);
-            const periodLows = lows.slice(i - kPeriod + 1, i + 1);
-            const highestHigh = Math.max(...periodHighs);
-            const lowestLow = Math.min(...periodLows);
-            const range = highestHigh - lowestLow;
-
-            if (range === 0) {
-                rawK.push(50);
-            } else {
-                rawK.push(((closes[i] - lowestLow) / range) * 100);
-            }
-        }
-
-        // Smooth %K with SMA (this is the "slow" stochastic)
-        const smoothedK = [];
-        for (let i = smoothK - 1; i < rawK.length; i++) {
-            const sum = rawK.slice(i - smoothK + 1, i + 1).reduce((a, b) => a + b, 0);
-            smoothedK.push(sum / smoothK);
-        }
-
-        // Calculate %D as SMA of smoothed %K
-        const dValues = [];
-        for (let i = dPeriod - 1; i < smoothedK.length; i++) {
-            const sum = smoothedK.slice(i - dPeriod + 1, i + 1).reduce((a, b) => a + b, 0);
-            dValues.push(sum / dPeriod);
-        }
-
-        if (dValues.length < 2 || smoothedK.length < 2) {
-            return { k: 50, d: 50, prevK: 50, prevD: 50 };
-        }
-
-        // Return current and previous values for crossover detection
-        return {
-            k: smoothedK[smoothedK.length - 1],
-            d: dValues[dValues.length - 1],
-            prevK: smoothedK[smoothedK.length - 2],
-            prevD: dValues[dValues.length - 2]
-        };
-    }
-
-    /**
-     * Detect Stochastic crossover (kept for compatibility but not used)
-     */
-    static detectStochCrossover(stoch) {
-        return null;
-    }
 }
 
 // ============================================
-// SIGNAL MANAGER - ONLY ON CANDLE CLOSE
+// SIGNAL MANAGER - WPR ONLY
 // ============================================
-
 class SignalManager {
     /**
-     * Update WPR state and check for signals - ONLY called on candle close
+     * Update WPR state and check for trading signals
+     * Logic follows user requirements exactly
      */
     static updateWPRState(symbol) {
         const assetState = state.assets[symbol];
         const wpr = assetState.wpr;
         const prevWpr = assetState.prevWpr;
 
-        // Track zone transitions for "first time" logic
-        const wasInOversold = prevWpr < CONFIG.WPR_OVERSOLD;
-        const wasInOverbought = prevWpr > CONFIG.WPR_OVERBOUGHT;
-        const isInOversold = wpr < CONFIG.WPR_OVERSOLD;
-        const isInOverbought = wpr > CONFIG.WPR_OVERBOUGHT;
+        // ============================================
+        // FLAG ACTIVATION (Persistent through lifecycle)
+        // ============================================
 
-        // Update zone tracking
-        if (isInOversold) {
-            assetState.wprZone = 'oversold';
-            assetState.hasVisitedOversold = true;
-            // When entering oversold, clear overbought flag
-            if (!wasInOversold) {
-                // assetState.hasVisitedOverbought = false;
-                LOGGER.debug(`${symbol}: Entered OVERSOLD zone (WPR: ${wpr.toFixed(2)})`);
-            }
-        } else if (isInOverbought) {
-            assetState.wprZone = 'overbought';
-            assetState.hasVisitedOverbought = true;
-            // When entering overbought, clear oversold flag
-            if (!wasInOverbought) {
-                // assetState.hasVisitedOversold = false;
-                LOGGER.debug(`${symbol}: Entered OVERBOUGHT zone (WPR: ${wpr.toFixed(2)})`);
-            }
-        } else {
-            assetState.wprZone = 'neutral';
+        // BUY flag activates when WPR goes below -80 (enters oversold)
+        // This flag stays active until a BUY trade is executed
+        if (wpr < CONFIG.WPR_OVERSOLD && !assetState.buyFlagActive) {
+            assetState.buyFlagActive = true;
+            LOGGER.wpr(`${symbol}: 🟢 BUY FLAG ACTIVATED - WPR entered oversold zone (${wpr.toFixed(2)})`);
         }
 
-        // Only check for new signals if NOT in an active trade cycle
-        if (!assetState.inTradeCycle) {
-            this.checkForTradeSignal(symbol);
+        // SELL flag activates when WPR goes above -20 (enters overbought)
+        // This flag stays active until a SELL trade is executed
+        if (wpr > CONFIG.WPR_OVERBOUGHT && !assetState.sellFlagActive) {
+            assetState.sellFlagActive = true;
+            LOGGER.wpr(`${symbol}: 🔴 SELL FLAG ACTIVATED - WPR entered overbought zone (${wpr.toFixed(2)})`);
+        }
+
+        // ============================================
+        // SIGNAL DETECTION (Only when not in trade cycle)
+        // ============================================
+
+        if (!assetState.inTradeCycle && !assetState.waitingForReentry) {
+            this.checkBuySignal(symbol);
+            this.checkSellSignal(symbol);
         }
     }
 
     /**
-     * Check for IMMEDIATE trade signal on CANDLE CLOSE
-     * BUY: Previous WPR <= -20, Current WPR > -20 (crossing above overbought)
-     * SELL: Previous WPR >= -80, Current WPR < -80 (crossing below oversold)
-     * EXECUTE TRADE IMMEDIATELY - No Stochastic confirmation needed
+     * Check for BUY signal - WPR crosses above -20
+     * Requirements:
+     * - Previous WPR ≤ -20, Current WPR > -20
+     * - buyFlagActive must be true (came from oversold)
+     * - No existing BUY breakout active (unless can be replaced by new SELL first)
      */
-    static checkForTradeSignal(symbol) {
+    static checkBuySignal(symbol) {
         const assetState = state.assets[symbol];
         const wpr = assetState.wpr;
         const prevWpr = assetState.prevWpr;
 
-        // BUY SIGNAL: WPR crosses ABOVE -20 (from oversold zone)
-        const isCrossingAboveOverbought = (prevWpr <= CONFIG.WPR_OVERBOUGHT) && (wpr > CONFIG.WPR_OVERBOUGHT);
+        // Check for crossing above -20
+        const isCrossingAbove = (prevWpr <= CONFIG.WPR_OVERBOUGHT) && (wpr > CONFIG.WPR_OVERBOUGHT);
 
-        if (isCrossingAboveOverbought &&
-            assetState.hasVisitedOversold &&
-            !assetState.inTradeCycle) {
+        if (isCrossingAbove && assetState.buyFlagActive) {
+            // Check if we can create new BUY breakout levels
+            // Only if no active BUY breakout, or breakout can be replaced
+            if (!assetState.breakout.active ||
+                assetState.breakout.type === 'SELL' ||
+                assetState.breakout.canBeReplaced) {
 
-            assetState.hasVisitedOversold = false;  // Reset flag after signal
+                LOGGER.signal(`${symbol} 🟢 BUY SIGNAL TRIGGERED! WPR: ${wpr.toFixed(2)} (from ${prevWpr.toFixed(2)})`);
 
-            // Store the closed candle that triggered the signal
-            const closedCandles = assetState.closedCandles;
-            if (closedCandles.length > 0) {
-                assetState.signalCandle = closedCandles[closedCandles.length - 1];
+                // Execute BUY trade immediately
+                const setupSuccess = BreakoutManager.setupBreakoutLevels(symbol, 'UP', 'BUY');
+                if (setupSuccess) {
+                    assetState.buyFlagActive = false; // Reset flag after trade
+                    bot.executeTrade(symbol, 'UP', false);
+                    TelegramService.sendSignalAlert(symbol, 'BUY EXECUTED', wpr);
+                }
+            } else {
+                LOGGER.debug(`${symbol}: BUY signal ignored - active BUY breakout exists`);
             }
+        }
+    }
 
-            LOGGER.signal(`${symbol} 🟢 BUY SIGNAL on candle CLOSE! WPR: ${wpr.toFixed(2)} (from ${prevWpr.toFixed(2)})`);
-            LOGGER.signal(`${symbol} Executing BUY trade immediately...`);
+    /**
+     * Check for SELL signal - WPR crosses below -80
+     * Requirements:
+     * - Previous WPR ≥ -80, Current WPR < -80
+     * - sellFlagActive must be true (came from overbought)
+     * - No existing SELL breakout active (unless can be replaced by new BUY first)
+     */
+    static checkSellSignal(symbol) {
+        const assetState = state.assets[symbol];
+        const wpr = assetState.wpr;
+        const prevWpr = assetState.prevWpr;
 
-            TelegramService.sendSignalAlert(symbol, 'BUY SIGNAL - IMMEDIATE EXECUTION', wpr, assetState.stochastic);
+        // Check for crossing below -80
+        const isCrossingBelow = (prevWpr >= CONFIG.WPR_OVERSOLD) && (wpr < CONFIG.WPR_OVERSOLD);
 
+        if (isCrossingBelow && assetState.sellFlagActive) {
+            // Check if we can create new SELL breakout levels
+            if (!assetState.breakout.active ||
+                assetState.breakout.type === 'BUY' ||
+                assetState.breakout.canBeReplaced) {
+
+                LOGGER.signal(`${symbol} 🔴 SELL SIGNAL TRIGGERED! WPR: ${wpr.toFixed(2)} (from ${prevWpr.toFixed(2)})`);
+
+                // Execute SELL trade immediately
+                const setupSuccess = BreakoutManager.setupBreakoutLevels(symbol, 'DOWN', 'SELL');
+                if (setupSuccess) {
+                    assetState.sellFlagActive = false; // Reset flag after trade
+                    bot.executeTrade(symbol, 'DOWN', false);
+                    TelegramService.sendSignalAlert(symbol, 'SELL EXECUTED', wpr);
+                }
+            } else {
+                LOGGER.debug(`${symbol}: SELL signal ignored - active SELL breakout exists`);
+            }
+        }
+    }
+
+    /**
+     * Check for re-entry when waiting after TP reached
+     * Price must close above/below breakout levels
+     */
+    static checkReentrySignal(symbol) {
+        const assetState = state.assets[symbol];
+        const breakout = assetState.breakout;
+        const closedCandles = assetState.closedCandles;
+
+        if (!assetState.waitingForReentry || !breakout.active) {
+            return null;
+        }
+
+        if (closedCandles.length < 1) return null;
+
+        const lastCandle = closedCandles[closedCandles.length - 1];
+        const closePrice = lastCandle.close;
+
+        // Check if price is between breakout levels (waiting zone)
+        const isBetweenLevels = closePrice > breakout.lowLevel && closePrice < breakout.highLevel;
+
+        if (isBetweenLevels) {
+            LOGGER.debug(`${symbol}: Price between breakout levels - potential re-entry zone`);
+            return null; // Stay waiting
+        }
+
+        // Price closed above high level - BUY re-entry
+        if (closePrice > breakout.highLevel) {
+            LOGGER.signal(`${symbol} 🟢 RE-ENTRY BUY! Price ${closePrice.toFixed(5)} closed above ${breakout.highLevel.toFixed(5)}`);
+            assetState.waitingForReentry = false;
             return 'UP';
         }
 
-        // SELL SIGNAL: WPR crosses BELOW -80 (from overbought zone)
-        const isCrossingBelowOversold = (prevWpr >= CONFIG.WPR_OVERSOLD) && (wpr < CONFIG.WPR_OVERSOLD);
-
-        if (isCrossingBelowOversold &&
-            assetState.hasVisitedOverbought &&
-            !assetState.inTradeCycle) {
-
-            assetState.hasVisitedOverbought = false;  // Reset flag after signal
-
-            const closedCandles = assetState.closedCandles;
-            if (closedCandles.length > 0) {
-                assetState.signalCandle = closedCandles[closedCandles.length - 1];
-            }
-
-            LOGGER.signal(`${symbol} 🔴 SELL SIGNAL on candle CLOSE! WPR: ${wpr.toFixed(2)} (from ${prevWpr.toFixed(2)})`);
-            LOGGER.signal(`${symbol} Executing SELL trade immediately...`);
-
-            TelegramService.sendSignalAlert(symbol, 'SELL SIGNAL - IMMEDIATE EXECUTION', wpr, assetState.stochastic);
-
+        // Price closed below low level - SELL re-entry
+        if (closePrice < breakout.lowLevel) {
+            LOGGER.signal(`${symbol} 🔴 RE-ENTRY SELL! Price ${closePrice.toFixed(5)} closed below ${breakout.lowLevel.toFixed(5)}`);
+            assetState.waitingForReentry = false;
             return 'DOWN';
         }
 
         return null;
-    }
-
-    /**
-     * Reset all signals
-     */
-    static resetSignals(symbol) {
-        const assetState = state.assets[symbol];
-        assetState.buySignalActive = false;
-        assetState.sellSignalActive = false;
-        assetState.signalCandle = null;
     }
 }
 
 // ============================================
 // BREAKOUT MANAGER
 // ============================================
-
 class BreakoutManager {
     /**
-     * Set breakout levels using the candle that triggered the WPR cross
-     * This is the candle where WPR crossed above -20 or below -80
+     * Set breakout levels using the PREVIOUS candle
+     * @param {string} symbol - Asset symbol
+     * @param {string} direction - 'UP' or 'DOWN'
+     * @param {string} breakoutType - 'BUY' or 'SELL' (which signal created this)
      */
-    static setupBreakoutLevels(symbol, direction) {
+    static setupBreakoutLevels(symbol, direction, breakoutType) {
         const assetState = state.assets[symbol];
         const closedCandles = assetState.closedCandles;
 
-        if (closedCandles.length < 1) {
+        if (closedCandles.length < 2) {
             LOGGER.warn(`${symbol}: Not enough closed candles for breakout setup`);
             return false;
         }
 
-        // Use the CURRENT candle (the one that just closed and triggered the WPR cross)
-        const triggerCandle = closedCandles[closedCandles.length - 1];
+        // Use the PREVIOUS candle (2nd to last closed candle)
+        const previousCandle = closedCandles[closedCandles.length - 1];
 
         assetState.breakout = {
             active: true,
-            highLevel: parseFloat(triggerCandle.high.toFixed(5)),
-            lowLevel: parseFloat(triggerCandle.low.toFixed(5)),
-            triggerCandle: triggerCandle.epoch,
-            initialDirection: direction
+            type: breakoutType,
+            highLevel: previousCandle.high,
+            lowLevel: previousCandle.low,
+            triggerCandle: previousCandle.epoch,
+            canBeReplaced: false  // Cannot be replaced until opposite type forms
         };
 
         assetState.inTradeCycle = true;
+        assetState.waitingForReentry = false;
 
-        const candleTime = new Date(triggerCandle.epoch * 1000).toISOString().split('T')[1].split('.')[0];
+        LOGGER.breakout(`${symbol} 📊 ${breakoutType} BREAKOUT LEVELS SET:`);
+        LOGGER.breakout(`${symbol} High: ${previousCandle.high.toFixed(5)} | Low: ${previousCandle.low.toFixed(5)}`);
+        LOGGER.breakout(`${symbol} Candle Epoch: ${previousCandle.epoch}`);
 
-        LOGGER.breakout(`${symbol} 📊 BREAKOUT LEVELS SET (WPR Cross Candle):`);
-        LOGGER.breakout(`${symbol}    🔺 High: ${assetState.breakout.highLevel.toFixed(5)}`);
-        LOGGER.breakout(`${symbol}    🔻 Low:  ${assetState.breakout.lowLevel.toFixed(5)}`);
-        LOGGER.breakout(`${symbol}    Direction: ${direction} | Time: ${candleTime} GMT`);
-        LOGGER.breakout(`${symbol}    🔒 LEVELS LOCKED FOR ENTIRE TRADE CYCLE`);
+        TelegramService.sendBreakoutAlert(symbol, breakoutType, previousCandle.high, previousCandle.low);
+
+        return true;
+    }
+
+    /**
+     * Replace breakout levels with new opposite type
+     * This happens when opposite WPR signal occurs during active trade
+     */
+    static replaceBreakoutLevels(symbol, direction, newType) {
+        const assetState = state.assets[symbol];
+        const closedCandles = assetState.closedCandles;
+
+        if (closedCandles.length < 2) {
+            return false;
+        }
+
+        const previousCandle = closedCandles[closedCandles.length - 1];
+
+        LOGGER.breakout(`${symbol} 🔄 REPLACING ${assetState.breakout.type} breakout with ${newType}`);
+
+        assetState.breakout = {
+            active: true,
+            type: newType,
+            highLevel: previousCandle.high,
+            lowLevel: previousCandle.low,
+            triggerCandle: previousCandle.epoch,
+            canBeReplaced: false
+        };
+
+        LOGGER.breakout(`${symbol} New High: ${previousCandle.high.toFixed(5)} | Low: ${previousCandle.low.toFixed(5)}`);
 
         return true;
     }
@@ -764,7 +725,7 @@ class BreakoutManager {
         const breakout = assetState.breakout;
         const closedCandles = assetState.closedCandles;
 
-        if (!assetState.activePosition || !breakout.active) {
+        if (!assetState.inTradeCycle) {
             return null;
         }
 
@@ -772,22 +733,21 @@ class BreakoutManager {
             return null;
         }
 
-        // Check the last CLOSED candle
         const lastClosedCandle = closedCandles[closedCandles.length - 1];
         const closePrice = lastClosedCandle.close;
         const currentDirection = assetState.currentDirection;
 
         // UP position: Reversal if price CLOSES BELOW the lower breakout level
         if (currentDirection === 'UP' && closePrice < breakout.lowLevel) {
-            LOGGER.breakout(`${symbol} 🔄 REVERSAL TRIGGERED on candle CLOSE!`);
-            LOGGER.breakout(`${symbol}    UP → DOWN: Close ${closePrice.toFixed(5)} < Low ${breakout.lowLevel.toFixed(5)}`);
+            LOGGER.breakout(`${symbol} 🔄 REVERSAL TRIGGERED!`);
+            LOGGER.breakout(`${symbol} UP → DOWN: Close ${closePrice.toFixed(5)} < Low ${breakout.lowLevel.toFixed(5)}`);
             return 'DOWN';
         }
 
         // DOWN position: Reversal if price CLOSES ABOVE the higher breakout level
         if (currentDirection === 'DOWN' && closePrice > breakout.highLevel) {
-            LOGGER.breakout(`${symbol} 🔄 REVERSAL TRIGGERED on candle CLOSE!`);
-            LOGGER.breakout(`${symbol}    DOWN → UP: Close ${closePrice.toFixed(5)} > High ${breakout.highLevel.toFixed(5)}`);
+            LOGGER.breakout(`${symbol} 🔄 REVERSAL TRIGGERED!`);
+            LOGGER.breakout(`${symbol} DOWN → UP: Close ${closePrice.toFixed(5)} > High ${breakout.highLevel.toFixed(5)}`);
             return 'UP';
         }
 
@@ -795,21 +755,70 @@ class BreakoutManager {
     }
 
     /**
-     * Maintain breakout levels during reversals
-     * Levels should stay the same throughout the entire trade cycle
+     * Check if opposite WPR signal occurs - replace breakout levels
      */
-    static maintainBreakoutLevels(symbol) {
+    static checkForBreakoutReplacement(symbol) {
         const assetState = state.assets[symbol];
+        const wpr = assetState.wpr;
+        const prevWpr = assetState.prevWpr;
+        const breakout = assetState.breakout;
 
-        // Breakout levels remain active and unchanged during reversals
-        if (assetState.breakout.active) {
-            LOGGER.breakout(`${symbol} 🔒 BREAKOUT LEVELS MAINTAINED:`);
-            LOGGER.breakout(`${symbol}    High: ${assetState.breakout.highLevel.toFixed(5)} | Low: ${assetState.breakout.lowLevel.toFixed(5)}`);
+        if (!breakout.active || !assetState.inTradeCycle) {
+            return null;
         }
+
+        // If current breakout is BUY type, check for SELL signal to replace
+        if (breakout.type === 'BUY') {
+            const isCrossingBelow = (prevWpr >= CONFIG.WPR_OVERSOLD) && (wpr < CONFIG.WPR_OVERSOLD);
+            if (isCrossingBelow && assetState.sellFlagActive) {
+                LOGGER.signal(`${symbol} 🔴 NEW SELL BREAKOUT during BUY cycle`);
+                this.replaceBreakoutLevels(symbol, 'DOWN', 'SELL');
+                assetState.sellFlagActive = false;
+
+                // If currently in UP position, trigger reversal to DOWN
+                if (assetState.currentDirection === 'UP') {
+                    return 'DOWN';
+                }
+            }
+        }
+
+        // If current breakout is SELL type, check for BUY signal to replace
+        if (breakout.type === 'SELL') {
+            const isCrossingAbove = (prevWpr <= CONFIG.WPR_OVERBOUGHT) && (wpr > CONFIG.WPR_OVERBOUGHT);
+            if (isCrossingAbove && assetState.buyFlagActive) {
+                LOGGER.signal(`${symbol} 🟢 NEW BUY BREAKOUT during SELL cycle`);
+                this.replaceBreakoutLevels(symbol, 'UP', 'BUY');
+                assetState.buyFlagActive = false;
+
+                // If currently in DOWN position, trigger reversal to UP
+                if (assetState.currentDirection === 'DOWN') {
+                    return 'UP';
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
-     * Clear breakout setup
+     * Mark breakout as allowing re-entry (after TP reached)
+     */
+    static setWaitingForReentry(symbol) {
+        const assetState = state.assets[symbol];
+
+        assetState.inTradeCycle = false;
+        assetState.waitingForReentry = true;
+        assetState.lastTradeDirection = assetState.currentDirection;
+
+        // Breakout levels stay active but can be replaced by opposite type
+        assetState.breakout.canBeReplaced = true;
+
+        LOGGER.breakout(`${symbol} ⏸️ TP REACHED - Breakout levels still active, waiting for re-entry`);
+        LOGGER.breakout(`${symbol} High: ${assetState.breakout.highLevel.toFixed(5)} | Low: ${assetState.breakout.lowLevel.toFixed(5)}`);
+    }
+
+    /**
+     * Fully clear breakout setup (only on max reversals)
      */
     static clearBreakout(symbol) {
         const assetState = state.assets[symbol];
@@ -818,30 +827,29 @@ class BreakoutManager {
 
         assetState.breakout = {
             active: false,
+            type: null,
             highLevel: 0,
             lowLevel: 0,
             triggerCandle: 0,
-            initialDirection: null
+            canBeReplaced: true
         };
 
         assetState.inTradeCycle = false;
+        assetState.waitingForReentry = false;
     }
 }
 
 // ============================================
 // STAKE MANAGER
 // ============================================
-
 class StakeManager {
     static getInitialStake(symbol) {
         const assetState = state.assets[symbol];
-
         assetState.currentStake = CONFIG.INITIAL_STAKE;
         assetState.takeProfit = CONFIG.TAKE_PROFIT;
         assetState.reversalLevel = 0;
         assetState.accumulatedLoss = 0;
         assetState.takeProfitAmount = CONFIG.TAKE_PROFIT;
-
         return this.validateStake(symbol, assetState.currentStake);
     }
 
@@ -863,7 +871,7 @@ class StakeManager {
         assetState.takeProfitAmount = assetState.takeProfit + assetState.accumulatedLoss;
 
         LOGGER.trade(`${symbol} Reversal #${assetState.reversalLevel}/${CONFIG.MAX_REVERSAL_LEVEL}: Stake $${assetState.currentStake.toFixed(2)}`);
-        LOGGER.trade(`${symbol} Dynamic TP: $${assetState.takeProfitAmount.toFixed(2)}`);
+        LOGGER.trade(`${symbol} Dynamic TP: $${assetState.takeProfitAmount.toFixed(2)} (Base: $${assetState.takeProfit} + Loss: $${assetState.accumulatedLoss.toFixed(2)})`);
 
         return this.validateStake(symbol, assetState.currentStake);
     }
@@ -871,7 +879,7 @@ class StakeManager {
     static fullReset(symbol) {
         const assetState = state.assets[symbol];
 
-        LOGGER.recovery(`${symbol} 🎉 FULL RESET`);
+        LOGGER.recovery(`${symbol} 🎉 FULL RESET - Trade cycle complete`);
 
         assetState.currentStake = CONFIG.INITIAL_STAKE;
         assetState.reversalLevel = 0;
@@ -879,9 +887,30 @@ class StakeManager {
         assetState.takeProfitAmount = CONFIG.TAKE_PROFIT;
         assetState.activePosition = null;
         assetState.currentDirection = null;
+        assetState.inTradeCycle = false;
+
+        // Don't clear breakout - it persists!
+        // Just mark as waiting for re-entry
+        if (assetState.breakout.active) {
+            BreakoutManager.setWaitingForReentry(symbol);
+        }
+    }
+
+    static fullResetWithBreakoutClear(symbol) {
+        const assetState = state.assets[symbol];
+
+        LOGGER.recovery(`${symbol} 🔄 FULL RESET WITH BREAKOUT CLEAR`);
+
+        assetState.currentStake = CONFIG.INITIAL_STAKE;
+        assetState.reversalLevel = 0;
+        assetState.accumulatedLoss = 0;
+        assetState.takeProfitAmount = CONFIG.TAKE_PROFIT;
+        assetState.activePosition = null;
+        assetState.currentDirection = null;
+        assetState.inTradeCycle = false;
+        assetState.waitingForReentry = false;
 
         BreakoutManager.clearBreakout(symbol);
-        SignalManager.resetSignals(symbol);
     }
 
     static shouldAutoClose(symbol, currentProfit) {
@@ -899,7 +928,6 @@ class StakeManager {
 
     static validateStake(symbol, stake) {
         const config = ASSET_CONFIGS[symbol];
-
         stake = Math.max(stake, config.minStake);
         stake = Math.min(stake, config.maxStake);
         stake = Math.min(stake, state.capital * 0.10);
@@ -921,7 +949,6 @@ class StakeManager {
 // ============================================
 // SESSION MANAGER
 // ============================================
-
 class SessionManager {
     static isSessionActive() {
         if (Date.now() < state.session.pausedUntil) {
@@ -978,7 +1005,10 @@ class SessionManager {
         };
 
         Object.keys(state.assets).forEach(symbol => {
-            StakeManager.fullReset(symbol);
+            StakeManager.fullResetWithBreakoutClear(symbol);
+            // Reset WPR flags for new session
+            state.assets[symbol].buyFlagActive = false;
+            state.assets[symbol].sellFlagActive = false;
         });
 
         LOGGER.info('🚀 NEW SESSION STARTED');
@@ -1007,16 +1037,20 @@ class SessionManager {
 // ============================================
 // RISK MANAGER
 // ============================================
-
 class RiskManager {
-    static canTrade() {
-        if (!SessionManager.isSessionActive()) return false;
-        if (SessionManager.checkSessionTargets()) return false;
+    static canTrade(isReversal = false) {
+        if (!isReversal) {
+            if (!SessionManager.isSessionActive()) return false;
+            if (SessionManager.checkSessionTargets()) return false;
+        }
+
         if (state.portfolio.activePositions.length >= CONFIG.MAX_OPEN_POSITIONS) return false;
+
         if (state.capital < CONFIG.INITIAL_STAKE) {
-            LOGGER.error(`Insufficient capital: $${state.capital.toFixed(2)} available, $${CONFIG.INITIAL_STAKE.toFixed(2)} required`);
+            LOGGER.error(`Insufficient capital: $${state.capital.toFixed(2)}`);
             return false;
         }
+
         return true;
     }
 
@@ -1028,18 +1062,16 @@ class RiskManager {
             return { allowed: false, reason: 'Asset not configured' };
         }
 
-        // Check trading hours
         if (!TradingHoursManager.isWithinTradingHours(symbol)) {
-            return { allowed: false, reason: `Outside trading hours (${config.tradingHours})` };
+            return { allowed: false, reason: `Outside trading hours` };
         }
 
         if (assetState.dailyTrades >= config.maxTradesPerDay) {
-            return { allowed: false, reason: `Daily trade limit reached (${assetState.dailyTrades}/${config.maxTradesPerDay})` };
+            return { allowed: false, reason: `Daily trade limit reached` };
         }
 
         if (Date.now() < assetState.blacklistedUntil) {
-            const remaining = Math.ceil((assetState.blacklistedUntil - Date.now()) / 1000);
-            return { allowed: false, reason: `Asset blacklisted for ${remaining}s` };
+            return { allowed: false, reason: `Asset blacklisted` };
         }
 
         return { allowed: true };
@@ -1059,6 +1091,7 @@ class RiskManager {
             state.portfolio.dailyWins++;
             assetState.dailyWins++;
             assetState.consecutiveLosses = 0;
+
             LOGGER.trade(`✅ WIN on ${symbol}: +$${profit.toFixed(2)}`);
             TelegramService.sendTradeAlert('WIN', symbol, direction, assetState.currentStake, StakeManager.getMultiplier(symbol), { profit });
         } else {
@@ -1069,8 +1102,8 @@ class RiskManager {
             state.portfolio.dailyLosses++;
             assetState.dailyLosses++;
             assetState.consecutiveLosses++;
+
             LOGGER.trade(`❌ LOSS on ${symbol}: -$${Math.abs(profit).toFixed(2)}`);
-            TelegramService.sendLossAlert(symbol, Math.abs(profit), assetState.consecutiveLosses);
         }
 
         assetState.tradeHistory.push({ timestamp: Date.now(), direction, profit });
@@ -1088,56 +1121,32 @@ class RiskManager {
 // ============================================
 // TRADING HOURS MANAGER
 // ============================================
-
 class TradingHoursManager {
-    /**
-     * Check if asset is within trading hours
-     * frxXAUUSD trades Sun 23:00 - Fri 21:55 GMT
-     */
     static isWithinTradingHours(symbol) {
         const config = ASSET_CONFIGS[symbol];
         if (!config) return false;
 
-        // Synthetic indices trade 24/7
         if (config.tradingHours === '24/7') {
             return true;
         }
 
-        // Parse trading hours for frxXAUUSD: Sun 23:00 - Fri 21:55 GMT
         if (symbol === 'frxXAUUSD') {
             return this.checkGoldTradingHours();
         }
 
-        // Default: allow trading if hours not specified
         return true;
     }
 
     static checkGoldTradingHours() {
         const now = new Date();
-        const day = now.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+        const day = now.getUTCDay();
         const hours = now.getUTCHours();
         const minutes = now.getUTCMinutes();
         const timeInMinutes = hours * 60 + minutes;
 
-        // Trading hours: Sun 23:00 - Fri 21:55 GMT
-        // Market OPENS Sunday 23:00, CLOSES Friday 21:55
-
-        // Saturday: Market closed all day
-        if (day === 6) {
-            return false;
-        }
-
-        // Sunday: Only open from 23:00 onwards
-        if (day === 0) {
-            return timeInMinutes >= 23 * 60; // >= 23:00
-        }
-
-        // Friday: Only open until 21:55
-        if (day === 5) {
-            return timeInMinutes < 21 * 60 + 55; // < 21:55
-        }
-
-        // Mon-Thu: Open all day
+        if (day === 6) return false;
+        if (day === 0) return timeInMinutes >= 23 * 60;
+        if (day === 5) return timeInMinutes < 21 * 60 + 55;
         return true;
     }
 }
@@ -1145,7 +1154,6 @@ class TradingHoursManager {
 // ============================================
 // CONNECTION MANAGER
 // ============================================
-
 class ConnectionManager {
     constructor() {
         this.ws = null;
@@ -1174,6 +1182,7 @@ class ConnectionManager {
         state.isConnected = true;
         this.reconnectAttempts = 0;
         this.lastDataTime = Date.now();
+
         this.startMonitor();
         this.send({ authorize: CONFIG.API_TOKEN });
     }
@@ -1197,13 +1206,13 @@ class ConnectionManager {
             LOGGER.info('🔐 Authorized successfully');
             LOGGER.info(`👤 Account: ${response.authorize.loginid}`);
             LOGGER.info(`💰 Balance: ${response.authorize.balance} ${response.authorize.currency}`);
+
             state.isAuthorized = true;
             state.accountBalance = response.authorize.balance;
 
-            // Synchronize capital with real balance if it's the first authorization
             if (state.capital === CONFIG.INITIAL_CAPITAL) {
                 state.capital = response.authorize.balance;
-                LOGGER.info(`⚖️ Initializing session capital to: $${state.capital.toFixed(2)}`);
+                LOGGER.info(`⚖️ Session capital: $${state.capital.toFixed(2)}`);
             }
 
             bot.start();
@@ -1251,15 +1260,13 @@ class ConnectionManager {
         }
     }
 
-    /**
-     * CRITICAL FIX: Handle OHLC properly - only process on TRUE CANDLE CLOSE
-     * Deriv sends OHLC updates on EVERY TICK, so we must detect actual candle closes
-     */
     handleOHLC(ohlc) {
         const symbol = ohlc.symbol;
         if (!state.assets[symbol]) return;
 
         const assetState = state.assets[symbol];
+        const calculatedOpenTime = ohlc.open_time ||
+            Math.floor(ohlc.epoch / CONFIG.GRANULARITY) * CONFIG.GRANULARITY;
 
         const incomingCandle = {
             open: parseFloat(ohlc.open),
@@ -1267,71 +1274,42 @@ class ConnectionManager {
             low: parseFloat(ohlc.low),
             close: parseFloat(ohlc.close),
             epoch: ohlc.epoch,
-            open_time: ohlc.open_time
+            open_time: calculatedOpenTime
         };
 
-        // Debug: Log every few candle updates (not every tick to avoid spam)
-        if (Math.random() < 0.01) { // Log ~1% of updates
-            const currentTime = new Date(Date.now()).toISOString().split('T')[1].split('.')[0];
-            const candleTime = new Date(incomingCandle.epoch * 1000).toISOString().split('T')[1].split('.')[0];
-            // LOGGER.debug(`${symbol} Candle Update [Now: ${currentTime}, Candle: ${candleTime}]: Current epoch: ${incomingCandle.epoch}, Forming: ${assetState.currentFormingCandle?.epoch || 'none'}`);
-        }
-
-        // Check if this is a different candle epoch (new candle = previous closed)
-        const isNewCandle = assetState.currentFormingCandle &&
-            assetState.currentFormingCandle.epoch !== incomingCandle.epoch;
+        const currentOpenTime = assetState.currentFormingCandle?.open_time;
+        const isNewCandle = currentOpenTime && incomingCandle.open_time !== currentOpenTime;
 
         if (isNewCandle) {
-            // Previous candle just CLOSED - process it
-            const closedCandle = assetState.currentFormingCandle;
+            const closedCandle = { ...assetState.currentFormingCandle };
+            closedCandle.epoch = closedCandle.open_time + CONFIG.GRANULARITY;
 
-            // Check if we haven't processed this specific candle epoch yet
-            if (closedCandle.epoch !== assetState.lastProcessedCandleEpoch) {
+            if (closedCandle.open_time !== assetState.lastProcessedCandleOpenTime) {
+                assetState.closedCandles.push(closedCandle);
 
-                // Verify this is a real candle from our timeframe
-                // Check if epoch is properly aligned to the timeframe (should be divisible by granularity)
-                const isAligned = (closedCandle.epoch % CONFIG.GRANULARITY) === 0;
-
-                if (isAligned) {
-                    // Add to closed candles array
-                    assetState.closedCandles.push(closedCandle);
-
-                    // Keep closed candles array manageable
-                    if (assetState.closedCandles.length > CONFIG.MAX_CANDLES_STORED) {
-                        assetState.closedCandles = assetState.closedCandles.slice(-CONFIG.MAX_CANDLES_STORED);
-                    }
-
-                    // Mark as processed
-                    assetState.lastProcessedCandleEpoch = closedCandle.epoch;
-
-                    // Log candle close with timestamp
-                    const candleTime = new Date(closedCandle.epoch * 1000).toISOString().split('T')[1].split('.')[0];
-                    // LOGGER.candle(`${symbol} 🕯️ CANDLE CLOSED [${candleTime}]: O:${closedCandle.open.toFixed(5)} H:${closedCandle.high.toFixed(5)} L:${closedCandle.low.toFixed(5)} C:${closedCandle.close.toFixed(5)}`);
-
-                    // NOW process trading logic on the CLOSED candle
-                    this.processCandleClose(symbol);
-                } else {
-                    // LOGGER.debug(`${symbol}: Skipping non-aligned candle epoch: ${closedCandle.epoch} (not divisible by ${CONFIG.GRANULARITY})`);
+                if (assetState.closedCandles.length > CONFIG.MAX_CANDLES_STORED) {
+                    assetState.closedCandles = assetState.closedCandles.slice(-CONFIG.MAX_CANDLES_STORED);
                 }
+
+                assetState.lastProcessedCandleOpenTime = closedCandle.open_time;
+
+                const closeTime = new Date(closedCandle.epoch * 1000).toISOString();
+                LOGGER.candle(`${symbol} 🕯️ CANDLE CLOSED [${closeTime}]: O:${closedCandle.open.toFixed(5)} H:${closedCandle.high.toFixed(5)} L:${closedCandle.low.toFixed(5)} C:${closedCandle.close.toFixed(5)}`);
+
+                this.processCandleClose(symbol);
             }
         }
 
-        // Update current forming candle (always update, regardless of whether we processed a close)
         assetState.currentFormingCandle = incomingCandle;
 
-        // Also update the candles array for display purposes
         const candles = assetState.candles;
-        const existingIndex = candles.findIndex(c => c.epoch === incomingCandle.epoch);
-
+        const existingIndex = candles.findIndex(c => c.open_time === incomingCandle.open_time);
         if (existingIndex >= 0) {
-            // Update existing candle (still forming)
             candles[existingIndex] = incomingCandle;
         } else {
-            // Add new candle
             candles.push(incomingCandle);
         }
 
-        // Keep candles array manageable
         if (candles.length > CONFIG.MAX_CANDLES_STORED) {
             assetState.candles = candles.slice(-CONFIG.MAX_CANDLES_STORED);
         }
@@ -1346,144 +1324,104 @@ class ConnectionManager {
         const symbol = response.echo_req.ticks_history;
         if (!state.assets[symbol]) return;
 
-        const candles = response.candles.map(c => ({
-            open: parseFloat(c.open),
-            high: parseFloat(c.high),
-            low: parseFloat(c.low),
-            close: parseFloat(c.close),
-            epoch: c.epoch
-        }));
+        const candles = response.candles.map(c => {
+            const openTime = Math.floor((c.epoch - CONFIG.GRANULARITY) / CONFIG.GRANULARITY) * CONFIG.GRANULARITY;
+            return {
+                open: parseFloat(c.open),
+                high: parseFloat(c.high),
+                low: parseFloat(c.low),
+                close: parseFloat(c.close),
+                epoch: c.epoch,
+                open_time: openTime
+            };
+        });
 
         if (candles.length === 0) {
             LOGGER.warn(`${symbol}: No historical candles received`);
             return;
         }
 
-        // All historical candles are CLOSED candles
         state.assets[symbol].candles = [...candles];
         state.assets[symbol].closedCandles = [...candles];
 
-        // Set the last candle as already processed
         const lastCandle = candles[candles.length - 1];
-        state.assets[symbol].lastProcessedCandleEpoch = lastCandle.epoch;
-
-        // Set the last historical candle as the initial forming candle
-        // The next OHLC update will either update this or start a new one
-        state.assets[symbol].currentFormingCandle = { ...lastCandle };
+        state.assets[symbol].lastProcessedCandleOpenTime = lastCandle.open_time;
+        state.assets[symbol].currentFormingCandle = null;
 
         LOGGER.info(`📊 Loaded ${candles.length} ${CONFIG.TIMEFRAME_LABEL} candles for ${symbol}`);
-        LOGGER.info(`   Latest candle: ${new Date(lastCandle.epoch * 1000).toISOString().split('T')[1].split('.')[0]} GMT`);
 
-        // Calculate initial indicators
         this.updateIndicators(symbol);
-
-        // Mark indicators as ready
         state.assets[symbol].indicatorsReady = true;
     }
 
-    /**
-     * Update indicators - ONLY using CLOSED candles
-     */
     updateIndicators(symbol) {
         const assetState = state.assets[symbol];
         const closedCandles = assetState.closedCandles;
 
-        const minRequired = Math.max(
-            CONFIG.WPR_PERIOD,
-            CONFIG.STOCH_K_PERIOD + CONFIG.STOCH_SMOOTH + CONFIG.STOCH_D_PERIOD
-        );
-
-        if (closedCandles.length < minRequired) {
-            LOGGER.debug(`${symbol}: Not enough closed candles for indicators (${closedCandles.length}/${minRequired})`);
+        if (closedCandles.length < CONFIG.WPR_PERIOD) {
+            LOGGER.debug(`${symbol}: Not enough candles for WPR (${closedCandles.length}/${CONFIG.WPR_PERIOD})`);
             assetState.indicatorsReady = false;
             return;
         }
 
-        // Store previous WPR value BEFORE updating
+        // Store previous WPR before updating
         assetState.prevWpr = assetState.wpr;
-
-        // Store previous Stochastic values BEFORE updating
-        const prevStoch = { ...assetState.stochastic };
 
         // Calculate WPR on CLOSED candles only
         assetState.wpr = TechnicalIndicators.calculateWPR(closedCandles, CONFIG.WPR_PERIOD);
-
-        // Calculate Stochastic on CLOSED candles only
-        const newStoch = TechnicalIndicators.calculateStochastic(
-            closedCandles,
-            CONFIG.STOCH_K_PERIOD,
-            CONFIG.STOCH_D_PERIOD,
-            CONFIG.STOCH_SMOOTH
-        );
-
-        // Update stochastic with new values
-        assetState.stochastic = {
-            k: newStoch.k,
-            d: newStoch.d,
-            prevK: prevStoch.k,  // Use the ACTUAL previous K value
-            prevD: prevStoch.d   // Use the ACTUAL previous D value
-        };
-
         assetState.indicatorsReady = true;
 
-        // LOGGER.debug(`${symbol} INDICATORS UPDATED: WPR: ${assetState.wpr.toFixed(2)} (prev: ${assetState.prevWpr.toFixed(2)}) | Stoch K:${assetState.stochastic.k.toFixed(2)} D:${assetState.stochastic.d.toFixed(2)}`);
+        LOGGER.debug(`${symbol} WPR: ${assetState.wpr.toFixed(2)} (prev: ${assetState.prevWpr.toFixed(2)}) | BuyFlag: ${assetState.buyFlagActive} | SellFlag: ${assetState.sellFlagActive}`);
     }
 
-    /**
-     * Process trading logic on CANDLE CLOSE only
-     */
     processCandleClose(symbol) {
         const assetState = state.assets[symbol];
         const closedCandles = assetState.closedCandles;
 
-        const minRequired = Math.max(
-            CONFIG.WPR_PERIOD,
-            CONFIG.STOCH_K_PERIOD + CONFIG.STOCH_SMOOTH + CONFIG.STOCH_D_PERIOD
-        );
-
-        if (closedCandles.length < minRequired) {
-            LOGGER.debug(`${symbol}: Not enough closed candles for processing (${closedCandles.length}/${minRequired})`);
+        if (closedCandles.length < CONFIG.WPR_PERIOD) {
+            LOGGER.debug(`${symbol}: Not enough candles for processing`);
             return;
         }
 
-        // 1. Update indicators with closed candle data
+        // 1. Update WPR indicator
         this.updateIndicators(symbol);
 
-        // Only proceed if indicators are ready
         if (!assetState.indicatorsReady) {
-            LOGGER.debug(`${symbol}: Indicators not ready yet`);
             return;
         }
 
-        // 2. Update WPR state and check for IMMEDIATE trade signals
+        // 2. Update WPR state and check for signals
         SignalManager.updateWPRState(symbol);
 
-        // 3. If no active position and NOT in trade cycle, check for immediate entry
-        if (!assetState.activePosition && !assetState.inTradeCycle) {
-            const tradeSignal = SignalManager.checkForTradeSignal(symbol);
-
-            if (tradeSignal) {
-                // Setup breakout levels immediately
-                const setupSuccess = BreakoutManager.setupBreakoutLevels(symbol, tradeSignal);
-
-                if (setupSuccess) {
-                    // Execute trade immediately - no waiting
-                    bot.executeTrade(symbol, tradeSignal, false);
-                }
+        // 3. Check for breakout replacement during active trade
+        if (assetState.inTradeCycle && assetState.activePosition) {
+            const replacementReversal = BreakoutManager.checkForBreakoutReplacement(symbol);
+            if (replacementReversal) {
+                bot.executeReversal(symbol, replacementReversal);
+                return;
             }
         }
 
-        // 4. If active position, check for reversal
+        // 4. Check for reversal if in active trade
         if (assetState.activePosition && assetState.breakout.active) {
             const reversal = BreakoutManager.checkReversal(symbol);
-
             if (reversal) {
                 bot.executeReversal(symbol, reversal);
+                return;
+            }
+        }
+
+        // 5. Check for re-entry if waiting after TP
+        if (assetState.waitingForReentry) {
+            const reentry = SignalManager.checkReentrySignal(symbol);
+            if (reentry) {
+                assetState.inTradeCycle = true;
+                bot.executeTrade(symbol, reentry, false);
             }
         }
 
         // Log status
-        LOGGER.debug(`${symbol} STATUS | WPR: ${assetState.wpr.toFixed(2)} (prev: ${assetState.prevWpr.toFixed(2)}) | Stoch K:${assetState.stochastic.k.toFixed(2)} D:${assetState.stochastic.d.toFixed(2)} | InCycle: ${assetState.inTradeCycle} | Direction: ${assetState.currentDirection || 'NONE'}`);
+        LOGGER.debug(`${symbol} STATUS | WPR: ${assetState.wpr.toFixed(2)} | BuyFlag: ${assetState.buyFlagActive} | SellFlag: ${assetState.sellFlagActive} | InCycle: ${assetState.inTradeCycle} | Waiting: ${assetState.waitingForReentry} | Breakout: ${assetState.breakout.type || 'none'}`);
     }
 
     handleBuyResponse(response) {
@@ -1521,7 +1459,10 @@ class ConnectionManager {
                 state.assets[position.symbol].activePosition = position;
             }
 
-            TelegramService.sendTradeAlert('OPEN', position.symbol, position.direction, position.stake, position.multiplier, { reversalLevel: position.reversalLevel });
+            TelegramService.sendTradeAlert('OPEN', position.symbol, position.direction, breakoutHigh, breakoutLow, position.stake, position.multiplier, {
+                reversalLevel: position.reversalLevel,
+                breakoutType: state.assets[position.symbol]?.breakout?.type
+            });
         }
 
         this.send({
@@ -1552,6 +1493,7 @@ class ConnectionManager {
             state.portfolio.activePositions.splice(posIndex, 1);
 
             const assetState = state.assets[position.symbol];
+
             if (assetState) {
                 if (position.isRecoveryClose) {
                     LOGGER.recovery(`${position.symbol}: Recovery close completed. Profit: $${profit.toFixed(2)}`);
@@ -1559,7 +1501,6 @@ class ConnectionManager {
                 } else if (position.pendingReversal) {
                     const reversalDir = position.pendingReversal;
                     const lossAmount = profit < 0 ? profit : 0;
-
                     assetState.activePosition = null;
                     assetState.currentDirection = null;
 
@@ -1567,8 +1508,8 @@ class ConnectionManager {
                         bot.executeTrade(position.symbol, reversalDir, true, lossAmount);
                     }, 500);
                 } else if (position.isMaxReversalClose) {
-                    LOGGER.warn(`${position.symbol}: Max reversals reached. Full reset.`);
-                    StakeManager.fullReset(position.symbol);
+                    LOGGER.warn(`${position.symbol}: Max reversals reached. Full reset with breakout clear.`);
+                    StakeManager.fullResetWithBreakoutClear(position.symbol);
                 } else {
                     assetState.activePosition = null;
                     assetState.currentDirection = null;
@@ -1611,7 +1552,7 @@ class ConnectionManager {
                     state.assets[symbol].currentDirection = null;
 
                     if (profit > 0) {
-                        LOGGER.recovery(`${symbol} 🎉 WIN! Trade cycle complete.`);
+                        LOGGER.recovery(`${symbol} 🎉 WIN! Trade cycle TP reached.`);
                         StakeManager.fullReset(symbol);
                     }
                 }
@@ -1623,19 +1564,11 @@ class ConnectionManager {
                 this.send({ forget: response.subscription.id });
             }
         } else if (posIndex >= 0) {
-            // Update live profit and price for active positions
             const position = state.portfolio.activePositions[posIndex];
-            position.currentProfit = contract.profit || 0;
-            position.currentPrice = contract.current_spot || 0;
-            position.bidPrice = contract.bid_price || 0;
+            position.currentProfit = contract.profit;
+            position.currentPrice = contract.current_spot;
 
             const assetState = state.assets[position.symbol];
-
-            // Log profit updates periodically
-            if (Math.random() < 0.05) { // Log ~5% of updates to avoid spam
-                LOGGER.debug(`${position.symbol} Live P/L: $${position.currentProfit.toFixed(2)} | Price: ${position.currentPrice.toFixed(5)}`);
-            }
-
             if (assetState && StakeManager.shouldAutoClose(position.symbol, contract.profit)) {
                 LOGGER.recovery(`${position.symbol}: Profit $${contract.profit.toFixed(2)} >= Loss $${assetState.accumulatedLoss.toFixed(2)} - AUTO CLOSING`);
                 position.isRecoveryClose = true;
@@ -1652,6 +1585,7 @@ class ConnectionManager {
         LOGGER.warn('🔌 Disconnected from Deriv API');
         state.isConnected = false;
         state.isAuthorized = false;
+
         this.stopMonitor();
 
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
@@ -1675,6 +1609,7 @@ class ConnectionManager {
 
         this.checkDataInterval = setInterval(() => {
             if (!state.isConnected) return;
+
             const silenceDuration = Date.now() - this.lastDataTime;
             if (silenceDuration > 60000) {
                 LOGGER.error(`⚠️ No data for ${Math.round(silenceDuration / 1000)}s - Forcing reconnection...`);
@@ -1693,6 +1628,7 @@ class ConnectionManager {
             LOGGER.error('Cannot send: Not connected');
             return null;
         }
+
         data.req_id = state.requestId++;
         this.ws.send(JSON.stringify(data));
         return data.req_id;
@@ -1702,7 +1638,6 @@ class ConnectionManager {
 // ============================================
 // MAIN BOT CLASS
 // ============================================
-
 class DerivBot {
     constructor() {
         this.connection = new ConnectionManager();
@@ -1710,26 +1645,28 @@ class DerivBot {
 
     async start() {
         console.log('\n' + '═'.repeat(90));
-        console.log('         DERIV MULTIPLIER BOT v6.2');
-        console.log('         WPR Strategy - SIGNALS ON CANDLE CLOSE ONLY');
+        console.log(' DERIV MULTIPLIER BOT v7.0 - WPR ONLY STRATEGY');
+        console.log(' Persistent Breakout Levels - Signals on CANDLE CLOSE');
         console.log('═'.repeat(90));
         console.log(`💰 Initial Capital: $${state.capital}`);
         console.log(`📊 Active Assets: ${ACTIVE_ASSETS.length} (${ACTIVE_ASSETS.join(', ')})`);
-        console.log(`⏱️  Timeframe: ${CONFIG.TIMEFRAME_LABEL} (${CONFIG.GRANULARITY} seconds)`);
+        console.log(`⏱️ Timeframe: ${CONFIG.TIMEFRAME_LABEL} (${CONFIG.GRANULARITY} seconds)`);
         console.log(`🎯 Session Target: $${CONFIG.SESSION_PROFIT_TARGET} | Stop Loss: $${CONFIG.SESSION_STOP_LOSS}`);
         console.log(`🔄 Max Reversals: ${CONFIG.MAX_REVERSAL_LEVEL} | Multiplier: ${CONFIG.REVERSAL_STAKE_MULTIPLIER}x`);
         console.log(`📱 Telegram: ${CONFIG.TELEGRAM_ENABLED ? 'ENABLED' : 'DISABLED'}`);
         console.log('═'.repeat(90));
-        console.log('📋 Strategy (ALL SIGNALS ON CANDLE CLOSE):');
-        console.log('   BUY: WPR crosses > -20 (from -80) → Execute IMMEDIATELY');
-        console.log('   SELL: WPR crosses < -80 (from -20) → Execute IMMEDIATELY');
-        console.log('   Reversal: Price closes beyond breakout levels (max 6x)');
+        console.log('📋 WPR ONLY Strategy:');
+        console.log(' BUY: WPR crosses above -20 (must have visited -80 first) → Execute immediately');
+        console.log(' SELL: WPR crosses below -80 (must have visited -20 first) → Execute immediately');
+        console.log(' Breakout levels persist until replaced by opposite type');
+        console.log(' After TP: Wait for re-entry when price closes beyond levels');
         console.log('═'.repeat(90) + '\n');
 
         this.connection.send({ balance: 1, subscribe: 1 });
-        await this.subscribeToAssets();
-        SessionManager.startNewSession();
 
+        await this.subscribeToAssets();
+
+        SessionManager.startNewSession();
         TelegramService.sendStartupMessage();
 
         if (CONFIG.TELEGRAM_ENABLED) {
@@ -1747,7 +1684,6 @@ class DerivBot {
             const config = ASSET_CONFIGS[symbol];
             if (!config) continue;
 
-            // Get historical candles
             this.connection.send({
                 ticks_history: symbol,
                 adjust_start_time: 1,
@@ -1757,7 +1693,6 @@ class DerivBot {
                 style: 'candles'
             });
 
-            // Subscribe to candle updates
             this.connection.send({
                 ticks_history: symbol,
                 adjust_start_time: 1,
@@ -1768,7 +1703,6 @@ class DerivBot {
                 subscribe: 1
             });
 
-            // Subscribe to ticks for current price
             this.connection.send({
                 ticks: symbol,
                 subscribe: 1
@@ -1780,7 +1714,7 @@ class DerivBot {
     }
 
     executeTrade(symbol, direction, isReversal = false, previousLoss = 0) {
-        if (!RiskManager.canTrade()) return;
+        if (!RiskManager.canTrade(isReversal)) return;
 
         const assetCheck = RiskManager.canAssetTrade(symbol);
         if (!assetCheck.allowed) {
@@ -1800,10 +1734,9 @@ class DerivBot {
         let stake;
         if (isReversal) {
             stake = StakeManager.getReversalStake(symbol, previousLoss);
-
             if (stake === -1) {
                 LOGGER.warn(`${symbol}: Max reversals reached - ending trade cycle`);
-                StakeManager.fullReset(symbol);
+                StakeManager.fullResetWithBreakoutClear(symbol);
                 return;
             }
         } else {
@@ -1819,7 +1752,8 @@ class DerivBot {
         const multiplier = StakeManager.getMultiplier(symbol);
 
         LOGGER.trade(`🎯 ${isReversal ? 'REVERSAL' : 'NEW'} ${direction} on ${config.name}`);
-        LOGGER.trade(`   Stake: $${stake.toFixed(2)} | Multiplier: x${multiplier} | Rev: ${assetState.reversalLevel}/${CONFIG.MAX_REVERSAL_LEVEL}`);
+        LOGGER.trade(` Stake: $${stake.toFixed(2)} | Multiplier: x${multiplier} | Rev: ${assetState.reversalLevel}/${CONFIG.MAX_REVERSAL_LEVEL}`);
+        LOGGER.trade(` Breakout Type: ${assetState.breakout.type} | High: ${assetState.breakout.highLevel.toFixed(5)} | Low: ${assetState.breakout.lowLevel.toFixed(5)}`);
 
         const position = {
             symbol,
@@ -1885,15 +1819,13 @@ class DerivBot {
 
         LOGGER.trade(`🔄 REVERSING ${symbol}: ${position.direction} → ${newDirection} (#${assetState.reversalLevel + 1})`);
 
-        // Maintain breakout levels after reversal
-        BreakoutManager.maintainBreakoutLevels(symbol);
-
         position.pendingReversal = newDirection;
         this.connection.send({ sell: position.contractId, price: 0 });
     }
 
     async closeAllPositions() {
         LOGGER.info('🔒 Closing all positions...');
+
         for (const position of state.portfolio.activePositions) {
             if (position.contractId) {
                 this.connection.send({ sell: position.contractId, price: 0 });
@@ -1905,6 +1837,7 @@ class DerivBot {
     stop() {
         LOGGER.info('🛑 Stopping bot...');
         this.closeAllPositions();
+
         setTimeout(() => {
             if (this.connection.ws) this.connection.ws.close();
             LOGGER.info('👋 Bot stopped');
@@ -1922,31 +1855,28 @@ class DerivBot {
             session: sessionStats,
             timeframe: CONFIG.TIMEFRAME_LABEL,
             activePositionsCount: state.portfolio.activePositions.length,
-            activePositions: state.portfolio.activePositions.map(pos => {
-                const assetState = state.assets[pos.symbol];
-                return {
-                    symbol: pos.symbol,
-                    direction: pos.direction,
-                    stake: pos.stake,
-                    multiplier: pos.multiplier,
-                    profit: pos.currentProfit || 0,
-                    reversalLevel: pos.reversalLevel,
-                    tpTarget: assetState ? assetState.takeProfitAmount : CONFIG.TAKE_PROFIT,
-                    duration: Math.floor((Date.now() - pos.entryTime) / 1000)
-                };
-            }),
+            activePositions: state.portfolio.activePositions.map(pos => ({
+                symbol: pos.symbol,
+                direction: pos.direction,
+                stake: pos.stake,
+                multiplier: pos.multiplier,
+                profit: pos.currentProfit,
+                reversalLevel: pos.reversalLevel,
+                duration: Math.floor((Date.now() - pos.entryTime) / 1000)
+            })),
             assetStats: Object.entries(state.assets).map(([symbol, data]) => ({
                 symbol,
                 wpr: data.wpr.toFixed(1),
-                zone: data.wprZone,
-                stochK: data.stochastic.k.toFixed(1),
-                stochD: data.stochastic.d.toFixed(1),
-                direction: data.currentDirection || 'NONE',
-                inCycle: data.inTradeCycle ? '🔄' : '-',
+                buyFlag: data.buyFlagActive ? '🟢' : '-',
+                sellFlag: data.sellFlagActive ? '🔴' : '-',
+                direction: data.currentDirection || '-',
+                inCycle: data.inTradeCycle ? '🔄' : (data.waitingForReentry ? '⏸️' : '-'),
+                breakoutType: data.breakout.type || '-',
                 breakoutHigh: data.breakout.active ? data.breakout.highLevel.toFixed(5) : '-',
                 breakoutLow: data.breakout.active ? data.breakout.lowLevel.toFixed(5) : '-',
                 reversalLevel: `${data.reversalLevel}/${CONFIG.MAX_REVERSAL_LEVEL}`,
-                closedCandles: data.closedCandles.length
+                closedCandles: data.closedCandles.length,
+                dailyTrades: data.dailyTrades
             }))
         };
     }
@@ -1955,65 +1885,47 @@ class DerivBot {
 // ============================================
 // CONSOLE DASHBOARD
 // ============================================
-
 class Dashboard {
     static display() {
         const status = bot.getStatus();
         const session = status.session;
 
-        console.clear(); // Clear screen for better readability
-
-        console.log('\n' + '╔' + '═'.repeat(115) + '╗');
-        console.log('║' + `     DERIV BOT v6.3 - ${CONFIG.TIMEFRAME_LABEL} CANDLES | SIGNALS ON CLOSE ONLY`.padEnd(115) + '║');
-        console.log('╠' + '═'.repeat(115) + '╣');
+        console.log('\n' + '╔' + '═'.repeat(120) + '╗');
+        console.log('║' + ` DERIV BOT v7.0 - WPR ONLY | ${CONFIG.TIMEFRAME_LABEL} CANDLES | PERSISTENT BREAKOUT LEVELS`.padEnd(120) + '║');
+        console.log('╠' + '═'.repeat(120) + '╣');
 
         const netPLColor = session.netPL >= 0 ? '\x1b[32m' : '\x1b[31m';
         const resetColor = '\x1b[0m';
 
-        console.log(`║ 💰 Capital: $${status.capital.toFixed(2).padEnd(12)} 🏦 Account: $${status.accountBalance.toFixed(2).padEnd(12)} 📱 Telegram: ${CONFIG.TELEGRAM_ENABLED ? 'ON' : 'OFF'}`.padEnd(124) + '║');
-        console.log(`║ 📊 Session: ${session.duration.padEnd(10)} Trades: ${session.trades.toString().padEnd(5)} Win Rate: ${session.winRate.padEnd(8)}`.padEnd(124) + '║');
-        console.log(`║ 💹 Net P/L: ${netPLColor}$${session.netPL.toFixed(2).padEnd(10)}${resetColor} Target: $${session.profitTarget.toFixed(2).padEnd(10)}`.padEnd(132) + '║');
-
-        console.log('╠' + '═'.repeat(115) + '╣');
+        console.log(`║ 💰 Capital: $${status.capital.toFixed(2).padEnd(12)} 🏦 Account: $${status.accountBalance.toFixed(2).padEnd(12)} 📱 Telegram: ${CONFIG.TELEGRAM_ENABLED ? 'ON' : 'OFF'}`.padEnd(129) + '║');
+        console.log(`║ 📊 Session: ${session.duration.padEnd(10)} Trades: ${session.trades.toString().padEnd(5)} Win Rate: ${session.winRate.padEnd(8)}`.padEnd(129) + '║');
+        console.log(`║ 💹 Net P/L: ${netPLColor}$${session.netPL.toFixed(2).padEnd(10)}${resetColor} Target: $${session.profitTarget.toFixed(2).padEnd(10)}`.padEnd(137) + '║');
+        console.log('╠' + '═'.repeat(120) + '╣');
 
         if (status.activePositions.length > 0) {
-            console.log('║ 🚀 ACTIVE POSITIONS:'.padEnd(116) + '║');
-            console.log('║ Symbol      | Dir  | Stake    | Multi | Profit    | Rev | TP Target | Duration  ║');
-            console.log('║' + '-'.repeat(115) + '║');
+            console.log('║ 🚀 ACTIVE POSITIONS:'.padEnd(121) + '║');
+            console.log('║ Symbol | Dir | Stake | Multi | Profit | Rev Lvl | Duration'.padEnd(121) + '║');
+            console.log('║' + '-'.repeat(120) + '║');
 
             status.activePositions.forEach(pos => {
                 const profitColor = pos.profit >= 0 ? '\x1b[32m' : '\x1b[31m';
                 const profitStr = pos.profit >= 0 ? `+${pos.profit.toFixed(2)}` : pos.profit.toFixed(2);
-                const durationStr = this.formatDuration(pos.duration);
-
-                console.log(`║ ${pos.symbol.padEnd(11)} | ${pos.direction.padEnd(4)} | $${pos.stake.toFixed(2).padEnd(7)} | x${pos.multiplier.toString().padEnd(4)} | ${profitColor}${profitStr.padEnd(9)}${resetColor} | ${pos.reversalLevel}/${CONFIG.MAX_REVERSAL_LEVEL} | $${pos.tpTarget.toFixed(2).padEnd(8)} | ${durationStr.padEnd(9)} ║`);
+                console.log(`║ ${pos.symbol.padEnd(10)} | ${pos.direction.padEnd(4)} | $${pos.stake.toFixed(2).padEnd(6)} | x${pos.multiplier.toString().padEnd(4)} | ${profitColor}${profitStr.padEnd(8)}${resetColor} | ${pos.reversalLevel.toString().padEnd(7)} | ${pos.duration}s`.padEnd(129) + '║');
             });
-            console.log('╠' + '═'.repeat(115) + '╣');
+            console.log('╠' + '═'.repeat(120) + '╣');
         }
 
-        console.log('║ 📊 ASSET STATUS (Updated on CANDLE CLOSE only):'.padEnd(116) + '║');
-        console.log('║ Symbol      | WPR    | Zone     | Cycle | High Lvl      | Low Lvl       | Rev   | Direction | Candles ║');
-        console.log('║' + '-'.repeat(115) + '║');
+        console.log('║ 📊 WPR STATUS (Updated on CANDLE CLOSE only):'.padEnd(121) + '║');
+        console.log('║ Symbol | WPR | BuyFlg | SellFlg | Status | BkType | High Level | Low Level | Rev | Bars ║');
+        console.log('║' + '-'.repeat(120) + '║');
 
         status.assetStats.forEach(stat => {
-            const cycleColor = stat.inCycle === '🔄' ? '\x1b[33m' : '\x1b[90m';
-            const zoneColor = stat.zone === 'oversold' ? '\x1b[36m' : (stat.zone === 'overbought' ? '\x1b[35m' : '\x1b[90m');
-
-            console.log(`║ ${stat.symbol.padEnd(11)} | ${stat.wpr.padEnd(6)} | ${zoneColor}${stat.zone.padEnd(8)}${resetColor} | ${cycleColor}${stat.inCycle.padEnd(5)}${resetColor} | ${stat.breakoutHigh.padEnd(13)} | ${stat.breakoutLow.padEnd(13)} | ${stat.reversalLevel.padEnd(5)} | ${stat.direction.padEnd(9)} | ${stat.closedCandles.toString().padEnd(7)} ║`);
+            const cycleColor = stat.inCycle === '🔄' ? '\x1b[33m' : (stat.inCycle === '⏸️' ? '\x1b[36m' : '\x1b[90m');
+            console.log(`║ ${stat.symbol.padEnd(10)} | ${stat.wpr.padEnd(6)} | ${stat.buyFlag.padEnd(6)} | ${stat.sellFlag.padEnd(7)} | ${cycleColor}${stat.inCycle.padEnd(6)}${'\x1b[0m'} | ${stat.breakoutType.padEnd(6)} | ${stat.breakoutHigh.padEnd(13)} | ${stat.breakoutLow.padEnd(13)} | ${stat.reversalLevel.padEnd(7)} | ${stat.closedCandles.toString().padEnd(4)} ║`);
         });
 
-        console.log('╚' + '═'.repeat(115) + '╝');
-        console.log(`⏰ ${getGMTTime()} | TF: ${CONFIG.TIMEFRAME} | Active Pos: ${status.activePositionsCount} | Ctrl+C to stop\n`);
-    }
-
-    static formatDuration(seconds) {
-        if (seconds < 60) return `${seconds}s`;
-        const minutes = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        if (minutes < 60) return `${minutes}m ${secs}s`;
-        const hours = Math.floor(minutes / 60);
-        const mins = minutes % 60;
-        return `${hours}h ${mins}m`;
+        console.log('╚' + '═'.repeat(120) + '╝');
+        console.log(`⏰ ${getGMTTime()} | TF: ${CONFIG.TIMEFRAME} | Strategy: WPR Only | Ctrl+C to stop\n`);
     }
 
     static startLiveUpdates() {
@@ -2028,11 +1940,10 @@ class Dashboard {
 // ============================================
 // INITIALIZATION
 // ============================================
-
 const bot = new DerivBot();
 
 process.on('SIGINT', () => {
-    console.log('\n\n⚠️  Shutdown signal received...');
+    console.log('\n\n⚠️ Shutdown signal received...');
     bot.stop();
     setTimeout(() => process.exit(0), 3000);
 });
@@ -2043,36 +1954,30 @@ process.on('SIGTERM', () => {
 });
 
 if (CONFIG.API_TOKEN === 'YOUR_API_TOKEN_HERE') {
-    console.log('═'.repeat(115));
-    console.log('         DERIV MULTIPLIER BOT v6.2');
-    console.log('         WPR Strategy - SIGNALS ON CANDLE CLOSE ONLY');
-    console.log('═'.repeat(115));
-    console.log('\n⚠️  API Token not configured!\n');
+    console.log('═'.repeat(90));
+    console.log(' DERIV MULTIPLIER BOT v7.0 - WPR ONLY STRATEGY');
+    console.log('═'.repeat(90));
+    console.log('\n⚠️ API Token not configured!\n');
     console.log('Usage:');
-    console.log('  API_TOKEN=xxx TIMEFRAME=5m TELEGRAM_BOT_TOKEN=xxx TELEGRAM_CHAT_ID=xxx node deriv-bot.js');
+    console.log(' API_TOKEN=xxx TIMEFRAME=5m node deriv-bot.js');
     console.log('\nEnvironment Variables:');
-    console.log('  API_TOKEN           - Deriv API token (required)');
-    console.log('  TIMEFRAME           - Candle timeframe: 1m, 2m, 3m, 4m, 5m, 10m, 15m, 30m, 1h, 4h (default: 5m)');
-    console.log('  CAPITAL             - Initial capital (default: 500)');
-    console.log('  STAKE               - Initial stake (default: 1)');
-    console.log('  TAKE_PROFIT         - Take profit per trade (default: 0.5)');
-    console.log('  PROFIT_TARGET       - Session profit target (default: 150)');
-    console.log('  STOP_LOSS           - Session stop loss (default: -500)');
-    console.log('  TELEGRAM_BOT_TOKEN  - Telegram bot token for notifications');
-    console.log('  TELEGRAM_CHAT_ID    - Telegram chat ID for notifications');
-    console.log('  DEBUG               - Enable debug mode (default: false)');
-    console.log('\nKey Fix in v6.2:');
-    console.log('  ✅ Indicators only update on CANDLE CLOSE');
-    console.log('  ✅ Signals only generated on CANDLE CLOSE');
-    console.log('  ✅ No more false signals from tick-by-tick updates');
-    console.log('═'.repeat(115));
+    console.log(' API_TOKEN - Deriv API token (required)');
+    console.log(' TIMEFRAME - Candle timeframe (default: 1m)');
+    console.log(' CAPITAL - Initial capital (default: 500)');
+    console.log(' STAKE - Initial stake (default: 1)');
+    console.log(' TAKE_PROFIT - Take profit per trade (default: 1.5)');
+    console.log(' PROFIT_TARGET - Session profit target (default: 15000)');
+    console.log(' STOP_LOSS - Session stop loss (default: -500)');
+    console.log(' TELEGRAM_BOT_TOKEN - Telegram bot token');
+    console.log(' TELEGRAM_CHAT_ID - Telegram chat ID');
+    console.log('═'.repeat(90));
     process.exit(1);
 }
 
-console.log('═'.repeat(115));
-console.log('         DERIV MULTIPLIER BOT v6.2');
-console.log(`         Timeframe: ${CONFIG.TIMEFRAME_LABEL} | Signals: ON CANDLE CLOSE ONLY`);
-console.log('═'.repeat(115));
+console.log('═'.repeat(90));
+console.log(' DERIV MULTIPLIER BOT v7.0 - WPR ONLY STRATEGY');
+console.log(` Timeframe: ${CONFIG.TIMEFRAME_LABEL} | Signals: ON CANDLE CLOSE`);
+console.log('═'.repeat(90));
 console.log('\n🚀 Initializing...\n');
 
 bot.connection.connect();
