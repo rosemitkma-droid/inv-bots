@@ -1099,14 +1099,14 @@ const bot = new AILogicDigitDifferBot({
 
     investmentCapital: 1000,
     kellyFraction: 0.2, // 20% of full Kelly
-    minStake: 0.61,
+    minStake: 5.5,
     maxStakePercent: 100,
-    multiplier: 11.3,
+    multiplier: 1,
 
     maxDrawdownPercent: 100,
     dailyLossLimit: 100,
     dailyProfitTarget: 1000,
-    maxConsecutiveLosses: 4,//6
+    maxConsecutiveLosses: 20,//6
 
     requiredHistoryLength: 1000,
     minWaitTime: 1000,
