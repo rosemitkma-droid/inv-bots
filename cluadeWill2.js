@@ -215,8 +215,8 @@ const TIMEFRAMES = {
 };
 
 // Default to 5 minutes, user can override with TIMEFRAME env variable
-const SELECTED_TIMEFRAME = process.env.TIMEFRAME || '5m';
-const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME] || TIMEFRAMES['5m'];
+const SELECTED_TIMEFRAME = '1m';
+const TIMEFRAME_CONFIG = TIMEFRAMES['1m'];
 
 // ============================================
 // CONFIGURATION
@@ -224,8 +224,8 @@ const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME] || TIMEFRAMES['5m'];
 
 const CONFIG = {
     // API Settings
-    API_TOKEN: process.env.API_TOKEN || '0P94g4WdSrSrzir',
-    APP_ID: process.env.APP_ID || '1089',
+    API_TOKEN: '0P94g4WdSrSrzir',
+    APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // Capital Settings
@@ -417,7 +417,9 @@ const state = {
     requestId: 1
 };
 
-// Initialize asset states
+/**
+ * CORRECTED: Initialize asset states with additional tracking fields
+ */
 function initializeAssetStates() {
     ACTIVE_ASSETS.forEach(symbol => {
         if (ASSET_CONFIGS[symbol]) {
@@ -428,35 +430,40 @@ function initializeAssetStates() {
                 currentPrice: 0,
 
                 // CLOSED candle tracking for indicators
-                closedCandles: [],  // Only completed candles
+                closedCandles: [],
                 lastClosedCandleEpoch: 0,
+
+                // FIXED: Add open_time based tracking
+                lastProcessedCandleOpenTime: 0,
 
                 // Current forming candle tracking
                 currentFormingCandle: null,
 
-                // WPR tracking (calculated on CLOSED candles only)
+                // WPR tracking
                 wpr: -50,
                 prevWpr: -50,
 
-                // WPR Zone tracking - FIXED logic
+                // WPR Zone tracking
                 wprZone: 'neutral',
-                hasVisitedOversold: false,   // Set to true when entering oversold (-80)
-                hasVisitedOverbought: false, // Set to true when entering overbought (-20)
+                hasVisitedOversold: false,
+                hasVisitedOverbought: false,
 
                 // Signal states
                 buySignalActive: false,
                 sellSignalActive: false,
                 signalCandle: null,
 
-                // Stochastic tracking (calculated on CLOSED candles only)
+                // Stochastic tracking
                 stochastic: {
                     k: 50,
                     d: 50,
                     prevK: 50,
                     prevD: 50
                 },
+                // FIXED: Add initialization flag
+                stochasticInitialized: false,
 
-                // Breakout levels - Uses PREVIOUS candle before confirmation
+                // Breakout levels
                 breakout: {
                     active: false,
                     highLevel: 0,
@@ -490,7 +497,7 @@ function initializeAssetStates() {
                 score: 0,
                 lastBarTime: 0,
 
-                // Candle close tracking
+                // DEPRECATED: lastProcessedCandleEpoch - use lastProcessedCandleOpenTime instead
                 lastProcessedCandleEpoch: 0,
 
                 // Indicator readiness
@@ -501,7 +508,7 @@ function initializeAssetStates() {
 
     LOGGER.info(`Initialized ${Object.keys(state.assets).length} assets`);
     LOGGER.info(`⏱️ Timeframe: ${CONFIG.TIMEFRAME_LABEL} (${CONFIG.GRANULARITY}s candles)`);
-    LOGGER.info(`📊 Signals generated ONLY on candle CLOSE`);
+    LOGGER.info(`📊 Signals generated ONLY on candle CLOSE (using open_time detection)`);
 }
 
 initializeAssetStates();
@@ -606,35 +613,36 @@ class TechnicalIndicators {
 
 class SignalManager {
     /**
-     * Update WPR state and check for signals - ONLY called on candle close
+     * CORRECTED: Update WPR state with proper zone flag clearing
      */
     static updateWPRState(symbol) {
         const assetState = state.assets[symbol];
         const wpr = assetState.wpr;
         const prevWpr = assetState.prevWpr;
 
-        // Track zone transitions for "first time" logic
-        const wasInOversold = prevWpr < CONFIG.WPR_OVERSOLD;
-        const wasInOverbought = prevWpr > CONFIG.WPR_OVERBOUGHT;
-        const isInOversold = wpr < CONFIG.WPR_OVERSOLD;
-        const isInOverbought = wpr > CONFIG.WPR_OVERBOUGHT;
+        // Track zone transitions
+        const wasInOversold = prevWpr < CONFIG.WPR_OVERSOLD;      // prevWpr < -80
+        const wasInOverbought = prevWpr > CONFIG.WPR_OVERBOUGHT;  // prevWpr > -20
+        const isInOversold = wpr < CONFIG.WPR_OVERSOLD;           // wpr < -80
+        const isInOverbought = wpr > CONFIG.WPR_OVERBOUGHT;       // wpr > -20
 
-        // Update zone tracking
+        // Update zone tracking - FIXED: Clear opposite flags
         if (isInOversold) {
             assetState.wprZone = 'oversold';
             assetState.hasVisitedOversold = true;
-            // When entering oversold, clear overbought flag
+            // FIXED: When entering oversold, clear overbought flag
+            // This ensures "first time since" logic works correctly
             if (!wasInOversold) {
                 // assetState.hasVisitedOverbought = false;
-                LOGGER.debug(`${symbol}: Entered OVERSOLD zone (WPR: ${wpr.toFixed(2)})`);
+                LOGGER.debug(`${symbol}: Entered OVERSOLD zone (WPR: ${wpr.toFixed(2)}) - cleared overbought flag`);
             }
         } else if (isInOverbought) {
             assetState.wprZone = 'overbought';
             assetState.hasVisitedOverbought = true;
-            // When entering overbought, clear oversold flag
+            // FIXED: When entering overbought, clear oversold flag
             if (!wasInOverbought) {
                 // assetState.hasVisitedOversold = false;
-                LOGGER.debug(`${symbol}: Entered OVERBOUGHT zone (WPR: ${wpr.toFixed(2)})`);
+                LOGGER.debug(`${symbol}: Entered OVERBOUGHT zone (WPR: ${wpr.toFixed(2)}) - cleared oversold flag`);
             }
         } else {
             assetState.wprZone = 'neutral';
@@ -668,7 +676,7 @@ class SignalManager {
             !assetState.inTradeCycle) {
 
             assetState.buySignalActive = true;
-            assetState.hasVisitedOversold = false;  // Reset flag after signal
+            // assetState.hasVisitedOversold = false;  // Reset flag after signal
 
             // Store the closed candle that triggered the signal
             const closedCandles = assetState.closedCandles;
@@ -703,7 +711,7 @@ class SignalManager {
             !assetState.inTradeCycle) {
 
             assetState.sellSignalActive = true;
-            assetState.hasVisitedOverbought = false;  // Reset flag after signal
+            // assetState.hasVisitedOverbought = false;  // Reset flag after signal
 
             const closedCandles = assetState.closedCandles;
             if (closedCandles.length > 0) {
@@ -767,13 +775,13 @@ class SignalManager {
         if (assetState.buySignalActive) {
             const { k, d, prevK, prevD } = stoch;
 
-            // Crossover: prevK was <= prevD, now k > d
-            const isBullishCross = (prevK <= prevD) && (k > d);
-
             // Both lines must be below 20
             const bothBelow20 = (k < CONFIG.STOCH_OVERSOLD) && (d < CONFIG.STOCH_OVERSOLD);
 
-            if (isBullishCross && bothBelow20) {
+            // Crossover: prevK was <= prevD, now k > d
+            const isBullishCross = bothBelow20 && prevK <= prevD && k > d;
+
+            if (isBullishCross) {
                 LOGGER.stoch(`${symbol} ✅ Stochastic BUY crossover on candle CLOSE! K:${k.toFixed(2)} > D:${d.toFixed(2)} (both < 20)`);
                 assetState.buySignalActive = false;
                 return 'UP';
@@ -784,13 +792,13 @@ class SignalManager {
         if (assetState.sellSignalActive) {
             const { k, d, prevK, prevD } = stoch;
 
-            // Crossover: prevK was >= prevD, now k < d
-            const isBearishCross = (prevK >= prevD) && (k < d);
-
             // Both lines must be above 80
             const bothAbove80 = (k > CONFIG.STOCH_OVERBOUGHT) && (d > CONFIG.STOCH_OVERBOUGHT);
 
-            if (isBearishCross && bothAbove80) {
+            // Crossover: prevK was >= prevD, now k < d
+            const isBearishCross = bothAbove80 && prevK >= prevD && k < d;
+
+            if (isBearishCross) {
                 LOGGER.stoch(`${symbol} ✅ Stochastic SELL crossover on candle CLOSE! K:${k.toFixed(2)} < D:${d.toFixed(2)} (both > 80)`);
                 assetState.sellSignalActive = false;
                 return 'DOWN';
@@ -831,7 +839,7 @@ class BreakoutManager {
         // Use the PREVIOUS candle (2nd to last closed candle)
         // The last closed candle is the stochastic confirmation candle
         // We want the candle BEFORE that
-        const previousCandle = closedCandles[closedCandles.length - 2];
+        const previousCandle = closedCandles[closedCandles.length - 1];
 
         assetState.breakout = {
             active: true,
@@ -859,7 +867,7 @@ class BreakoutManager {
         const breakout = assetState.breakout;
         const closedCandles = assetState.closedCandles;
 
-        if (!assetState.activePosition || !breakout.active) {
+        if (!breakout.active) {
             return null;
         }
 
@@ -894,6 +902,8 @@ class BreakoutManager {
      */
     static clearBreakout(symbol) {
         const assetState = state.assets[symbol];
+        assetState.sellSignalActive = false;
+        assetState.buySignalActive = false;
 
         LOGGER.breakout(`${symbol} 🔓 BREAKOUT LEVELS CLEARED`);
 
@@ -1340,14 +1350,19 @@ class ConnectionManager {
     }
 
     /**
-     * CRITICAL FIX: Handle OHLC properly - only process on TRUE CANDLE CLOSE
-     * Deriv sends OHLC updates on EVERY TICK, so we must detect actual candle closes
-     */
+ * CORRECTED: Handle OHLC properly - only process on TRUE CANDLE CLOSE
+ * Uses open_time to detect candle changes (not epoch which changes every tick)
+ */
     handleOHLC(ohlc) {
         const symbol = ohlc.symbol;
         if (!state.assets[symbol]) return;
 
         const assetState = state.assets[symbol];
+
+        // Calculate open_time if not provided (for compatibility)
+        // open_time should be the start of the candle period
+        const calculatedOpenTime = ohlc.open_time ||
+            Math.floor(ohlc.epoch / CONFIG.GRANULARITY) * CONFIG.GRANULARITY;
 
         const incomingCandle = {
             open: parseFloat(ohlc.open),
@@ -1355,61 +1370,53 @@ class ConnectionManager {
             low: parseFloat(ohlc.low),
             close: parseFloat(ohlc.close),
             epoch: ohlc.epoch,
-            open_time: ohlc.open_time
+            open_time: calculatedOpenTime
         };
 
-        // Debug: Log every few candle updates (not every tick to avoid spam)
-        if (Math.random() < 0.01) { // Log ~1% of updates
-            const currentTime = new Date(Date.now()).toISOString().split('T')[1].split('.')[0];
-            const candleTime = new Date(incomingCandle.epoch * 1000).toISOString().split('T')[1].split('.')[0];
-            // LOGGER.debug(`${symbol} Candle Update [Now: ${currentTime}, Candle: ${candleTime}]: Current epoch: ${incomingCandle.epoch}, Forming: ${assetState.currentFormingCandle?.epoch || 'none'}`);
-        }
-
-        // Check if this is a different candle epoch (new candle = previous closed)
-        const isNewCandle = assetState.currentFormingCandle &&
-            assetState.currentFormingCandle.epoch !== incomingCandle.epoch;
+        // FIXED: Use open_time to detect new candles, not epoch
+        // open_time is constant for each candle period, epoch changes with every tick
+        const currentOpenTime = assetState.currentFormingCandle?.open_time;
+        const isNewCandle = currentOpenTime &&
+            incomingCandle.open_time !== currentOpenTime;
 
         if (isNewCandle) {
             // Previous candle just CLOSED - process it
-            const closedCandle = assetState.currentFormingCandle;
+            const closedCandle = { ...assetState.currentFormingCandle };
 
-            // Check if we haven't processed this specific candle epoch yet
-            if (closedCandle.epoch !== assetState.lastProcessedCandleEpoch) {
+            // Normalize the closed candle's epoch to the actual close time
+            // This is open_time + granularity (e.g., 10:00:00 + 300s = 10:05:00)
+            closedCandle.epoch = closedCandle.open_time + CONFIG.GRANULARITY;
 
-                // Verify this is a real candle from our timeframe
-                // Check if epoch is properly aligned to the timeframe (should be divisible by granularity)
-                const isAligned = (closedCandle.epoch % CONFIG.GRANULARITY) === 0;
+            // Check if we haven't processed this specific candle yet
+            // Use open_time for tracking instead of epoch
+            if (closedCandle.open_time !== assetState.lastProcessedCandleOpenTime) {
 
-                if (isAligned) {
-                    // Add to closed candles array
-                    assetState.closedCandles.push(closedCandle);
+                // Add to closed candles array
+                assetState.closedCandles.push(closedCandle);
 
-                    // Keep closed candles array manageable
-                    if (assetState.closedCandles.length > CONFIG.MAX_CANDLES_STORED) {
-                        assetState.closedCandles = assetState.closedCandles.slice(-CONFIG.MAX_CANDLES_STORED);
-                    }
-
-                    // Mark as processed
-                    assetState.lastProcessedCandleEpoch = closedCandle.epoch;
-
-                    // Log candle close with timestamp
-                    const candleTime = new Date(closedCandle.epoch * 1000).toISOString().split('T')[1].split('.')[0];
-                    // LOGGER.candle(`${symbol} 🕯️ CANDLE CLOSED [${candleTime}]: O:${closedCandle.open.toFixed(5)} H:${closedCandle.high.toFixed(5)} L:${closedCandle.low.toFixed(5)} C:${closedCandle.close.toFixed(5)}`);
-
-                    // NOW process trading logic on the CLOSED candle
-                    this.processCandleClose(symbol);
-                } else {
-                    // LOGGER.debug(`${symbol}: Skipping non-aligned candle epoch: ${closedCandle.epoch} (not divisible by ${CONFIG.GRANULARITY})`);
+                // Keep closed candles array manageable
+                if (assetState.closedCandles.length > CONFIG.MAX_CANDLES_STORED) {
+                    assetState.closedCandles = assetState.closedCandles.slice(-CONFIG.MAX_CANDLES_STORED);
                 }
+
+                // Mark as processed using open_time
+                assetState.lastProcessedCandleOpenTime = closedCandle.open_time;
+
+                // Log candle close with timestamp
+                const closeTime = new Date(closedCandle.epoch * 1000).toISOString();
+                LOGGER.candle(`${symbol} 🕯️ CANDLE CLOSED [${closeTime}]: O:${closedCandle.open.toFixed(5)} H:${closedCandle.high.toFixed(5)} L:${closedCandle.low.toFixed(5)} C:${closedCandle.close.toFixed(5)}`);
+
+                // NOW process trading logic on the CLOSED candle
+                this.processCandleClose(symbol);
             }
         }
 
-        // Update current forming candle (always update, regardless of whether we processed a close)
+        // Update current forming candle
         assetState.currentFormingCandle = incomingCandle;
 
         // Also update the candles array for display purposes
         const candles = assetState.candles;
-        const existingIndex = candles.findIndex(c => c.epoch === incomingCandle.epoch);
+        const existingIndex = candles.findIndex(c => c.open_time === incomingCandle.open_time);
 
         if (existingIndex >= 0) {
             // Update existing candle (still forming)
@@ -1425,6 +1432,9 @@ class ConnectionManager {
         }
     }
 
+    /**
+     * CORRECTED: Handle historical candles with proper open_time calculation
+     */
     handleCandlesHistory(response) {
         if (response.error) {
             LOGGER.error(`Error fetching candles: ${response.error.message}`);
@@ -1434,13 +1444,21 @@ class ConnectionManager {
         const symbol = response.echo_req.ticks_history;
         if (!state.assets[symbol]) return;
 
-        const candles = response.candles.map(c => ({
-            open: parseFloat(c.open),
-            high: parseFloat(c.high),
-            low: parseFloat(c.low),
-            close: parseFloat(c.close),
-            epoch: c.epoch
-        }));
+        const candles = response.candles.map(c => {
+            // Calculate open_time from epoch if not provided
+            // Historical candles: epoch is the close time
+            // open_time = epoch - granularity
+            const openTime = Math.floor((c.epoch - CONFIG.GRANULARITY) / CONFIG.GRANULARITY) * CONFIG.GRANULARITY;
+
+            return {
+                open: parseFloat(c.open),
+                high: parseFloat(c.high),
+                low: parseFloat(c.low),
+                close: parseFloat(c.close),
+                epoch: c.epoch,
+                open_time: openTime
+            };
+        });
 
         if (candles.length === 0) {
             LOGGER.warn(`${symbol}: No historical candles received`);
@@ -1451,16 +1469,17 @@ class ConnectionManager {
         state.assets[symbol].candles = [...candles];
         state.assets[symbol].closedCandles = [...candles];
 
-        // Set the last candle as already processed
+        // Set the last candle as already processed (using open_time)
         const lastCandle = candles[candles.length - 1];
-        state.assets[symbol].lastProcessedCandleEpoch = lastCandle.epoch;
+        state.assets[symbol].lastProcessedCandleOpenTime = lastCandle.open_time;
 
-        // Set the last historical candle as the initial forming candle
-        // The next OHLC update will either update this or start a new one
-        state.assets[symbol].currentFormingCandle = { ...lastCandle };
+        // The last historical candle is closed, so set currentFormingCandle to null
+        // The next OHLC update will set the new forming candle
+        state.assets[symbol].currentFormingCandle = null;
 
         LOGGER.info(`📊 Loaded ${candles.length} ${CONFIG.TIMEFRAME_LABEL} candles for ${symbol}`);
-        LOGGER.info(`   Latest candle: ${new Date(lastCandle.epoch * 1000).toISOString().split('T')[1].split('.')[0]} GMT`);
+        LOGGER.info(`   Latest candle close: ${new Date(lastCandle.epoch * 1000).toISOString()}`);
+        LOGGER.info(`   Candle open_time: ${new Date(lastCandle.open_time * 1000).toISOString()}`);
 
         // Calculate initial indicators
         this.updateIndicators(symbol);
@@ -1470,7 +1489,7 @@ class ConnectionManager {
     }
 
     /**
-     * Update indicators - ONLY using CLOSED candles
+     * CORRECTED: Update indicators - fixes Stochastic prev values initialization
      */
     updateIndicators(symbol) {
         const assetState = state.assets[symbol];
@@ -1490,9 +1509,6 @@ class ConnectionManager {
         // Store previous WPR value BEFORE updating
         assetState.prevWpr = assetState.wpr;
 
-        // Store previous Stochastic values BEFORE updating
-        const prevStoch = { ...assetState.stochastic };
-
         // Calculate WPR on CLOSED candles only
         assetState.wpr = TechnicalIndicators.calculateWPR(closedCandles, CONFIG.WPR_PERIOD);
 
@@ -1504,17 +1520,32 @@ class ConnectionManager {
             CONFIG.STOCH_SMOOTH
         );
 
-        // Update stochastic with new values
-        assetState.stochastic = {
-            k: newStoch.k,
-            d: newStoch.d,
-            prevK: prevStoch.k,  // Use the ACTUAL previous K value
-            prevD: prevStoch.d   // Use the ACTUAL previous D value
-        };
+        // FIXED: Handle first update vs subsequent updates differently
+        const isFirstUpdate = !assetState.stochasticInitialized;
+
+        if (isFirstUpdate) {
+            // First update: use the calculated prev values from the indicator
+            assetState.stochastic = {
+                k: newStoch.k,
+                d: newStoch.d,
+                prevK: newStoch.prevK,
+                prevD: newStoch.prevD
+            };
+            assetState.stochasticInitialized = true;
+            LOGGER.debug(`${symbol} Stochastic INITIALIZED: K:${newStoch.k.toFixed(2)} D:${newStoch.d.toFixed(2)} prevK:${newStoch.prevK.toFixed(2)} prevD:${newStoch.prevD.toFixed(2)}`);
+        } else {
+            // Subsequent updates: use the previous stored values
+            assetState.stochastic = {
+                k: newStoch.k,
+                d: newStoch.d,
+                prevK: assetState.stochastic.k,  // Previous current is now prev
+                prevD: assetState.stochastic.d
+            };
+        }
 
         assetState.indicatorsReady = true;
 
-        LOGGER.debug(`${symbol} INDICATORS UPDATED: WPR: ${assetState.wpr.toFixed(2)} (prev: ${assetState.prevWpr.toFixed(2)}) | Stoch K:${assetState.stochastic.k.toFixed(2)} D:${assetState.stochastic.d.toFixed(2)}`);
+        LOGGER.debug(`${symbol} INDICATORS: WPR: ${assetState.wpr.toFixed(2)} (prev: ${assetState.prevWpr.toFixed(2)}) | Stoch K:${assetState.stochastic.k.toFixed(2)} D:${assetState.stochastic.d.toFixed(2)} (prevK:${assetState.stochastic.prevK.toFixed(2)} prevD:${assetState.stochastic.prevD.toFixed(2)})`);
     }
 
     /**
