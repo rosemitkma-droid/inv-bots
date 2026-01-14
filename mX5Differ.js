@@ -259,7 +259,7 @@ class AIWeightedEnsembleBot {
             this.tickHistories[asset].shift();
         }
 
-        console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
+        // console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
 
         if (!this.tradeInProgress) {
             this.analyzeTicks(asset);
@@ -278,7 +278,7 @@ class AIWeightedEnsembleBot {
         console.log(`Volatility: ${this.volatilityLevel}`);
 
         if (this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 1] && this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 2] && this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 3] && this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 4] && this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 5] && this.volatilityLevel === 'medium') {
-        // if (this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 1] && this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 2] && this.volatilityLevel === 'medium') {
+            // if (this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 1] && this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 2] && this.volatilityLevel === 'medium') {
             this.placeTrade(asset, this.lastPrediction);
         }
     }
