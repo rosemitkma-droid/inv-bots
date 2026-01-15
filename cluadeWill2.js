@@ -1,11 +1,17 @@
 /**
- * DERIV MULTIPLIER BOT v6.2
+ * DERIV MULTIPLIER BOT v6.3
  * =========================
  * WPR + Stochastic Oscillator Strategy with Reversal System
  * 
- * FIXED: Timeframe logic - Indicators only update on CANDLE CLOSE
- * FIXED: Signal generation only on CANDLE CLOSE, not on ticks
- * ADDED: Telegram notifications replacing Email
+ * v6.3 UPDATES:
+ * ✅ ADDED: Telegram notifications for Reversal trades (Stake, P/L, Reversal #)
+ * ✅ ADDED: State persistence for internet disruption handling
+ * ✅ FIXED: Improved TP/SL trade closing with stale trade detection
+ * 
+ * PREVIOUS FIXES (v6.2):
+ * - Timeframe logic - Indicators only update on CANDLE CLOSE
+ * - Signal generation only on CANDLE CLOSE, not on ticks
+ * - Telegram notifications replacing Email
  * 
  * BUY SETUP:
  * 1. WPR crosses above -20 (first time since leaving -80 zone) - ON CANDLE CLOSE
@@ -28,6 +34,7 @@
 const WebSocket = require('ws');
 const math = require('mathjs');
 const https = require('https');
+const fs = require('fs');  // NEW: For state persistence
 
 // ============================================
 // TELEGRAM SERVICE
@@ -99,6 +106,34 @@ Time: ${new Date().toUTCString()}
         await this.sendMessage(message);
     }
 
+    /**
+     * NEW: Send Telegram notification for Reversal trades
+     * Includes: Stake, Profit/Loss amount, Reversal trade number
+     */
+    static async sendReversalAlert(symbol, direction, stake, multiplier, reversalLevel, previousLoss, accumulatedLoss, takeProfitAmount) {
+        const message = `
+🔄 REVERSAL TRADE EXECUTED
+
+📊 Trade Details:
+━━━━━━━━━━━━━━━━━━
+Asset: ${symbol}
+Direction: ${direction}
+Reversal #: ${reversalLevel} of ${CONFIG.MAX_REVERSAL_LEVEL}
+
+💰 Financial:
+━━━━━━━━━━━━━━━━━━
+Stake: $${stake.toFixed(2)}
+Multiplier: x${multiplier}
+Previous Trade Loss: $${Math.abs(previousLoss).toFixed(2)}
+Total Accumulated Loss: $${accumulatedLoss.toFixed(2)}
+Target Take Profit: $${takeProfitAmount.toFixed(2)}
+
+⏰ Time: ${new Date().toUTCString()}
+        `.trim();
+
+        await this.sendMessage(message);
+    }
+
     static async sendLossAlert(symbol, lossAmount, consecutiveLosses) {
         const message = `
 ❌ LOSS ALERT
@@ -157,7 +192,7 @@ Time: ${new Date().toUTCString()}
 
     static async sendStartupMessage() {
         const message = `
-🤖 DERIV BOT v6.2 STARTED
+🤖 DERIV BOT v6.3 STARTED
 
 Capital: $${CONFIG.INITIAL_CAPITAL}
 Stake: $${CONFIG.INITIAL_STAKE}
@@ -171,10 +206,293 @@ Max Reversals: ${CONFIG.MAX_REVERSAL_LEVEL}
 Strategy: WPR + Stochastic (5,3,3)
 Signals: Only on CANDLE CLOSE
 
+New in v6.3:
+✅ Reversal trade Telegram alerts
+✅ State persistence (internet recovery)
+✅ Improved TP/SL handling
+
 Time: ${new Date().toUTCString()}
         `.trim();
 
         await this.sendMessage(message);
+    }
+}
+
+// ============================================
+// STATE PERSISTENCE (Internet Disruption Handling)
+// ============================================
+
+class StatePersistence {
+    static STATE_FILE = './claudeWill2.json';
+    static SAVE_INTERVAL = 5000; // Save every 5 seconds
+    static saveTimer = null;
+
+    /**
+     * Start automatic state saving
+     */
+    static startAutoSave() {
+        if (this.saveTimer) {
+            clearInterval(this.saveTimer);
+        }
+
+        this.saveTimer = setInterval(() => {
+            this.saveState();
+        }, this.SAVE_INTERVAL);
+
+        // LOGGER.info('💾 State auto-save started (every 5 seconds)');
+    }
+
+    /**
+     * Stop automatic state saving
+     */
+    static stopAutoSave() {
+        if (this.saveTimer) {
+            clearInterval(this.saveTimer);
+            this.saveTimer = null;
+        }
+    }
+
+    /**
+     * Save critical state to file
+     */
+    static saveState() {
+        try {
+            const criticalState = {
+                // Timestamp
+                savedAt: Date.now(),
+                savedAtISO: new Date().toISOString(),
+
+                // Capital and session
+                capital: state.capital,
+                session: {
+                    profit: state.session.profit,
+                    loss: state.session.loss,
+                    netPL: state.session.netPL,
+                    tradesCount: state.session.tradesCount,
+                    winsCount: state.session.winsCount,
+                    lossesCount: state.session.lossesCount,
+                    accumulatedLoss: state.session.accumulatedLoss,
+                    startTime: state.session.startTime,
+                    isActive: state.session.isActive
+                },
+
+                // Active positions
+                activePositions: state.portfolio.activePositions.map(pos => ({
+                    symbol: pos.symbol,
+                    direction: pos.direction,
+                    stake: pos.stake,
+                    multiplier: pos.multiplier,
+                    contractId: pos.contractId,
+                    buyPrice: pos.buyPrice,
+                    entryTime: pos.entryTime,
+                    isReversal: pos.isReversal,
+                    reversalLevel: pos.reversalLevel,
+                    currentProfit: pos.currentProfit,
+                    lastProfitUpdate: pos.lastProfitUpdate,
+                    lastProfitValue: pos.lastProfitValue
+                })),
+
+                // Asset-specific state (breakout levels, signals, etc.)
+                assets: {}
+            };
+
+            // Save per-asset critical data
+            Object.keys(state.assets).forEach(symbol => {
+                const assetState = state.assets[symbol];
+                criticalState.assets[symbol] = {
+                    // Breakout levels
+                    breakout: {
+                        active: assetState.breakout.active,
+                        highLevel: assetState.breakout.highLevel,
+                        lowLevel: assetState.breakout.lowLevel,
+                        triggerCandle: assetState.breakout.triggerCandle,
+                        initialDirection: assetState.breakout.initialDirection
+                    },
+
+                    // Trade cycle state
+                    inTradeCycle: assetState.inTradeCycle,
+                    currentDirection: assetState.currentDirection,
+
+                    // Signal states
+                    buySignalActive: assetState.buySignalActive,
+                    sellSignalActive: assetState.sellSignalActive,
+
+                    // WPR zone tracking
+                    wprZone: assetState.wprZone,
+                    hasVisitedOversold: assetState.hasVisitedOversold,
+                    hasVisitedOverbought: assetState.hasVisitedOverbought,
+                    wpr: assetState.wpr,
+                    prevWpr: assetState.prevWpr,
+
+                    // Stake management
+                    currentStake: assetState.currentStake,
+                    takeProfit: assetState.takeProfit,
+                    reversalLevel: assetState.reversalLevel,
+                    accumulatedLoss: assetState.accumulatedLoss,
+                    takeProfitAmount: assetState.takeProfitAmount,
+
+                    // Stats
+                    dailyTrades: assetState.dailyTrades,
+                    dailyWins: assetState.dailyWins,
+                    dailyLosses: assetState.dailyLosses,
+                    consecutiveLosses: assetState.consecutiveLosses,
+
+                    // Last processed candle
+                    lastProcessedCandleOpenTime: assetState.lastProcessedCandleOpenTime
+                };
+            });
+
+            fs.writeFileSync(this.STATE_FILE, JSON.stringify(criticalState, null, 2));
+            // LOGGER.debug('💾 State saved successfully');
+
+        } catch (error) {
+            LOGGER.error(`Failed to save state: ${error.message}`);
+        }
+    }
+
+    /**
+     * Load state from file (called on startup/reconnection)
+     */
+    static loadState() {
+        try {
+            if (!fs.existsSync(this.STATE_FILE)) {
+                LOGGER.info('📂 No saved state found, starting fresh');
+                return false;
+            }
+
+            const savedData = JSON.parse(fs.readFileSync(this.STATE_FILE, 'utf8'));
+
+            // Check if state is too old (more than 1 hour)
+            const stateAge = Date.now() - savedData.savedAt;
+            if (stateAge > 3600000) { // 1 hour
+                LOGGER.warn(`📂 Saved state is ${Math.round(stateAge / 60000)} minutes old, ignoring`);
+                return false;
+            }
+
+            LOGGER.info(`📂 Loading saved state from ${savedData.savedAtISO}`);
+
+            // Restore capital and session
+            state.capital = savedData.capital;
+            state.session.profit = savedData.session.profit;
+            state.session.loss = savedData.session.loss;
+            state.session.netPL = savedData.session.netPL;
+            state.session.tradesCount = savedData.session.tradesCount;
+            state.session.winsCount = savedData.session.winsCount;
+            state.session.lossesCount = savedData.session.lossesCount;
+            state.session.accumulatedLoss = savedData.session.accumulatedLoss;
+            state.session.startTime = savedData.session.startTime;
+            state.session.isActive = savedData.session.isActive;
+
+            // Restore active positions
+            state.portfolio.activePositions = savedData.activePositions || [];
+
+            // Restore asset states
+            Object.keys(savedData.assets).forEach(symbol => {
+                if (state.assets[symbol]) {
+                    const savedAsset = savedData.assets[symbol];
+                    const assetState = state.assets[symbol];
+
+                    // Restore breakout levels
+                    assetState.breakout = savedAsset.breakout;
+
+                    // Restore trade cycle state
+                    assetState.inTradeCycle = savedAsset.inTradeCycle;
+                    assetState.currentDirection = savedAsset.currentDirection;
+
+                    // Restore signal states
+                    assetState.buySignalActive = savedAsset.buySignalActive;
+                    assetState.sellSignalActive = savedAsset.sellSignalActive;
+
+                    // Restore WPR tracking
+                    assetState.wprZone = savedAsset.wprZone;
+                    assetState.hasVisitedOversold = savedAsset.hasVisitedOversold;
+                    assetState.hasVisitedOverbought = savedAsset.hasVisitedOverbought;
+                    assetState.wpr = savedAsset.wpr;
+                    assetState.prevWpr = savedAsset.prevWpr;
+
+                    // Restore stake management
+                    assetState.currentStake = savedAsset.currentStake;
+                    assetState.takeProfit = savedAsset.takeProfit;
+                    assetState.reversalLevel = savedAsset.reversalLevel;
+                    assetState.accumulatedLoss = savedAsset.accumulatedLoss;
+                    assetState.takeProfitAmount = savedAsset.takeProfitAmount;
+
+                    // Restore stats
+                    assetState.dailyTrades = savedAsset.dailyTrades;
+                    assetState.dailyWins = savedAsset.dailyWins;
+                    assetState.dailyLosses = savedAsset.dailyLosses;
+                    assetState.consecutiveLosses = savedAsset.consecutiveLosses;
+
+                    // Restore last processed candle
+                    assetState.lastProcessedCandleOpenTime = savedAsset.lastProcessedCandleOpenTime;
+
+                    // Link active position to asset state
+                    const activePos = state.portfolio.activePositions.find(p => p.symbol === symbol);
+                    if (activePos) {
+                        assetState.activePosition = activePos;
+                    }
+                }
+            });
+
+            LOGGER.info(`✅ State restored: Capital=$${state.capital.toFixed(2)}, NetPL=$${state.session.netPL.toFixed(2)}, Active Positions=${state.portfolio.activePositions.length}`);
+
+            // Log restored breakout levels
+            Object.keys(savedData.assets).forEach(symbol => {
+                const asset = savedData.assets[symbol];
+                if (asset.breakout.active) {
+                    LOGGER.info(`   📊 ${symbol}: Breakout H=${asset.breakout.highLevel.toFixed(5)} L=${asset.breakout.lowLevel.toFixed(5)} Rev=${asset.reversalLevel}`);
+                }
+            });
+
+            return true;
+
+        } catch (error) {
+            LOGGER.error(`Failed to load state: ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * Clear saved state file
+     */
+    static clearState() {
+        try {
+            if (fs.existsSync(this.STATE_FILE)) {
+                fs.unlinkSync(this.STATE_FILE);
+                LOGGER.info('🗑️ Saved state cleared');
+            }
+        } catch (error) {
+            LOGGER.error(`Failed to clear state: ${error.message}`);
+        }
+    }
+
+    /**
+     * Recover open contracts after reconnection
+     */
+    static async recoverOpenContracts(connection) {
+        const activePositions = state.portfolio.activePositions.filter(p => p.contractId);
+
+        if (activePositions.length === 0) {
+            LOGGER.info('📋 No open contracts to recover');
+            return;
+        }
+
+        LOGGER.info(`🔄 Recovering ${activePositions.length} open contract(s)...`);
+
+        for (const position of activePositions) {
+            if (position.contractId) {
+                // Re-subscribe to contract updates
+                connection.send({
+                    proposal_open_contract: 1,
+                    contract_id: position.contractId,
+                    subscribe: 1
+                });
+                LOGGER.info(`   📡 Re-subscribed to contract ${position.contractId} (${position.symbol})`);
+
+                // Small delay between requests
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+        }
     }
 }
 
@@ -215,8 +533,8 @@ const TIMEFRAMES = {
 };
 
 // Default to 5 minutes, user can override with TIMEFRAME env variable
-const SELECTED_TIMEFRAME = '1m';
-const TIMEFRAME_CONFIG = TIMEFRAMES['1m'];
+const SELECTED_TIMEFRAME = '5m';
+const TIMEFRAME_CONFIG = TIMEFRAMES['5m'];
 
 // ============================================
 // CONFIGURATION
@@ -229,13 +547,13 @@ const CONFIG = {
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // Capital Settings
-    INITIAL_CAPITAL: 500,
+    INITIAL_CAPITAL: 1000,
     INITIAL_STAKE: 1.00,
-    TAKE_PROFIT: 1.5,
+    TAKE_PROFIT: 2.5,
 
     // Session Targets
     SESSION_PROFIT_TARGET: 15000,
-    SESSION_STOP_LOSS: -500,
+    SESSION_STOP_LOSS: -1000,
 
     // Reversal Settings
     REVERSAL_STAKE_MULTIPLIER: 2,
@@ -276,8 +594,8 @@ const CONFIG = {
     BLACKLIST_PERIOD: 1 * 60 * 1000,
 
     // Performance
-    MAX_TICKS_STORED: 100,
-    MAX_CANDLES_STORED: 150,
+    MAX_TICKS_STORED: 200,
+    MAX_CANDLES_STORED: 300,
     DASHBOARD_UPDATE_INTERVAL: 60000,
 
     // Debug
@@ -286,7 +604,13 @@ const CONFIG = {
     // Telegram Settings
     TELEGRAM_ENABLED: true,
     TELEGRAM_BOT_TOKEN: '8196927342:AAHa8d0OrF3D6yYTA_QcCPOzz5G0SPj82xE',
-    TELEGRAM_CHAT_ID: '752497117'
+    TELEGRAM_CHAT_ID: '752497117',
+
+    // NEW: Stale Trade Detection (for TP/SL stuck trades)
+    STALE_TRADE_CHECK_INTERVAL: 10000,      // Check every 10 seconds
+    STALE_PROFIT_THRESHOLD: 30000,          // 30 seconds without profit change
+    FORCE_CLOSE_STALE_TRADES: true,         // Auto-close frozen trades
+    CONTRACT_POLL_INTERVAL: 15000           // Poll contract status every 15 seconds
 };
 
 // ============================================
@@ -299,7 +623,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 500],
-        defaultMultiplier: 200,
+        defaultMultiplier: 500,
         maxTradesPerDay: 500000,
         minStake: 1.00,
         maxStake: 3000,
@@ -309,8 +633,8 @@ const ASSET_CONFIGS = {
         name: 'Volatility 100 Index',
         category: 'synthetic',
         contractType: 'multiplier',
-        multipliers: [40, 100, 200, 300, 500],
-        defaultMultiplier: 200,
+        multipliers: [40, 100, 200, 300, 400],
+        defaultMultiplier: 400,
         maxTradesPerDay: 50000,
         minStake: 1.00,
         maxStake: 3000,
@@ -321,7 +645,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [160, 400, 800, 1200, 1600],
-        defaultMultiplier: 800,
+        defaultMultiplier: 1600,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -332,7 +656,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [80, 200, 400, 600, 800],
-        defaultMultiplier: 400,
+        defaultMultiplier: 800,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -342,11 +666,11 @@ const ASSET_CONFIGS = {
         name: 'Volatility 100 (1s) Index',
         category: 'synthetic',
         contractType: 'multiplier',
-        multipliers: [80, 200, 400, 600, 800],
+        multipliers: [40, 100, 200, 300, 400],
         defaultMultiplier: 400,
-        maxTradesPerDay: 120000,
+        maxTradesPerDay: 50000,
         minStake: 1.00,
-        maxStake: 1000,
+        maxStake: 3000,
         tradingHours: '24/7'
     },
     'stpRNG': {
@@ -354,7 +678,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [750, 2000, 3500, 5500, 7500],
-        defaultMultiplier: 3500,
+        defaultMultiplier: 7500,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -365,8 +689,8 @@ const ASSET_CONFIGS = {
         category: 'commodity',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 400, 500],
-        defaultMultiplier: 500000,
-        maxTradesPerDay: 5,
+        defaultMultiplier: 500,
+        maxTradesPerDay: 50000,
         minStake: 1,
         maxStake: 5000,
         tradingHours: 'Sun 23:00 - Fri 21:55 GMT'
@@ -855,6 +1179,9 @@ class BreakoutManager {
         LOGGER.breakout(`${symbol}    High: ${previousCandle.high.toFixed(5)} | Low: ${previousCandle.low.toFixed(5)}`);
         LOGGER.breakout(`${symbol}    Candle Epoch: ${previousCandle.epoch}`);
 
+        // NEW: Save state after breakout levels set
+        StatePersistence.saveState();
+
         return true;
     }
 
@@ -916,6 +1243,9 @@ class BreakoutManager {
         };
 
         assetState.inTradeCycle = false;
+
+        // NEW: Save state after breakout cleared
+        StatePersistence.saveState();
     }
 }
 
@@ -973,6 +1303,9 @@ class StakeManager {
 
         BreakoutManager.clearBreakout(symbol);
         SignalManager.resetSignals(symbol);
+
+        // NEW: Save state after reset
+        StatePersistence.saveState();
     }
 
     static shouldAutoClose(symbol, currentProfit) {
@@ -1047,6 +1380,9 @@ class SessionManager {
         LOGGER.info(`⏸️ Session ended (${reason}).`);
         TelegramService.sendSessionSummary();
 
+        // NEW: Save state when session ends
+        StatePersistence.saveState();
+
         setTimeout(() => {
             this.startNewSession();
         }, CONFIG.COOLDOWN_AFTER_SESSION_END);
@@ -1074,6 +1410,9 @@ class SessionManager {
 
         LOGGER.info('🚀 NEW SESSION STARTED');
         LOGGER.info(`💰 Capital: $${state.capital.toFixed(2)} | Target: $${CONFIG.SESSION_PROFIT_TARGET}`);
+
+        // NEW: Clear old state file on new session
+        StatePersistence.clearState();
     }
 
     static getSessionStats() {
@@ -1180,6 +1519,9 @@ class RiskManager {
         assetState.winRate = recentTrades.length > 0
             ? recentTrades.filter(t => t.profit > 0).length / recentTrades.length
             : 0.5;
+
+        // NEW: Save state after trade result recorded
+        StatePersistence.saveState();
     }
 }
 
@@ -1273,6 +1615,14 @@ class ConnectionManager {
         this.reconnectAttempts = 0;
         this.lastDataTime = Date.now();
         this.startMonitor();
+
+        // NEW: Load saved state on reconnection
+        const stateLoaded = StatePersistence.loadState();
+        if (stateLoaded) {
+            LOGGER.info('🔄 Recovered state from previous session');
+            TelegramService.sendMessage(`🔄 Bot Reconnected\n\nState recovered from previous session.\nCapital: $${state.capital.toFixed(2)}\nActive Positions: ${state.portfolio.activePositions.length}`);
+        }
+
         this.send({ authorize: CONFIG.API_TOKEN });
     }
 
@@ -1632,12 +1982,17 @@ class ConnectionManager {
         if (position) {
             position.contractId = contract.contract_id;
             position.buyPrice = contract.buy_price;
+            position.lastProfitUpdate = Date.now();
+            position.lastProfitValue = 0;
 
             if (state.assets[position.symbol]) {
                 state.assets[position.symbol].activePosition = position;
             }
 
             TelegramService.sendTradeAlert('OPEN', position.symbol, position.direction, position.stake, position.multiplier, { reversalLevel: position.reversalLevel });
+
+            // NEW: Save state after position opened
+            StatePersistence.saveState();
         }
 
         this.send({
@@ -1700,22 +2055,40 @@ class ConnectionManager {
                     }
                 }
             }
+
+            // NEW: Save state after position closed
+            StatePersistence.saveState();
         }
     }
 
+    /**
+     * IMPROVED: Handle open contract with better TP/SL detection
+     */
     handleOpenContract(response) {
-        if (response.error) return;
+        if (response.error) {
+            LOGGER.error(`Contract error: ${response.error.message}`);
+            return;
+        }
 
         const contract = response.proposal_open_contract;
         const posIndex = state.portfolio.activePositions.findIndex(
             p => p.contractId === contract.contract_id
         );
 
-        if (contract.is_sold || contract.is_expired || contract.status === 'sold') {
+        // IMPROVED: More robust check for closed/sold contracts
+        const isClosed = contract.is_sold ||
+            contract.is_expired ||
+            contract.status === 'sold' ||
+            contract.status === 'won' ||
+            contract.status === 'lost' ||
+            contract.exit_tick !== undefined;
+
+        if (isClosed) {
             const profit = contract.profit;
             const symbol = contract.underlying;
+            const exitReason = contract.status || (contract.is_sold ? 'sold' : 'expired');
 
-            LOGGER.trade(`Contract ${contract.contract_id} closed: ${profit >= 0 ? 'WIN' : 'LOSS'} $${profit.toFixed(2)}`);
+            LOGGER.trade(`📋 Contract ${contract.contract_id} closed (${exitReason}): ${profit >= 0 ? 'WIN' : 'LOSS'} $${profit.toFixed(2)}`);
 
             if (posIndex >= 0) {
                 const position = state.portfolio.activePositions[posIndex];
@@ -1731,26 +2104,63 @@ class ConnectionManager {
                         StakeManager.fullReset(symbol);
                     }
                 }
+
+                // NEW: Save state after position closed
+                StatePersistence.saveState();
             }
 
             SessionManager.checkSessionTargets();
 
+            // Unsubscribe from contract updates
             if (response.subscription?.id) {
                 this.send({ forget: response.subscription.id });
             }
+
         } else if (posIndex >= 0) {
+            // Contract still open - update tracking
             const position = state.portfolio.activePositions[posIndex];
+            const previousProfit = position.currentProfit;
+
             position.currentProfit = contract.profit;
             position.currentPrice = contract.current_spot;
 
-            // Log profit updates periodically
-            if (Math.random() < 0.05) { // Log ~5% of updates to avoid spam
-                LOGGER.debug(`${position.symbol} Live P/L: $${position.currentProfit.toFixed(2)} | Price: ${position.currentPrice.toFixed(5)}`);
+            // NEW: Track profit changes for stale detection
+            if (Math.abs(contract.profit - position.lastProfitValue) > 0.001) {
+                position.lastProfitUpdate = Date.now();
+                position.lastProfitValue = contract.profit;
+            }
+
+            // NEW: Check for stale/frozen trade (profit not changing)
+            const profitFrozenDuration = Date.now() - position.lastProfitUpdate;
+
+            if (CONFIG.FORCE_CLOSE_STALE_TRADES &&
+                profitFrozenDuration > CONFIG.STALE_PROFIT_THRESHOLD &&
+                position.currentProfit !== 0) {
+
+                LOGGER.warn(`⚠️ ${position.symbol}: Trade appears frozen (profit unchanged for ${Math.round(profitFrozenDuration / 1000)}s) - Force closing`);
+
+                // Force close the trade
+                this.send({ sell: contract.contract_id, price: 0 });
+                return;
+            }
+
+            // Log profit updates periodically (reduce spam)
+            if (Math.random() < 0.1) {
+                LOGGER.debug(`${position.symbol} P/L: $${position.currentProfit.toFixed(2)} | Price: ${position.currentPrice?.toFixed(5) || 'N/A'}`);
             }
 
             const assetState = state.assets[position.symbol];
+
+            // Check for auto-close on recovery
             if (assetState && StakeManager.shouldAutoClose(position.symbol, contract.profit)) {
                 LOGGER.recovery(`${position.symbol}: Profit $${contract.profit.toFixed(2)} >= Loss $${assetState.accumulatedLoss.toFixed(2)} - AUTO CLOSING`);
+                position.isRecoveryClose = true;
+                this.send({ sell: contract.contract_id, price: 0 });
+            }
+
+            // NEW: Check if TP was hit but contract not closed by broker
+            if (assetState && contract.profit >= assetState.takeProfitAmount && assetState.takeProfitAmount > 0) {
+                LOGGER.warn(`⚠️ ${position.symbol}: TP reached ($${contract.profit.toFixed(2)} >= $${assetState.takeProfitAmount.toFixed(2)}) but not auto-closed - Force closing`);
                 position.isRecoveryClose = true;
                 this.send({ sell: contract.contract_id, price: 0 });
             }
@@ -1766,6 +2176,9 @@ class ConnectionManager {
         state.isConnected = false;
         state.isAuthorized = false;
         this.stopMonitor();
+
+        // NEW: Save state on disconnect
+        StatePersistence.saveState();
 
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
@@ -1819,11 +2232,12 @@ class ConnectionManager {
 class DerivBot {
     constructor() {
         this.connection = new ConnectionManager();
+        this.staleTradeMonitorInterval = null;
     }
 
     async start() {
         console.log('\n' + '═'.repeat(90));
-        console.log('         DERIV MULTIPLIER BOT v6.2');
+        console.log('         DERIV MULTIPLIER BOT v6.3');
         console.log('         WPR + Stochastic Strategy - SIGNALS ON CANDLE CLOSE ONLY');
         console.log('═'.repeat(90));
         console.log(`💰 Initial Capital: $${state.capital}`);
@@ -1832,11 +2246,17 @@ class DerivBot {
         console.log(`🎯 Session Target: $${CONFIG.SESSION_PROFIT_TARGET} | Stop Loss: $${CONFIG.SESSION_STOP_LOSS}`);
         console.log(`🔄 Max Reversals: ${CONFIG.MAX_REVERSAL_LEVEL} | Multiplier: ${CONFIG.REVERSAL_STAKE_MULTIPLIER}x`);
         console.log(`📱 Telegram: ${CONFIG.TELEGRAM_ENABLED ? 'ENABLED' : 'DISABLED'}`);
+        console.log(`💾 State Persistence: ENABLED`);
         console.log('═'.repeat(90));
         console.log('📋 Strategy (ALL SIGNALS ON CANDLE CLOSE):');
         console.log('   BUY: WPR > -20 (from -80) → Stoch crossover < 20 → Execute');
         console.log('   SELL: WPR < -80 (from -20) → Stoch crossover > 80 → Execute');
         console.log('   Invalidation: BUY @ -60, SELL @ -40');
+        console.log('═'.repeat(90));
+        console.log('🆕 v6.3 Features:');
+        console.log('   ✅ Reversal trade Telegram alerts');
+        console.log('   ✅ State persistence for internet disruption');
+        console.log('   ✅ Improved TP/SL handling with stale trade detection');
         console.log('═'.repeat(90) + '\n');
 
         this.connection.send({ balance: 1, subscribe: 1 });
@@ -1849,6 +2269,15 @@ class DerivBot {
             setInterval(() => TelegramService.sendSessionSummary(), 60 * 60 * 1000);
             LOGGER.info('📱 Telegram notifications enabled');
         }
+
+        // NEW: Start state auto-save
+        StatePersistence.startAutoSave();
+
+        // NEW: Recover open contracts after reconnection
+        await StatePersistence.recoverOpenContracts(this.connection);
+
+        // NEW: Start stale trade monitoring
+        this.startStaleTradeMonitor();
 
         LOGGER.info('✅ Bot started successfully!');
     }
@@ -1892,6 +2321,9 @@ class DerivBot {
         }
     }
 
+    /**
+     * MODIFIED: Execute trade with Reversal Telegram alerts
+     */
     executeTrade(symbol, direction, isReversal = false, previousLoss = 0) {
         if (!RiskManager.canTrade(isReversal)) return;
 
@@ -1919,6 +2351,19 @@ class DerivBot {
                 StakeManager.fullReset(symbol);
                 return;
             }
+
+            // NEW: Send Telegram alert for Reversal trade
+            TelegramService.sendReversalAlert(
+                symbol,
+                direction,
+                stake,
+                StakeManager.getMultiplier(symbol),
+                assetState.reversalLevel,
+                previousLoss,
+                assetState.accumulatedLoss,
+                assetState.takeProfitAmount
+            );
+
         } else {
             stake = StakeManager.getInitialStake(symbol);
         }
@@ -1948,10 +2393,16 @@ class DerivBot {
             reversalLevel: assetState.reversalLevel,
             pendingReversal: null,
             isRecoveryClose: false,
-            isMaxReversalClose: false
+            isMaxReversalClose: false,
+            // NEW: Track last profit update for stale detection
+            lastProfitUpdate: Date.now(),
+            lastProfitValue: 0
         };
 
         state.portfolio.activePositions.push(position);
+
+        // NEW: Save state immediately after new position
+        StatePersistence.saveState();
 
         const tradeRequest = {
             buy: 1,
@@ -2002,6 +2453,50 @@ class DerivBot {
         this.connection.send({ sell: position.contractId, price: 0 });
     }
 
+    /**
+     * NEW: Monitor for stale/frozen trades and poll contract status
+     */
+    startStaleTradeMonitor() {
+        // Clear any existing monitor
+        if (this.staleTradeMonitorInterval) {
+            clearInterval(this.staleTradeMonitorInterval);
+        }
+
+        // Periodic contract status check
+        this.staleTradeMonitorInterval = setInterval(() => {
+            if (!state.isConnected || !state.isAuthorized) return;
+
+            const activePositions = state.portfolio.activePositions.filter(p => p.contractId);
+
+            for (const position of activePositions) {
+                // Re-request contract status to ensure we have latest data
+                this.connection.send({
+                    proposal_open_contract: 1,
+                    contract_id: position.contractId,
+                    subscribe: 1
+                });
+
+                // Check for stale trades
+                const profitFrozenDuration = Date.now() - (position.lastProfitUpdate || position.entryTime);
+
+                if (CONFIG.FORCE_CLOSE_STALE_TRADES &&
+                    profitFrozenDuration > CONFIG.STALE_PROFIT_THRESHOLD &&
+                    position.currentProfit !== 0) {
+
+                    LOGGER.warn(`⏰ STALE TRADE DETECTED: ${position.symbol} - Profit frozen for ${Math.round(profitFrozenDuration / 1000)}s`);
+
+                    // Send Telegram alert
+                    TelegramService.sendMessage(`⚠️ STALE TRADE DETECTED\n\nAsset: ${position.symbol}\nDirection: ${position.direction}\nFrozen Profit: $${position.currentProfit.toFixed(2)}\nDuration: ${Math.round(profitFrozenDuration / 1000)}s\n\nAttempting force close...`);
+
+                    // Force close
+                    this.connection.send({ sell: position.contractId, price: 0 });
+                }
+            }
+        }, CONFIG.CONTRACT_POLL_INTERVAL || 15000);
+
+        LOGGER.info('⏰ Stale trade monitor started');
+    }
+
     async closeAllPositions() {
         LOGGER.info('🔒 Closing all positions...');
         for (const position of state.portfolio.activePositions) {
@@ -2014,7 +2509,18 @@ class DerivBot {
 
     stop() {
         LOGGER.info('🛑 Stopping bot...');
+
+        // NEW: Save final state before stopping
+        StatePersistence.saveState();
+        StatePersistence.stopAutoSave();
+
+        // Stop stale trade monitor
+        if (this.staleTradeMonitorInterval) {
+            clearInterval(this.staleTradeMonitorInterval);
+        }
+
         this.closeAllPositions();
+
         setTimeout(() => {
             if (this.connection.ws) this.connection.ws.close();
             LOGGER.info('👋 Bot stopped');
@@ -2070,13 +2576,13 @@ class Dashboard {
         const session = status.session;
 
         console.log('\n' + '╔' + '═'.repeat(115) + '╗');
-        console.log('║' + `     DERIV BOT v6.2 - ${CONFIG.TIMEFRAME_LABEL} CANDLES | SIGNALS ON CLOSE ONLY`.padEnd(115) + '║');
+        console.log('║' + `     DERIV BOT v6.3 - ${CONFIG.TIMEFRAME_LABEL} CANDLES | SIGNALS ON CLOSE ONLY | STATE PERSISTENCE`.padEnd(115) + '║');
         console.log('╠' + '═'.repeat(115) + '╣');
 
         const netPLColor = session.netPL >= 0 ? '\x1b[32m' : '\x1b[31m';
         const resetColor = '\x1b[0m';
 
-        console.log(`║ 💰 Capital: $${status.capital.toFixed(2).padEnd(12)} 🏦 Account: $${status.accountBalance.toFixed(2).padEnd(12)} 📱 Telegram: ${CONFIG.TELEGRAM_ENABLED ? 'ON' : 'OFF'}`.padEnd(124) + '║');
+        console.log(`║ 💰 Capital: $${status.capital.toFixed(2).padEnd(12)} 🏦 Account: $${status.accountBalance.toFixed(2).padEnd(12)} 📱 Telegram: ${CONFIG.TELEGRAM_ENABLED ? 'ON' : 'OFF'} 💾 State: AUTO-SAVE`.padEnd(124) + '║');
         console.log(`║ 📊 Session: ${session.duration.padEnd(10)} Trades: ${session.trades.toString().padEnd(5)} Win Rate: ${session.winRate.padEnd(8)}`.padEnd(124) + '║');
         console.log(`║ 💹 Net P/L: ${netPLColor}$${session.netPL.toFixed(2).padEnd(10)}${resetColor} Target: $${session.profitTarget.toFixed(2).padEnd(10)}`.padEnd(132) + '║');
 
@@ -2105,7 +2611,7 @@ class Dashboard {
         });
 
         console.log('╚' + '═'.repeat(115) + '╝');
-        console.log(`⏰ ${getGMTTime()} | TF: ${CONFIG.TIMEFRAME} | Signals: ON CANDLE CLOSE | Ctrl+C to stop\n`);
+        console.log(`⏰ ${getGMTTime()} | TF: ${CONFIG.TIMEFRAME} | Signals: ON CANDLE CLOSE | State: AUTO-SAVE | Ctrl+C to stop\n`);
     }
 
     static startLiveUpdates() {
@@ -2136,7 +2642,7 @@ process.on('SIGTERM', () => {
 
 if (CONFIG.API_TOKEN === 'YOUR_API_TOKEN_HERE') {
     console.log('═'.repeat(115));
-    console.log('         DERIV MULTIPLIER BOT v6.2');
+    console.log('         DERIV MULTIPLIER BOT v6.3');
     console.log('         WPR + Stochastic Strategy - SIGNALS ON CANDLE CLOSE ONLY');
     console.log('═'.repeat(115));
     console.log('\n⚠️  API Token not configured!\n');
@@ -2153,16 +2659,16 @@ if (CONFIG.API_TOKEN === 'YOUR_API_TOKEN_HERE') {
     console.log('  TELEGRAM_BOT_TOKEN  - Telegram bot token for notifications');
     console.log('  TELEGRAM_CHAT_ID    - Telegram chat ID for notifications');
     console.log('  DEBUG               - Enable debug mode (default: false)');
-    console.log('\nKey Fix in v6.2:');
-    console.log('  ✅ Indicators only update on CANDLE CLOSE');
-    console.log('  ✅ Signals only generated on CANDLE CLOSE');
-    console.log('  ✅ No more false signals from tick-by-tick updates');
+    console.log('\nNew in v6.3:');
+    console.log('  ✅ Reversal trade Telegram notifications');
+    console.log('  ✅ State persistence for internet disruption handling');
+    console.log('  ✅ Improved TP/SL handling with stale trade detection');
     console.log('═'.repeat(115));
     process.exit(1);
 }
 
 console.log('═'.repeat(115));
-console.log('         DERIV MULTIPLIER BOT v6.2');
+console.log('         DERIV MULTIPLIER BOT v6.3');
 console.log(`         Timeframe: ${CONFIG.TIMEFRAME_LABEL} | Signals: ON CANDLE CLOSE ONLY`);
 console.log('═'.repeat(115));
 console.log('\n🚀 Initializing...\n');
@@ -2182,6 +2688,7 @@ module.exports = {
     SessionManager,
     RiskManager,
     TelegramService,
+    StatePersistence,
     CONFIG,
     ASSET_CONFIGS,
     ACTIVE_ASSETS,
