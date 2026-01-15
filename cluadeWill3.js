@@ -310,6 +310,37 @@ Time: ${new Date().toUTCString()}
         await this.sendMessage(message);
     }
 
+    /**
+     * Periodically send detail notifications for active contracts (Bot 3 Style)
+     */
+    static async sendActivePositionsUpdate() {
+        const activeSymbols = Object.keys(state.assets).filter(s => state.assets[s].activePosition);
+        if (activeSymbols.length === 0) return;
+
+        let message = `🚀 <b>ACTIVE CONTRACTS UPDATE</b>\n\n`;
+
+        for (const symbol of activeSymbols) {
+            const asset = state.assets[symbol];
+            const pos = asset.activePosition;
+            if (!pos) continue;
+
+            const profit = asset.unrealizedPnl || 0;
+            const emoji = profit >= 0 ? '🟢' : '🔴';
+            const durationArr = SessionManager.formatDuration(Math.floor((Date.now() - pos.entryTime) / 1000)).split(' ');
+            const duration = durationArr[durationArr.length - 1]; // Just show seconds/minutes if short
+
+            message += `📊 <b>${symbol}</b> [${pos.direction}]\n`;
+            message += `├ ID: <code>${pos.contractId}</code>\n`;
+            message += `├ Stake: $${pos.stake.toFixed(2)} (x${pos.multiplier})\n`;
+            message += `├ Status: ${emoji} <b>$${profit.toFixed(2)}</b>\n`;
+            message += `└ Rev: ${pos.reversalLevel}/${CONFIG.MAX_REVERSAL_LEVEL} | ${duration} ago\n\n`;
+        }
+
+        message += `⏰ ${new Date().toUTCString()}`;
+        await this.sendMessage(message);
+        LOGGER.info('📱 Telegram: Active Contracts Update sent');
+    }
+
     static async sendStartupMessage() {
         const message = `
 🤖 <b>DERIV BOT v7.0 STARTED</b>
@@ -366,7 +397,7 @@ const TIMEFRAMES = {
     '4h': { seconds: 14400, granularity: 14400, label: '4 Hours' }
 };
 
-const SELECTED_TIMEFRAME = '5m';
+const SELECTED_TIMEFRAME = '1m';
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================
@@ -591,7 +622,9 @@ function initializeAssetStates() {
                 },
 
                 // Active trade tracking
-                activePosition: null,
+                activePosition: null, // Full position object
+                activeContract: null, // Contract ID string (for cross-bot compatibility)
+                unrealizedPnl: 0,     // Live P&L tracking
                 currentDirection: null,
 
                 // Trade cycle state
@@ -1685,6 +1718,8 @@ class ConnectionManager {
 
             if (state.assets[position.symbol]) {
                 state.assets[position.symbol].activePosition = position;
+                state.assets[position.symbol].activeContract = contract.contract_id;
+                state.assets[position.symbol].unrealizedPnl = 0;
             }
 
             TelegramService.sendTradeAlert('OPEN', position.symbol, position.direction, position.stake, position.multiplier, {
@@ -1730,6 +1765,8 @@ class ConnectionManager {
                     const reversalDir = position.pendingReversal;
                     const lossAmount = profit < 0 ? profit : 0;
                     assetState.activePosition = null;
+                    assetState.activeContract = null;
+                    assetState.unrealizedPnl = 0;
                     assetState.currentDirection = null;
 
                     setTimeout(() => {
@@ -1785,6 +1822,8 @@ class ConnectionManager {
 
                 if (state.assets[symbol]) {
                     state.assets[symbol].activePosition = null;
+                    state.assets[symbol].activeContract = null;
+                    state.assets[symbol].unrealizedPnl = 0;
                     state.assets[symbol].currentDirection = null;
 
                     if (profit > 0) {
@@ -1807,6 +1846,10 @@ class ConnectionManager {
             position.currentPrice = contract.current_spot;
 
             const assetState = state.assets[position.symbol];
+            if (assetState) {
+                assetState.unrealizedPnl = contract.profit;
+                assetState.currentPrice = contract.current_spot;
+            }
 
             // ============================================
             // STALLED CONTRACT DETECTION
@@ -1929,6 +1972,16 @@ class ConnectionManager {
                     LOGGER.warn(`${position.symbol}: Contract ${position.contractId} has been open for ${Math.round(duration / 60000)} minutes`);
                 }
             }
+
+            // NEW: Log active contract details precisely (Bot 3 Style)
+            if (activePositions.length > 0) {
+                const logs = activePositions.map(p => {
+                    const profit = p.currentProfit || 0;
+                    const color = profit >= 0 ? '\x1b[32m' : '\x1b[31m';
+                    return `${p.symbol}: ${color}$${profit.toFixed(2)}\x1b[0m (ID: ${p.contractId})`;
+                });
+                LOGGER.trade(`Live Active Contracts: ${logs.join(' | ')}`);
+            }
         }, 10000); // Check every 10 seconds
     }
 
@@ -1985,8 +2038,13 @@ class DerivBot {
         TelegramService.sendStartupMessage();
 
         if (CONFIG.TELEGRAM_ENABLED) {
+            // Periodic Active Position Updates (Every 30 mins)
+            setInterval(() => TelegramService.sendActivePositionsUpdate(), 30 * 60 * 1000);
+
+            // Periodic Session Summary (Every hour)
             setInterval(() => TelegramService.sendSessionSummary(), 60 * 60 * 1000);
-            LOGGER.info('📱 Telegram notifications enabled');
+
+            LOGGER.info('📱 Telegram notifications scheduled (Active Update: 30m, Summary: 1h)');
         }
 
         LOGGER.info('✅ Bot started successfully!');
@@ -2231,13 +2289,14 @@ class Dashboard {
 
         if (status.activePositions.length > 0) {
             console.log('║ 🚀 ACTIVE POSITIONS:'.padEnd(121) + '║');
-            console.log('║ Symbol | Dir | Stake | Multi | Profit | Rev Lvl | Duration'.padEnd(121) + '║');
+            console.log('║ Symbol | ID         | Dir | Stake | Multi | Profit | Rev Lvl | Duration'.padEnd(121) + '║');
             console.log('║' + '-'.repeat(120) + '║');
 
             status.activePositions.forEach(pos => {
                 const profitColor = pos.profit >= 0 ? '\x1b[32m' : '\x1b[31m';
                 const profitStr = pos.profit >= 0 ? `+${pos.profit.toFixed(2)}` : pos.profit.toFixed(2);
-                console.log(`║ ${pos.symbol.padEnd(10)} | ${pos.direction.padEnd(4)} | $${pos.stake.toFixed(2).padEnd(6)} | x${pos.multiplier.toString().padEnd(4)} | ${profitColor}${profitStr.padEnd(8)}${resetColor} | ${pos.reversalLevel.toString().padEnd(7)} | ${pos.duration}s`.padEnd(129) + '║');
+                const contractId = (pos.contractId || 'pending').toString().padEnd(10);
+                console.log(`║ ${pos.symbol.padEnd(8)} | ${contractId} | ${pos.direction.padEnd(4)} | $${pos.stake.toFixed(2).padEnd(6)} | x${pos.multiplier.toString().padEnd(4)} | ${profitColor}${profitStr.padEnd(8)}${resetColor} | ${pos.reversalLevel.toString().padEnd(7)} | ${pos.duration}s`.padEnd(129) + '║');
             });
             console.log('╠' + '═'.repeat(120) + '╣');
         }
