@@ -52,7 +52,7 @@ const ASSET_CONFIGS = {
         name: 'Volatility 100',
         category: 'synthetic',
         contractType: 'multiplier',
-        multipliers: [40, 100, 200, 300, 500],
+        multipliers: [40, 100, 200, 300, 400],
         defaultMultiplier: 200,
         maxTradesPerDay: 50,
         minStake: 1.00,
@@ -167,10 +167,10 @@ const CONFIG = {
     fibLowerZone: 0.5, // Extended from 0.5
 
     // Signal cooldown (seconds) - reduced for more trades
-    signalCooldownSeconds: 30,
+    signalCooldownSeconds: 5,
 
     // Entry cooldown after trade closes (seconds)
-    postTradeCooldown: 10,
+    postTradeCooldown: 5,
 
     // Require candle confirmation (can disable for more entries)
     requireConfirmation: true,  // Default OFF now
@@ -179,13 +179,13 @@ const CONFIG = {
     maxDailyLossPercent: 50,
     maxDailyLoss: 50,
     maxTotalOpenPositions: 7,
-    maxConsecutiveLosses: 5,
-    cooldownMinutes: 10,
+    maxConsecutiveLosses: 50,
+    cooldownMinutes: 1,
 
     // Telegram settings
     telegram: {
         enabled: true,
-        botToken: '8322457666:AAHuXoU9JlD-wxaL-Yw1Bl9f056AGT_9WFU',
+        botToken: '8240090224:AAEvCwqEujSdfYjs8jY7tMx1vCI995T1-Oc',
         chatId: '752497117',
         sendTradeAlerts: true,
         sendHourlySummary: true,
@@ -295,6 +295,7 @@ function createAssetState(symbol) {
         lastTick: null,
         subscriptionId: null,
         lastProcessedTime: null,
+        lastHealthCheckError: null,
 
         // Strategy state - ENHANCED for continuous trading
         swingHighs: [],
@@ -366,6 +367,164 @@ function initializeAssetStates() {
         Logger.info(`Initialized state for ${symbol} (${ASSET_CONFIGS[symbol].name})`);
     }
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 3.5: PERSISTENT STATE MANAGER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const fs = require('fs');
+const path = require('path');
+
+const StateManager = {
+    stateFile: path.join(__dirname, 'fibo-scalper-state.json'),
+    lastSaveTime: 0,
+    saveThrottleMs: 5000, // Only save once every 5 seconds
+    pendingSave: false,
+
+    saveState() {
+        const now = Date.now();
+
+        // Throttle saves to prevent excessive disk I/O
+        if (now - this.lastSaveTime < this.saveThrottleMs) {
+            // Schedule a save if one isn't already pending
+            if (!this.pendingSave) {
+                this.pendingSave = true;
+                setTimeout(() => {
+                    this.pendingSave = false;
+                    this.saveStateNow();
+                }, this.saveThrottleMs - (now - this.lastSaveTime));
+            }
+            return;
+        }
+
+        this.saveStateNow();
+    },
+
+    saveStateNow() {
+        try {
+            const state = {
+                balance: STATE.balance,
+                investmentCapital: STATE.investmentCapital,
+                currentCapital: STATE.currentCapital,
+                totalDailyPnl: STATE.totalDailyPnl,
+                totalTradesToday: STATE.totalTradesToday,
+                globalWins: STATE.globalWins,
+                globalLosses: STATE.globalLosses,
+                consecutiveLosses: STATE.consecutiveLosses,
+                consecutiveWins: STATE.consecutiveWins,
+                lastResetDate: STATE.lastResetDate,
+
+                // Save active positions
+                activePositions: CONFIG.activeAssets.map(symbol => {
+                    const asset = STATE.assets[symbol];
+                    if (asset.activeContract) {
+                        return {
+                            symbol,
+                            contractId: asset.contractId,
+                            direction: asset.direction,
+                            entryPrice: asset.entryPrice,
+                            stake: asset.stake,
+                            multiplier: asset.multiplier,
+                            takeProfitPrice: asset.takeProfitPrice,
+                            stopLossPrice: asset.stopLossPrice,
+                            lastKnownPnl: asset.unrealizedPnl,
+                            openTime: asset.tradeHistory.find(t => t.id === asset.contractId)?.openTime
+                        };
+                    }
+                    return null;
+                }).filter(Boolean),
+
+                // Save per-asset stats
+                assetStats: CONFIG.activeAssets.reduce((acc, symbol) => {
+                    const asset = STATE.assets[symbol];
+                    acc[symbol] = {
+                        tradesToday: asset.tradesToday,
+                        dailyPnl: asset.dailyPnl,
+                        wins: asset.wins,
+                        losses: asset.losses
+                    };
+                    return acc;
+                }, {})
+            };
+
+            fs.writeFileSync(this.stateFile, JSON.stringify(state, null, 2));
+            this.lastSaveTime = Date.now();
+            // Logger.debug('State saved to disk');
+        } catch (error) {
+            Logger.error(`Failed to save state: ${error.message}`);
+        }
+    },
+
+    loadState() {
+        try {
+            if (!fs.existsSync(this.stateFile)) {
+                Logger.info('No previous state found - starting fresh');
+                return false;
+            }
+
+            const data = fs.readFileSync(this.stateFile, 'utf8');
+            const savedState = JSON.parse(data);
+
+            // Check if it's from today
+            if (savedState.lastResetDate !== new Date().toDateString()) {
+                Logger.info('Previous state is from a different day - starting fresh');
+                fs.unlinkSync(this.stateFile);
+                return false;
+            }
+
+            // Restore global state
+            STATE.investmentCapital = savedState.investmentCapital || STATE.investmentCapital;
+            STATE.currentCapital = savedState.currentCapital || STATE.currentCapital;
+            STATE.totalDailyPnl = savedState.totalDailyPnl || 0;
+            STATE.totalTradesToday = savedState.totalTradesToday || 0;
+            STATE.globalWins = savedState.globalWins || 0;
+            STATE.globalLosses = savedState.globalLosses || 0;
+            STATE.consecutiveLosses = savedState.consecutiveLosses || 0;
+            STATE.consecutiveWins = savedState.consecutiveWins || 0;
+
+            // Restore per-asset stats
+            if (savedState.assetStats) {
+                for (const symbol of CONFIG.activeAssets) {
+                    const stats = savedState.assetStats[symbol];
+                    if (stats) {
+                        STATE.assets[symbol].tradesToday = stats.tradesToday;
+                        STATE.assets[symbol].dailyPnl = stats.dailyPnl;
+                        STATE.assets[symbol].wins = stats.wins;
+                        STATE.assets[symbol].losses = stats.losses;
+                    }
+                }
+            }
+
+            Logger.success('Previous state restored successfully');
+            Logger.info(`Restored: P&L=$${STATE.totalDailyPnl.toFixed(2)}, Trades=${STATE.totalTradesToday}, W/L=${STATE.globalWins}/${STATE.globalLosses}`);
+
+            return savedState.activePositions || [];
+
+        } catch (error) {
+            Logger.error(`Failed to load state: ${error.message}`);
+            return false;
+        }
+    },
+
+    clearState() {
+        try {
+            if (fs.existsSync(this.stateFile)) {
+                fs.unlinkSync(this.stateFile);
+                Logger.info('State file cleared');
+            }
+        } catch (error) {
+            Logger.error(`Failed to clear state: ${error.message}`);
+        }
+    }
+};
+
+// Auto-save state every 30 seconds
+setInterval(() => {
+    if (STATE.connected && STATE.authorized) {
+        StateManager.saveStateNow(); // Force save on interval
+    }
+}, 30000);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 4: TELEGRAM NOTIFIER
@@ -1031,7 +1190,113 @@ const DerivAPI = {
             contract_id: contractId,
             subscribe: 1
         });
-    }
+    },
+
+    // Add this new method to DerivAPI object (after subscribeContract method):
+
+    async recoverPositions(savedPositions) {
+        if (!savedPositions || savedPositions.length === 0) {
+            Logger.info('No positions to recover');
+            return;
+        }
+
+        Logger.warn(`Found ${savedPositions.length} position(s) from previous session - recovering...`);
+
+        for (const pos of savedPositions) {
+            try {
+                Logger.info(`Recovering ${pos.symbol} position: Contract ${pos.contractId}`, pos.symbol);
+
+                // Add delay between recovery attempts
+                await new Promise(r => setTimeout(r, 1000));
+
+                // Get current contract status with retries
+                let response = null;
+                let attempts = 0;
+                const maxAttempts = 3;
+
+                while (attempts < maxAttempts && !response) {
+                    try {
+                        response = await this.send({
+                            proposal_open_contract: 1,
+                            contract_id: pos.contractId
+                        });
+                    } catch (error) {
+                        attempts++;
+                        if (attempts < maxAttempts) {
+                            Logger.debug(`Recovery attempt ${attempts} failed, retrying...`, pos.symbol);
+                            await new Promise(r => setTimeout(r, 2000));
+                        } else {
+                            throw error;
+                        }
+                    }
+                }
+
+                const contract = response?.proposal_open_contract;
+
+                if (!contract) {
+                    Logger.warn(`Contract ${pos.contractId} not found - may have closed during downtime`, pos.symbol);
+                    continue;
+                }
+
+                const asset = STATE.assets[pos.symbol];
+
+                // Check if contract is still open
+                if (contract.is_sold || contract.status === 'sold') {
+                    Logger.info(`Contract ${pos.contractId} was closed during downtime`, pos.symbol);
+
+                    // Record the closed trade
+                    const pnl = contract.profit || 0;
+                    const isWin = pnl > 0;
+
+                    Logger.trade(`Recovered closed trade: ${isWin ? '✅ WIN' : '❌ LOSS'} ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`, pos.symbol);
+
+                    RiskManager.recordTrade(pos.symbol, pnl, isWin);
+
+                    await TelegramNotifier.sendTradeClosed(pos.symbol, pos.direction, pnl, isWin);
+
+                } else {
+                    // Position is still open - restore it
+                    asset.activeContract = String(contract.contract_id);
+                    asset.contractId = String(contract.contract_id);
+                    asset.entryPrice = pos.entryPrice;
+                    asset.direction = pos.direction;
+                    asset.takeProfitPrice = pos.takeProfitPrice;
+                    asset.stopLossPrice = pos.stopLossPrice;
+                    asset.stake = pos.stake;
+                    asset.multiplier = pos.multiplier;
+                    asset.unrealizedPnl = contract.profit || pos.lastKnownPnl || 0;
+
+                    STATE.totalOpenPositions++;
+
+                    Logger.success(`Position recovered: ${pos.direction} @ ${pos.entryPrice.toFixed(4)}, Current P&L: $${asset.unrealizedPnl.toFixed(2)}`, pos.symbol);
+
+                    // Subscribe to contract updates
+                    await new Promise(r => setTimeout(r, 500));
+                    const subResponse = await this.subscribeContract(asset.contractId);
+                    asset.contractSubscriptionId = subResponse.subscription?.id;
+
+                    // Restore trade history entry if needed
+                    if (!asset.tradeHistory.find(t => t.id === asset.contractId)) {
+                        asset.tradeHistory.push({
+                            id: asset.contractId,
+                            openTime: pos.openTime ? new Date(pos.openTime) : new Date(),
+                            direction: pos.direction,
+                            entry: pos.entryPrice,
+                            stake: pos.stake,
+                            multiplier: pos.multiplier,
+                            status: 'open'
+                        });
+                    }
+                }
+
+            } catch (error) {
+                Logger.error(`Failed to recover position for ${pos.symbol}: ${error.message}`, pos.symbol);
+            }
+        }
+
+        Logger.success('Position recovery complete');
+        StateManager.saveStateNow(); // Force immediate save after recovery
+    },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1776,7 +2041,11 @@ const RiskManager = {
             STATE.lastLossTime = new Date();
         }
 
+        // Print capital after every trade
         Logger.info(`Capital: ${STATE.currency} ${STATE.currentCapital.toFixed(2)}`);
+
+        // Save state after every trade
+        StateManager.saveState();
     },
 
     getStake(symbol) {
@@ -1853,7 +2122,11 @@ const TradeExecutor = {
                     status: 'open'
                 });
 
+                // Print asset table after every trade
                 Logger.printAssetTable();
+
+                // Save state after every trade
+                StateManager.saveState();
             }
         } catch (error) {
             Logger.error(`Trade execution failed: ${error.message}`, symbol);
@@ -1863,7 +2136,6 @@ const TradeExecutor = {
     handleContractUpdate(contract) {
         if (!contract) return;
 
-        // FIXED: Convert contract_id to string for comparison
         const contractIdStr = String(contract.contract_id);
 
         let assetSymbol = null;
@@ -1878,12 +2150,26 @@ const TradeExecutor = {
 
         const asset = STATE.assets[assetSymbol];
 
+        // Update current price and P&L
         if (contract.profit !== undefined) {
             asset.unrealizedPnl = contract.profit;
             asset.currentPrice = contract.current_spot;
         }
 
-        if (contract.is_sold || contract.status === 'sold') {
+        // Enhanced closure detection - check multiple conditions
+        const isSold = contract.is_sold === 1 || contract.status === 'sold';
+        const isClosed = contract.status === 'closed';
+        const hasExitTick = contract.exit_tick !== undefined;
+        const hasSellPrice = contract.sell_price !== undefined;
+
+        // Additional check: if profit stopped changing and TP/SL was likely hit
+        const tpReached = contract.limit_order?.take_profit &&
+            Math.abs(contract.profit - contract.limit_order.take_profit) < 0.01;
+        const slReached = contract.limit_order?.stop_loss &&
+            Math.abs(contract.profit + contract.limit_order.stop_loss) < 0.01;
+
+        if (isSold || isClosed || hasExitTick || hasSellPrice || tpReached || slReached) {
+            Logger.debug(`Contract closure detected: isSold=${isSold}, isClosed=${isClosed}, hasExitTick=${hasExitTick}, hasSellPrice=${hasSellPrice}, tpReached=${tpReached}, slReached=${slReached}`, assetSymbol);
             this.onContractClosed(assetSymbol, contract);
         }
     },
@@ -1954,6 +2240,10 @@ async function main() {
     Logger.banner();
     validateConfig();
     initializeAssetStates();
+
+    // Load previous state before connecting
+    const savedPositions = StateManager.loadState();
+
     Logger.printAssetTable();
 
     setupShutdownHandlers();
@@ -1964,12 +2254,47 @@ async function main() {
         await DerivAPI.authorize();
         await DerivAPI.subscribeAllAssets();
 
+        // Recover any positions from previous session
+        if (savedPositions && savedPositions.length > 0) {
+            await DerivAPI.recoverPositions(savedPositions);
+        }
+
         await TelegramNotifier.sendStartup();
 
         Logger.globalStats();
         Logger.success('Bot is running. Monitoring all assets for signals...');
         Logger.info('Strategy diagnostics will print every 5 minutes');
         Logger.info('Press Ctrl+C for graceful shutdown\n');
+
+        // Periodic health check for open positions
+        setInterval(async () => {
+            if (!STATE.connected || !STATE.authorized) return;
+
+            for (const symbol of CONFIG.activeAssets) {
+                const asset = STATE.assets[symbol];
+                if (asset.activeContract) {
+                    try {
+                        // Add small delay between assets to avoid overwhelming API
+                        await new Promise(r => setTimeout(r, 200));
+
+                        const response = await DerivAPI.send({
+                            proposal_open_contract: 1,
+                            contract_id: asset.contractId
+                        });
+
+                        if (response.proposal_open_contract) {
+                            TradeExecutor.handleContractUpdate(response.proposal_open_contract);
+                        }
+                    } catch (error) {
+                        // Only log health check errors if they persist
+                        if (!asset.lastHealthCheckError || Date.now() - asset.lastHealthCheckError > 60000) {
+                            Logger.debug(`Health check failed for ${symbol}: ${error.message}`, symbol);
+                            asset.lastHealthCheckError = Date.now();
+                        }
+                    }
+                }
+            }
+        }, 30000); // Increased to 30 seconds to reduce API load
 
         // Initial diagnostics
         setTimeout(() => {
@@ -1979,15 +2304,7 @@ async function main() {
         // Periodic stats display
         setInterval(() => {
             Logger.globalStats();
-            // Logger.printAssetTable();
         }, 300000);
-
-        // Live position update display
-        setInterval(() => {
-            if (STATE.totalOpenPositions > 0) {
-                // Logger.printAssetTable();
-            }
-        }, 10000);
 
         process.stdin.resume();
 
@@ -2026,6 +2343,9 @@ function setupShutdownHandlers() {
             Logger.warn('Closing all open positions...');
             await TradeExecutor.closeAllPositions('shutdown');
         }
+
+        // Save final state before shutdown
+        StateManager.saveState();
 
         await TelegramNotifier.sendShutdown();
 
