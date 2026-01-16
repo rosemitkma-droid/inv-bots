@@ -397,7 +397,7 @@ const TIMEFRAMES = {
     '4h': { seconds: 14400, granularity: 14400, label: '4 Hours' }
 };
 
-const SELECTED_TIMEFRAME = '1m';
+const SELECTED_TIMEFRAME = '5m';
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================
@@ -436,16 +436,16 @@ const CONFIG = {
 
     // Trade Settings
     MAX_TRADES_PER_ASSET: 200000,
-    MAX_OPEN_POSITIONS: 100,
+    MAX_OPEN_POSITIONS: 1000,
 
     // Timing
-    COOLDOWN_AFTER_SESSION_END: 5 * 60 * 1000,
+    COOLDOWN_AFTER_SESSION_END: 1 * 60 * 1000,
     PROFIT_CHECK_INTERVAL: 1000,
 
     // Risk Settings
     MIN_WIN_RATE_THRESHOLD: 0.40,
     WIN_RATE_LOOKBACK: 20,
-    BLACKLIST_PERIOD: 1 * 60 * 1000,
+    BLACKLIST_PERIOD: 1 * 2 * 1000,
 
     // Performance
     MAX_TICKS_STORED: 300,
@@ -862,7 +862,7 @@ class BreakoutManager {
         const assetState = state.assets[symbol];
         const closedCandles = assetState.closedCandles;
 
-        if (closedCandles.length < 2) {
+        if (closedCandles.length < 1) {
             LOGGER.warn(`${symbol}: Not enough closed candles for breakout setup`);
             return false;
         }
@@ -899,7 +899,7 @@ class BreakoutManager {
         const assetState = state.assets[symbol];
         const closedCandles = assetState.closedCandles;
 
-        if (closedCandles.length < 2) {
+        if (closedCandles.length < 1) {
             return false;
         }
 
