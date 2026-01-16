@@ -614,29 +614,38 @@ ${assetBreakdown ? '<b>Per Asset:</b>\n' + assetBreakdown : ''}
         }));
     }
 
-    // checkForReversal(symbol, candle) {
-    //     const asset = this.assets.get(symbol);
-    //     if (!asset || asset.state !== 'HUNTING') return;
+    checkForReversal(symbol, candle) {
+        const asset = this.assets.get(symbol);
+        if (!asset || asset.state !== 'HUNTING') return;
 
-        // if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
-        // asset.lastCandle = candle;
+        if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
+        asset.lastCandle = candle;
 
-        // const body = Math.abs(candle.close - candle.open);
-        // const upperWick = candle.high - Math.max(candle.open, candle.close);
-        // const lowerWick = Math.min(candle.open, candle.close) - candle.low;
+        const body = Math.abs(candle.close - candle.open);
+        const upperWick = candle.high - Math.max(candle.open, candle.close);
+        const lowerWick = Math.min(candle.open, candle.close) - candle.low;
 
-        // Short when Below box
-        if (asset.box.direction === 'UP') {
-            asset.entryCandle = candle;
-            this.executeTrade(symbol, 'MULTDOWN');
+        // Long (Hammer) below box
+        // if (asset.box.direction === 'DOWN' && candle.close < asset.box.low) {
+         if (asset.box.direction === 'UP' && candle.close < asset.box.low) {
+            // if (lowerWick >= (2 * body) && upperWick < body && body > 0) {
+                // this.log('🔥 HAMMER DETECTED!', 'SUCCESS', symbol);
+                // this.sendTelegramMessage(`🔥 <b>Hammer Pattern</b> [${symbol}]\nExecuting LONG.`);
+                asset.entryCandle = candle;
+                this.executeTrade(symbol, 'MULTUP');
+            // }
         }
 
-        // Long when Above box
-        if (asset.box.direction === 'DOWN') {
-            asset.entryCandle = candle;
-            this.executeTrade(symbol, 'MULTUP');
+        // Short (Shooting Star) above box
+        if (asset.box.direction === 'DOWN' && candle.close > asset.box.high) {
+            // if (upperWick >= (2 * body) && lowerWick < body && body > 0) {
+                // this.log('🔥 SHOOTING STAR DETECTED!', 'SUCCESS', symbol);
+                // this.sendTelegramMessage(`🔥 <b>Shooting Star</b> [${symbol}]\nExecuting SHORT.`);
+                asset.entryCandle = candle;
+                this.executeTrade(symbol, 'MULTDOWN');
+            // }
         }
-    // }
+    }
 
     executeTrade(symbol, contractType) {
         const asset = this.assets.get(symbol);
