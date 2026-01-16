@@ -35,7 +35,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'cluadeWill-state.json');
+const STATE_FILE = path.join(__dirname, 'cluadeWill3-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -311,34 +311,53 @@ Time: ${new Date().toUTCString()}
     }
 
     /**
-     * Periodically send detail notifications for active contracts (Bot 3 Style)
+     * Periodically send detail notifications for active contracts
      */
     static async sendActivePositionsUpdate() {
-        const activeSymbols = Object.keys(state.assets).filter(s => state.assets[s].activePosition);
-        if (activeSymbols.length === 0) return;
+        if (!CONFIG.TELEGRAM_ENABLED) return;
 
-        let message = `🚀 <b>ACTIVE CONTRACTS UPDATE</b>\n\n`;
+        const activePositions = state.portfolio.activePositions.filter(p => p.contractId);
 
-        for (const symbol of activeSymbols) {
-            const asset = state.assets[symbol];
-            const pos = asset.activePosition;
-            if (!pos) continue;
-
-            const profit = asset.unrealizedPnl || 0;
-            const emoji = profit >= 0 ? '🟢' : '🔴';
-            const durationArr = SessionManager.formatDuration(Math.floor((Date.now() - pos.entryTime) / 1000)).split(' ');
-            const duration = durationArr[durationArr.length - 1]; // Just show seconds/minutes if short
-
-            message += `📊 <b>${symbol}</b> [${pos.direction}]\n`;
-            message += `├ ID: <code>${pos.contractId}</code>\n`;
-            message += `├ Stake: $${pos.stake.toFixed(2)} (x${pos.multiplier})\n`;
-            message += `├ Status: ${emoji} <b>$${profit.toFixed(2)}</b>\n`;
-            message += `└ Rev: ${pos.reversalLevel}/${CONFIG.MAX_REVERSAL_LEVEL} | ${duration} ago\n\n`;
+        if (activePositions.length === 0) {
+            LOGGER.info('📱 Telegram: No active positions to report');
+            return;
         }
 
+        let message = `🚀 <b>ACTIVE CONTRACTS UPDATE</b>\n`;
+        message += `Total: ${activePositions.length} position(s)\n\n`;
+
+        for (const pos of activePositions) {
+            const profit = pos.currentProfit || 0;
+            const emoji = profit >= 0 ? '🟢' : '🔴';
+            const duration = Date.now() - pos.entryTime;
+            const minutes = Math.floor(duration / 60000);
+            const seconds = Math.floor((duration % 60000) / 1000);
+
+            const assetState = state.assets[pos.symbol];
+
+            message += `📊 <b>${pos.symbol}</b> [${pos.direction}]\n`;
+            message += `├ Contract: <code>${pos.contractId}</code>\n`;
+            message += `├ Stake: $${pos.stake.toFixed(2)} (x${pos.multiplier})\n`;
+            message += `├ Status: ${emoji} <b>$${profit.toFixed(2)}</b>\n`;
+            message += `├ Reversal: ${pos.reversalLevel}/${CONFIG.MAX_REVERSAL_LEVEL}\n`;
+            message += `├ Duration: ${minutes}m ${seconds}s\n`;
+
+            if (assetState && assetState.breakout.active) {
+                message += `├ Breakout: ${assetState.breakout.type}\n`;
+                message += `├ High: ${assetState.breakout.highLevel.toFixed(5)}\n`;
+                message += `└ Low: ${assetState.breakout.lowLevel.toFixed(5)}\n\n`;
+            } else {
+                message += `└ Breakout: None\n\n`;
+            }
+        }
+
+        const totalProfit = activePositions.reduce((sum, p) => sum + (p.currentProfit || 0), 0);
+        const totalEmoji = totalProfit >= 0 ? '🟢' : '🔴';
+        message += `💰 Total P/L: ${totalEmoji} <b>$${totalProfit.toFixed(2)}</b>\n`;
         message += `⏰ ${new Date().toUTCString()}`;
+
         await this.sendMessage(message);
-        LOGGER.info('📱 Telegram: Active Contracts Update sent');
+        LOGGER.info(`📱 Telegram: Active Contracts Update sent (${activePositions.length} positions)`);
     }
 
     static async sendStartupMessage() {
@@ -397,7 +416,7 @@ const TIMEFRAMES = {
     '4h': { seconds: 14400, granularity: 14400, label: '4 Hours' }
 };
 
-const SELECTED_TIMEFRAME = '5m';
+const SELECTED_TIMEFRAME = '1m';
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================
@@ -457,7 +476,7 @@ const CONFIG = {
 
     // Telegram Settings
     TELEGRAM_ENABLED: true,
-    TELEGRAM_BOT_TOKEN: '8196927342:AAHa8d0OrF3D6yYTA_QcCPOzz5G0SPj82xE',
+    TELEGRAM_BOT_TOKEN: '7976464466:AAEuJ7JWLeJhim7hz0jCeAEwZaPKyR4m7Bg',
     TELEGRAM_CHAT_ID: '752497117'
 };
 
@@ -1752,40 +1771,47 @@ class ConnectionManager {
             const position = state.portfolio.activePositions[posIndex];
             const profit = sold.sold_for - position.buyPrice;
 
+            // FIX: Store reversal info BEFORE removing position
+            const pendingReversalDirection = position.pendingReversal;
+            const isReversalPending = !!pendingReversalDirection;
+            const symbol = position.symbol;
+
             RiskManager.recordTradeResult(position.symbol, profit, position.direction);
             state.portfolio.activePositions.splice(posIndex, 1);
 
-            const assetState = state.assets[position.symbol];
+            const assetState = state.assets[symbol];
 
             if (assetState) {
+                // Clear active position tracking
+                assetState.activePosition = null;
+                assetState.activeContract = null;
+                assetState.unrealizedPnl = 0;
+                assetState.currentDirection = null;
+
                 if (position.isRecoveryClose) {
-                    LOGGER.recovery(`${position.symbol}: Recovery close completed. Profit: $${profit.toFixed(2)}`);
-                    StakeManager.fullReset(position.symbol);
-                } else if (position.pendingReversal) {
-                    const reversalDir = position.pendingReversal;
+                    LOGGER.recovery(`${symbol}: Recovery close completed. Profit: $${profit.toFixed(2)}`);
+                    StakeManager.fullReset(symbol);
+                } else if (isReversalPending) {
+                    // FIX: Execute reversal immediately (removed setTimeout)
                     const lossAmount = profit < 0 ? profit : 0;
-                    assetState.activePosition = null;
-                    assetState.activeContract = null;
-                    assetState.unrealizedPnl = 0;
-                    assetState.currentDirection = null;
 
-                    setTimeout(() => {
-                        bot.executeTrade(position.symbol, reversalDir, true, lossAmount);
-                    }, 500);
+                    LOGGER.trade(`🔄 Executing REVERSAL: ${symbol} → ${pendingReversalDirection}`);
+
+                    // Execute reversal trade immediately
+                    bot.executeTrade(symbol, pendingReversalDirection, true, lossAmount);
+
                 } else if (position.isMaxReversalClose) {
-                    LOGGER.warn(`${position.symbol}: Max reversals reached. Full reset with breakout clear.`);
-                    StakeManager.fullResetWithBreakoutClear(position.symbol);
+                    LOGGER.warn(`${symbol}: Max reversals reached. Full reset with breakout clear.`);
+                    StakeManager.fullResetWithBreakoutClear(symbol);
                 } else {
-                    assetState.activePosition = null;
-                    assetState.currentDirection = null;
-
+                    // Normal close
                     if (profit > 0) {
                         if (assetState.reversalLevel > 0) {
                             if (profit >= assetState.accumulatedLoss) {
-                                StakeManager.fullReset(position.symbol);
+                                StakeManager.fullReset(symbol);
                             }
                         } else {
-                            StakeManager.fullReset(position.symbol);
+                            StakeManager.fullReset(symbol);
                         }
                     }
                 }
@@ -1936,59 +1962,100 @@ class ConnectionManager {
     startMonitor() {
         this.stopMonitor();
 
+        // Ping to keep connection alive
         this.pingInterval = setInterval(() => {
             if (state.isConnected) {
                 this.send({ ping: 1 });
             }
         }, 20000);
 
+        // Check for data silence
         this.checkDataInterval = setInterval(() => {
             if (!state.isConnected) return;
 
             const silenceDuration = Date.now() - this.lastDataTime;
             if (silenceDuration > 60000) {
                 LOGGER.error(`⚠️ No data for ${Math.round(silenceDuration / 1000)}s - Forcing reconnection...`);
-                StatePersistence.saveState(); // Save before reconnect
+                StatePersistence.saveState();
                 if (this.ws) this.ws.terminate();
             }
         }, 10000);
 
-        // Monitor open contracts for stalled trades
+        // Contract monitoring - every 10 seconds
         this.contractMonitorInterval = setInterval(() => {
             if (!state.isConnected || !state.isAuthorized) return;
 
             const activePositions = state.portfolio.activePositions.filter(p => p.contractId);
 
+            if (activePositions.length === 0) return;
+
+            // Re-request contract status
             for (const position of activePositions) {
-                // Re-request contract status to ensure we have latest data
                 this.send({
                     proposal_open_contract: 1,
                     contract_id: position.contractId
                 });
 
-                // Check for very long-running trades that might be stuck
+                // Check for very long-running trades
                 const duration = Date.now() - position.entryTime;
                 if (duration > 3600000) { // 1 hour
-                    LOGGER.warn(`${position.symbol}: Contract ${position.contractId} has been open for ${Math.round(duration / 60000)} minutes`);
+                    LOGGER.warn(`${position.symbol}: Contract ${position.contractId} open for ${Math.round(duration / 60000)}min`);
                 }
             }
 
-            // NEW: Log active contract details precisely (Bot 3 Style)
-            if (activePositions.length > 0) {
-                const logs = activePositions.map(p => {
-                    const profit = p.currentProfit || 0;
-                    const color = profit >= 0 ? '\x1b[32m' : '\x1b[31m';
-                    return `${p.symbol}: ${color}$${profit.toFixed(2)}\x1b[0m (ID: ${p.contractId})`;
-                });
-                LOGGER.trade(`Live Active Contracts: ${logs.join(' | ')}`);
+            // Log active contracts summary
+            const logs = activePositions.map(p => {
+                const profit = p.currentProfit || 0;
+                const color = profit >= 0 ? '\x1b[32m' : '\x1b[31m';
+                const duration = Math.floor((Date.now() - p.entryTime) / 1000);
+                return `${p.symbol}: ${color}$${profit.toFixed(2)}\x1b[0m (Rev: ${p.reversalLevel}/${CONFIG.MAX_REVERSAL_LEVEL}, ${duration}s)`;
+            });
+            LOGGER.trade(`📊 Active: ${logs.join(' | ')}`);
+        }, 10000);
+
+        // FIX: NEW - Detailed active trades logging every 60 seconds
+        this.activeTradesLogInterval = setInterval(() => {
+            if (!state.isConnected || !state.isAuthorized) return;
+
+            const activePositions = state.portfolio.activePositions.filter(p => p.contractId);
+
+            if (activePositions.length === 0) {
+                LOGGER.debug('📊 No active trades');
+                return;
             }
-        }, 10000); // Check every 10 seconds
+
+            LOGGER.info(`\n${'═'.repeat(100)}`);
+            LOGGER.info(`📊 ACTIVE TRADES SUMMARY (${activePositions.length} positions)`);
+            LOGGER.info('─'.repeat(100));
+
+            activePositions.forEach((p, idx) => {
+                const profit = p.currentProfit || 0;
+                const duration = Math.floor((Date.now() - p.entryTime) / 1000);
+                const minutes = Math.floor(duration / 60);
+                const seconds = duration % 60;
+                const profitColor = profit >= 0 ? '\x1b[32m' : '\x1b[31m';
+                const assetState = state.assets[p.symbol];
+
+                LOGGER.info(`${idx + 1}. ${p.symbol.padEnd(10)} | ${p.direction.padEnd(4)} | $${p.stake.toFixed(2).padEnd(8)} x${p.multiplier}`);
+                LOGGER.info(`   P/L: ${profitColor}$${profit.toFixed(2)}\x1b[0m | Rev: ${p.reversalLevel}/${CONFIG.MAX_REVERSAL_LEVEL} | Time: ${minutes}m ${seconds}s`);
+                if (assetState && assetState.breakout.active) {
+                    LOGGER.info(`   Breakout: ${assetState.breakout.type} | High: ${assetState.breakout.highLevel.toFixed(5)} | Low: ${assetState.breakout.lowLevel.toFixed(5)}`);
+                }
+                LOGGER.info('');
+            });
+
+            const totalProfit = activePositions.reduce((sum, p) => sum + (p.currentProfit || 0), 0);
+            const totalColor = totalProfit >= 0 ? '\x1b[32m' : '\x1b[31m';
+            LOGGER.info(`Total Unrealized: ${totalColor}$${totalProfit.toFixed(2)}\x1b[0m`);
+            LOGGER.info('═'.repeat(100) + '\n');
+        }, 60000); // Every 60 seconds
     }
 
     stopMonitor() {
         if (this.pingInterval) clearInterval(this.pingInterval);
         if (this.checkDataInterval) clearInterval(this.checkDataInterval);
         if (this.contractMonitorInterval) clearInterval(this.contractMonitorInterval);
+        if (this.activeTradesLogInterval) clearInterval(this.activeTradesLogInterval); // FIX: Clear new interval
     }
 
     send(data) {
@@ -2038,13 +2105,24 @@ class DerivBot {
         TelegramService.sendStartupMessage();
 
         if (CONFIG.TELEGRAM_ENABLED) {
-            // Periodic Active Position Updates (Every 30 mins)
-            setInterval(() => TelegramService.sendActivePositionsUpdate(), 30 * 60 * 1000);
+            // Active Position Updates every 30 minutes
+            setInterval(() => {
+                TelegramService.sendActivePositionsUpdate();
+            }, 30 * 60 * 1000);
 
-            // Periodic Session Summary (Every hour)
-            setInterval(() => TelegramService.sendSessionSummary(), 60 * 60 * 1000);
+            // Session Summary every hour
+            setInterval(() => {
+                TelegramService.sendSessionSummary();
+            }, 60 * 60 * 1000);
 
-            LOGGER.info('📱 Telegram notifications scheduled (Active Update: 30m, Summary: 1h)');
+            // FIX: Send first active position update after 1 minute
+            setTimeout(() => {
+                TelegramService.sendActivePositionsUpdate();
+            }, 60000);
+
+            LOGGER.info('📱 Telegram notifications scheduled:');
+            LOGGER.info('   - Active Position Update: Every 30 minutes (first in 1 min)');
+            LOGGER.info('   - Session Summary: Every 60 minutes');
         }
 
         LOGGER.info('✅ Bot started successfully!');
@@ -2113,7 +2191,7 @@ class DerivBot {
                 return;
             }
 
-            // Send Telegram notification for reversal trade
+            // FIX: Send reversal notification when actually executing reversal trade
             TelegramService.sendReversalAlert(
                 symbol,
                 direction,
@@ -2138,7 +2216,7 @@ class DerivBot {
 
         LOGGER.trade(`🎯 ${isReversal ? 'REVERSAL' : 'NEW'} ${direction} on ${config.name}`);
         LOGGER.trade(` Stake: $${stake.toFixed(2)} | Multiplier: x${multiplier} | Rev: ${assetState.reversalLevel}/${CONFIG.MAX_REVERSAL_LEVEL}`);
-        LOGGER.trade(` Breakout Type: ${assetState.breakout.type} | High: ${assetState.breakout.highLevel.toFixed(5)} | Low: ${assetState.breakout.lowLevel.toFixed(5)}`);
+        LOGGER.trade(` Breakout: ${assetState.breakout.type} | High: ${assetState.breakout.highLevel.toFixed(5)} | Low: ${assetState.breakout.lowLevel.toFixed(5)}`);
 
         const position = {
             symbol,
