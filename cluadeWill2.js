@@ -112,7 +112,7 @@ Time: ${new Date().toUTCString()}
      */
     static async sendReversalAlert(symbol, direction, stake, multiplier, reversalLevel, previousLoss, accumulatedLoss, takeProfitAmount) {
         const message = `
-🔄 REVERSAL TRADE EXECUTED
+🔄 REVERSAL TRADE EXECUTED BOT2
 
 📊 Trade Details:
 ━━━━━━━━━━━━━━━━━━
@@ -136,7 +136,7 @@ Target Take Profit: $${takeProfitAmount.toFixed(2)}
 
     static async sendLossAlert(symbol, lossAmount, consecutiveLosses) {
         const message = `
-❌ LOSS ALERT
+❌ LOSS ALERT BOT2
 
 Asset: ${symbol}
 Loss Amount: $${lossAmount.toFixed(2)}
@@ -154,7 +154,7 @@ Time: ${new Date().toUTCString()}
     static async sendSignalAlert(symbol, signalType, wpr, stoch) {
         const emoji = signalType.includes('BUY') ? '🟢' : '🔴';
         const message = `
-${emoji} SIGNAL ALERT
+${emoji} SIGNAL ALERT BOT2
 
 Asset: ${symbol}
 Signal: ${signalType}
@@ -171,7 +171,7 @@ Time: ${new Date().toUTCString()}
     static async sendSessionSummary() {
         const stats = SessionManager.getSessionStats();
         const message = `
-📊 <b>SESSION SUMMARY</b>
+📊 <b>SESSION SUMMARY BOT2</b>
 
 Duration: ${stats.duration}
 Trades: ${stats.trades}
@@ -197,7 +197,7 @@ Time: ${new Date().toUTCString()}
         const activeSymbols = Object.keys(state.assets).filter(s => state.assets[s].activePosition);
         if (activeSymbols.length === 0) return;
 
-        let message = `🚀 <b>ACTIVE CONTRACTS UPDATE</b>\n\n`;
+        let message = `🚀 <b>ACTIVE CONTRACTS UPDATE BOT2</b>\n\n`;
 
         for (const symbol of activeSymbols) {
             const asset = state.assets[symbol];
@@ -224,7 +224,7 @@ Time: ${new Date().toUTCString()}
 
     static async sendStartupMessage() {
         const message = `
-🤖 DERIV BOT v6.3 STARTED
+🤖 DERIV BOT v6.3 STARTED BOT2
 
 Capital: $${CONFIG.INITIAL_CAPITAL}
 Stake: $${CONFIG.INITIAL_STAKE}
@@ -565,7 +565,7 @@ const TIMEFRAMES = {
 };
 
 // Default to 5 minutes, user can override with TIMEFRAME env variable
-const SELECTED_TIMEFRAME = '1m';
+const SELECTED_TIMEFRAME = '5m';
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================
