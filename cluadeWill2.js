@@ -1189,7 +1189,7 @@ class BreakoutManager {
         const assetState = state.assets[symbol];
         const closedCandles = assetState.closedCandles;
 
-        if (closedCandles.length < 2) {
+        if (closedCandles.length < 1) {
             LOGGER.warn(`${symbol}: Not enough closed candles for breakout setup`);
             return false;
         }
