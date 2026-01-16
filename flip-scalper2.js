@@ -616,14 +616,14 @@ ${assetBreakdown ? '<b>Per Asset:</b>\n' + assetBreakdown : ''}
 
     checkForReversal(symbol, candle) {
         const asset = this.assets.get(symbol);
-        if (!asset || asset.state !== 'HUNTING') return;
+        // if (!asset || asset.state !== 'HUNTING') return;
 
-        if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
-        asset.lastCandle = candle;
+        // if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
+        // asset.lastCandle = candle;
 
-        const body = Math.abs(candle.close - candle.open);
-        const upperWick = candle.high - Math.max(candle.open, candle.close);
-        const lowerWick = Math.min(candle.open, candle.close) - candle.low;
+        // const body = Math.abs(candle.close - candle.open);
+        // const upperWick = candle.high - Math.max(candle.open, candle.close);
+        // const lowerWick = Math.min(candle.open, candle.close) - candle.low;
 
         // Long (Hammer) below box
         // if (asset.box.direction === 'DOWN' && candle.close < asset.box.low) {
