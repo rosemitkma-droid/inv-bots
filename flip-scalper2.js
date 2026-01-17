@@ -623,23 +623,25 @@ ${assetBreakdown ? '<b>Per Asset:</b>\n' + assetBreakdown : ''}
         const asset = this.assets.get(symbol);
         if (!asset || asset.state !== 'HUNTING') return;
 
-        if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
-        asset.lastCandle = candle;
+        // if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
+        // asset.lastCandle = candle;
 
-        const body = Math.abs(candle.close - candle.open);
-        const upperWick = candle.high - Math.max(candle.open, candle.close);
-        const lowerWick = Math.min(candle.open, candle.close) - candle.low;
+        // const body = Math.abs(candle.close - candle.open);
+        // const upperWick = candle.high - Math.max(candle.open, candle.close);
+        // const lowerWick = Math.min(candle.open, candle.close) - candle.low;
 
         // Short when Below box
-        if (asset.box.direction === 'UP' && candle.close < asset.box.low) {
+        if (asset.box.direction === 'UP' && candle.close > asset.box.high) {
+            this.sendTelegramMessage(`🔥 [${symbol}]\nExecuting LONG Trade!`);
             asset.entryCandle = candle;
-            this.executeTrade(symbol, 'MULTDOWN');
+            this.executeTrade(symbol, 'MULTUP');
         }
 
         // Long when Above box
-        if (asset.box.direction === 'DOWN' && candle.close > asset.box.high) {
+        if (asset.box.direction === 'DOWN' && candle.close < asset.box.low) {
+            this.sendTelegramMessage(`🔥 [${symbol}]\nExecuting SHORT Trade!`);
             asset.entryCandle = candle;
-            this.executeTrade(symbol, 'MULTUP');
+            this.executeTrade(symbol, 'MULTDOWN');
         }
     }
 
