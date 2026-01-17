@@ -64,21 +64,21 @@ const ASSET_CONFIGS = {
         rrRatio: 1.5,
         fibExpiryCandles: 20
     },
-    'R_50': {
-        name: 'Volatility 50',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [80, 200, 400, 600, 800],
-        defaultMultiplier: 400,
-        maxTradesPerDay: 120000,
-        minStake: 1.00,
-        maxStake: 1000,
-        tradingHours: '24/7',
-        swingLookback: 5,
-        minImpulsePercent: 0.0003,
-        rrRatio: 1.5,
-        fibExpiryCandles: 20
-    },
+    // 'R_50': {
+    //     name: 'Volatility 50',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [80, 200, 400, 600, 800],
+    //     defaultMultiplier: 400,
+    //     maxTradesPerDay: 120000,
+    //     minStake: 1.00,
+    //     maxStake: 1000,
+    //     tradingHours: '24/7',
+    //     swingLookback: 5,
+    //     minImpulsePercent: 0.0003,
+    //     rrRatio: 1.5,
+    //     fibExpiryCandles: 20
+    // },
     // 'R_75': {
     //     name: 'Volatility 75',
     //     category: 'synthetic',
@@ -124,21 +124,21 @@ const ASSET_CONFIGS = {
         rrRatio: 1.5,
         fibExpiryCandles: 20
     },
-    '1HZ25V': {
-        name: 'Volatility 25 (1s)',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [160, 400, 800, 1200, 1600],
-        defaultMultiplier: 800,
-        maxTradesPerDay: 120000,
-        minStake: 1.00,
-        maxStake: 1000,
-        tradingHours: '24/7',
-        swingLookback: 5,
-        minImpulsePercent: 0.0003,
-        rrRatio: 1.5,
-        fibExpiryCandles: 20
-    },
+    // '1HZ25V': {
+    //     name: 'Volatility 25 (1s)',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [160, 400, 800, 1200, 1600],
+    //     defaultMultiplier: 800,
+    //     maxTradesPerDay: 120000,
+    //     minStake: 1.00,
+    //     maxStake: 1000,
+    //     tradingHours: '24/7',
+    //     swingLookback: 5,
+    //     minImpulsePercent: 0.0003,
+    //     rrRatio: 1.5,
+    //     fibExpiryCandles: 20
+    // },
     // '1HZ50V': {
     //     name: 'Volatility 50 (1s)',
     //     category: 'synthetic',
@@ -228,7 +228,7 @@ const CONFIG = {
     wsUrl: 'wss://ws.derivws.com/websockets/v3?app_id=',
 
     // Active assets to trade
-    activeAssets: ['R_10', 'R_25', 'R_50', 'R_100', '1HZ10V', '1HZ25V', '1HZ75V', '1HZ100V',],
+    activeAssets: ['R_10', 'R_25', 'R_100', '1HZ10V', '1HZ75V', '1HZ100V'],
 
     // Investment Capital
     investmentCapital: 500,
