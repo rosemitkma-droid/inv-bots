@@ -64,8 +64,10 @@ class AIWeightedEnsembleBot {
         // Tick data storage
         this.tickHistories = {};
         this.tickSubscriptionIds = {};
+        this.lastTickLogTime = {};
         this.assets.forEach(asset => {
             this.tickHistories[asset] = [];
+            this.lastTickLogTime[asset] = 0;
         });
     }
 
@@ -259,10 +261,11 @@ class AIWeightedEnsembleBot {
             this.tickHistories[asset].shift();
         }
 
-        setTimeout(() => {
+        const now = Date.now();
+        if (now - this.lastTickLogTime[asset] >= 30000) {
             console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
-        }, 5000);
-        // console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
+            this.lastTickLogTime[asset] = now;
+        }
 
         if (!this.tradeInProgress) {
             this.analyzeTicks(asset);
@@ -278,7 +281,7 @@ class AIWeightedEnsembleBot {
 
         this.volatilityLevel = this.getVolatilityLevel(this.tickHistories[asset]);
 
-        console.log(`Volatility: ${this.volatilityLevel}`);
+        // console.log(`Volatility: ${this.volatilityLevel}`);
 
         if (this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 1] && this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 2] && this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 3] && this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 4] && this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 5] && this.volatilityLevel === 'medium') {
             // if (this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 1] && this.lastPrediction === this.tickHistories[asset][this.tickHistories[asset].length - 2] && this.volatilityLevel === 'medium') {
@@ -293,7 +296,7 @@ class AIWeightedEnsembleBot {
         const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
         const stdDev = Math.sqrt(variance);
 
-        console.log(`Volatility stdDev: ${stdDev.toFixed(2)}`);
+        // console.log(`Volatility stdDev: ${stdDev.toFixed(2)}`);
 
         if (stdDev > 3.1) return 'extreme';
         if (stdDev > 2.8) return 'high';
