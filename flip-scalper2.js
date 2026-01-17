@@ -13,8 +13,13 @@ const CONFIG = {
         { name: '1HZ25V', label: 'Volatility 25 (1s)', multiplier: 400, enabled: true },
         { name: '1HZ50V', label: 'Volatility 50 (1s)', multiplier: 200, enabled: true },
         { name: '1HZ75V', label: 'Volatility 75 (1s)', multiplier: 100, enabled: true },
-        { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 100, enabled: true },
-        // { name: 'STP100', label: 'Step Index', multiplier: 2000, enabled: true },
+        { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 200, enabled: true },
+        { name: 'R_100', label: 'Volatility 100', multiplier: 200, enabled: true },
+        { name: 'R_75', label: 'Volatility 75', multiplier: 100, enabled: true },
+        { name: 'R_50', label: 'Volatility 50', multiplier: 200, enabled: true },
+        { name: 'R_25', label: 'Volatility 25', multiplier: 400, enabled: true },
+        { name: 'R_10', label: 'Volatility 10', multiplier: 1000, enabled: true },
+        { name: 'stpRNG', label: 'Step Index', multiplier: 2000, enabled: true },
     ],
 
     // SESSIONS CONFIGURATION 
@@ -616,34 +621,25 @@ ${assetBreakdown ? '<b>Per Asset:</b>\n' + assetBreakdown : ''}
 
     checkForReversal(symbol, candle) {
         const asset = this.assets.get(symbol);
-        // if (!asset || asset.state !== 'HUNTING') return;
+        if (!asset || asset.state !== 'HUNTING') return;
 
-        // if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
-        // asset.lastCandle = candle;
+        if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
+        asset.lastCandle = candle;
 
-        // const body = Math.abs(candle.close - candle.open);
-        // const upperWick = candle.high - Math.max(candle.open, candle.close);
-        // const lowerWick = Math.min(candle.open, candle.close) - candle.low;
+        const body = Math.abs(candle.close - candle.open);
+        const upperWick = candle.high - Math.max(candle.open, candle.close);
+        const lowerWick = Math.min(candle.open, candle.close) - candle.low;
 
-        // Long (Hammer) below box
-        // if (asset.box.direction === 'DOWN' && candle.close < asset.box.low) {
-         if (asset.box.direction === 'UP' && candle.close < asset.box.low) {
-            // if (lowerWick >= (2 * body) && upperWick < body && body > 0) {
-                // this.log('🔥 HAMMER DETECTED!', 'SUCCESS', symbol);
-                // this.sendTelegramMessage(`🔥 <b>Hammer Pattern</b> [${symbol}]\nExecuting LONG.`);
-                asset.entryCandle = candle;
-                this.executeTrade(symbol, 'MULTUP');
-            // }
+        // Short when Below box
+        if (asset.box.direction === 'UP' && candle.close < asset.box.low) {
+            asset.entryCandle = candle;
+            this.executeTrade(symbol, 'MULTDOWN');
         }
 
-        // Short (Shooting Star) above box
+        // Long when Above box
         if (asset.box.direction === 'DOWN' && candle.close > asset.box.high) {
-            // if (upperWick >= (2 * body) && lowerWick < body && body > 0) {
-                // this.log('🔥 SHOOTING STAR DETECTED!', 'SUCCESS', symbol);
-                // this.sendTelegramMessage(`🔥 <b>Shooting Star</b> [${symbol}]\nExecuting SHORT.`);
-                asset.entryCandle = candle;
-                this.executeTrade(symbol, 'MULTDOWN');
-            // }
+            asset.entryCandle = candle;
+            this.executeTrade(symbol, 'MULTUP');
         }
     }
 
