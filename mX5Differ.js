@@ -449,19 +449,19 @@ class AIWeightedEnsembleBot {
             return;
         }
 
-        this.disconnect();
+        // this.disconnect();
 
-        const waitTime = Math.floor(Math.random() *
-            (this.config.maxWaitTime - this.config.minWaitTime + 1)) + this.config.minWaitTime;
+        // const waitTime = Math.floor(Math.random() *
+        //     (this.config.maxWaitTime - this.config.minWaitTime + 1)) + this.config.minWaitTime;
 
-        console.log(`⏳ Waiting ${Math.round(waitTime / 60000)} minutes before next trade...\n`);
+        // console.log(`⏳ Waiting ${Math.round(waitTime / 60000)} minutes before next trade...\n`);
 
-        if (!this.endOfDay) {
-            setTimeout(() => {
-                this.tradeInProgress = false;
-                this.connect();
-            }, waitTime);
-        }
+        // if (!this.endOfDay) {
+        //     setTimeout(() => {
+        this.tradeInProgress = false;
+        //     this.connect();
+        // }, waitTime);
+        // }
     }
 
     suspendAsset(asset) {
