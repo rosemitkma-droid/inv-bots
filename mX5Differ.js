@@ -259,6 +259,9 @@ class AIWeightedEnsembleBot {
             this.tickHistories[asset].shift();
         }
 
+        setTimeout(() => {
+            console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
+        }, 5000);
         // console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
 
         if (!this.tradeInProgress) {
