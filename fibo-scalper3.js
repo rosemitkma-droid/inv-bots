@@ -228,7 +228,7 @@ const CONFIG = {
     wsUrl: 'wss://ws.derivws.com/websockets/v3?app_id=',
 
     // Active assets to trade
-    activeAssets: ['R_75', 'R_100', '1HZ25V', '1HZ50V', '1HZ100V', 'stpRNG',],
+    activeAssets: ['R_10', 'R_25', 'R_50', 'R_100', '1HZ10V', '1HZ25V', '1HZ75V', '1HZ100V',],
 
     // Investment Capital
     investmentCapital: 500,
@@ -254,7 +254,7 @@ const CONFIG = {
     // Global risk management
     maxDailyLossPercent: 50,
     maxDailyLoss: 50,
-    maxTotalOpenPositions: 7,
+    maxTotalOpenPositions: 8,
     maxConsecutiveLosses: 50,
     cooldownMinutes: 1,
 
