@@ -13,8 +13,13 @@ const CONFIG = {
         { name: '1HZ25V', label: 'Volatility 25 (1s)', multiplier: 400, enabled: true },
         { name: '1HZ50V', label: 'Volatility 50 (1s)', multiplier: 200, enabled: true },
         { name: '1HZ75V', label: 'Volatility 75 (1s)', multiplier: 100, enabled: true },
-        { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 100, enabled: true },
-        // { name: 'STP100', label: 'Step Index', multiplier: 2000, enabled: true },
+        { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 200, enabled: true },
+        { name: 'R_100', label: 'Volatility 100', multiplier: 200, enabled: true },
+        { name: 'R_75', label: 'Volatility 75', multiplier: 100, enabled: true },
+        { name: 'R_50', label: 'Volatility 50', multiplier: 200, enabled: true },
+        { name: 'R_25', label: 'Volatility 25', multiplier: 400, enabled: true },
+        { name: 'R_10', label: 'Volatility 10', multiplier: 1000, enabled: true },
+        { name: 'stpRNG', label: 'Step Index', multiplier: 2000, enabled: true },
     ],
 
     // SESSIONS CONFIGURATION 
@@ -521,6 +526,7 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
             const bias = asset.box.direction === 'UP' ? 'SELL' : 'BUY';
             const targetSide = asset.box.direction === 'UP' ? 'High' : 'Low';
             const level = asset.box.direction === 'UP' ? asset.box.high : asset.box.low;
+            const level2 = asset.box.direction === 'UP' ? asset.box.low : asset.box.high;
 
             const setupInfo =
                 `🎯 TRADING SETUP IDENTIFIED\n` +
@@ -533,7 +539,7 @@ ${assetBreakdown ? `\n<b>Asset Breakdown:</b>${assetBreakdown}` : ''}`;
                 `✅ <b>Liquidity Confirmed!</b> [${symbol}]\n` +
                 `<b>Session:</b> ${CONFIG.sessions[asset.session].name}\n` +
                 `<b>Bias:</b> ${bias}\n` +
-                `<b>Level:</b> ${level.toFixed(4)}\n` +
+                `<b>Level:</b> ${level.toFixed(4)} - ${level2.toFixed(4)}\n` +
                 `<b>Range:</b> ${rangePercent}% of ATR`
             );
 
