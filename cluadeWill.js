@@ -35,7 +35,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'cluadeWill-state.json');
+const STATE_FILE = path.join(__dirname, 'cluadeWillbots-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -353,7 +353,18 @@ Time: ${new Date().toUTCString()}
 
         const totalProfit = activePositions.reduce((sum, p) => sum + (p.currentProfit || 0), 0);
         const totalEmoji = totalProfit >= 0 ? '🟢' : '🔴';
-        message += `💰 Total P/L: ${totalEmoji} <b>$${totalProfit.toFixed(2)}</b>\n`;
+        message += `💰 Total Unrealized P/L: ${totalEmoji} <b>$${totalProfit.toFixed(2)}</b>\n\n`;
+
+        // Add session statistics
+        message += `📈 <b>SESSION STATS</b>\n`;
+        message += `├ Session P/L: $${state.session.netPL.toFixed(2)}\n`;
+        message += `├ Trades: ${state.session.tradesCount} (W:${state.session.winsCount} L:${state.session.lossesCount})\n`;
+        const sessionWinRate = state.session.tradesCount > 0
+            ? ((state.session.winsCount / state.session.tradesCount) * 100).toFixed(1)
+            : '0.0';
+        message += `├ Win Rate: ${sessionWinRate}%\n`;
+        message += `└ Capital: $${state.capital.toFixed(2)}\n\n`;
+
         message += `⏰ ${new Date().toUTCString()}`;
 
         await this.sendMessage(message);
@@ -489,7 +500,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 500],
-        defaultMultiplier: 500,
+        defaultMultiplier: 100,
         maxTradesPerDay: 500000,
         minStake: 1.00,
         maxStake: 3000,
@@ -500,7 +511,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [40, 100, 200, 300, 400],
-        defaultMultiplier: 400,
+        defaultMultiplier: 100,
         maxTradesPerDay: 50000,
         minStake: 1.00,
         maxStake: 3000,
@@ -511,7 +522,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [160, 400, 800, 1200, 1600],
-        defaultMultiplier: 1600,
+        defaultMultiplier: 400,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -522,7 +533,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [80, 200, 400, 600, 800],
-        defaultMultiplier: 800,
+        defaultMultiplier: 200,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -533,7 +544,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [40, 100, 200, 300, 400],
-        defaultMultiplier: 400,
+        defaultMultiplier: 100,
         maxTradesPerDay: 50000,
         minStake: 1.00,
         maxStake: 3000,
@@ -544,7 +555,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [750, 2000, 3500, 5500, 7500],
-        defaultMultiplier: 7500,
+        defaultMultiplier: 2000,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -555,7 +566,7 @@ const ASSET_CONFIGS = {
         category: 'commodity',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 400, 500],
-        defaultMultiplier: 500,
+        defaultMultiplier: 100,
         maxTradesPerDay: 5000,
         minStake: 1,
         maxStake: 5000,
@@ -563,7 +574,7 @@ const ASSET_CONFIGS = {
     }
 };
 
-let ACTIVE_ASSETS = ['R_75', 'frxXAUUSD', '1HZ50V', 'stpRNG', '1HZ25V', 'R_100', '1HZ100V'];
+let ACTIVE_ASSETS = ['R_75', '1HZ50V', 'stpRNG', '1HZ25V', 'R_100', '1HZ100V', 'frxXAUUSD'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -777,7 +788,7 @@ class SignalManager {
                 // Execute BUY trade immediately
                 const setupSuccess = BreakoutManager.setupBreakoutLevels(symbol, 'UP', 'BUY');
                 if (setupSuccess) {
-                    assetState.buyFlagActive = false; // Reset flag after trade
+                    // Flag will be reset when opposite breakout type is created
                     bot.executeTrade(symbol, 'UP', false);
                     TelegramService.sendSignalAlert(symbol, 'BUY EXECUTED', wpr);
                 }
@@ -813,7 +824,7 @@ class SignalManager {
                 // Execute SELL trade immediately
                 const setupSuccess = BreakoutManager.setupBreakoutLevels(symbol, 'DOWN', 'SELL');
                 if (setupSuccess) {
-                    assetState.sellFlagActive = false; // Reset flag after trade
+                    // Flag will be reset when opposite breakout type is created
                     bot.executeTrade(symbol, 'DOWN', false);
                     TelegramService.sendSignalAlert(symbol, 'SELL EXECUTED', wpr);
                 }
@@ -901,7 +912,16 @@ class BreakoutManager {
         assetState.inTradeCycle = true;
         assetState.waitingForReentry = false;
 
-        LOGGER.breakout(`${symbol} 📊 ${breakoutType} BREAKOUT LEVELS SET:`);
+        // Reset opposite flag when creating breakout
+        if (breakoutType === 'BUY') {
+            assetState.sellFlagActive = false;
+            LOGGER.debug(`${symbol}: Reset sellFlagActive (BUY breakout created)`);
+        } else if (breakoutType === 'SELL') {
+            assetState.buyFlagActive = false;
+            LOGGER.debug(`${symbol}: Reset buyFlagActive (SELL breakout created)`);
+        }
+
+        LOGGER.breakout(`${symbol} � ${breakoutType} BREAKOUT LEVELS SET:`);
         LOGGER.breakout(`${symbol} High: ${previousCandle.high.toFixed(5)} | Low: ${previousCandle.low.toFixed(5)}`);
         LOGGER.breakout(`${symbol} Candle Epoch: ${previousCandle.epoch}`);
 
@@ -934,6 +954,15 @@ class BreakoutManager {
             triggerCandle: previousCandle.epoch,
             canBeReplaced: false
         };
+
+        // Reset opposite flag when replacing with new type
+        if (newType === 'BUY') {
+            assetState.sellFlagActive = false;
+            LOGGER.debug(`${symbol}: Reset sellFlagActive (replaced with BUY breakout)`);
+        } else if (newType === 'SELL') {
+            assetState.buyFlagActive = false;
+            LOGGER.debug(`${symbol}: Reset buyFlagActive (replaced with SELL breakout)`);
+        }
 
         LOGGER.breakout(`${symbol} New High: ${previousCandle.high.toFixed(5)} | Low: ${previousCandle.low.toFixed(5)}`);
 
@@ -1294,9 +1323,9 @@ class RiskManager {
             return { allowed: false, reason: `Daily trade limit reached` };
         }
 
-        if (Date.now() < assetState.blacklistedUntil) {
-            return { allowed: false, reason: `Asset blacklisted` };
-        }
+        // if (Date.now() < assetState.blacklistedUntil) {
+        //     return { allowed: false, reason: `Asset blacklisted` };
+        // }
 
         return { allowed: true };
     }
@@ -1741,10 +1770,26 @@ class ConnectionManager {
                 state.assets[position.symbol].unrealizedPnl = 0;
             }
 
-            TelegramService.sendTradeAlert('OPEN', position.symbol, position.direction, position.stake, position.multiplier, {
-                reversalLevel: position.reversalLevel,
-                breakoutType: state.assets[position.symbol]?.breakout?.type
-            });
+            // Send appropriate notification based on trade type
+            if (position.isReversal) {
+                const assetState = state.assets[position.symbol];
+                TelegramService.sendReversalAlert(
+                    position.symbol,
+                    position.direction,
+                    position.stake,
+                    assetState.accumulatedLoss,
+                    position.reversalLevel,
+                    CONFIG.MAX_REVERSAL_LEVEL,
+                    assetState.breakout.highLevel,
+                    assetState.breakout.lowLevel
+                );
+                LOGGER.trade(`📱 Reversal notification sent for ${position.symbol}`);
+            } else {
+                TelegramService.sendTradeAlert('OPEN', position.symbol, position.direction, position.stake, position.multiplier, {
+                    reversalLevel: position.reversalLevel,
+                    breakoutType: state.assets[position.symbol]?.breakout?.type
+                });
+            }
         }
 
         this.send({
@@ -1795,10 +1840,15 @@ class ConnectionManager {
                     // FIX: Execute reversal immediately (removed setTimeout)
                     const lossAmount = profit < 0 ? profit : 0;
 
-                    LOGGER.trade(`🔄 Executing REVERSAL: ${symbol} → ${pendingReversalDirection}`);
+                    LOGGER.trade(`🔄 REVERSAL TRIGGERED: ${symbol} → ${pendingReversalDirection}`);
+                    LOGGER.trade(`   Previous Loss: $${Math.abs(lossAmount).toFixed(2)}`);
+                    LOGGER.trade(`   Current Reversal Level: ${assetState.reversalLevel}`);
+                    LOGGER.trade(`   Next Stake: $${(assetState.currentStake * CONFIG.REVERSAL_STAKE_MULTIPLIER).toFixed(2)}`);
 
                     // Execute reversal trade immediately
                     bot.executeTrade(symbol, pendingReversalDirection, true, lossAmount);
+
+                    LOGGER.trade(`✅ Reversal trade executed for ${symbol}`);
 
                 } else if (position.isMaxReversalClose) {
                     LOGGER.warn(`${symbol}: Max reversals reached. Full reset with breakout clear.`);
@@ -2046,7 +2096,17 @@ class ConnectionManager {
 
             const totalProfit = activePositions.reduce((sum, p) => sum + (p.currentProfit || 0), 0);
             const totalColor = totalProfit >= 0 ? '\x1b[32m' : '\x1b[31m';
-            LOGGER.info(`Total Unrealized: ${totalColor}$${totalProfit.toFixed(2)}\x1b[0m`);
+            LOGGER.info(`💰 Total Unrealized P/L: ${totalColor}$${totalProfit.toFixed(2)}\x1b[0m`);
+
+            // Add session statistics
+            LOGGER.info('─'.repeat(100));
+            LOGGER.info(`📈 SESSION STATS:`);
+            const sessionPLColor = state.session.netPL >= 0 ? '\x1b[32m' : '\x1b[31m';
+            LOGGER.info(`   Session P/L: ${sessionPLColor}$${state.session.netPL.toFixed(2)}\x1b[0m | Trades: ${state.session.tradesCount} (W:${state.session.winsCount} L:${state.session.lossesCount})`);
+            const sessionWinRate = state.session.tradesCount > 0
+                ? ((state.session.winsCount / state.session.tradesCount) * 100).toFixed(1)
+                : '0.0';
+            LOGGER.info(`   Win Rate: ${sessionWinRate}% | Capital: $${state.capital.toFixed(2)}`);
             LOGGER.info('═'.repeat(100) + '\n');
         }, 60000); // Every 60 seconds
     }
@@ -2190,18 +2250,7 @@ class DerivBot {
                 StakeManager.fullResetWithBreakoutClear(symbol);
                 return;
             }
-
-            // FIX: Send reversal notification when actually executing reversal trade
-            TelegramService.sendReversalAlert(
-                symbol,
-                direction,
-                stake,
-                previousLoss,
-                assetState.reversalLevel,
-                CONFIG.MAX_REVERSAL_LEVEL,
-                assetState.breakout.highLevel,
-                assetState.breakout.lowLevel
-            );
+            // Notification will be sent in handleBuyResponse after trade is confirmed
         } else {
             stake = StakeManager.getInitialStake(symbol);
         }
