@@ -35,7 +35,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'cluadeWillbot5Min-state.json');
+const STATE_FILE = path.join(__dirname, 'cluadeWillbot5Min2-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -502,7 +502,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 500],
-        defaultMultiplier: 100,
+        defaultMultiplier: 50,
         maxTradesPerDay: 500000,
         minStake: 1.00,
         maxStake: 3000,
@@ -513,7 +513,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [40, 100, 200, 300, 400],
-        defaultMultiplier: 100,
+        defaultMultiplier: 40,
         maxTradesPerDay: 50000,
         minStake: 1.00,
         maxStake: 3000,
@@ -524,7 +524,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [160, 400, 800, 1200, 1600],
-        defaultMultiplier: 400,
+        defaultMultiplier: 160,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -535,7 +535,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [80, 200, 400, 600, 800],
-        defaultMultiplier: 200,
+        defaultMultiplier: 80,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -546,7 +546,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [40, 100, 200, 300, 400],
-        defaultMultiplier: 100,
+        defaultMultiplier: 40,
         maxTradesPerDay: 50000,
         minStake: 1.00,
         maxStake: 3000,
@@ -557,7 +557,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [750, 2000, 3500, 5500, 7500],
-        defaultMultiplier: 2000,
+        defaultMultiplier: 750,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -568,7 +568,7 @@ const ASSET_CONFIGS = {
         category: 'commodity',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 400, 500],
-        defaultMultiplier: 100,
+        defaultMultiplier: 50,
         maxTradesPerDay: 5000,
         minStake: 1,
         maxStake: 5000,
