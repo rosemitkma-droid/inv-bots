@@ -270,7 +270,7 @@ Time: ${new Date().toUTCString()}
 // ============================================
 
 class StatePersistence {
-    static STATE_FILE = './claudeWill2n.json';
+    static STATE_FILE = './claudeWill2new1.json';
     static SAVE_INTERVAL = 5000; // Save every 5 seconds
     static saveTimer = null;
 
@@ -580,7 +580,7 @@ const TIMEFRAMES = {
 };
 
 // Default to 5 minutes, user can override with TIMEFRAME env variable
-const SELECTED_TIMEFRAME = '5m';
+const SELECTED_TIMEFRAME = '1m';
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================
