@@ -605,7 +605,7 @@ const CONFIG = {
     // Reversal Settings
     REVERSAL_STAKE_MULTIPLIER: 2,
     MAX_REVERSAL_LEVEL: 7,
-    AUTO_CLOSE_ON_RECOVERY: true,
+    AUTO_CLOSE_ON_RECOVERY: false,
 
     // Timeframe Settings (DEFAULT 5 MINUTES)
     TIMEFRAME: SELECTED_TIMEFRAME,
