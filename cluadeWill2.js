@@ -1006,7 +1006,7 @@ class SignalManager {
             // FIXED: When entering oversold, clear overbought flag
             // This ensures "first time since" logic works correctly
             if (!wasInOversold) {
-                assetState.hasVisitedOverbought = false;
+                // assetState.hasVisitedOverbought = false;
                 LOGGER.debug(`${symbol}: Entered OVERSOLD zone (WPR: ${wpr.toFixed(2)}) - cleared overbought flag`);
             }
         } else if (isInOverbought) {
@@ -1014,7 +1014,7 @@ class SignalManager {
             assetState.hasVisitedOverbought = true;
             // FIXED: When entering overbought, clear oversold flag
             if (!wasInOverbought) {
-                assetState.hasVisitedOversold = false;
+                // assetState.hasVisitedOversold = false;
                 LOGGER.debug(`${symbol}: Entered OVERBOUGHT zone (WPR: ${wpr.toFixed(2)}) - cleared oversold flag`);
             }
         } else {
@@ -1049,7 +1049,7 @@ class SignalManager {
             !assetState.inTradeCycle) {
 
             assetState.buySignalActive = true;
-            assetState.hasVisitedOversold = false;  // Reset flag after signal
+            // assetState.hasVisitedOversold = false;  // Reset flag after signal
 
             // Store the closed candle that triggered the signal
             const closedCandles = assetState.closedCandles;
@@ -1084,7 +1084,7 @@ class SignalManager {
             !assetState.inTradeCycle) {
 
             assetState.sellSignalActive = true;
-            assetState.hasVisitedOverbought = false;  // Reset flag after signal
+            // assetState.hasVisitedOverbought = false;  // Reset flag after signal
 
             const closedCandles = assetState.closedCandles;
             if (closedCandles.length > 0) {
