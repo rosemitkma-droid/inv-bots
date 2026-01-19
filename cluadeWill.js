@@ -35,7 +35,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'cluadeWillbots-state.json');
+const STATE_FILE = path.join(__dirname, 'cluadeWillbot5Min-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -79,6 +79,7 @@ class StatePersistence {
                     currentDirection: asset.currentDirection,
                     inTradeCycle: asset.inTradeCycle,
                     waitingForReentry: asset.waitingForReentry,
+                    priceReturnedToZone: asset.priceReturnedToZone,
                     lastTradeDirection: asset.lastTradeDirection,
                     currentStake: asset.currentStake,
                     takeProfit: asset.takeProfit,
@@ -142,6 +143,7 @@ class StatePersistence {
                     asset.currentDirection = saved.currentDirection;
                     asset.inTradeCycle = saved.inTradeCycle;
                     asset.waitingForReentry = saved.waitingForReentry;
+                    asset.priceReturnedToZone = saved.priceReturnedToZone || false;
                     asset.lastTradeDirection = saved.lastTradeDirection;
                     asset.currentStake = saved.currentStake;
                     asset.takeProfit = saved.takeProfit;
@@ -629,6 +631,7 @@ function initializeAssetStates() {
                 closedCandles: [],
                 lastClosedCandleEpoch: 0,
                 lastProcessedCandleOpenTime: 0,
+                priceReturnedToZone: false,
 
                 // Current forming candle tracking
                 currentFormingCandle: null,
@@ -836,7 +839,10 @@ class SignalManager {
 
     /**
      * Check for re-entry when waiting after TP reached
-     * Price must close above/below breakout levels
+     * CORRECTED LOGIC:
+     * 1. After TP, wait for price to return INSIDE the breakout zone
+     * 2. Set priceReturnedToZone = true when this happens
+     * 3. Only allow trade when price THEN closes beyond levels again
      */
     static checkReentrySignal(symbol) {
         const assetState = state.assets[symbol];
@@ -852,25 +858,45 @@ class SignalManager {
         const lastCandle = closedCandles[closedCandles.length - 1];
         const closePrice = lastCandle.close;
 
-        // Check if price is between breakout levels (waiting zone)
+        // Check if price is between breakout levels (inside the zone)
         const isBetweenLevels = closePrice > breakout.lowLevel && closePrice < breakout.highLevel;
 
+        // STEP 1: Track when price returns to the zone
         if (isBetweenLevels) {
-            LOGGER.debug(`${symbol}: Price between breakout levels - potential re-entry zone`);
+            if (!assetState.priceReturnedToZone) {
+                assetState.priceReturnedToZone = true;
+                LOGGER.signal(`${symbol} 🔄 PRICE RETURNED TO BREAKOUT ZONE (${closePrice.toFixed(5)})`);
+                LOGGER.signal(`${symbol} Zone: ${breakout.lowLevel.toFixed(5)} - ${breakout.highLevel.toFixed(5)}`);
+                LOGGER.signal(`${symbol} Waiting for next breakout to trigger re-entry...`);
+            }
             return null; // Stay waiting
         }
 
-        // Price closed above high level - BUY re-entry
+        // STEP 2: Only allow breakout trades AFTER price has returned to zone
+        if (!assetState.priceReturnedToZone) {
+            LOGGER.debug(`${symbol}: Price still outside zone - waiting for return (Current: ${closePrice.toFixed(5)})`);
+            return null;
+        }
+
+        // STEP 3: Price closed above high level - BUY re-entry (only if returned to zone first)
         if (closePrice > breakout.highLevel) {
-            LOGGER.signal(`${symbol} 🟢 RE-ENTRY BUY! Price ${closePrice.toFixed(5)} closed above ${breakout.highLevel.toFixed(5)}`);
+            LOGGER.signal(`${symbol} 🟢 RE-ENTRY BUY TRIGGERED!`);
+            LOGGER.signal(`${symbol} Price ${closePrice.toFixed(5)} broke above ${breakout.highLevel.toFixed(5)}`);
+            LOGGER.signal(`${symbol} Price had previously returned to zone ✓`);
+
             assetState.waitingForReentry = false;
+            assetState.priceReturnedToZone = false; // Reset for next cycle
             return 'UP';
         }
 
-        // Price closed below low level - SELL re-entry
+        // STEP 4: Price closed below low level - SELL re-entry (only if returned to zone first)
         if (closePrice < breakout.lowLevel) {
-            LOGGER.signal(`${symbol} 🔴 RE-ENTRY SELL! Price ${closePrice.toFixed(5)} closed below ${breakout.lowLevel.toFixed(5)}`);
+            LOGGER.signal(`${symbol} 🔴 RE-ENTRY SELL TRIGGERED!`);
+            LOGGER.signal(`${symbol} Price ${closePrice.toFixed(5)} broke below ${breakout.lowLevel.toFixed(5)}`);
+            LOGGER.signal(`${symbol} Price had previously returned to zone ✓`);
+
             assetState.waitingForReentry = false;
+            assetState.priceReturnedToZone = false; // Reset for next cycle
             return 'DOWN';
         }
 
@@ -1089,6 +1115,7 @@ class BreakoutManager {
 
         assetState.inTradeCycle = false;
         assetState.waitingForReentry = false;
+        assetState.priceReturnedToZone = false;
     }
 }
 
@@ -1141,6 +1168,7 @@ class StakeManager {
         assetState.activePosition = null;
         assetState.currentDirection = null;
         assetState.inTradeCycle = false;
+        assetState.priceReturnedToZone = false;
 
         // Don't clear breakout - it persists!
         // Just mark as waiting for re-entry
@@ -1162,6 +1190,7 @@ class StakeManager {
         assetState.currentDirection = null;
         assetState.inTradeCycle = false;
         assetState.waitingForReentry = false;
+        assetState.priceReturnedToZone = false;
 
         BreakoutManager.clearBreakout(symbol);
     }
