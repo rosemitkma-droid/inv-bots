@@ -8,7 +8,7 @@ const CONFIG = {
     token: 'hsj0tA0XJoIzJG5', // Use env variable or fallback
 
     // MULTI-ASSET CONFIGURATION
-   symbols: [
+    symbols: [
         { name: '1HZ10V', label: 'Volatility 10 (1s)', multiplier: 400, enabled: true },
         { name: '1HZ25V', label: 'Volatility 25 (1s)', multiplier: 160, enabled: true },
         { name: '1HZ50V', label: 'Volatility 50 (1s)', multiplier: 80, enabled: true },
@@ -622,7 +622,9 @@ ${assetBreakdown ? '<b>Per Asset:</b>\n' + assetBreakdown : ''}
 
     checkForReversal(symbol, candle) {
         const asset = this.assets.get(symbol);
-        if (!asset || asset.state !== 'HUNTING') return;
+        // if (!asset || asset.state !== 'HUNTING') return;
+
+        if (!asset) return;
 
         // if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
         // asset.lastCandle = candle;
@@ -680,17 +682,17 @@ ${assetBreakdown ? '<b>Per Asset:</b>\n' + assetBreakdown : ''}
 
         const dirEmoji = contractType === 'MULTUP' ? '🟢 BUY' : '🔴 SELL';
         const message = `
-� <b>Trade Opened</b>
+            <b>Trade Opened</b>
 
-📊 <b>${symbol}</b> - ${asset.label}
-${dirEmoji}
+            📊 <b>${symbol}</b> - ${asset.label}
+            ${dirEmoji}
 
-💰 <b>Stake:</b> $${stakeAmount.toFixed(2)}
-📈 <b>Multiplier:</b> ${asset.multiplier}x
-🛑 <b>SL:</b> $${stopLossAmount.toFixed(2)}
-🎯 <b>TP:</b> $${takeProfitAmount.toFixed(2)}
+            💰 <b>Stake:</b> $${stakeAmount.toFixed(2)}
+            📈 <b>Multiplier:</b> ${asset.multiplier}x
+            🛑 <b>SL:</b> $${stopLossAmount.toFixed(2)}
+            🎯 <b>TP:</b> $${takeProfitAmount.toFixed(2)}
 
-⏰ ${new Date().toLocaleTimeString()}
+            ⏰ ${new Date().toLocaleTimeString()}
         `.trim();
 
         this.sendTelegramMessage(message);
