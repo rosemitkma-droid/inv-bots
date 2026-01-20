@@ -46,7 +46,7 @@ class AIWeightedEnsembleBot {
         this.reconnectDelay = 5000; // Start with 5 seconds
         this.reconnectTimer = null;
         this.isReconnecting = false;
-        
+
         // Heartbeat/Ping mechanism
         this.pingInterval = null;
         this.pongTimeout = null;
@@ -100,7 +100,7 @@ class AIWeightedEnsembleBot {
         }
 
         console.log('Connecting to Deriv API...');
-        
+
         // Clear any existing connection
         this.cleanup();
 
@@ -113,7 +113,7 @@ class AIWeightedEnsembleBot {
             this.reconnectAttempts = 0;
             this.isReconnecting = false;
             this.lastPongTime = Date.now();
-            
+
             this.authenticate();
             this.startHeartbeat();
         });
@@ -149,7 +149,7 @@ class AIWeightedEnsembleBot {
         this.pingInterval = setInterval(() => {
             if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.ping();
-                
+
                 // Check if we received pong recently
                 this.pongTimeout = setTimeout(() => {
                     const timeSinceLastPong = Date.now() - this.lastPongTime;
@@ -254,7 +254,7 @@ class AIWeightedEnsembleBot {
         } else if (message.error) {
             console.error('API Error:', message.error.message);
             // Handle specific errors that require reconnection
-            if (message.error.code === 'AuthorizationRequired' || 
+            if (message.error.code === 'AuthorizationRequired' ||
                 message.error.code === 'InvalidToken') {
                 this.handleDisconnect();
             }
@@ -397,13 +397,13 @@ class AIWeightedEnsembleBot {
         this.lastPrediction = history[history.length - 1];
         this.volatilityLevel = this.getVolatilityLevel(history);
 
-        if ( 
-            this.lastPrediction === history[history.length - 2] && 
-            this.lastPrediction === history[history.length - 3] && 
-            this.lastPrediction === history[history.length - 4] && 
-            this.lastPrediction === history[history.length - 5] && 
+        if (
+            this.lastPrediction === history[history.length - 2] &&
+            // this.lastPrediction === history[history.length - 3] &&
+            // this.lastPrediction === history[history.length - 4] &&
+            // this.lastPrediction === history[history.length - 5] &&
             this.volatilityLevel === 'medium'
-           ) {
+        ) {
             this.placeTrade(asset, this.lastPrediction);
         }
     }
@@ -430,13 +430,13 @@ class AIWeightedEnsembleBot {
         console.log(`Placing Trade: [${asset}] Digit ${predictedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
 
         const message = `
-🔔 <b>Trade Opened (x5 Differ Bot)</b>
+            🔔 <b>Trade Opened (x5 Differ Bot)</b>
 
-📊 <b>${asset}</b>
-🎯 <b>Differ Digit:</b> ${predictedDigit}
-💰 <b>Stake:</b> $${this.currentStake.toFixed(2)}
+            📊 <b>${asset}</b>
+            🎯 <b>Differ Digit:</b> ${predictedDigit}
+            💰 <b>Stake:</b> $${this.currentStake.toFixed(2)}
 
-⏰ ${new Date().toLocaleTimeString()}
+            ⏰ ${new Date().toLocaleTimeString()}
         `.trim();
         this.sendTelegramMessage(message);
 
@@ -494,7 +494,7 @@ class AIWeightedEnsembleBot {
             if (this.consecutiveLosses === 3) this.x3Losses++;
             if (this.consecutiveLosses === 4) this.x4Losses++;
             if (this.consecutiveLosses === 5) this.x5Losses++;
-            
+
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             this.suspendAsset(asset);
         }
@@ -512,24 +512,25 @@ class AIWeightedEnsembleBot {
         const winRate = ((this.totalWins / this.totalTrades) * 100).toFixed(1);
 
         const telegramMsg = `
-${resultEmoji} (x5 Differ Bot)
-
-📊 <b>${asset}</b>
-${pnlColor} <b>P&L:</b> ${pnlStr}
-📊 <b>Last Prediction:</b> ${this.lastPrediction}
-🎯 <b>Exit Digit:</b> ${this.actualDigit}
-
-📊 <b>Trades Today:</b> ${this.totalTrades}
-📊 <b>Wins Today:</b> ${this.totalWins}
-📊 <b>Losses Today:</b> ${this.totalLosses}
-📊 <b>x2-x5 Losses:</b> ${this.x2Losses}/${this.x3Losses}/${this.x4Losses}/${this.x5Losses}
-
-📈 <b>Daily P&L:</b> ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
-🎯 <b>Win Rate:</b> ${winRate}%
-
-📊 <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
-
-⏰ ${new Date().toLocaleTimeString()}
+            ${resultEmoji} (x5 Differ Bot)
+            
+            📊 <b>${asset}</b>
+            ${pnlColor} <b>P&L:</b> ${pnlStr}
+            📊 <b>Last Prediction:</b> ${this.lastPrediction}
+            🎯 <b>Exit Digit:</b> ${this.actualDigit}
+            Last10Digits = ${this.tickHistories[asset].slice(-10).join(',')}
+            
+            📊 <b>Trades Today:</b> ${this.totalTrades}
+            📊 <b>Wins Today:</b> ${this.totalWins}
+            📊 <b>Losses Today:</b> ${this.totalLosses}
+            📊 <b>x2-x5 Losses:</b> ${this.x2Losses}/${this.x3Losses}/${this.x4Losses}/${this.x5Losses}
+            
+            📈 <b>Daily P&L:</b> ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
+            🎯 <b>Win Rate:</b> ${winRate}%
+            
+            📊 <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
+            
+            ⏰ ${new Date().toLocaleTimeString()}
         `.trim();
         this.sendTelegramMessage(telegramMsg);
 
@@ -635,12 +636,12 @@ ${pnlColor} <b>P&L:</b> ${pnlStr}
 
         this.isReconnecting = true;
         this.reconnectAttempts++;
-        
+
         // Exponential backoff: 5s, 10s, 20s, 40s, etc., max 5 minutes
         const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 300000);
-        
+
         console.log(`🔄 Reconnecting in ${delay / 1000}s (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-        
+
         this.reconnectTimer = setTimeout(() => {
             this.connect();
         }, delay);
@@ -648,7 +649,7 @@ ${pnlColor} <b>P&L:</b> ${pnlStr}
 
     cleanup() {
         this.stopHeartbeat();
-        
+
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
