@@ -397,12 +397,13 @@ class AIWeightedEnsembleBot {
         this.lastPrediction = history[history.length - 1];
         this.volatilityLevel = this.getVolatilityLevel(history);
 
-        if (this.lastPrediction === history[history.length - 1] && 
+        if ( 
             this.lastPrediction === history[history.length - 2] && 
             this.lastPrediction === history[history.length - 3] && 
             this.lastPrediction === history[history.length - 4] && 
             this.lastPrediction === history[history.length - 5] && 
-            this.volatilityLevel === 'medium') {
+            this.volatilityLevel === 'medium'
+           ) {
             this.placeTrade(asset, this.lastPrediction);
         }
     }
