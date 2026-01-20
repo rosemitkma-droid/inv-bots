@@ -399,9 +399,9 @@ class AIWeightedEnsembleBot {
 
         if (
             this.lastPrediction === history[history.length - 2] &&
-            // this.lastPrediction === history[history.length - 3] &&
-            // this.lastPrediction === history[history.length - 4] &&
-            // this.lastPrediction === history[history.length - 5] &&
+            this.lastPrediction === history[history.length - 3] &&
+            this.lastPrediction === history[history.length - 4] &&
+            this.lastPrediction === history[history.length - 5] &&
             this.volatilityLevel === 'medium'
         ) {
             this.placeTrade(asset, this.lastPrediction);
