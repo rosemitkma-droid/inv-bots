@@ -622,7 +622,9 @@ ${assetBreakdown ? '<b>Per Asset:</b>\n' + assetBreakdown : ''}
 
     checkForReversal(symbol, candle) {
         const asset = this.assets.get(symbol);
-        if (!asset || asset.state !== 'HUNTING') return;
+        // if (!asset || asset.state !== 'HUNTING') return;
+
+        if (!asset) return;
 
         // if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
         // asset.lastCandle = candle;
