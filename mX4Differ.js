@@ -279,7 +279,7 @@ class AIWeightedEnsembleBot {
         const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
 
         const message = `
-⏰ <b>x5 Differ Bot Hourly Summary</b>
+⏰ <b>x4 Differ Bot Hourly Summary</b>
 
 📊 <b>Last Hour</b>
 ├ Trades: ${stats.trades}
@@ -430,7 +430,7 @@ class AIWeightedEnsembleBot {
         console.log(`Placing Trade: [${asset}] Digit ${predictedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
 
         const message = `
-            🔔 <b>Trade Opened (x5 Differ Bot)</b>
+            🔔 <b>Trade Opened (x4 Differ Bot)</b>
 
             📊 <b>${asset}</b>
             🎯 <b>Differ Digit:</b> ${predictedDigit}
@@ -512,7 +512,7 @@ class AIWeightedEnsembleBot {
         const winRate = ((this.totalWins / this.totalTrades) * 100).toFixed(1);
 
         const telegramMsg = `
-            ${resultEmoji} (x5 Differ Bot)
+            ${resultEmoji} (x4 Differ Bot)
             
             📊 <b>${asset}</b>
             ${pnlColor} <b>P&L:</b> ${pnlStr}
