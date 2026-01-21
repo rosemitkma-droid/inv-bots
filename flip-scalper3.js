@@ -36,8 +36,8 @@ const CONFIG = {
     ping_interval: 25000, // Keep-alive ping every 25 seconds
 
     // Investment Management
-    INVESTMENT_CAPITAL: 500,
-    RISK_PERCENT: 1, // 1% risk per trade (Stop Loss)
+    INVESTMENT_CAPITAL: 100,
+    RISK_PERCENT: 5, // 1% risk per trade (Stop Loss)
     RR_RATIO: 1.1,     // 1:3 Risk-Reward (Take Profit)
 };
 // =================================================
