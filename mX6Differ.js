@@ -587,7 +587,7 @@ class AIWeightedEnsembleBot {
             }
 
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 11 && currentMinutes >= 0) {
+                if (currentHours >= 23 && currentMinutes >= 0) {
                     console.log("It's past 23:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendHourlySummary();
                     this.disconnect();
