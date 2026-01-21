@@ -37,7 +37,7 @@ const CONFIG = {
 
     // Investment Management
     INVESTMENT_CAPITAL: 100,
-    RISK_PERCENT: 1, // 1% risk per trade (Stop Loss)
+    RISK_PERCENT: 5, // 1% risk per trade (Stop Loss)
     RR_RATIO: 1.1,     // 1:3 Risk-Reward (Take Profit)
 };
 // =================================================
