@@ -579,16 +579,16 @@ class AIWeightedEnsembleBot {
             const currentHours = gmtPlus1Time.getUTCHours();
             const currentMinutes = gmtPlus1Time.getUTCMinutes();
 
-            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
-                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
+            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
+                console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
                 this.resetDailyStats();
                 this.endOfDay = false;
                 this.connect();
             }
 
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 17 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                if (currentHours >= 11 && currentMinutes >= 0) {
+                    console.log("It's past 11:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendHourlySummary();
                     this.disconnect();
                     this.endOfDay = true;
