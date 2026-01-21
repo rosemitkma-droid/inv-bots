@@ -9,17 +9,17 @@ const CONFIG = {
 
     // MULTI-ASSET CONFIGURATION
     symbols: [
-        { name: '1HZ10V', label: 'Volatility 10 (1s)', multiplier: 400, enabled: true },
-        { name: '1HZ25V', label: 'Volatility 25 (1s)', multiplier: 160, enabled: true },
-        { name: '1HZ50V', label: 'Volatility 50 (1s)', multiplier: 80, enabled: true },
-        { name: '1HZ75V', label: 'Volatility 75 (1s)', multiplier: 50, enabled: true },
-        { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 40, enabled: true },
-        { name: 'R_100', label: 'Volatility 100', multiplier: 40, enabled: true },
-        { name: 'R_75', label: 'Volatility 75', multiplier: 50, enabled: true },
-        { name: 'R_50', label: 'Volatility 50', multiplier: 80, enabled: true },
-        { name: 'R_25', label: 'Volatility 25', multiplier: 160, enabled: true },
-        { name: 'R_10', label: 'Volatility 10', multiplier: 400, enabled: true },
-        { name: 'stpRNG', label: 'Step Index', multiplier: 750, enabled: true },
+        { name: '1HZ10V', label: 'Volatility 10 (1s)', multiplier: 1000, enabled: true },
+        { name: '1HZ25V', label: 'Volatility 25 (1s)', multiplier: 400, enabled: true },
+        { name: '1HZ50V', label: 'Volatility 50 (1s)', multiplier: 200, enabled: true },
+        { name: '1HZ75V', label: 'Volatility 75 (1s)', multiplier: 100, enabled: true },
+        { name: '1HZ100V', label: 'Volatility 100 (1s)', multiplier: 200, enabled: true },
+        { name: 'R_100', label: 'Volatility 100', multiplier: 200, enabled: true },
+        { name: 'R_75', label: 'Volatility 75', multiplier: 100, enabled: true },
+        { name: 'R_50', label: 'Volatility 50', multiplier: 200, enabled: true },
+        { name: 'R_25', label: 'Volatility 25', multiplier: 400, enabled: true },
+        { name: 'R_10', label: 'Volatility 10', multiplier: 1000, enabled: true },
+        { name: 'stpRNG', label: 'Step Index', multiplier: 2000, enabled: true },
     ],
 
     // SESSIONS CONFIGURATION 
@@ -29,7 +29,7 @@ const CONFIG = {
         new_york: { name: 'New York', time: '13:00', enabled: true },
     },
 
-    market_open_duration: 240, // Minutes to look for trade after open (Strategy: 90 mins)
+    market_open_duration: 300, // Minutes to look for trade after open (Strategy: 90 mins)
     candle_timeframe: 15, // Opening Range Candle (Minutes)
     entry_timeframe: 5,   // Reversal Pattern Timeframe (Minutes)
     reconnect_delay: 5000, // Milliseconds before reconnection attempt
@@ -627,7 +627,7 @@ ${assetBreakdown ? '<b>Per Asset:</b>\n' + assetBreakdown : ''}
         if (!asset) return;
 
         // if (asset.lastCandle && asset.lastCandle.epoch === candle.epoch) return;
-        // asset.lastCandle = candle;
+        asset.lastCandle = candle;
 
         // const body = Math.abs(candle.close - candle.open);
         // const upperWick = candle.high - Math.max(candle.open, candle.close);
