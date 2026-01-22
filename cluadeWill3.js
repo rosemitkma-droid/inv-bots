@@ -506,7 +506,7 @@ const TIMEFRAMES = {
     '4h': { seconds: 14400, granularity: 14400, label: '4 Hours' }
 };
 
-const SELECTED_TIMEFRAME = '2m';
+const SELECTED_TIMEFRAME = '1m';
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================
@@ -653,7 +653,7 @@ const ASSET_CONFIGS = {
     }
 };
 
-let ACTIVE_ASSETS = ['R_75', '1HZ50V', 'stpRNG', '1HZ25V', 'R_100', '1HZ100V', 'frxXAUUSD'];
+let ACTIVE_ASSETS = ['1HZ50V', '1HZ25V', 'R_100', 'frxXAUUSD'];
 
 // ============================================
 // STATE MANAGEMENT
