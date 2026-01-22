@@ -625,7 +625,7 @@ class AIWeightedEnsembleBot {
                 basis: 'stake',
                 contract_type: predictedDigit,
                 currency: 'USD',
-                duration: 1,
+                duration: 15,
                 duration_unit: 'm',
                 symbol: asset,
             }
