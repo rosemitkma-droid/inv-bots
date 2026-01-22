@@ -232,8 +232,8 @@ class AIWeightedEnsembleBot {
     }
 
     connect() {
-        if (this.isReconnecting) {
-            console.log('Already attempting to reconnect...');
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            console.log('Already connected');
             return;
         }
 
@@ -249,7 +249,7 @@ class AIWeightedEnsembleBot {
             this.connected = true;
             this.wsReady = false; // Wait for auth
             this.reconnectAttempts = 0;
-            this.isReconnecting = false;
+            this.isReconnecting = false; // Reset reconnecting flag
             this.lastPongTime = Date.now();
             this.lastDataTime = Date.now();
 
@@ -258,7 +258,7 @@ class AIWeightedEnsembleBot {
         });
 
         this.ws.on('message', (data) => {
-            this.lastPongTime = Date.now(); // Any message counts as activity
+            this.lastPongTime = Date.now();
             this.lastDataTime = Date.now();
             try {
                 const message = JSON.parse(data);
@@ -369,7 +369,6 @@ class AIWeightedEnsembleBot {
     }
 
     handleMessage(message) {
-        // Handle ping response
         if (message.msg_type === 'ping') {
             this.sendRequest({ ping: 1 });
             return;
@@ -384,14 +383,12 @@ class AIWeightedEnsembleBot {
             console.log('✅ Authenticated successfully');
             this.wsReady = true;
 
-            // If reconnecting, restore subscriptions
-            if (this.isReconnecting) {
-                console.log('🔄 Reconnection detected - restoring subscriptions');
-                this.restoreSubscriptions();
-            }
-
-            this.initializeSubscriptions();
+            // Process queued messages first
             this.processMessageQueue();
+            
+            // Then initialize/restore subscriptions
+            this.initializeSubscriptions();
+            
         } else if (message.msg_type === 'history') {
             const asset = message.echo_req.ticks_history;
             this.handleTickHistory(asset, message.history);
@@ -420,10 +417,12 @@ class AIWeightedEnsembleBot {
             // Handle specific errors that require reconnection
             if (message.error.code === 'AuthorizationRequired' ||
                 message.error.code === 'InvalidToken') {
+                console.log('Auth error detected, triggering reconnection...');
                 this.handleDisconnect();
             }
         }
     }
+
 
     restoreSubscriptions() {
         console.log('📊 Restoring subscriptions after reconnection...');
@@ -512,8 +511,9 @@ class AIWeightedEnsembleBot {
     }
 
     initializeSubscriptions() {
-        console.log('Initializing subscriptions...');
+        console.log('📊 Initializing/restoring subscriptions...');
         this.assets.forEach(asset => {
+            // Request historical data
             this.sendRequest({
                 ticks_history: asset,
                 adjust_start_time: 1,
@@ -522,6 +522,8 @@ class AIWeightedEnsembleBot {
                 start: 1,
                 style: 'ticks'
             });
+            
+            // Subscribe to live ticks
             this.sendRequest({
                 ticks: asset,
                 subscribe: 1
@@ -801,6 +803,12 @@ class AIWeightedEnsembleBot {
             return;
         }
 
+        // Only proceed if not already handling disconnect
+        if (this.isReconnecting) {
+            console.log('Already handling disconnect, skipping...');
+            return;
+        }
+
         this.connected = false;
         this.wsReady = false;
         this.stopMonitor();
@@ -810,11 +818,12 @@ class AIWeightedEnsembleBot {
 
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
             console.error('❌ Max reconnection attempts reached');
-            this.sendTelegramMessage(`❌ <b>Max Reconnection Attempts Reached</b>\nPlease restart the bot manually.\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`);
-            return;
-        }
-
-        if (this.isReconnecting) {
+            this.sendTelegramMessage(
+                `❌ <b>Max Reconnection Attempts Reached</b>\n` +
+                `Please restart the bot manually.\n` +
+                `Final P&L: $${this.totalProfitLoss.toFixed(2)}`
+            );
+            this.isReconnecting = false;
             return;
         }
 
@@ -822,10 +831,19 @@ class AIWeightedEnsembleBot {
         this.reconnectAttempts++;
 
         // Exponential backoff: 5s, 7.5s, 11.25s, etc., max 30 seconds
-        const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
+        const delay = Math.min(
+            this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 
+            30000
+        );
 
-        console.log(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-        console.log(`📊 Preserved state - Trades: ${this.totalTrades}, P&L: $${this.totalProfitLoss.toFixed(2)}`);
+        console.log(
+            `🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... ` +
+            `(Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+        );
+        console.log(
+            `📊 Preserved state - Trades: ${this.totalTrades}, ` +
+            `P&L: $${this.totalProfitLoss.toFixed(2)}`
+        );
 
         this.sendTelegramMessage(
             `⚠️ <b>CONNECTION LOST - RECONNECTING</b>\n` +
@@ -834,8 +852,14 @@ class AIWeightedEnsembleBot {
             `💾 State preserved: ${this.totalTrades} trades, $${this.totalProfitLoss.toFixed(2)} P&L`
         );
 
+        // Clear any existing reconnect timer
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+        }
+
         this.reconnectTimer = setTimeout(() => {
             console.log('🔄 Attempting reconnection...');
+            this.isReconnecting = false; // Reset flag before connecting
             this.connect();
         }, delay);
     }
@@ -850,26 +874,33 @@ class AIWeightedEnsembleBot {
 
         if (this.ws) {
             this.ws.removeAllListeners();
-            if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+            if (this.ws.readyState === WebSocket.OPEN || 
+                this.ws.readyState === WebSocket.CONNECTING) {
                 try {
                     this.ws.close();
                 } catch (e) {
-                    // Already closed
+                    console.log('WebSocket already closed');
                 }
             }
             this.ws = null;
         }
 
-        this.activeSubscriptions.clear();
+        // Don't clear activeSubscriptions here - we need them for reconnection
+        // Only clear when explicitly disconnecting (endOfDay = true)
+        if (this.endOfDay) {
+            this.activeSubscriptions.clear();
+        }
+        
         this.connected = false;
         this.wsReady = false;
     }
 
     disconnect() {
-        console.log('Disconnecting bot...');
+        console.log('🛑 Disconnecting bot...');
         StatePersistence.saveState(this);
         this.endOfDay = true; // Prevent reconnection
         this.cleanup();
+        console.log('✅ Bot disconnected successfully');
     }
 
     start() {
