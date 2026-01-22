@@ -1,6 +1,102 @@
 require('dotenv').config();
 const WebSocket = require('ws');
 const TelegramBot = require('node-telegram-bot-api');
+const fs = require('fs');
+const path = require('path');
+
+// ============================================
+// STATE PERSISTENCE MANAGER
+// ============================================
+const STATE_FILE = path.join(__dirname, 'mX5Differ-state.json');
+const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
+
+class StatePersistence {
+    static saveState(bot) {
+        try {
+            const persistableState = {
+                savedAt: Date.now(),
+                config: {
+                    initialStake: bot.config.initialStake,
+                    multiplier: bot.config.multiplier,
+                    maxConsecutiveLosses: bot.config.maxConsecutiveLosses,
+                    stopLoss: bot.config.stopLoss,
+                    takeProfit: bot.config.takeProfit,
+                    requiredHistoryLength: bot.config.requiredHistoryLength
+                },
+                trading: {
+                    currentStake: bot.currentStake,
+                    consecutiveLosses: bot.consecutiveLosses,
+                    totalTrades: bot.totalTrades,
+                    totalWins: bot.totalWins,
+                    totalLosses: bot.totalLosses,
+                    x2Losses: bot.x2Losses,
+                    x3Losses: bot.x3Losses,
+                    x4Losses: bot.x4Losses,
+                    x5Losses: bot.x5Losses,
+                    totalProfitLoss: bot.totalProfitLoss,
+                    lastPrediction: bot.lastPrediction,
+                    actualDigit: bot.actualDigit,
+                    volatilityLevel: bot.volatilityLevel
+                },
+                subscriptions: {
+                    // FIXED: tickSubscriptionIds is already an object, not a Map
+                    tickSubscriptionIds: { ...bot.tickSubscriptionIds },
+                    // FIXED: Convert Set to Array properly
+                    activeSubscriptions: Array.from(bot.activeSubscriptions),
+                    contractSubscription: bot.contractSubscription
+                },
+                assets: {}
+            };
+
+            // Save tick histories and last logs for each asset
+            bot.assets.forEach(asset => {
+                persistableState.assets[asset] = {
+                    tickHistory: bot.tickHistories[asset].slice(-100), // Keep last 100 ticks
+                    lastTickLogTime: bot.lastTickLogTime[asset]
+                };
+            });
+
+            fs.writeFileSync(STATE_FILE, JSON.stringify(persistableState, null, 2));
+            // console.log('💾 State saved to disk');
+        } catch (error) {
+            console.error(`Failed to save state: ${error.message}`);
+            console.error('Error stack:', error.stack);
+        }
+    }
+
+    static loadState() {
+        try {
+            if (!fs.existsSync(STATE_FILE)) {
+                console.log('📂 No previous state file found, starting fresh');
+                return false;
+            }
+
+            const savedData = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+            const ageMinutes = (Date.now() - savedData.savedAt) / 60000;
+
+            // Only restore if state is less than 30 minutes old
+            if (ageMinutes > 30) {
+                console.warn(`⚠️ Saved state is ${ageMinutes.toFixed(1)} minutes old, starting fresh`);
+                fs.unlinkSync(STATE_FILE);
+                return false;
+            }
+
+            console.log(`📂 Restoring state from ${ageMinutes.toFixed(1)} minutes ago`);
+            return savedData;
+        } catch (error) {
+            console.error(`Failed to load state: ${error.message}`);
+            console.error('Error stack:', error.stack);
+            return false;
+        }
+    }
+
+    static startAutoSave(bot) {
+        setInterval(() => {
+            StatePersistence.saveState(bot);
+        }, STATE_SAVE_INTERVAL);
+        console.log('🔄 Auto-save started (every 5 seconds)');
+    }
+}
 
 class AIWeightedEnsembleBot {
     constructor(token, config = {}) {
@@ -42,17 +138,20 @@ class AIWeightedEnsembleBot {
 
         // Reconnection logic
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 10;
+        this.maxReconnectAttempts = 50; // Increased for better resilience
         this.reconnectDelay = 5000; // Start with 5 seconds
         this.reconnectTimer = null;
         this.isReconnecting = false;
 
         // Heartbeat/Ping mechanism
         this.pingInterval = null;
+        this.checkDataInterval = null;
         this.pongTimeout = null;
         this.lastPongTime = Date.now();
-        this.pingIntervalMs = 30000; // Ping every 30 seconds
+        this.lastDataTime = Date.now();
+        this.pingIntervalMs = 20000; // Ping every 20 seconds
         this.pongTimeoutMs = 10000; // Expect pong within 10 seconds
+        this.dataTimeoutMs = 60000; // Force reconnect if no data for 60s
 
         // Message queue for failed sends
         this.messageQueue = [];
@@ -91,6 +190,45 @@ class AIWeightedEnsembleBot {
             this.tickHistories[asset] = [];
             this.lastTickLogTime[asset] = 0;
         });
+
+        // Load saved state if available
+        this.loadSavedState();
+    }
+
+    loadSavedState() {
+        const savedState = StatePersistence.loadState();
+        if (!savedState) return;
+
+        try {
+            // Restore trading state
+            const trading = savedState.trading;
+            this.currentStake = trading.currentStake;
+            this.consecutiveLosses = trading.consecutiveLosses;
+            this.totalTrades = trading.totalTrades;
+            this.totalWins = trading.totalWins;
+            this.totalLosses = trading.totalLosses;
+            this.x2Losses = trading.x2Losses;
+            this.x3Losses = trading.x3Losses;
+            this.x4Losses = trading.x4Losses;
+            this.x5Losses = trading.x5Losses;
+            this.totalProfitLoss = trading.totalProfitLoss;
+            this.lastPrediction = trading.lastPrediction;
+            this.actualDigit = trading.actualDigit;
+            this.volatilityLevel = trading.volatilityLevel;
+
+            // Restore tick histories
+            savedState.assets && Object.keys(savedState.assets).forEach(asset => {
+                if (this.tickHistories[asset]) {
+                    this.tickHistories[asset] = savedState.assets[asset].tickHistory || [];
+                }
+            });
+
+            console.log('✅ State restored successfully');
+            console.log(`   Trades: ${this.totalTrades} | W/L: ${this.totalWins}/${this.totalLosses}`);
+            console.log(`   P&L: $${this.totalProfitLoss.toFixed(2)} | Current Stake: $${this.currentStake.toFixed(2)}`);
+        } catch (error) {
+            console.error(`Error restoring state: ${error.message}`);
+        }
     }
 
     connect() {
@@ -99,12 +237,12 @@ class AIWeightedEnsembleBot {
             return;
         }
 
-        console.log('Connecting to Deriv API...');
+        console.log('🔌 Connecting to Deriv API...');
 
         // Clear any existing connection
         this.cleanup();
 
-        this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+        this.ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
 
         this.ws.on('open', () => {
             console.log('✅ Connected to Deriv API');
@@ -113,13 +251,15 @@ class AIWeightedEnsembleBot {
             this.reconnectAttempts = 0;
             this.isReconnecting = false;
             this.lastPongTime = Date.now();
+            this.lastDataTime = Date.now();
 
+            this.startMonitor();
             this.authenticate();
-            this.startHeartbeat();
         });
 
         this.ws.on('message', (data) => {
             this.lastPongTime = Date.now(); // Any message counts as activity
+            this.lastDataTime = Date.now();
             try {
                 const message = JSON.parse(data);
                 this.handleMessage(message);
@@ -142,10 +282,10 @@ class AIWeightedEnsembleBot {
         });
     }
 
-    startHeartbeat() {
-        this.stopHeartbeat();
+    startMonitor() {
+        this.stopMonitor();
 
-        // Send ping every 30 seconds
+        // Ping to keep connection alive (every 20 seconds)
         this.pingInterval = setInterval(() => {
             if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.ping();
@@ -155,17 +295,34 @@ class AIWeightedEnsembleBot {
                     const timeSinceLastPong = Date.now() - this.lastPongTime;
                     if (timeSinceLastPong > this.pongTimeoutMs) {
                         console.warn('⚠️ No pong received, connection may be dead');
-                        this.handleDisconnect();
                     }
                 }, this.pongTimeoutMs);
             }
         }, this.pingIntervalMs);
+
+        // Check for data silence (every 10 seconds)
+        this.checkDataInterval = setInterval(() => {
+            if (!this.connected) return;
+
+            const silenceDuration = Date.now() - this.lastDataTime;
+            if (silenceDuration > this.dataTimeoutMs) {
+                console.error(`⚠️ No data for ${Math.round(silenceDuration / 1000)}s - Forcing reconnection...`);
+                StatePersistence.saveState(this);
+                if (this.ws) this.ws.terminate();
+            }
+        }, 10000);
+
+        console.log('🔄 Connection monitoring started');
     }
 
-    stopHeartbeat() {
+    stopMonitor() {
         if (this.pingInterval) {
             clearInterval(this.pingInterval);
             this.pingInterval = null;
+        }
+        if (this.checkDataInterval) {
+            clearInterval(this.checkDataInterval);
+            this.checkDataInterval = null;
         }
         if (this.pongTimeout) {
             clearTimeout(this.pongTimeout);
@@ -226,6 +383,13 @@ class AIWeightedEnsembleBot {
             }
             console.log('✅ Authenticated successfully');
             this.wsReady = true;
+
+            // If reconnecting, restore subscriptions
+            if (this.isReconnecting) {
+                console.log('🔄 Reconnection detected - restoring subscriptions');
+                this.restoreSubscriptions();
+            }
+
             this.initializeSubscriptions();
             this.processMessageQueue();
         } else if (message.msg_type === 'history') {
@@ -261,6 +425,21 @@ class AIWeightedEnsembleBot {
         }
     }
 
+    restoreSubscriptions() {
+        console.log('📊 Restoring subscriptions after reconnection...');
+        this.assets.forEach(asset => {
+            // Restore tick subscription
+            const oldSubId = this.tickSubscriptionIds[asset];
+            if (oldSubId) {
+                console.log(`  ✅ Re-subscribing to ${asset}`);
+                this.sendRequest({
+                    ticks: asset,
+                    subscribe: 1
+                });
+            }
+        });
+    }
+
     async sendTelegramMessage(message) {
         if (!this.telegramEnabled || !this.telegramBot) return;
         try {
@@ -279,21 +458,21 @@ class AIWeightedEnsembleBot {
         const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
 
         const message = `
-⏰ <b>x5 Differ Bot Hourly Summary</b>
+            ⏰ <b>x5 Differ Bot Hourly Summary</b>
 
-📊 <b>Last Hour</b>
-├ Trades: ${stats.trades}
-├ Wins: ${stats.wins} | Losses: ${stats.losses}
-├ Win Rate: ${winRate}%
-└ ${pnlEmoji} <b>P&L:</b> ${pnlStr}
+            📊 <b>Last Hour</b>
+            ├ Trades: ${stats.trades}
+            ├ Wins: ${stats.wins} | Losses: ${stats.losses}
+            ├ Win Rate: ${winRate}%
+            └ ${pnlEmoji} <b>P&L:</b> ${pnlStr}
 
-📈 <b>Daily Totals</b>
-├ Total Trades: ${this.totalTrades}
-├ Total W/L: ${this.totalWins}/${this.totalLosses}
-├ Daily P&L: ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
-└ Current Capital: $${(this.config.initialStake + this.totalProfitLoss).toFixed(2)}
+            📈 <b>Daily Totals</b>
+            ├ Total Trades: ${this.totalTrades}
+            ├ Total W/L: ${this.totalWins}/${this.totalLosses}
+            ├ Daily P&L: ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
+            └ Current Capital: $${(this.config.initialStake + this.totalProfitLoss).toFixed(2)}
 
-⏰ ${new Date().toLocaleString()}
+            ⏰ ${new Date().toLocaleString()}
         `.trim();
 
         try {
@@ -435,6 +614,7 @@ class AIWeightedEnsembleBot {
             📊 <b>${asset}</b>
             🎯 <b>Differ Digit:</b> ${predictedDigit}
             💰 <b>Stake:</b> $${this.currentStake.toFixed(2)}
+            Last10Digits = ${this.tickHistories[asset].slice(-10).join(',')}
 
             ⏰ ${new Date().toLocaleTimeString()}
         `.trim();
@@ -622,11 +802,14 @@ class AIWeightedEnsembleBot {
 
         this.connected = false;
         this.wsReady = false;
-        this.cleanup();
+        this.stopMonitor();
+
+        // Save state immediately on disconnect
+        StatePersistence.saveState(this);
 
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
             console.error('❌ Max reconnection attempts reached');
-            this.sendTelegramMessage('❌ <b>Bot Disconnected:</b> Max reconnection attempts reached');
+            this.sendTelegramMessage(`❌ <b>Max Reconnection Attempts Reached</b>\nPlease restart the bot manually.\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`);
             return;
         }
 
@@ -637,18 +820,27 @@ class AIWeightedEnsembleBot {
         this.isReconnecting = true;
         this.reconnectAttempts++;
 
-        // Exponential backoff: 5s, 10s, 20s, 40s, etc., max 5 minutes
-        const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 300000);
+        // Exponential backoff: 5s, 7.5s, 11.25s, etc., max 30 seconds
+        const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
 
-        console.log(`🔄 Reconnecting in ${delay / 1000}s (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+        console.log(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+        console.log(`📊 Preserved state - Trades: ${this.totalTrades}, P&L: $${this.totalProfitLoss.toFixed(2)}`);
+
+        this.sendTelegramMessage(
+            `⚠️ <b>CONNECTION LOST - RECONNECTING</b>\n` +
+            `📊 Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n` +
+            `⏱️ Retrying in ${(delay / 1000).toFixed(1)}s\n` +
+            `💾 State preserved: ${this.totalTrades} trades, $${this.totalProfitLoss.toFixed(2)} P&L`
+        );
 
         this.reconnectTimer = setTimeout(() => {
+            console.log('🔄 Attempting reconnection...');
             this.connect();
         }, delay);
     }
 
     cleanup() {
-        this.stopHeartbeat();
+        this.stopMonitor();
 
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
@@ -658,22 +850,34 @@ class AIWeightedEnsembleBot {
         if (this.ws) {
             this.ws.removeAllListeners();
             if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
-                this.ws.close();
+                try {
+                    this.ws.close();
+                } catch (e) {
+                    // Already closed
+                }
             }
             this.ws = null;
         }
 
         this.activeSubscriptions.clear();
+        this.connected = false;
+        this.wsReady = false;
     }
 
     disconnect() {
         console.log('Disconnecting bot...');
+        StatePersistence.saveState(this);
         this.endOfDay = true; // Prevent reconnection
         this.cleanup();
     }
 
     start() {
-        console.log('🚀 Starting AI Weighted Ensemble Bot...');
+        console.log('🚀 Starting x5 Differ Bot...');
+        console.log(`📊 Session Summary:`);
+        console.log(`   Total Trades: ${this.totalTrades}`);
+        console.log(`   Wins/Losses: ${this.totalWins}/${this.totalLosses}`);
+        console.log(`   Total P&L: $${this.totalProfitLoss.toFixed(2)}`);
+        console.log(`   Current Stake: $${this.currentStake.toFixed(2)}`);
         this.connect();
         this.checkTimeForDisconnectReconnect();
     }
@@ -690,6 +894,9 @@ const bot = new AIWeightedEnsembleBot('0P94g4WdSrSrzir', {
     minWaitTime: 1000,
     maxWaitTime: 3000,
 });
+
+// Start auto-save immediately
+StatePersistence.startAutoSave(bot);
 
 bot.start();
 
