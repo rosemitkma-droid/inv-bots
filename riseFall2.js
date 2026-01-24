@@ -34,7 +34,8 @@ class StatePersistence {
                     }))
                 },
                 lastTradeDirection: state.lastTradeDirection,
-                martingaleLevel: state.martingaleLevel
+                martingaleLevel: state.martingaleLevel,
+                hourlyStats: { ...state.hourlyStats }
             };
 
             fs.writeFileSync(STATE_FILE, JSON.stringify(persistableState, null, 2));
@@ -86,6 +87,13 @@ class StatePersistence {
             // Restore last trade direction
             state.lastTradeDirection = savedData.lastTradeDirection || null;
             state.martingaleLevel = savedData.martingaleLevel || 0;
+            state.hourlyStats = savedData.hourlyStats || {
+                trades: 0,
+                wins: 0,
+                losses: 0,
+                pnl: 0,
+                lastHour: new Date().getHours()
+            };
 
             LOGGER.info(`✅ State restored successfully!`);
             LOGGER.info(`   🎯 Trades: ${state.session.tradesCount} (W:${state.session.winsCount} L:${state.session.lossesCount})`);
@@ -214,6 +222,69 @@ class TelegramService {
         `.trim();
         await this.sendMessage(message);
     }
+
+    static async sendHourlySummary() {
+        const stats = state.hourlyStats;
+        const totalTrades = stats.wins + stats.losses;
+        const winRate = totalTrades > 0
+            ? ((stats.wins / totalTrades) * 100).toFixed(1)
+            : 0;
+        const pnlEmoji = stats.pnl >= 0 ? '🟢' : '🔴';
+        const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
+
+        const message = `
+⏰ <b>Rise/Fall Bot Hourly Summary</b>
+
+📊 <b>Last Hour</b>
+├ Trades: ${stats.trades}
+├ Wins: ${stats.wins} | Losses: ${stats.losses}
+├ Win Rate: ${winRate}%
+└ ${pnlEmoji} <b>P&L:</b> ${pnlStr}
+
+📈 <b>Daily Totals</b>
+├ Total Trades: ${state.session.tradesCount}
+├ Total W/L: ${state.session.winsCount}/${state.session.lossesCount}
+├ Daily P&L: ${(state.session.netPL >= 0 ? '+' : '')}$${state.session.netPL.toFixed(2)}
+└ Current Capital: $${state.capital.toFixed(2)}
+
+⏰ ${new Date().toLocaleString()}
+        `.trim();
+
+        try {
+            await this.sendMessage(message);
+            LOGGER.info('📱 Telegram: Hourly Summary sent');
+        } catch (error) {
+            LOGGER.error(`❌ Telegram hourly summary failed: ${error.message}`);
+        }
+
+        state.hourlyStats = {
+            trades: 0,
+            wins: 0,
+            losses: 0,
+            pnl: 0,
+            lastHour: new Date().getHours()
+        };
+    }
+
+    static startHourlyTimer() {
+        const now = new Date();
+        const nextHour = new Date(now);
+        nextHour.setHours(nextHour.getHours() + 1);
+        nextHour.setMinutes(0);
+        nextHour.setSeconds(0);
+        nextHour.setMilliseconds(0);
+
+        const timeUntilNextHour = nextHour.getTime() - now.getTime();
+
+        setTimeout(() => {
+            this.sendHourlySummary();
+            setInterval(() => {
+                this.sendHourlySummary();
+            }, 60 * 60 * 1000);
+        }, timeUntilNextHour);
+
+        LOGGER.info(`📱 Hourly summaries scheduled. First in ${Math.ceil(timeUntilNextHour / 60000)} minutes.`);
+    }
 }
 
 // ============================================
@@ -302,6 +373,13 @@ const state = {
     },
     lastTradeDirection: null, // 'CALL' or 'PUT'
     martingaleLevel: 0,
+    hourlyStats: {
+        trades: 0,
+        wins: 0,
+        losses: 0,
+        pnl: 0,
+        lastHour: new Date().getHours()
+    },
     requestId: 1,
     canTrade: false
 };
@@ -368,6 +446,10 @@ class SessionManager {
         state.session.tradesCount++;
         state.capital += profit;
 
+        // Update hourly stats
+        state.hourlyStats.trades++;
+        state.hourlyStats.pnl += profit;
+
         if (profit > 0) {
             state.session.winsCount++;
             state.session.profit += profit;
@@ -375,6 +457,10 @@ class SessionManager {
             state.portfolio.dailyProfit += profit;
             state.portfolio.dailyWins++;
             state.martingaleLevel = 0; // Reset on win
+
+            // Update hourly stats
+            state.hourlyStats.wins++;
+
             LOGGER.trade(`✅ WIN: +$${profit.toFixed(2)} | Direction: ${direction} | Martingale Reset`);
         } else {
             state.session.lossesCount++;
@@ -382,6 +468,9 @@ class SessionManager {
             state.session.netPL += profit;
             state.portfolio.dailyLoss += Math.abs(profit);
             state.portfolio.dailyLosses++;
+
+            // Update hourly stats
+            state.hourlyStats.losses++;
 
             state.martingaleLevel++;
 
@@ -666,6 +755,7 @@ class DerivBot {
         console.log('═'.repeat(80) + '\n');
 
         TelegramService.sendStartupMessage();
+        TelegramService.startHourlyTimer();
 
         // Wait a bit then start trading
         setTimeout(() => {
