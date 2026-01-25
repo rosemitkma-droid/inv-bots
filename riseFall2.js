@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'risefall2-state5.json');
+const STATE_FILE = path.join(__dirname, 'risefall2-state6.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -286,18 +286,10 @@ class TelegramService {
 
         const timeUntilNextHour = nextHour.getTime() - now.getTime();
 
-        LOGGER.info(`📱 Telegram hourly summaries enabled`);
-        LOGGER.info(`   ⏰ Next summary at ${nextHour.toLocaleTimeString()} (in ${Math.ceil(timeUntilNextHour / 60000)} min)`);
-
-        // FIX #4: Set the first summary timer
         setTimeout(() => {
-            LOGGER.info('📱 Sending first hourly summary...');
-            this.sendHourlySummary();
-
-            // FIX #5: Then set up recurring hourly summaries
+            this.sendSessionSummary();
             setInterval(() => {
-                LOGGER.info('📱 Sending hourly summary...');
-                this.sendHourlySummary();
+                this.sendSessionSummary();
             }, 60 * 60 * 1000); // Every hour
         }, timeUntilNextHour);
     }
@@ -327,21 +319,21 @@ const CONFIG = {
 
     // Capital Settings
     INITIAL_CAPITAL: 100,
-    STAKE: 0.35,
+    STAKE: 1,
 
     // Session Targets
     SESSION_PROFIT_TARGET: 10000,
     SESSION_STOP_LOSS: -85,
 
     // Trade Duration Settings
-    DURATION: 15,
+    DURATION: 120,
     DURATION_UNIT: 'm', // t=ticks, s=seconds, m=minutes
 
     // Trade Settings
     MAX_OPEN_POSITIONS: 1, // One at a time for alternating strategy
     TRADE_DELAY: 1000, // 2 seconds delay between trades
     MARTINGALE_MULTIPLIER: 2,
-    MAX_MARTINGALE_STEPS: 8,
+    MAX_MARTINGALE_STEPS: 6,
 
     // Debug
     DEBUG_MODE: true,
