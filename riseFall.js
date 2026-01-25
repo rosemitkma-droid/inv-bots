@@ -286,18 +286,10 @@ class TelegramService {
 
         const timeUntilNextHour = nextHour.getTime() - now.getTime();
 
-        LOGGER.info(`📱 Telegram hourly summaries enabled`);
-        LOGGER.info(`   ⏰ Next summary at ${nextHour.toLocaleTimeString()} (in ${Math.ceil(timeUntilNextHour / 60000)} min)`);
-
-        // FIX #4: Set the first summary timer
         setTimeout(() => {
-            LOGGER.info('📱 Sending first hourly summary...');
-            this.sendHourlySummary();
-
-            // FIX #5: Then set up recurring hourly summaries
+            this.sendSessionSummary();
             setInterval(() => {
-                LOGGER.info('📱 Sending hourly summary...');
-                this.sendHourlySummary();
+                this.sendSessionSummary();
             }, 60 * 60 * 1000); // Every hour
         }, timeUntilNextHour);
     }
