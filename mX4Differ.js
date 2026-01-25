@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'mX4Differ-state.json');
+const STATE_FILE = path.join(__dirname, 'mX4Differ-state3.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -369,7 +369,7 @@ class AIWeightedEnsembleBot {
     }
 
     handleMessage(message) {
-            if (message.msg_type === 'ping') {
+        if (message.msg_type === 'ping') {
             this.sendRequest({ ping: 1 });
             return;
         }
@@ -385,10 +385,10 @@ class AIWeightedEnsembleBot {
 
             // Process queued messages first
             this.processMessageQueue();
-            
+
             // Then initialize/restore subscriptions
             this.initializeSubscriptions();
-            
+
         } else if (message.msg_type === 'history') {
             const asset = message.echo_req.ticks_history;
             this.handleTickHistory(asset, message.history);
@@ -521,7 +521,7 @@ class AIWeightedEnsembleBot {
                 start: 1,
                 style: 'ticks'
             });
-            
+
             // Subscribe to live ticks
             this.sendRequest({
                 ticks: asset,
@@ -676,7 +676,11 @@ class AIWeightedEnsembleBot {
             if (this.consecutiveLosses === 4) this.x4Losses++;
             if (this.consecutiveLosses === 5) this.x5Losses++;
 
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            if (this.consecutiveLosses === 3) {
+                this.currentStake = this.config.initialStake;
+            } else {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            }
             this.suspendAsset(asset);
         }
 
@@ -830,7 +834,7 @@ class AIWeightedEnsembleBot {
 
         // Exponential backoff: 5s, 7.5s, 11.25s, etc., max 30 seconds
         const delay = Math.min(
-            this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 
+            this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
             30000
         );
 
@@ -872,7 +876,7 @@ class AIWeightedEnsembleBot {
 
         if (this.ws) {
             this.ws.removeAllListeners();
-            if (this.ws.readyState === WebSocket.OPEN || 
+            if (this.ws.readyState === WebSocket.OPEN ||
                 this.ws.readyState === WebSocket.CONNECTING) {
                 try {
                     this.ws.close();
@@ -888,7 +892,7 @@ class AIWeightedEnsembleBot {
         if (this.endOfDay) {
             this.activeSubscriptions.clear();
         }
-        
+
         this.connected = false;
         this.wsReady = false;
     }
@@ -915,9 +919,9 @@ class AIWeightedEnsembleBot {
 
 // Initialize and start bot
 const bot = new AIWeightedEnsembleBot('0P94g4WdSrSrzir', {
-    initialStake: 5.7,
+    initialStake: 2.2,
     multiplier: 11.3,
-    maxConsecutiveLosses: 3,
+    maxConsecutiveLosses: 4,
     stopLoss: 129,
     takeProfit: 5000,
     requiredHistoryLength: 1000,
