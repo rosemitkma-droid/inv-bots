@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'risefall1-state1.json');
+const STATE_FILE = path.join(__dirname, 'risefall-state0001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -538,8 +538,8 @@ class ConnectionManager {
         this.startPing();
 
         if (!this.autoSaveStarted) {
-            StatePersistence.startAutoSave();
-            this.autoSaveStarted = true;
+            // StatePersistence.startAutoSave();
+            // this.autoSaveStarted = true;
         }
 
         this.send({ authorize: CONFIG.API_TOKEN });
@@ -681,7 +681,7 @@ class ConnectionManager {
             }
 
             SessionManager.checkSessionTargets();
-            StatePersistence.saveState();
+            // StatePersistence.saveState();
 
             // Schedule next trade
             setTimeout(() => {
@@ -701,7 +701,7 @@ class ConnectionManager {
         state.isAuthorized = false;
 
         this.stopPing();
-        StatePersistence.saveState();
+        // StatePersistence.saveState();
 
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
