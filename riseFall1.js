@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'risefall01-state.json');
+const STATE_FILE = path.join(__dirname, 'risefall02-state02.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -339,7 +339,7 @@ const CONFIG = {
     MARTINGALE_MULTIPLIER4: 1.8,
     MARTINGALE_MULTIPLIER5: 2,
     MAX_MARTINGALE_STEPS: 25,
-    System: 2, // 1 = Continue same direction on Win and Switch direction on Loss, 
+    System: 1, // 1 = Continue same direction on Win and Switch direction on Loss, 
     // 2 = Switch direction on Win and Continue same direction on Loss, 
     // 3 = Switch direction every trade, 4 = Same direction every trade
     iDirection: 'RISE', //Set initial direction 'RISE' or 'FALL'
@@ -574,8 +574,8 @@ class ConnectionManager {
         this.startPing();
 
         if (!this.autoSaveStarted) {
-            StatePersistence.startAutoSave();
-            this.autoSaveStarted = true;
+            // StatePersistence.startAutoSave();
+            // this.autoSaveStarted = true;
         }
 
         this.send({ authorize: CONFIG.API_TOKEN });
@@ -717,7 +717,7 @@ class ConnectionManager {
             }
 
             SessionManager.checkSessionTargets();
-            StatePersistence.saveState();
+            // StatePersistence.saveState();
 
             // Schedule next trade
             setTimeout(() => {
@@ -737,7 +737,7 @@ class ConnectionManager {
         state.isAuthorized = false;
 
         this.stopPing();
-        StatePersistence.saveState();
+        // StatePersistence.saveState();
 
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
