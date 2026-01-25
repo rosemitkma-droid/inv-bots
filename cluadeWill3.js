@@ -35,7 +35,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER - FIXED VERSION
 // ============================================
-const STATE_FILE = path.join(__dirname, 'claudeWillbot1Minss-state.json');
+const STATE_FILE = path.join(__dirname, 'claudeWillbot3-state01.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -506,7 +506,7 @@ const TIMEFRAMES = {
     '4h': { seconds: 14400, granularity: 14400, label: '4 Hours' }
 };
 
-const SELECTED_TIMEFRAME = '1m';
+const SELECTED_TIMEFRAME = '3m';
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================
@@ -579,7 +579,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 500],
-        defaultMultiplier: 100,
+        defaultMultiplier: 50,
         maxTradesPerDay: 500000,
         minStake: 1.00,
         maxStake: 3000,
@@ -590,7 +590,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [40, 100, 200, 300, 400],
-        defaultMultiplier: 100,
+        defaultMultiplier: 40,
         maxTradesPerDay: 50000,
         minStake: 1.00,
         maxStake: 3000,
@@ -601,7 +601,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [160, 400, 800, 1200, 1600],
-        defaultMultiplier: 400,
+        defaultMultiplier: 160,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -612,7 +612,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [80, 200, 400, 600, 800],
-        defaultMultiplier: 200,
+        defaultMultiplier: 80,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -623,7 +623,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [40, 100, 200, 300, 400],
-        defaultMultiplier: 100,
+        defaultMultiplier: 40,
         maxTradesPerDay: 50000,
         minStake: 1.00,
         maxStake: 3000,
@@ -634,7 +634,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [750, 2000, 3500, 5500, 7500],
-        defaultMultiplier: 2000,
+        defaultMultiplier: 750,
         maxTradesPerDay: 120000,
         minStake: 1.00,
         maxStake: 1000,
@@ -645,7 +645,7 @@ const ASSET_CONFIGS = {
         category: 'commodity',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 400, 500],
-        defaultMultiplier: 100,
+        defaultMultiplier: 50,
         maxTradesPerDay: 5000,
         minStake: 1,
         maxStake: 5000,
@@ -653,7 +653,7 @@ const ASSET_CONFIGS = {
     }
 };
 
-let ACTIVE_ASSETS = ['1HZ50V', '1HZ25V', 'R_100', 'frxXAUUSD'];
+let ACTIVE_ASSETS = ['R_75', '1HZ50V', 'stpRNG', '1HZ25V', 'R_100', '1HZ100V', 'frxXAUUSD'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -782,29 +782,156 @@ if (stateLoaded) {
 }
 
 // ============================================
-// TECHNICAL INDICATORS (WPR ONLY)
+// ENHANCED TECHNICAL INDICATORS WITH ROBUST WPR
 // ============================================
 class TechnicalIndicators {
     /**
-     * Calculate Williams Percent Range (WPR) - ONLY on closed candles
+     * Calculate Williams Percent Range (WPR) - INDUSTRY STANDARD IMPLEMENTATION
+     * Based on proven ta-lib and technicalindicators.js libraries
+     * 
+     * Formula: WPR = ((Highest High - Close) / (Highest High - Lowest Low)) * -100
+     * 
+     * @param {Array} candles - Array of closed candle objects
+     * @param {number} period - Lookback period (default: 80)
+     * @returns {number} WPR value between -100 and 0
      */
     static calculateWPR(candles, period = 80) {
-        if (!candles || candles.length < period) {
-            return -50;
+        // Validation: Check if we have enough data
+        if (!candles || !Array.isArray(candles)) {
+            LOGGER.error('WPR Error: Invalid candles array');
+            return -50; // Neutral default
         }
 
-        const recentCandles = candles.slice(-period);
-        const highs = recentCandles.map(c => c.high);
-        const lows = recentCandles.map(c => c.low);
-        const currentClose = recentCandles[recentCandles.length - 1].close;
+        if (candles.length < period) {
+            LOGGER.debug(`WPR Warning: Not enough candles (${candles.length}/${period})`);
+            return -50; // Neutral default
+        }
 
-        const highestHigh = Math.max(...highs);
-        const lowestLow = Math.min(...lows);
-        const range = highestHigh - lowestLow;
+        try {
+            // Get the most recent 'period' candles
+            const recentCandles = candles.slice(-period);
 
-        if (range === 0) return -50;
+            // Validate candle data integrity
+            const validCandles = recentCandles.filter(c =>
+                c &&
+                typeof c.high === 'number' &&
+                typeof c.low === 'number' &&
+                typeof c.close === 'number' &&
+                !isNaN(c.high) &&
+                !isNaN(c.low) &&
+                !isNaN(c.close) &&
+                c.high >= c.low // Sanity check
+            );
 
-        const wpr = ((highestHigh - currentClose) / range) * -100;
+            if (validCandles.length < period) {
+                LOGGER.warn(`WPR Warning: Invalid candle data detected (${validCandles.length}/${period} valid)`);
+                return -50;
+            }
+
+            // Extract price arrays
+            const highs = validCandles.map(c => parseFloat(c.high));
+            const lows = validCandles.map(c => parseFloat(c.low));
+            const close = parseFloat(validCandles[validCandles.length - 1].close);
+
+            // Calculate Highest High and Lowest Low over the period
+            const highestHigh = Math.max(...highs);
+            const lowestLow = Math.min(...lows);
+
+            // Calculate range
+            const range = highestHigh - lowestLow;
+
+            // Handle edge case: zero range (flat market)
+            if (range === 0 || !isFinite(range)) {
+                LOGGER.debug('WPR: Zero range detected, returning neutral');
+                return -50;
+            }
+
+            // Calculate WPR using standard formula
+            // WPR = ((Highest High - Close) / (Highest High - Lowest Low)) * -100
+            const wpr = ((highestHigh - close) / range) * -100;
+
+            // Boundary validation: WPR should be between -100 and 0
+            if (wpr < -100 || wpr > 0 || !isFinite(wpr)) {
+                LOGGER.error(`WPR Calculation Error: Invalid value ${wpr} (HH: ${highestHigh}, LL: ${lowestLow}, Close: ${close})`);
+                return -50;
+            }
+
+            return wpr;
+
+        } catch (error) {
+            LOGGER.error(`WPR Calculation Exception: ${error.message}`);
+            LOGGER.error(`Stack: ${error.stack}`);
+            return -50; // Safe default
+        }
+    }
+
+    /**
+     * Alternative WPR implementation using ta-lib style calculation
+     * Cross-validation method for accuracy verification
+     */
+    static calculateWPR_TaLib(candles, period = 80) {
+        if (!candles || candles.length < period) return -50;
+
+        try {
+            const slice = candles.slice(-period);
+
+            let highestHigh = -Infinity;
+            let lowestLow = Infinity;
+
+            // Find highest high and lowest low in the period
+            for (let i = 0; i < slice.length; i++) {
+                const candle = slice[i];
+                if (candle.high > highestHigh) highestHigh = candle.high;
+                if (candle.low < lowestLow) lowestLow = candle.low;
+            }
+
+            const currentClose = slice[slice.length - 1].close;
+            const denominator = highestHigh - lowestLow;
+
+            if (denominator === 0) return -50;
+
+            const wpr = -100 * ((highestHigh - currentClose) / denominator);
+
+            // Clamp to valid range
+            return Math.max(-100, Math.min(0, wpr));
+
+        } catch (error) {
+            LOGGER.error(`WPR_TaLib Error: ${error.message}`);
+            return -50;
+        }
+    }
+
+    /**
+     * Verify WPR calculation consistency
+     * Returns true if both methods agree within tolerance
+     */
+    static verifyWPRCalculation(candles, period = 80) {
+        const wpr1 = this.calculateWPR(candles, period);
+        const wpr2 = this.calculateWPR_TaLib(candles, period);
+
+        const difference = Math.abs(wpr1 - wpr2);
+        const tolerance = 0.5; // Allow 0.5% difference
+
+        if (difference > tolerance) {
+            LOGGER.warn(`WPR Verification Failed: Difference ${difference.toFixed(2)} (Method1: ${wpr1.toFixed(2)}, Method2: ${wpr2.toFixed(2)})`);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Calculate WPR with built-in verification
+     * Uses primary method but validates against secondary
+     */
+    static calculateWPRSafe(candles, period = 80) {
+        const wpr = this.calculateWPR(candles, period);
+
+        // Periodic verification (every 100 calculations)
+        if (Math.random() < 0.01) {
+            this.verifyWPRCalculation(candles, period);
+        }
+
         return wpr;
     }
 }
@@ -1791,19 +1918,15 @@ class ConnectionManager {
         const closedCandles = assetState.closedCandles;
 
         if (closedCandles.length < CONFIG.WPR_PERIOD) {
-            LOGGER.debug(`${symbol}: Not enough candles for WPR (${closedCandles.length}/${CONFIG.WPR_PERIOD})`);
             assetState.indicatorsReady = false;
             return;
         }
 
-        // Store previous WPR before updating
         assetState.prevWpr = assetState.wpr;
-
-        // Calculate WPR on CLOSED candles only
-        assetState.wpr = TechnicalIndicators.calculateWPR(closedCandles, CONFIG.WPR_PERIOD);
+        assetState.wpr = TechnicalIndicators.calculateWPRSafe(closedCandles, CONFIG.WPR_PERIOD);
         assetState.indicatorsReady = true;
 
-        LOGGER.debug(`${symbol} WPR: ${assetState.wpr.toFixed(2)} (prev: ${assetState.prevWpr.toFixed(2)}) | BuyFlag: ${assetState.buyFlagActive} | SellFlag: ${assetState.sellFlagActive}`);
+        LOGGER.debug(`${symbol} WPR: ${assetState.wpr.toFixed(2)} (prev: ${assetState.prevWpr.toFixed(2)})`);
     }
 
     processCandleClose(symbol) {
@@ -2253,12 +2376,273 @@ class ConnectionManager {
     }
 }
 
+class ConnectionManagerEnhanced extends ConnectionManager {
+    constructor() {
+        super();
+        this.wprIntegrityCheckInterval = null;
+        this.candleIntegrityCheckInterval = null;
+    }
+
+    startMonitor() {
+        super.startMonitor();
+
+        // WPR Integrity Check - Every 5 minutes
+        this.wprIntegrityCheckInterval = setInterval(() => {
+            if (!state.isConnected || !state.isAuthorized) return;
+
+            LOGGER.info('🔍 Running WPR Integrity Check...');
+
+            Object.keys(state.assets).forEach(symbol => {
+                const assetState = state.assets[symbol];
+
+                if (assetState.closedCandles.length < CONFIG.WPR_PERIOD) {
+                    LOGGER.debug(`${symbol}: Not enough candles for integrity check`);
+                    return;
+                }
+
+                // Verify WPR calculation
+                const isValid = TechnicalIndicators.verifyWPRCalculation(
+                    assetState.closedCandles,
+                    CONFIG.WPR_PERIOD
+                );
+
+                if (!isValid) {
+                    LOGGER.error(`${symbol}: WPR calculation inconsistency detected!`);
+                    // Force recalculation
+                    this.updateIndicators(symbol);
+                }
+
+                // Check for stale data
+                const lastCandleAge = Date.now() - (assetState.lastProcessedCandleOpenTime * 1000);
+                const maxAge = CONFIG.TIMEFRAME_SECONDS * 1000 * 3; // 3 candles max age
+
+                if (lastCandleAge > maxAge) {
+                    LOGGER.warn(`${symbol}: Stale candle data detected (age: ${Math.round(lastCandleAge / 1000)}s)`);
+                }
+
+                // Log current WPR state
+                LOGGER.debug(`${symbol} WPR Check: ${assetState.wpr.toFixed(2)} | Candles: ${assetState.closedCandles.length} | Last: ${new Date(assetState.lastProcessedCandleOpenTime * 1000).toISOString()}`);
+            });
+
+        }, 5 * 60 * 1000); // Every 5 minutes
+
+        // Candle Data Integrity Check - Every 10 minutes
+        this.candleIntegrityCheckInterval = setInterval(() => {
+            if (!state.isConnected || !state.isAuthorized) return;
+
+            LOGGER.info('🔍 Running Candle Data Integrity Check...');
+
+            Object.keys(state.assets).forEach(symbol => {
+                const assetState = state.assets[symbol];
+                const candles = assetState.closedCandles;
+
+                if (candles.length === 0) return;
+
+                // Check for duplicate epochs
+                const epochs = candles.map(c => c.open_time);
+                const uniqueEpochs = new Set(epochs);
+                if (epochs.length !== uniqueEpochs.size) {
+                    LOGGER.error(`${symbol}: Duplicate candles detected! Cleaning...`);
+                    this.cleanCandleData(symbol);
+                }
+
+                // Check for proper time sequence
+                for (let i = 1; i < candles.length; i++) {
+                    const timeDiff = candles[i].open_time - candles[i - 1].open_time;
+                    if (timeDiff !== CONFIG.GRANULARITY) {
+                        LOGGER.warn(`${symbol}: Candle sequence gap detected at index ${i} (diff: ${timeDiff}s)`);
+                    }
+                }
+
+                // Check for invalid OHLC data
+                const invalidCandles = candles.filter(c =>
+                    c.high < c.low ||
+                    c.close > c.high ||
+                    c.close < c.low ||
+                    c.open > c.high ||
+                    c.open < c.low
+                );
+
+                if (invalidCandles.length > 0) {
+                    LOGGER.error(`${symbol}: ${invalidCandles.length} invalid OHLC candles detected! Cleaning...`);
+                    this.cleanCandleData(symbol);
+                }
+            });
+
+        }, 10 * 60 * 1000); // Every 10 minutes
+
+        LOGGER.info('🛡️ Enhanced monitoring started: WPR integrity + Candle data validation');
+    }
+
+    stopMonitor() {
+        super.stopMonitor();
+        if (this.wprIntegrityCheckInterval) clearInterval(this.wprIntegrityCheckInterval);
+        if (this.candleIntegrityCheckInterval) clearInterval(this.candleIntegrityCheckInterval);
+    }
+
+    /**
+     * Clean corrupted candle data
+     */
+    cleanCandleData(symbol) {
+        const assetState = state.assets[symbol];
+        const candles = assetState.closedCandles;
+
+        // Remove duplicates
+        const uniqueCandles = [];
+        const seenEpochs = new Set();
+
+        for (const candle of candles) {
+            if (!seenEpochs.has(candle.open_time)) {
+                // Validate OHLC
+                if (candle.high >= candle.low &&
+                    candle.close <= candle.high &&
+                    candle.close >= candle.low &&
+                    candle.open <= candle.high &&
+                    candle.open >= candle.low) {
+                    uniqueCandles.push(candle);
+                    seenEpochs.add(candle.open_time);
+                }
+            }
+        }
+
+        const removed = candles.length - uniqueCandles.length;
+        if (removed > 0) {
+            LOGGER.info(`${symbol}: Cleaned ${removed} invalid candles`);
+            assetState.closedCandles = uniqueCandles;
+
+            // Force indicator recalculation
+            this.updateIndicators(symbol);
+        }
+    }
+
+    /**
+     * Enhanced updateIndicators with better error handling
+     */
+    updateIndicators(symbol) {
+        const assetState = state.assets[symbol];
+        const closedCandles = assetState.closedCandles;
+
+        if (closedCandles.length < CONFIG.WPR_PERIOD) {
+            LOGGER.debug(`${symbol}: Not enough candles for WPR (${closedCandles.length}/${CONFIG.WPR_PERIOD})`);
+            assetState.indicatorsReady = false;
+            return;
+        }
+
+        // Store previous WPR before updating
+        assetState.prevWpr = assetState.wpr;
+
+        // Calculate WPR using enhanced safe method
+        assetState.wpr = TechnicalIndicators.calculateWPRSafe(closedCandles, CONFIG.WPR_PERIOD);
+        assetState.indicatorsReady = true;
+
+        // Detect potential calculation errors
+        if (assetState.wpr === assetState.prevWpr && closedCandles.length > CONFIG.WPR_PERIOD + 5) {
+            // WPR hasn't changed for a while - might be stuck
+            const lastFewWpr = [];
+            for (let i = Math.max(0, closedCandles.length - 5); i < closedCandles.length; i++) {
+                const tempWpr = TechnicalIndicators.calculateWPR(closedCandles.slice(0, i + 1), CONFIG.WPR_PERIOD);
+                lastFewWpr.push(tempWpr);
+            }
+
+            const allSame = lastFewWpr.every(w => Math.abs(w - assetState.wpr) < 0.01);
+            if (allSame) {
+                LOGGER.warn(`${symbol}: WPR appears stuck at ${assetState.wpr.toFixed(2)} - possible calculation issue`);
+            }
+        }
+
+        LOGGER.debug(`${symbol} WPR Updated: ${assetState.wpr.toFixed(2)} (prev: ${assetState.prevWpr.toFixed(2)}) | Valid: ${assetState.indicatorsReady} | Candles: ${closedCandles.length}`);
+    }
+}
+
+// ============================================
+// PERIODIC STATE RESET FOR LONG-RUNNING SESSIONS
+// ============================================
+class SessionMaintenanceManager {
+    static startMaintenanceTasks() {
+        // Reset WPR state every 12 hours to prevent drift
+        setInterval(() => {
+            LOGGER.info('🔄 Running 12-hour WPR state refresh...');
+
+            Object.keys(state.assets).forEach(symbol => {
+                const assetState = state.assets[symbol];
+
+                // Keep only last 200 candles to prevent memory bloat
+                if (assetState.closedCandles.length > 200) {
+                    const removed = assetState.closedCandles.length - 200;
+                    assetState.closedCandles = assetState.closedCandles.slice(-200);
+                    LOGGER.debug(`${symbol}: Trimmed ${removed} old candles`);
+                }
+
+                // Recalculate indicators from scratch
+                if (assetState.closedCandles.length >= CONFIG.WPR_PERIOD) {
+                    assetState.prevWpr = assetState.wpr;
+                    assetState.wpr = TechnicalIndicators.calculateWPRSafe(
+                        assetState.closedCandles,
+                        CONFIG.WPR_PERIOD
+                    );
+                    LOGGER.info(`${symbol}: WPR refreshed: ${assetState.wpr.toFixed(2)}`);
+                }
+            });
+
+            TelegramService.sendMessage(`🔄 <b>12-Hour Maintenance Complete</b>\nWPR states refreshed\nTime: ${new Date().toUTCString()}`);
+
+        }, 12 * 60 * 60 * 1000); // Every 12 hours
+
+        // Daily full system health check
+        setInterval(() => {
+            LOGGER.info('🏥 Running daily system health check...');
+
+            const healthReport = {
+                totalCandles: 0,
+                avgWPR: 0,
+                assetsReady: 0,
+                activePositions: state.portfolio.activePositions.length,
+                sessionAge: Math.floor((Date.now() - state.session.startTime) / 3600000)
+            };
+
+            let wprSum = 0;
+            Object.keys(state.assets).forEach(symbol => {
+                const assetState = state.assets[symbol];
+                healthReport.totalCandles += assetState.closedCandles.length;
+                wprSum += assetState.wpr;
+                if (assetState.indicatorsReady) healthReport.assetsReady++;
+            });
+
+            healthReport.avgWPR = wprSum / Object.keys(state.assets).length;
+
+            LOGGER.info(`📊 Health Report:`);
+            LOGGER.info(`   Assets Ready: ${healthReport.assetsReady}/${Object.keys(state.assets).length}`);
+            LOGGER.info(`   Total Candles: ${healthReport.totalCandles}`);
+            LOGGER.info(`   Avg WPR: ${healthReport.avgWPR.toFixed(2)}`);
+            LOGGER.info(`   Active Positions: ${healthReport.activePositions}`);
+            LOGGER.info(`   Session Age: ${healthReport.sessionAge}h`);
+
+            const report = `
+                🏥 <b>Daily Health Check</b>
+                Assets Ready: ${healthReport.assetsReady}/${Object.keys(state.assets).length}
+                Total Candles: ${healthReport.totalCandles}
+                Avg WPR: ${healthReport.avgWPR.toFixed(2)}
+                Active Positions: ${healthReport.activePositions}
+                Session Age: ${healthReport.sessionAge}h
+                Capital: $${state.capital.toFixed(2)}
+                Session P/L: $${state.session.netPL.toFixed(2)}
+                Time: ${new Date().toUTCString()}
+            `.trim();
+
+            TelegramService.sendMessage(report);
+
+        }, 24 * 60 * 60 * 1000); // Every 24 hours
+
+        LOGGER.info('🛠️ Maintenance tasks scheduled (12h WPR refresh, 24h health check)');
+    }
+}
+
 // ============================================
 // MAIN BOT CLASS
 // ============================================
 class DerivBot {
     constructor() {
-        this.connection = new ConnectionManager();
+        this.connection = new ConnectionManagerEnhanced();
     }
 
     async start() {
@@ -2286,6 +2670,7 @@ class DerivBot {
 
         SessionManager.startNewSession();
         TelegramService.sendStartupMessage();
+        SessionMaintenanceManager.startMaintenanceTasks();
 
         if (CONFIG.TELEGRAM_ENABLED) {
             // Active Position Updates every 30 minutes
