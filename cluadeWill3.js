@@ -35,7 +35,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER - FIXED VERSION
 // ============================================
-const STATE_FILE = path.join(__dirname, 'claudeWillbot3-state01.json');
+const STATE_FILE = path.join(__dirname, 'claudeWillbot03-state001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -463,8 +463,8 @@ Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
 Max Reversals: ${CONFIG.MAX_REVERSAL_LEVEL}
 
 <b>Trade Logic:</b>
-BUY: WPR crosses above -20 (from oversold)
-SELL: WPR crosses below -80 (from overbought)
+BUY: WPR crosses above -2 (from oversold)
+SELL: WPR crosses below -98 (from overbought)
 Persistent Breakout Levels Active
 Time: ${new Date().toUTCString()}
         `.trim();
@@ -506,7 +506,7 @@ const TIMEFRAMES = {
     '4h': { seconds: 14400, granularity: 14400, label: '4 Hours' }
 };
 
-const SELECTED_TIMEFRAME = '3m';
+const SELECTED_TIMEFRAME = '1m';
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================
@@ -529,7 +529,7 @@ const CONFIG = {
 
     // Reversal Settings
     REVERSAL_STAKE_MULTIPLIER: 2,
-    MAX_REVERSAL_LEVEL: 7,
+    MAX_REVERSAL_LEVEL: 8,
     AUTO_CLOSE_ON_RECOVERY: false,
 
     // Timeframe Settings
@@ -540,8 +540,8 @@ const CONFIG = {
 
     // WPR Settings (Only indicator now)
     WPR_PERIOD: 80,
-    WPR_OVERBOUGHT: -20,  // Trigger BUY when crossing above
-    WPR_OVERSOLD: -80,    // Trigger SELL when crossing below
+    WPR_OVERBOUGHT: -2,  // Trigger BUY when crossing above
+    WPR_OVERSOLD: -98,    // Trigger SELL when crossing below
 
     // Trade Settings
     MAX_TRADES_PER_ASSET: 200000,
