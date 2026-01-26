@@ -463,8 +463,8 @@ Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
 Max Reversals: ${CONFIG.MAX_REVERSAL_LEVEL}
 
 <b>Trade Logic:</b>
-BUY: WPR crosses above -2 (from oversold)
-SELL: WPR crosses below -98 (from overbought)
+BUY: WPR crosses above -20 (from oversold)
+SELL: WPR crosses below -80 (from overbought)
 Persistent Breakout Levels Active
 Time: ${new Date().toUTCString()}
         `.trim();
@@ -653,7 +653,7 @@ const ASSET_CONFIGS = {
     }
 };
 
-let ACTIVE_ASSETS = ['R_75', '1HZ50V', 'stpRNG', '1HZ25V', 'R_100', '1HZ100V', 'frxXAUUSD'];
+let ACTIVE_ASSETS = ['1HZ50V', '1HZ25V', 'R_100', 'frxXAUUSD'];
 
 // ============================================
 // STATE MANAGEMENT
