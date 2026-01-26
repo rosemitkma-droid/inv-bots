@@ -351,7 +351,7 @@ const CONFIG = {
 
     // Session Targets
     SESSION_PROFIT_TARGET: 5000,
-    SESSION_STOP_LOSS: -500,
+    SESSION_STOP_LOSS: -100,
 
     // Candle Settings
     GRANULARITY: 60, // 60 seconds = 1 minute candles
@@ -366,12 +366,12 @@ const CONFIG = {
     // Trade Settings
     MAX_OPEN_POSITIONS: 1, // One at a time for alternating strategy
     TRADE_DELAY: 1000, // 2 seconds delay between trades
-    MARTINGALE_MULTIPLIER: 1,
-    MARTINGALE_MULTIPLIER2: 1,
-    MARTINGALE_MULTIPLIER3: 2,
+    MARTINGALE_MULTIPLIER: 2,
+    MARTINGALE_MULTIPLIER2: 2.3,
+    MARTINGALE_MULTIPLIER3: 2.5,
     MARTINGALE_MULTIPLIER4: 2.3,
     MARTINGALE_MULTIPLIER5: 3,
-    MAX_MARTINGALE_STEPS: 25,
+    MAX_MARTINGALE_STEPS: 8,
     System: 1, // 1 = Continue same direction on Win and Switch direction on Loss, 
     // 2 = Switch direction on Win and Continue same direction on Loss, 
     // 3 = Switch direction every trade, 4 = Same direction every trade
