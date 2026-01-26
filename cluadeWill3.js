@@ -35,7 +35,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER - FIXED VERSION
 // ============================================
-const STATE_FILE = path.join(__dirname, 'claudeWillbot03-state001.json');
+const STATE_FILE = path.join(__dirname, 'claudeWillbot3-state01.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -463,8 +463,8 @@ Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
 Max Reversals: ${CONFIG.MAX_REVERSAL_LEVEL}
 
 <b>Trade Logic:</b>
-BUY: WPR crosses above -2 (from oversold)
-SELL: WPR crosses below -98 (from overbought)
+BUY: WPR crosses above -20 (from oversold)
+SELL: WPR crosses below -80 (from overbought)
 Persistent Breakout Levels Active
 Time: ${new Date().toUTCString()}
         `.trim();
@@ -506,7 +506,7 @@ const TIMEFRAMES = {
     '4h': { seconds: 14400, granularity: 14400, label: '4 Hours' }
 };
 
-const SELECTED_TIMEFRAME = '1m';
+const SELECTED_TIMEFRAME = '3m';
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================
@@ -529,7 +529,7 @@ const CONFIG = {
 
     // Reversal Settings
     REVERSAL_STAKE_MULTIPLIER: 2,
-    MAX_REVERSAL_LEVEL: 8,
+    MAX_REVERSAL_LEVEL: 7,
     AUTO_CLOSE_ON_RECOVERY: false,
 
     // Timeframe Settings
@@ -539,7 +539,7 @@ const CONFIG = {
     TIMEFRAME_SECONDS: TIMEFRAME_CONFIG.seconds,
 
     // WPR Settings (Only indicator now)
-    WPR_PERIOD: 80,
+    WPR_PERIOD: 14,
     WPR_OVERBOUGHT: -2,  // Trigger BUY when crossing above
     WPR_OVERSOLD: -98,    // Trigger SELL when crossing below
 
@@ -653,7 +653,7 @@ const ASSET_CONFIGS = {
     }
 };
 
-let ACTIVE_ASSETS = ['R_75', '1HZ50V', 'stpRNG', '1HZ25V', 'R_100', '1HZ100V', 'frxXAUUSD'];
+let ACTIVE_ASSETS = ['1HZ50V', '1HZ25V', 'R_100', 'frxXAUUSD'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -795,7 +795,7 @@ class TechnicalIndicators {
      * @param {number} period - Lookback period (default: 80)
      * @returns {number} WPR value between -100 and 0
      */
-    static calculateWPR(candles, period = 80) {
+    static calculateWPR(candles, period = 14) {
         // Validation: Check if we have enough data
         if (!candles || !Array.isArray(candles)) {
             LOGGER.error('WPR Error: Invalid candles array');
@@ -869,7 +869,7 @@ class TechnicalIndicators {
      * Alternative WPR implementation using ta-lib style calculation
      * Cross-validation method for accuracy verification
      */
-    static calculateWPR_TaLib(candles, period = 80) {
+    static calculateWPR_TaLib(candles, period = 14) {
         if (!candles || candles.length < period) return -50;
 
         try {
@@ -905,7 +905,7 @@ class TechnicalIndicators {
      * Verify WPR calculation consistency
      * Returns true if both methods agree within tolerance
      */
-    static verifyWPRCalculation(candles, period = 80) {
+    static verifyWPRCalculation(candles, period = 14) {
         const wpr1 = this.calculateWPR(candles, period);
         const wpr2 = this.calculateWPR_TaLib(candles, period);
 
@@ -924,7 +924,7 @@ class TechnicalIndicators {
      * Calculate WPR with built-in verification
      * Uses primary method but validates against secondary
      */
-    static calculateWPRSafe(candles, period = 80) {
+    static calculateWPRSafe(candles, period = 14) {
         const wpr = this.calculateWPR(candles, period);
 
         // Periodic verification (every 100 calculations)
