@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candle1RF001-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF1001-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -29,17 +29,31 @@ class StatePersistence {
                         durationUnit: pos.durationUnit,
                         entryTime: pos.entryTime,
                         contractId: pos.contractId,
+                        reqId: pos.reqId,
                         buyPrice: pos.buyPrice,
                         currentProfit: pos.currentProfit
                     }))
                 },
                 lastTradeDirection: state.lastTradeDirection,
-                lastTradeWasWin: state.lastTradeWasWin, // NEW
+                lastTradeWasWin: state.lastTradeWasWin,
                 martingaleLevel: state.martingaleLevel,
-                hourlyStats: { ...state.hourlyStats }
+                hourlyStats: { ...state.hourlyStats },
+                assets: {}
             };
 
+            // FIX: Save essential asset state for each symbol
+            Object.keys(state.assets).forEach(symbol => {
+                const asset = state.assets[symbol];
+                persistableState.assets[symbol] = {
+                    // Save last few closed candles for continuity
+                    closedCandles: asset.closedCandles.slice(-20),
+                    lastProcessedCandleOpenTime: asset.lastProcessedCandleOpenTime,
+                    candlesLoaded: asset.candlesLoaded
+                };
+            });
+
             fs.writeFileSync(STATE_FILE, JSON.stringify(persistableState, null, 2));
+            // LOGGER.debug('💾 State saved to disk');
         } catch (error) {
             LOGGER.error(`Failed to save state: ${error.message}`);
         }
@@ -58,7 +72,7 @@ class StatePersistence {
             // Only restore if state is less than 30 minutes old
             if (ageMinutes > 30) {
                 LOGGER.warn(`⚠️ Saved state is ${ageMinutes.toFixed(1)} minutes old, starting fresh`);
-                fs.unlinkSync(STATE_FILE);
+                fs.unlinkSync(STATE_FILE); // FIX: Delete old state file
                 return false;
             }
 
@@ -69,7 +83,7 @@ class StatePersistence {
             state.session = {
                 ...state.session,
                 ...savedData.session,
-                startTime: savedData.session.startTime || Date.now(),
+                startTime: savedData.session.startTime || Date.now(), // FIX: Preserve original start time
                 startCapital: savedData.session.startCapital || savedData.capital
             };
 
@@ -79,14 +93,15 @@ class StatePersistence {
             state.portfolio.dailyWins = savedData.portfolio.dailyWins;
             state.portfolio.dailyLosses = savedData.portfolio.dailyLosses;
 
-            // Restore active positions
+            // FIX: Restore active positions with all fields
             state.portfolio.activePositions = (savedData.portfolio.activePositions || []).map(pos => ({
                 ...pos,
-                entryTime: pos.entryTime || Date.now()
+                entryTime: pos.entryTime || Date.now() // FIX: Ensure entryTime exists
             }));
 
-            // Restore last trade direction
+            // Restore last trade direction and martingale
             state.lastTradeDirection = savedData.lastTradeDirection || null;
+            state.lastTradeWasWin = savedData.lastTradeWasWin !== undefined ? savedData.lastTradeWasWin : null;
             state.martingaleLevel = savedData.martingaleLevel || 0;
             state.hourlyStats = savedData.hourlyStats || {
                 trades: 0,
@@ -96,9 +111,31 @@ class StatePersistence {
                 lastHour: new Date().getHours()
             };
 
+            // FIX: Restore asset states
+            if (savedData.assets) {
+                Object.keys(savedData.assets).forEach(symbol => {
+                    if (state.assets[symbol]) {
+                        const saved = savedData.assets[symbol];
+                        const asset = state.assets[symbol];
+
+                        // FIX: Restore closed candles if available
+                        if (saved.closedCandles && saved.closedCandles.length > 0) {
+                            asset.closedCandles = saved.closedCandles;
+                            LOGGER.info(`  📊 Restored ${saved.closedCandles.length} closed candles for ${symbol}`);
+                        }
+
+                        // FIX: Restore critical fields
+                        asset.lastProcessedCandleOpenTime = saved.lastProcessedCandleOpenTime || 0;
+                        asset.candlesLoaded = saved.candlesLoaded || false;
+                    }
+                });
+            }
+
             LOGGER.info(`✅ State restored successfully!`);
+            LOGGER.info(`   💰 Capital: $${state.capital.toFixed(2)}`);
+            LOGGER.info(`   📊 Session P/L: $${state.session.netPL.toFixed(2)}`);
             LOGGER.info(`   🎯 Trades: ${state.session.tradesCount} (W:${state.session.winsCount} L:${state.session.lossesCount})`);
-            LOGGER.info(`   � Loss Stats: x2:${state.session.x2Losses} x3:${state.session.x3Losses} x4:${state.session.x4Losses} x5:${state.session.x5Losses} x6:${state.session.x6Losses} x7:${state.session.x7Losses}`);
+            LOGGER.info(`   📉 Loss Stats: x2:${state.session.x2Losses} x3:${state.session.x3Losses} x4:${state.session.x4Losses} x5:${state.session.x5Losses} x6:${state.session.x6Losses} x7:${state.session.x7Losses}`);
             LOGGER.info(`   🚀 Active Positions: ${state.portfolio.activePositions.length}`);
             LOGGER.info(`   🔄 Last Direction: ${state.lastTradeDirection || 'None'}`);
             LOGGER.info(`   📈 Martingale Level: ${state.martingaleLevel}`);
@@ -106,6 +143,7 @@ class StatePersistence {
             return true;
         } catch (error) {
             LOGGER.error(`Failed to load state: ${error.message}`);
+            LOGGER.error(`Stack: ${error.stack}`);
             return false;
         }
     }
@@ -586,10 +624,21 @@ class ConnectionManager {
         this.reconnectDelay = 5000;
         this.pingInterval = null;
         this.autoSaveStarted = false;
+        this.isReconnecting = false; // FIX: Track reconnection state
+        this.activeSubscriptions = new Set(); // FIX: Track active subscriptions
     }
 
     connect() {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            LOGGER.info('Already connected');
+            return;
+        }
+
         LOGGER.info('🔌 Connecting to Deriv API...');
+
+        // FIX: Clean up any existing connection
+        this.cleanup();
+
         this.ws = new WebSocket(`${CONFIG.WS_URL}?app_id=${CONFIG.APP_ID}`);
 
         this.ws.on('open', () => this.onOpen());
@@ -604,12 +653,13 @@ class ConnectionManager {
         LOGGER.info('✅ Connected to Deriv API');
         state.isConnected = true;
         this.reconnectAttempts = 0;
+        this.isReconnecting = false; // FIX: Reset reconnecting flag
 
         this.startPing();
 
         if (!this.autoSaveStarted) {
-            // StatePersistence.startAutoSave();
-            // this.autoSaveStarted = true;
+            StatePersistence.startAutoSave();
+            this.autoSaveStarted = true;
         }
 
         this.send({ authorize: CONFIG.API_TOKEN });
@@ -617,15 +667,52 @@ class ConnectionManager {
 
     initializeAssets() {
         ACTIVE_ASSETS.forEach(symbol => {
-            state.assets[symbol] = {
-                candles: [],
-                closedCandles: [],
-                currentFormingCandle: null,
-                lastProcessedCandleOpenTime: null,
-                candlesLoaded: false
-            };
-            LOGGER.info(`📊 Initialized asset: ${symbol}`);
+            // Only initialize if not already present (to preserve loaded state)
+            if (!state.assets[symbol]) {
+                state.assets[symbol] = {
+                    candles: [],
+                    closedCandles: [],
+                    currentFormingCandle: null,
+                    lastProcessedCandleOpenTime: null,
+                    candlesLoaded: false
+                };
+                LOGGER.info(`📊 Initialized asset: ${symbol}`);
+            } else {
+                LOGGER.info(`📊 Asset ${symbol} already initialized (state restored)`);
+            }
         });
+    }
+
+    // FIX: Add method to restore subscriptions after reconnection
+    restoreSubscriptions() {
+        LOGGER.info('📊 Restoring subscriptions after reconnection...');
+
+        // Resubscribe to active positions
+        state.portfolio.activePositions.forEach(pos => {
+            if (pos.contractId) {
+                LOGGER.info(`  ✅ Re-subscribing to contract ${pos.contractId}`);
+                this.send({
+                    proposal_open_contract: 1,
+                    contract_id: pos.contractId,
+                    subscribe: 1
+                });
+            }
+        });
+    }
+
+    // FIX: Add cleanup method
+    cleanup() {
+        if (this.ws) {
+            this.ws.removeAllListeners();
+            if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+                try {
+                    this.ws.close();
+                } catch (e) {
+                    LOGGER.debug('WebSocket already closed');
+                }
+            }
+            this.ws = null;
+        }
     }
 
     onMessage(data) {
@@ -655,6 +742,12 @@ class ConnectionManager {
             }
 
             this.send({ balance: 1, subscribe: 1 });
+
+            // FIX: Restore subscriptions after reconnection
+            if (this.reconnectAttempts > 0 || state.portfolio.activePositions.length > 0) {
+                LOGGER.info('🔄 Reconnection detected, restoring subscriptions...');
+                this.restoreSubscriptions();
+            }
 
             bot.start();
         }
@@ -766,7 +859,7 @@ class ConnectionManager {
             }
 
             SessionManager.checkSessionTargets();
-            // StatePersistence.saveState();
+            StatePersistence.saveState();
         }
     }
 
@@ -879,20 +972,33 @@ class ConnectionManager {
         state.isAuthorized = false;
 
         this.stopPing();
-        // StatePersistence.saveState();
+
+        // FIX: Save state immediately on disconnect
+        StatePersistence.saveState();
+
+        // FIX: Prevent duplicate reconnection attempts
+        if (this.isReconnecting) {
+            LOGGER.info('Already handling disconnect, skipping...');
+            return;
+        }
 
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.isReconnecting = true;
             this.reconnectAttempts++;
             const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
 
             LOGGER.info(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+            LOGGER.info(`📊 Preserved state - Trades: ${state.session.tradesCount}, P&L: $${state.session.netPL.toFixed(2)}`);
 
-            TelegramService.sendMessage(`⚠️ <b>CONNECTION LOST</b>\nReconnecting... (attempt ${this.reconnectAttempts})`);
+            TelegramService.sendMessage(`⚠️ <b>CONNECTION LOST - RECONNECTING</b>\n📊 Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n⏱️ Retrying in ${(delay / 1000).toFixed(1)}s\n💾 State preserved: ${state.session.tradesCount} trades, $${state.session.netPL.toFixed(2)} P&L`);
 
-            setTimeout(() => this.connect(), delay);
+            setTimeout(() => {
+                this.isReconnecting = false; // FIX: Reset flag before connecting
+                this.connect();
+            }, delay);
         } else {
             LOGGER.error('Max reconnection attempts reached.');
-            TelegramService.sendMessage(`🛑 <b>BOT STOPPED</b>\nMax reconnection attempts reached.`);
+            TelegramService.sendMessage(`🛑 <b>BOT STOPPED</b>\nMax reconnection attempts reached.\nFinal P&L: $${state.session.netPL.toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -1014,22 +1120,12 @@ class DerivBot {
             // Trade based on candle pattern
             if (CandleAnalyzer.isBullish(lastClosedCandle)) {
                 direction = 'PUT'; // Buy if previous candle was bullish
-                LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
+                LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing FALL trade`);
             } else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
                 direction = 'CALL'; // Sell if previous candle was bearish
-                LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
+                LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing RISE trade`);
             }
-            // else {
-            //     // Doji candle - use fallback logic
-            //     LOGGER.warn(`⚪ Last candle was DOJI (Close = Open) → Using fallback direction`);
-            //     direction = state.lastTradeDirection === 'CALL' ? 'PUT' : 'CALL';
-            // }
         }
-        // else {
-        //     // No candle data - use initial direction
-        //     direction = CONFIG.iDirection === 'RISE' ? 'CALL' : 'PUT';
-        //     LOGGER.info(`🎯 No candle data available, using initial direction: ${direction}`);
-        // }
 
         state.canTrade = false; // Prevent multiple trades
         state.lastTradeDirection = direction;
@@ -1079,6 +1175,70 @@ class DerivBot {
             if (this.connection.ws) this.connection.ws.close();
             LOGGER.info('👋 Bot stopped');
         }, 2000);
+    }
+
+    // FIX: Add checkTimeForDisconnectReconnect() method from mX4Differ.js
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Weekend logic: Saturday 11pm to Monday 2am GMT+1 -> Disconnect and stay disconnected
+            const isWeekend = (currentDay === 0) || // Sunday
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+                (currentDay === 1 && currentHours < 2);    // Monday before 2am
+
+            if (isWeekend) {
+                if (state.session.isActive) {
+                    LOGGER.info("Weekend trading suspension (Saturday 11pm - Monday 2am). Disconnecting...");
+                    TelegramService.sendHourlySummary();
+                    if (this.connection.ws) this.connection.ws.close();
+                    state.session.isActive = false;
+                }
+                return; // Prevent any reconnection logic during the weekend
+            }
+
+            // Reconnect at 2:00 AM GMT+1 if session is not active
+            if (!state.session.isActive && currentHours === 2 && currentMinutes >= 0) {
+                LOGGER.info("It's 2:00 AM GMT+1, reconnecting the bot.");
+                this.resetDailyStats();
+                state.session.isActive = true;
+                this.connection.connect();
+            }
+
+            // Disconnect after 23:00 PM GMT+1 if last trade was a win
+            if (state.lastTradeWasWin && state.session.isActive) {
+                if (currentHours >= 23 && currentMinutes >= 0) {
+                    LOGGER.info("It's past 23:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    TelegramService.sendHourlySummary();
+                    if (this.connection.ws) this.connection.ws.close();
+                    state.session.isActive = false;
+                }
+            }
+        }, 20000); // Check every 20 seconds
+    }
+
+    resetDailyStats() {
+        state.session.tradesCount = 0;
+        state.session.winsCount = 0;
+        state.session.lossesCount = 0;
+        state.session.profit = 0;
+        state.session.loss = 0;
+        state.session.netPL = 0;
+        state.session.x2Losses = 0;
+        state.session.x3Losses = 0;
+        state.session.x4Losses = 0;
+        state.session.x5Losses = 0;
+        state.session.x6Losses = 0;
+        state.session.x7Losses = 0;
+        state.martingaleLevel = 0;
+        state.currentStake = CONFIG.STAKE;
+        state.lastTradeWasWin = null;
+        state.canTrade = false;
+        LOGGER.info('📊 Daily stats reset');
     }
 
     getStatus() {
@@ -1166,6 +1326,9 @@ console.log('═'.repeat(80));
 console.log('\n🚀 Initializing...\n');
 
 bot.connection.connect();
+
+// FIX: Start the time-based disconnect/reconnect checker
+bot.checkTimeForDisconnectReconnect();
 
 // Status display every 30 seconds
 setInterval(() => {
