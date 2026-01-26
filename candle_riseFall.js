@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'willRF001-state.json');
+const STATE_FILE = path.join(__dirname, 'willRF005-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -346,11 +346,11 @@ const CONFIG = {
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // Capital Settings
-    INITIAL_CAPITAL: 100,
+    INITIAL_CAPITAL: 500,
     STAKE: 0.35,
 
     // Session Targets
-    SESSION_PROFIT_TARGET: 500,
+    SESSION_PROFIT_TARGET: 5000,
     SESSION_STOP_LOSS: -500,
 
     // Candle Settings
@@ -360,7 +360,7 @@ const CONFIG = {
     CANDLES_TO_LOAD: 50,
 
     // Trade Duration Settings
-    DURATION: 57,
+    DURATION: 116,
     DURATION_UNIT: 's', // t=ticks, s=seconds, m=minutes
 
     // Trade Settings
