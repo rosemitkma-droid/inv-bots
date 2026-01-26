@@ -676,7 +676,7 @@ class AIWeightedEnsembleBot {
             if (this.consecutiveLosses === 4) this.x4Losses++;
             if (this.consecutiveLosses === 5) this.x5Losses++;
 
-            if (this.consecutiveLosses === 3) {
+            if (this.consecutiveLosses === 2) {
                 this.currentStake = this.config.initialStake;
             } else {
                 this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
@@ -760,8 +760,24 @@ class AIWeightedEnsembleBot {
         setInterval(() => {
             const now = new Date();
             const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
             const currentHours = gmtPlus1Time.getUTCHours();
             const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Weekend logic: Saturday 11pm to Monday 2am GMT+1 -> Disconnect and stay disconnected
+            const isWeekend = (currentDay === 0) || // Sunday
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+                (currentDay === 1 && currentHours < 2);    // Monday before 2am
+
+            if (isWeekend) {
+                if (!this.endOfDay) {
+                    console.log("Weekend trading suspension (Saturday 11pm - Monday 2am). Disconnecting...");
+                    this.sendHourlySummary();
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Prevent any reconnection logic during the weekend
+            }
 
             if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
                 console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
@@ -922,7 +938,7 @@ const bot = new AIWeightedEnsembleBot('0P94g4WdSrSrzir', {
     initialStake: 2.2,
     multiplier: 11.3,
     maxConsecutiveLosses: 4,
-    stopLoss: 129,
+    stopLoss: 55,
     takeProfit: 5000,
     requiredHistoryLength: 1000,
     minWaitTime: 1000,
