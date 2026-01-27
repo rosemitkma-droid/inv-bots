@@ -425,9 +425,9 @@ class KODerivDifferBot {
         const sequenceProbability = sequenceTotal > 0 ? (sequenceRepetitions / sequenceTotal) * 100 : 0;
 
         // Log analysis
-        console.log(`[${asset}] Repetition Analysis (Last: ${currentDigit})`);
-        console.log(`    Global:   ${globalProbability.toFixed(2)}% (${globalRepetitions}/${globalTotal})`);
-        console.log(`    Specific: ${specificProbability.toFixed(2)}% (${specificRepetitions}/${specificTotal})`);
+        // console.log(`[${asset}] Repetition Analysis (Last: ${currentDigit})`);
+        // console.log(`    Global:   ${globalProbability.toFixed(2)}% (${globalRepetitions}/${globalTotal})`);
+        // console.log(`    Specific: ${specificProbability.toFixed(2)}% (${specificRepetitions}/${specificTotal})`);
         // console.log(`    Sequence: ${sequenceProbability.toFixed(2)}% (${sequenceRepetitions}/${sequenceTotal}) [Pattern: ${currentSequence.join('')}]`);
 
         // Check conditions (ALL 3 must be met)
@@ -486,17 +486,17 @@ class KODerivDifferBot {
         // Trade: Bet DIFFER from current digit (predicted digit = current digit)
         const currentDigit = repData.currentDigit;
 
-        console.log(`[${asset}] 🎯 TRADE SIGNAL MATCHED (System ${this.config.TradeSys})!`);
-        if (this.config.TradeSys === 2) {
-            console.log(`    Global Prob: ${repData.globalProbability.toFixed(2)}% > ${this.config.repetitionThresholdB}%`);
-            console.log(`    Specific Prob: ${repData.specificProbability.toFixed(2)}% > ${this.config.repetitionThresholdB2}%`);
-            console.log(`    Sequence Prob: ${repData.sequenceProbability.toFixed(2)}% > ${this.config.sequenceThresholdB}%`);
-        } else {
-            console.log(`    Global Prob: ${repData.globalProbability.toFixed(2)}% < ${this.config.repetitionThreshold}%`);
-            console.log(`    Specific Prob: ${repData.specificProbability.toFixed(2)}% < ${this.config.repetitionThreshold2}%`);
-            console.log(`    Sequence Prob: ${repData.sequenceProbability.toFixed(2)}% < ${this.config.sequenceThreshold}%`);
-        }
-        console.log(`    Action: Betting NEXT DIGIT will NOT be ${currentDigit}`);
+        // console.log(`[${asset}] 🎯 TRADE SIGNAL MATCHED (System ${this.config.TradeSys})!`);
+        // if (this.config.TradeSys === 2) {
+        //     console.log(`    Global Prob: ${repData.globalProbability.toFixed(2)}% > ${this.config.repetitionThresholdB}%`);
+        //     console.log(`    Specific Prob: ${repData.specificProbability.toFixed(2)}% > ${this.config.repetitionThresholdB2}%`);
+        //     console.log(`    Sequence Prob: ${repData.sequenceProbability.toFixed(2)}% > ${this.config.sequenceThresholdB}%`);
+        // } else {
+        //     console.log(`    Global Prob: ${repData.globalProbability.toFixed(2)}% < ${this.config.repetitionThreshold}%`);
+        //     console.log(`    Specific Prob: ${repData.specificProbability.toFixed(2)}% < ${this.config.repetitionThreshold2}%`);
+        //     console.log(`    Sequence Prob: ${repData.sequenceProbability.toFixed(2)}% < ${this.config.sequenceThreshold}%`);
+        // }
+        // console.log(`    Action: Betting NEXT DIGIT will NOT be ${currentDigit}`);
 
         this.assetSelectedDigits[asset] = currentDigit;
         this.requestProposal(asset, currentDigit);
@@ -544,7 +544,7 @@ class KODerivDifferBot {
         });
 
         this.assetTradesInProgress[asset] = true;
-        console.log(`[${asset}] Placing trade: Differ from ${this.assetSelectedDigits[asset]}, Stake: $${this.currentStake.toFixed(2)}, Step: ${this.martingaleStep}/${this.config.martingaleSteps}`);
+        // console.log(`[${asset}] Placing trade: Differ from ${this.assetSelectedDigits[asset]}, Stake: $${this.currentStake.toFixed(2)}, Step: ${this.martingaleStep}/${this.config.martingaleSteps}`);
     }
 
     subscribeToContract(contractId) {
@@ -616,7 +616,7 @@ class KODerivDifferBot {
 
         this.totalPnL += profit;
         this.addTradeToHistory(won, profit, selectedDigit, actualDigit, asset);
-        this.updateStats();
+        // this.updateStats();
 
         if (this.totalPnL <= -this.config.stopLoss || this.martingaleStep >= this.config.martingaleSteps) {
             console.log('Stop loss reached. Stopping bot.');
@@ -661,7 +661,7 @@ class KODerivDifferBot {
         console.log(`Total Trades: ${this.totalTrades}`);
         console.log(`Wins: ${this.totalWins} | Losses: ${this.totalLosses}`);
         console.log(`Win Rate: ${winRate.toFixed(1)}%`);
-        console.log(`x2 Losses: ${this.x2Losses} | x3 Losses: ${this.x3Losses} | x4 Losses: ${this.x4Losses}`);
+        console.log(`x2 Losses: ${this.x2Losses} | x3 Losses: ${this.x3Losses} | x4 Losses: ${this.x4Losses} | x5 Losses: ${this.x5Losses} | x6 Losses: ${this.x6Losses} | x7 Losses: ${this.x7Losses} | x8 Losses: ${this.x8Losses}`);
         console.log(`Total P/L: $${this.totalPnL.toFixed(2)}`);
         console.log(`Current Stake: $${this.currentStake.toFixed(2)}`);
         console.log(`Balance: $${this.balance.toFixed(2)}`);
