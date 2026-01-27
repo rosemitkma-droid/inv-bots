@@ -106,7 +106,7 @@ class KODerivDifferBot {
         });
 
         // Telegram Configuration
-        this.telegramToken = '8212244373:AAE6-5-ANOmp2rEYYfPBSn8N7uSbRp6HM-k';
+        this.telegramToken = '8418934966:AAFG-S3wUPV6Cdr8pQF133Ew5SfGpkfoDoU';
         this.telegramChatId = '752497117';
 
         if (this.telegramToken && this.telegramChatId) {
@@ -324,9 +324,9 @@ class KODerivDifferBot {
         this.calculateAndDisplayRepetition(asset);
 
         // Try to trade
-        // if (!this.suspendedAssets.has(asset)) {
-        this.analyzeAndTrade(asset);
-        // }
+        if (!this.suspendedAssets.has(asset)) {
+            this.analyzeAndTrade(asset);
+        }
     }
 
     getLastDigit(quote, asset) {
@@ -573,7 +573,7 @@ class KODerivDifferBot {
             // this.consecutiveLosses = 0;
             // this.martingaleStep = 0;
             this.kWins++;
-            if (this.kWins >= 10) {
+            if (this.kWins >= 6) {
                 this.currentStake = this.initialStake;
                 this.consecutiveLosses = 0;
                 this.martingaleStep = 0;
@@ -612,7 +612,7 @@ class KODerivDifferBot {
             this.isWinTrade = false;
         }
 
-        this.suspendAsset(asset);
+        // this.suspendAsset(asset);
 
         this.totalPnL += profit;
         this.addTradeToHistory(won, profit, selectedDigit, actualDigit, asset);
@@ -641,12 +641,30 @@ class KODerivDifferBot {
 
     suspendAsset(asset) {
         this.suspendedAssets.add(asset);
-        console.log(`[${asset}] Suspended due to loss`);
+        console.log(`[${asset}] 🚫 Suspended`);
     }
 
     reactivateAsset(asset) {
         this.suspendedAssets.delete(asset);
-        console.log(`[${asset}] Reactivated`);
+        console.log(`[${asset}] ✅ Reactivated`);
+    }
+
+    // Add new method to handle all other assets suspension
+    suspendAllExcept(asset) {
+        this.activeAssets.forEach(a => {
+            if (a !== asset) {
+                this.suspendAsset(a);
+            }
+        });
+        this.suspendedAssets.delete(asset);
+        console.log(`🚫 Suspended all except: ${asset}`);
+    }
+
+    // Add new method to reactivate all suspended assets
+    reactivateAllSuspended() {
+        Array.from(this.suspendedAssets).forEach(a => {
+            this.reactivateAsset(a);
+        });
     }
 
     // ========================================================================
@@ -895,13 +913,13 @@ const bot = new KODerivDifferBot(token, {
     sequenceThresholdB: 8,
 
     // Martingale
-    martingaleMultiplier: 2,
+    martingaleMultiplier: 2.5,
     martingaleSteps: 7,
     resetAfterMax: 'stop', // 'reset', 'stop', 'continue'
 
     // Multi-Asset Trading
     multiAssetEnabled: true,
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'], // Use single asset or ['R_10', 'R_25', 'R_50', 'R_75', 'R_100','RDBULL', 'RDBEAR',]
+    assets: ['R_100'], // Use single asset or ['R_10', 'R_25', 'R_50', 'R_75', 'R_100','RDBULL', 'RDBEAR',]
     parallelTrading: false,
     suspendOnLoss: false,
     TradeSys: 2,
