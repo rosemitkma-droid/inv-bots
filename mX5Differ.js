@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'mX5Differ-state00008.json');
+const STATE_FILE = path.join(__dirname, 'mX5Differ-state00009.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -181,7 +181,7 @@ class AIWeightedEnsembleBot {
         this.TRADEABLE_LEVELS = ['low', 'ultra-low'];
 
         // Telegram Configuration
-        this.telegramToken = '8397622765:AAGL93lrQ0LtVPw8MhB3JzFjPOCAJA5CLro';
+        this.telegramToken = '8565754902:AAHS6UQWEgLJ0DO-JTpAGQhZLs-UDVVNAQc';
         this.telegramChatId = '752497117';
         this.telegramEnabled = true;
 
