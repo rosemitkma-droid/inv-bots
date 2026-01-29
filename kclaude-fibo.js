@@ -1418,7 +1418,7 @@ class FibonacciZScoreBot {
 
             if (saturation) {
                 // CRITICAL: Only trade if Z-score is HIGHER than last signal OR it's a new digit
-                const zImproved = !this.lastZScore || saturation.totalZScore > this.lastZScore + 0.3;
+                const zImproved = saturation.totalZScore > this.lastZScore + 2.5;
                 const newDigit = this.lastPrediction !== saturation.digit;
 
                 if ((newDigit || zImproved) && saturation.totalZScore >= 11.15) {
