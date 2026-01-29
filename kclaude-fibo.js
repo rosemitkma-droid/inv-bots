@@ -661,7 +661,7 @@ class RelativeVolatilityEngine {
         const combinedDeviation = avgEntropyDev * this.CONCENTRATION_WEIGHT +
             (-avgStreakDev) * this.STREAK_WEIGHT;
 
-        console.log('Combined Deviation:', combinedDeviation);
+        // console.log('Combined Deviation:', combinedDeviation);
 
         // Determine level based on how much less random than expected
         let level;
@@ -979,6 +979,7 @@ class FibonacciZScoreBot {
         this.suspendedAssets = new Set();
         this.endOfDay = false;
         this.lastPrediction = null;
+        this.lastZScore = null;
 
         // Connection management
         this.reconnectAttempts = 0;
@@ -1391,54 +1392,48 @@ class FibonacciZScoreBot {
         }
 
         const history = this.tickHistories[asset];
+        if (history.length < this.config.minHistoryLength) return;
+        if (!this.moneyManager.canTrade()) return;
 
-        // Check minimum history
-        if (history.length < this.config.minHistoryLength) {
-            return;
-        }
-
-        // Check money management
-        if (!this.moneyManager.canTrade()) {
-            return;
-        }
-
-        // STEP 1: Check volatility filter
         const volatility = this.volatilityEngine.calculateVolatilityLevel(history);
+        if (!volatility.canTrade) return;
 
-        if (!volatility.canTrade) {
-            return;
-        }
+        let shouldTrade = false;
+        let digitToTrade = null;
+        let tradeType = null;
 
-        // STEP 2: Check for ultra-low bonus trigger (5+ same digit streak)
+        // === 1. ULTRA-LOW BONUS TRIGGER (5+ streak) ===
         if (volatility.level === 'ultra-low') {
             const bonus = this.volatilityEngine.checkBonusTrigger(history);
-
-            if (bonus.triggered) {
-                // Trade AGAINST the repeating digit
-                this.executeTrade(asset, bonus.digit, 'BONUS_TRIGGER', {
-                    volatility,
-                    bonusInfo: bonus
-                });
-                return;
+            if (bonus.triggered && this.lastPrediction !== bonus.digit) {
+                shouldTrade = true;
+                digitToTrade = bonus.digit;
+                tradeType = 'BONUS_STREAK';
             }
         }
 
-        const zScoresArray = this.zScoreEngine.calculateMultiLayerZScores(history);
-        const topZScore = zScoresArray.sort((a, b) => b.totalZScore - a.totalZScore)[0];
-        console.log('Predicted Digit', topZScore.digit);
-        console.log('zScores', topZScore.totalZScore);
+        // === 2. FIBONACCI SATURATION (ONLY if no bonus and Z-score is rising) ===
+        if (!shouldTrade) {
+            const saturation = this.zScoreEngine.findSaturatedDigit(history);
 
-        // STEP 3: Z-score saturation analysis
-        const saturation = this.zScoreEngine.findSaturatedDigit(history);
+            if (saturation) {
+                // CRITICAL: Only trade if Z-score is HIGHER than last signal OR it's a new digit
+                const zImproved = !this.lastZScore || saturation.totalZScore > this.lastZScore + 0.3;
+                const newDigit = this.lastPrediction !== saturation.digit;
 
-        // if (saturation && this.lastPrediction !== saturation.digit) {
-        if (saturation) {
-            // Trade AGAINST the saturated digit (it's unlikely to appear again)
-            this.lastPrediction = saturation.digit;
-            this.executeTrade(asset, saturation.digit, 'ZSCORE_SATURATION', {
-                volatility,
-                saturationInfo: saturation
-            });
+                if ((newDigit || zImproved) && saturation.totalZScore >= 11.15) {
+                    shouldTrade = true;
+                    digitToTrade = saturation.digit;
+                    tradeType = 'FIB_SATURATION';
+                    this.lastZScore = saturation.totalZScore;  // Track for next comparison
+                }
+            }
+        }
+
+        // === EXECUTE ONLY IF ALL CONDITIONS MET ===
+        if (shouldTrade && digitToTrade !== null) {
+            this.lastPrediction = digitToTrade;
+            this.executeTrade(asset, digitToTrade, tradeType, { volatility });
         }
     }
 
