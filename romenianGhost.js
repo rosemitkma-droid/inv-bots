@@ -263,7 +263,7 @@ class BlackFibonacci {
         const inRecent = this.history.slice(-9).includes(sat);
 
         const concentration = 1 - (entropy / Math.log2(10));
-        const ultraLow = concentration > 0.0071;  // THIS IS THE REAL THRESHOLD
+        const ultraLow = concentration > 0.0016;  // THIS IS THE REAL THRESHOLD
 
         // Log analysis every 100 ticks
         if (this.history.length % 100 === 0) {
@@ -271,7 +271,7 @@ class BlackFibonacci {
         }
 
         // Trade signal
-        if (ultraLow && maxZ >= 11.15 && inRecent && sat !== this.lastTradeDigit) {
+        if (ultraLow && maxZ >= 22.30 && inRecent && sat !== this.lastTradeDigit) {
             this.placeTrade(sat, maxZ, conc);
         }
     }
