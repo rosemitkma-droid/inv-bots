@@ -246,22 +246,28 @@ class BlackFibonacci {
         }
 
         // Calculate volatility (concentration)
+        // ULTRA-LOW VOLATILITY CHECK — ROMANIAN GHOST EXACT
         const last500 = this.history.slice(-500);
-        let entropy = 0;
         const freq = Array(10).fill(0);
         last500.forEach(d => freq[d]++);
+
+        let entropy = 0;
         for (let f of freq) {
-            if (f > 0) entropy -= (f / 500) * Math.log2(f / 500);
+            if (f > 0) {
+                const p = f / 500;
+                entropy -= p * Math.log2(p);
+            }
         }
-        const conc = 1 - (entropy / Math.log2(10));
 
         // Check conditions
         const inRecent = this.history.slice(-9).includes(sat);
-        const ultraLow = conc > 0.71;
+
+        const concentration = 1 - (entropy / Math.log2(10));
+        const ultraLow = concentration > 0.0071;  // THIS IS THE REAL THRESHOLD
 
         // Log analysis every 100 ticks
         if (this.history.length % 100 === 0) {
-            console.log(`🔍 Analysis: Z=${maxZ.toFixed(2)} | Digit=${sat} | Conc=${conc.toFixed(3)} | UltraLow=${ultraLow} | InRecent=${inRecent}`);
+            console.log(`Z=${maxZ.toFixed(2)} | Digit=${sat} | Conc=${concentration.toFixed(4)} | UltraLow=${ultraLow} | InRecent=${inRecent}`);
         }
 
         // Trade signal
