@@ -734,10 +734,10 @@ const volatilityEngine = new RelativeVolatilityEngine();
 class MoneyManagementEngine {
     constructor(config) {
         // EXACT configuration as specified
-        this.baseStake = config.baseStake || 2.20;
-        this.firstLossMultiplier = 1.8;      // 1 loss → base × 1.8
+        this.baseStake = config.baseStake || 0.61;
+        this.firstLossMultiplier = 11.3;      // 1 loss → base × 1.8
         this.subsequentMultiplier = 11.3;    // 2+ losses → base × 11.3^(n-1)
-        this.maxConsecutiveLosses = 4;
+        this.maxConsecutiveLosses = 3;
 
         // State
         this.consecutiveLosses = 0;
@@ -870,7 +870,7 @@ class MoneyManagementEngine {
 // STATE PERSISTENCE
 // ============================================================================
 
-const STATE_FILE = path.join(__dirname, 'kclaude-0001-state.json');
+const STATE_FILE = path.join(__dirname, 'kclaude-00001-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1282,11 +1282,11 @@ class FibonacciZScoreBot {
 
         // Periodic logging
         const now = Date.now();
-        if (now - this.lastTickLogTime[asset] >= 60000) {
-            this.logAssetStatus(asset);
-            this.lastTickLogTime[asset] = now;
-            console.log(`📊 ${asset}: ${this.tickHistories[asset].slice(-10).join(', ')}`);
-        }
+        // if (now - this.lastTickLogTime[asset] >= 60000) {
+        this.logAssetStatus(asset);
+        this.lastTickLogTime[asset] = now;
+        console.log(`📊 ${asset}: ${this.tickHistories[asset].slice(-10).join(', ')}`);
+        // }
 
         // console.log(`📊 ${asset}: ${this.tickHistories[asset].slice(-10).join(', ')}`);
 
@@ -1342,20 +1342,20 @@ class FibonacciZScoreBot {
 
         // Telegram notification
         this.sendTelegram(`
-                ${won ? '✅ WIN' : '❌ LOSS'} | <b>${asset}</b>
+        ${won ? '✅ WIN' : '❌ LOSS'} | <b>${asset}</b>
 
-                🎯 Predicted: ${this.lastPrediction} | Actual: ${exitDigit}
-                📊 Type: ${this.lastTradeType}
-                ${profit >= 0 ? '🟢' : '🔴'} P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}
+            🎯 Predicted: ${this.lastPrediction} | Actual: ${exitDigit}
+            📊 Type: ${this.lastTradeType}
+            ${profit >= 0 ? '🟢' : '🔴'} P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}
 
-                <b>Session Stats:</b>
-                ├ W/L: ${stats.totalWins}/${stats.totalLosses} (${stats.winRate}%)
-                ├ Streak: ${won ? '0L' : `${stats.consecutiveLosses}L`}
-                ├ Session P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}
-                └ Next Stake: $${stats.currentStake.toFixed(2)}
+            <b>Session Stats:</b>
+            ├ W/L: ${stats.totalWins}/${stats.totalLosses} (${stats.winRate}%)
+            ├ Streak: ${won ? '0L' : `${stats.consecutiveLosses}L`}
+            ├ Session P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}
+            └ Next Stake: $${stats.currentStake.toFixed(2)}
 
-                ⏰ ${new Date().toLocaleTimeString()}
-                        `.trim());
+            ⏰ ${new Date().toLocaleTimeString()}
+        `.trim());
 
         // Check if we hit max losses
         if (!stats.canTrade) {
@@ -1376,9 +1376,9 @@ class FibonacciZScoreBot {
         }
 
         // Suspend asset briefly after loss
-        if (!won) {
-            this.suspendAsset(asset, 45000);
-        }
+        // if (!won) {
+        //     this.suspendAsset(asset, 45000);
+        // }
 
         this.tradeInProgress = false;
     }
@@ -1419,10 +1419,12 @@ class FibonacciZScoreBot {
 
             if (saturation) {
                 // ROMANIAN GHOST'S EXACT CONDITION — ONLY +0.3 improvement OR new digit
+                // console.log('Saturation Score:', saturation.totalZScore)
                 const zImproved = !this.lastZScore || saturation.totalZScore > this.lastZScore + 0.3;
                 const newDigit = this.lastPrediction !== saturation.digit;
 
-                if ((newDigit || zImproved) && saturation.totalZScore >= 11.15) {
+                // if ((newDigit || zImproved) && saturation.totalZScore >= 22.30 && (volatility.level === 'ultra-low' || volatility.level === 'low')) {
+                if (saturation.totalZScore >= 22.30 && (volatility.level === 'ultra-low' || volatility.level === 'low')) {
                     shouldTrade = true;
                     digitToTrade = saturation.digit;
                     tradeType = 'FIB_SATURATION';
