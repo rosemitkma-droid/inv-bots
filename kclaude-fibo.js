@@ -480,7 +480,7 @@ class MoneyManagementEngine {
 // STATE PERSISTENCE
 // ============================================================================
 
-const STATE_FILE = path.join(__dirname, 'kclaude-00008-state.json');
+const STATE_FILE = path.join(__dirname, 'kclaude-00009-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
