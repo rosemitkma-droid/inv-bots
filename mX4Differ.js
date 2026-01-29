@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'mX4Differ-state3.json');
+const STATE_FILE = path.join(__dirname, 'mX4Differ-state00001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -160,6 +160,25 @@ class AIWeightedEnsembleBot {
         // Active subscriptions tracking
         this.activeSubscriptions = new Set();
         this.contractSubscription = null;
+
+        this.WINDOWS = [
+            { size: 50, weight: 1.0 },
+            { size: 100, weight: 1.0 },
+            { size: 200, weight: 1.0 },
+            { size: 500, weight: 2.5 }
+        ];
+
+        this.CONCENTRATION_WEIGHT = 0.60;
+        this.STREAK_WEIGHT = 0.40;
+
+        // Baseline expectations for random data
+        // For 10 equally likely outcomes:
+        this.EXPECTED_ENTROPY_RATIO = 0.95; // Random data is ~95% of max entropy
+        this.EXPECTED_MAX_STREAK_RATIO = 0.35; // Max streak is ~35% of log2(n)
+
+        // Thresholds based on deviation from expected
+        // Negative deviation = less random than expected = more predictable
+        this.TRADEABLE_LEVELS = ['low', 'ultra-low'];
 
         // Telegram Configuration
         this.telegramToken = '8578702717:AAFShpdLRtat7PHqjZMUqhY4UNKlWyaGtmo';
@@ -456,21 +475,21 @@ class AIWeightedEnsembleBot {
         const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
 
         const message = `
-⏰ <b>x4 Differ Bot Hourly Summary</b>
+            ⏰ <b>x4 Differ Bot Hourly Summary</b>
 
-📊 <b>Last Hour</b>
-├ Trades: ${stats.trades}
-├ Wins: ${stats.wins} | Losses: ${stats.losses}
-├ Win Rate: ${winRate}%
-└ ${pnlEmoji} <b>P&L:</b> ${pnlStr}
+            📊 <b>Last Hour</b>
+            ├ Trades: ${stats.trades}
+            ├ Wins: ${stats.wins} | Losses: ${stats.losses}
+            ├ Win Rate: ${winRate}%
+            └ ${pnlEmoji} <b>P&L:</b> ${pnlStr}
 
-📈 <b>Daily Totals</b>
-├ Total Trades: ${this.totalTrades}
-├ Total W/L: ${this.totalWins}/${this.totalLosses}
-├ Daily P&L: ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
-└ Current Capital: $${(this.config.initialStake + this.totalProfitLoss).toFixed(2)}
+            📈 <b>Daily Totals</b>
+            ├ Total Trades: ${this.totalTrades}
+            ├ Total W/L: ${this.totalWins}/${this.totalLosses}
+            ├ Daily P&L: ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
+            └ Current Capital: $${(this.config.initialStake + this.totalProfitLoss).toFixed(2)}
 
-⏰ ${new Date().toLocaleString()}
+            ⏰ ${new Date().toLocaleString()}
         `.trim();
 
         try {
@@ -575,31 +594,143 @@ class AIWeightedEnsembleBot {
         if (history.length < 5) return;
 
         this.lastPrediction = history[history.length - 1];
-        this.volatilityLevel = this.getVolatilityLevel(history);
+        this.volatilityLevel = this.calculateVolatilityLevel(history);
 
         if (
             this.lastPrediction === history[history.length - 2] &&
             this.lastPrediction === history[history.length - 3] &&
             this.lastPrediction === history[history.length - 4] &&
-            // this.lastPrediction === history[history.length - 5] &&
-            this.volatilityLevel === 'medium'
+            this.lastPrediction === history[history.length - 5] &&
+            this.volatilityLevel === 'ultra-low'
         ) {
             this.placeTrade(asset, this.lastPrediction);
         }
     }
 
-    getVolatilityLevel(tickHistory) {
-        if (tickHistory.length < 50) return 'unknown';
-        const recent = tickHistory.slice(-50);
-        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
-        const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
-        const stdDev = Math.sqrt(variance);
+    // getVolatilityLevel(tickHistory) {
+    //     if (tickHistory.length < 50) return 'unknown';
+    //     const recent = tickHistory.slice(-50);
+    //     const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+    //     const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
+    //     const stdDev = Math.sqrt(variance);
 
-        if (stdDev > 3.1) return 'extreme';
-        if (stdDev > 2.8) return 'high';
-        if (stdDev > 2.0) return 'medium';
+    //     if (stdDev > 3.1) return 'extreme';
+    //     if (stdDev > 2.8) return 'high';
+    //     if (stdDev > 2.0) return 'medium';
 
-        return 'low';
+    //     return 'low';
+    // }
+
+    calculateDeviation(history, windowSize) {
+        if (history.length < windowSize) return null;
+
+
+        const window = history.slice(-windowSize);
+
+        // Calculate actual entropy
+        const frequency = Array(10).fill(0);
+        window.forEach(d => frequency[d]++);
+
+        let entropy = 0;
+        for (let i = 0; i < 10; i++) {
+            if (frequency[i] > 0) {
+                const p = frequency[i] / windowSize;
+                entropy -= p * Math.log2(p);
+            }
+        }
+        const maxEntropy = Math.log2(10);
+        const entropyRatio = entropy / maxEntropy;
+
+        // Calculate actual max streak
+        let maxStreak = 1, currentStreak = 1;
+        for (let i = 1; i < window.length; i++) {
+            if (window[i] === window[i - 1]) {
+                currentStreak++;
+                maxStreak = Math.max(maxStreak, currentStreak);
+            } else {
+                currentStreak = 1;
+            }
+        }
+        const expectedMaxStreak = Math.log2(windowSize);
+        const streakRatio = maxStreak / expectedMaxStreak;
+
+        // Calculate deviations from expected
+        // Positive = more random than expected
+        // Negative = less random than expected (more predictable)
+        const entropyDeviation = (entropyRatio - this.EXPECTED_ENTROPY_RATIO) / this.EXPECTED_ENTROPY_RATIO;
+        const streakDeviation = (streakRatio - this.EXPECTED_MAX_STREAK_RATIO) / this.EXPECTED_MAX_STREAK_RATIO;
+
+        return {
+            entropyDeviation,
+            streakDeviation,
+            entropyRatio,
+            streakRatio,
+            maxStreak
+        };
+    }
+
+    calculateVolatilityLevel(history) {
+        let entropyDeviationSum = 0;
+        let streakDeviationSum = 0;
+        let totalWeight = 0;
+        const windowResults = [];
+
+        for (const { size, weight } of this.WINDOWS) {
+            const deviation = this.calculateDeviation(history, size);
+
+            if (deviation !== null) {
+                entropyDeviationSum += deviation.entropyDeviation * weight;
+                streakDeviationSum += deviation.streakDeviation * weight;
+                totalWeight += weight;
+
+                windowResults.push({
+                    window: size,
+                    entropyDev: (deviation.entropyDeviation * 100).toFixed(1) + '%',
+                    streakDev: (deviation.streakDeviation * 100).toFixed(1) + '%',
+                    maxStreak: deviation.maxStreak
+                });
+            }
+        }
+
+        if (totalWeight === 0) {
+            return { level: 'unknown', canTrade: false };
+        }
+
+        // Weighted average deviations
+        const avgEntropyDev = entropyDeviationSum / totalWeight;
+        const avgStreakDev = streakDeviationSum / totalWeight;
+
+        // Combined deviation score
+        // Negative = more predictable than expected
+        const combinedDeviation = avgEntropyDev * this.CONCENTRATION_WEIGHT +
+            (-avgStreakDev) * this.STREAK_WEIGHT;
+
+        // console.log('Combined Deviation:', combinedDeviation);
+
+        // Determine level based on how much less random than expected
+        let level;
+        if (combinedDeviation > 0.05) {
+            level = 'extreme';       // More random than expected
+        } else if (combinedDeviation > 0.02) {
+            level = 'high';          // Slightly more random
+        } else if (combinedDeviation > -0.02) {
+            level = 'medium';        // Around expected randomness
+        } else if (combinedDeviation > -0.05) {
+            level = 'low';           // Slightly less random (tradeable!)
+        } else {
+            level = 'ultra-low';     // Much less random (definitely tradeable!)
+        }
+
+        const canTrade = this.TRADEABLE_LEVELS.includes(level);
+
+        return {
+            level,
+            score: combinedDeviation,
+            canTrade,
+            avgEntropyDeviation: avgEntropyDev,
+            avgStreakDeviation: avgStreakDev,
+            windowResults
+        };
     }
 
     placeTrade(asset, predictedDigit) {
@@ -938,9 +1069,9 @@ const bot = new AIWeightedEnsembleBot('0P94g4WdSrSrzir', {
     initialStake: 2.2,
     multiplier: 11.3,
     maxConsecutiveLosses: 4,
-    stopLoss: 55,
+    stopLoss: 65,
     takeProfit: 5000,
-    requiredHistoryLength: 1000,
+    requiredHistoryLength: 3000,
     minWaitTime: 1000,
     maxWaitTime: 3000,
 });
