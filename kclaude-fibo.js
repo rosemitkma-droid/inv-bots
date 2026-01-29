@@ -870,7 +870,7 @@ class MoneyManagementEngine {
 // STATE PERSISTENCE
 // ============================================================================
 
-const STATE_FILE = path.join(__dirname, 'fib-zscore-bot2-state.json');
+const STATE_FILE = path.join(__dirname, 'fib-zscore-bot3-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
