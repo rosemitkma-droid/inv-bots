@@ -72,7 +72,7 @@ class StatePersistence {
     }
 }
 
-class BlackFibonacci {
+class DubaiPrince {
     constructor() {
         // Configuration
         this.config = {
@@ -931,4 +931,4 @@ console.log('══════════════════════�
 console.log(`  Started: ${new Date().toLocaleString()}`);
 console.log('═══════════════════════════════════════════════════\n');
 
-new BlackFibonacci();
+new DubaiPrince();
