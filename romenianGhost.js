@@ -1,14 +1,83 @@
 const WebSocket = require('ws');
 const TelegramBot = require('node-telegram-bot-api');
+const fs = require('fs');
+const path = require('path');
 
 const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
+// ============================================
+// STATE PERSISTENCE MANAGER
+// ============================================
+const STATE_FILE = path.join(__dirname, 'romenianGhost-state.json');
+const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
+
+class StatePersistence {
+    static saveState(bot) {
+        try {
+            const persistableState = {
+                savedAt: Date.now(),
+                trading: {
+                    stake: bot.stake,
+                    consecutiveLosses: bot.consecutiveLosses,
+                    totalTrades: bot.totalTrades,
+                    totalWins: bot.totalWins,
+                    x2: bot.x2,
+                    x3: bot.x3,
+                    x4: bot.x4,
+                    x5: bot.x5,
+                    netProfit: bot.netProfit,
+                    lastTradeDigit: bot.lastTradeDigit
+                },
+                history: bot.history.slice(-100) // Keep last 100 ticks
+            };
+
+            fs.writeFileSync(STATE_FILE, JSON.stringify(persistableState, null, 2));
+        } catch (error) {
+            console.error(`Failed to save state: ${error.message}`);
+        }
+    }
+
+    static loadState() {
+        try {
+            if (!fs.existsSync(STATE_FILE)) {
+                console.log('📂 No previous state file found, starting fresh');
+                return false;
+            }
+
+            const savedData = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+            const ageMinutes = (Date.now() - savedData.savedAt) / 60000;
+
+            // Only restore if state is less than 30 minutes old
+            if (ageMinutes > 30) {
+                console.warn(`⚠️ Saved state is ${ageMinutes.toFixed(1)} minutes old, starting fresh`);
+                fs.unlinkSync(STATE_FILE);
+                return false;
+            }
+
+            console.log(`📂 Restoring state from ${ageMinutes.toFixed(1)} minutes ago`);
+            return savedData;
+        } catch (error) {
+            console.error(`Failed to load state: ${error.message}`);
+            return false;
+        }
+    }
+
+    static startAutoSave(bot) {
+        setInterval(() => {
+            StatePersistence.saveState(bot);
+        }, STATE_SAVE_INTERVAL);
+        console.log('🔄 Auto-save started (every 5 seconds)');
+    }
+}
+
 class BlackFibonacci {
     constructor() {
         // Configuration
         this.config = {
+            takeProfit: 10000,
+            maxConsecutiveLosses: 4,
             requiredHistoryLength: 3000,
             minHistoryForTrading: 2000,
             asset: 'R_10'
@@ -37,28 +106,103 @@ class BlackFibonacci {
         this.wsReady = false;
         this.historyLoaded = false;
 
+        // Reconnection logic
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 50;
+        this.reconnectDelay = 5000; // Start with 5 seconds
+        this.reconnectTimer = null;
+        this.isReconnecting = false;
+
+        // Heartbeat/Ping mechanism
+        this.pingInterval = null;
+        this.checkDataInterval = null;
+        this.pongTimeout = null;
+        this.lastPongTime = Date.now();
+        this.lastDataTime = Date.now();
+        this.pingIntervalMs = 20000; // Ping every 20 seconds
+        this.pongTimeoutMs = 10000; // Expect pong within 10 seconds
+        this.dataTimeoutMs = 60000; // Force reconnect if no data for 60s
+
+        // Message queue for failed sends
+        this.messageQueue = [];
+        this.maxQueueSize = 50;
+
         // Telegram bot
         this.telegramBot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
+
+        // Load saved state if available
+        this.loadSavedState();
 
         // Start connection
         this.connect();
 
         // Setup hourly summary
         this.startHourlySummary();
+
+        // Start auto-save
+        StatePersistence.startAutoSave(this);
+    }
+
+    loadSavedState() {
+        const savedState = StatePersistence.loadState();
+        if (!savedState) return;
+
+        try {
+            // Restore trading state
+            const trading = savedState.trading;
+            this.stake = trading.stake;
+            this.consecutiveLosses = trading.consecutiveLosses;
+            this.totalTrades = trading.totalTrades;
+            this.totalWins = trading.totalWins;
+            this.x2 = trading.x2;
+            this.x3 = trading.x3;
+            this.x4 = trading.x4;
+            this.x5 = trading.x5;
+            this.netProfit = trading.netProfit;
+            this.lastTradeDigit = trading.lastTradeDigit;
+
+            // Restore tick history
+            if (savedState.history) {
+                this.history = savedState.history;
+            }
+
+            console.log('✅ State restored successfully');
+            console.log(`   Trades: ${this.totalTrades} | W/L: ${this.totalWins}/${this.totalTrades - this.totalWins}`);
+            console.log(`   P&L: $${this.netProfit.toFixed(2)} | Current Stake: $${this.stake.toFixed(2)}`);
+        } catch (error) {
+            console.error(`Error restoring state: ${error.message}`);
+        }
     }
 
     connect() {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            console.log('Already connected');
+            return;
+        }
+
         console.log('🔌 Connecting to Deriv API...');
+
+        // Clear any existing connection
+        this.cleanup();
 
         this.ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
 
         this.ws.on('open', () => {
             console.log('✅ Connected to Deriv API');
             this.connected = true;
+            this.wsReady = false; // Wait for auth
+            this.reconnectAttempts = 0;
+            this.isReconnecting = false; // Reset reconnecting flag
+            this.lastPongTime = Date.now();
+            this.lastDataTime = Date.now();
+
+            this.startMonitor();
             this.authenticate();
         });
 
         this.ws.on('message', (data) => {
+            this.lastPongTime = Date.now();
+            this.lastDataTime = Date.now();
             try {
                 const message = JSON.parse(data);
                 this.handleMessage(message);
@@ -73,17 +217,150 @@ class BlackFibonacci {
 
         this.ws.on('close', (code, reason) => {
             console.log(`⚠️ Disconnected from Deriv API (Code: ${code}, Reason: ${reason || 'None'})`);
-            this.connected = false;
-            this.wsReady = false;
-            this.reconnect();
+            this.handleDisconnect();
+        });
+
+        this.ws.on('pong', () => {
+            this.lastPongTime = Date.now();
         });
     }
 
-    reconnect() {
-        console.log('🔄 Reconnecting in 5 seconds...');
-        setTimeout(() => {
+    startMonitor() {
+        this.stopMonitor();
+
+        // Ping to keep connection alive (every 20 seconds)
+        this.pingInterval = setInterval(() => {
+            if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.ping();
+
+                // Check if we received pong recently
+                this.pongTimeout = setTimeout(() => {
+                    const timeSinceLastPong = Date.now() - this.lastPongTime;
+                    if (timeSinceLastPong > this.pongTimeoutMs) {
+                        console.warn('⚠️ No pong received, connection may be dead');
+                    }
+                }, this.pongTimeoutMs);
+            }
+        }, this.pingIntervalMs);
+
+        // Check for data silence (every 10 seconds)
+        this.checkDataInterval = setInterval(() => {
+            if (!this.connected) return;
+
+            const silenceDuration = Date.now() - this.lastDataTime;
+            if (silenceDuration > this.dataTimeoutMs) {
+                console.error(`⚠️ No data for ${Math.round(silenceDuration / 1000)}s - Forcing reconnection...`);
+                StatePersistence.saveState(this);
+                if (this.ws) this.ws.terminate();
+            }
+        }, 10000);
+
+        console.log('🔄 Connection monitoring started');
+    }
+
+    stopMonitor() {
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
+        if (this.checkDataInterval) {
+            clearInterval(this.checkDataInterval);
+            this.checkDataInterval = null;
+        }
+        if (this.pongTimeout) {
+            clearTimeout(this.pongTimeout);
+            this.pongTimeout = null;
+        }
+    }
+
+    handleDisconnect() {
+        // Only proceed if not already handling disconnect
+        if (this.isReconnecting) {
+            console.log('Already handling disconnect, skipping...');
+            return;
+        }
+
+        this.connected = false;
+        this.wsReady = false;
+        this.stopMonitor();
+
+        // Save state immediately on disconnect
+        StatePersistence.saveState(this);
+
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            console.error('❌ Max reconnection attempts reached');
+            this.sendTelegram(
+                `❌ <b>Max Reconnection Attempts Reached</b>\n` +
+                `Please restart the bot manually.\n` +
+                `Final P&L: $${this.netProfit.toFixed(2)}`
+            );
+            this.isReconnecting = false;
+            return;
+        }
+
+        this.isReconnecting = true;
+        this.reconnectAttempts++;
+
+        // Exponential backoff: 5s, 7.5s, 11.25s, etc., max 30 seconds
+        const delay = Math.min(
+            this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
+            30000
+        );
+
+        console.log(
+            `🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... ` +
+            `(Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+        );
+        console.log(
+            `📊 Preserved state - Trades: ${this.totalTrades}, ` +
+            `P&L: $${this.netProfit.toFixed(2)}`
+        );
+
+        this.sendTelegram(
+            `⚠️ <b>CONNECTION LOST - RECONNECTING</b>\n` +
+            `📊 Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n` +
+            `⏱️ Retrying in ${(delay / 1000).toFixed(1)}s\n` +
+            `💾 State preserved: ${this.totalTrades} trades, $${this.netProfit.toFixed(2)} P&L`
+        );
+
+        // Clear any existing reconnect timer
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+        }
+
+        this.reconnectTimer = setTimeout(() => {
+            console.log('🔄 Attempting reconnection...');
+            this.isReconnecting = false; // Reset flag before connecting
             this.connect();
-        }, 5000);
+        }, delay);
+    }
+
+    cleanup() {
+        this.stopMonitor();
+
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+
+        if (this.ws) {
+            this.ws.removeAllListeners();
+            if (this.ws.readyState === WebSocket.OPEN ||
+                this.ws.readyState === WebSocket.CONNECTING) {
+                try {
+                    this.ws.close();
+                } catch (e) {
+                    console.log('WebSocket already closed');
+                }
+            }
+            this.ws = null;
+        }
+    }
+
+    disconnect() {
+        console.log('🛑 Disconnecting...');
+        this.cleanup();
+        StatePersistence.saveState(this);
     }
 
     authenticate() {
@@ -92,28 +369,45 @@ class BlackFibonacci {
     }
 
     handleMessage(message) {
+        // Handle ping
+        if (message.msg_type === 'ping') {
+            this.sendRequest({ ping: 1 });
+            return;
+        }
+
         // Handle errors
         if (message.error) {
             console.error('❌ API Error:', message.error.message);
             if (message.error.code === 'AuthorizationRequired' || message.error.code === 'InvalidToken') {
-                console.log('⚠️ Auth error detected, reconnecting...');
-                this.ws.close();
+                console.log('⚠️ Auth error detected, triggering reconnection...');
+                this.handleDisconnect();
             }
             return;
         }
 
         // Handle authorization
         if (message.msg_type === 'authorize') {
+            if (message.error) {
+                console.error('Authentication failed:', message.error.message);
+                this.sendTelegram(`❌ <b>Authentication Failed:</b> ${message.error.message}`);
+                return;
+            }
             console.log('✅ Authenticated successfully');
             console.log(`💰 Balance: $${message.authorize.balance} ${message.authorize.currency}`);
             this.wsReady = true;
-            this.initializeSubscriptions();
-            this.sendTelegram(`
-🚀 <b>BLACK FIBONACCI 9.1 FINAL — GHOST MODE ACTIVATED</b>
 
-💰 Balance: $${message.authorize.balance} ${message.authorize.currency}
-📊 Subscribing to ${this.config.requiredHistoryLength} ticks history for ${this.config.asset}
-⏰ ${new Date().toLocaleString()}
+            // Process queued messages first
+            this.processMessageQueue();
+
+            // Then initialize subscriptions
+            this.initializeSubscriptions();
+
+            this.sendTelegram(`
+                🚀 <b>BLACK FIBONACCI 9.1 FINAL — GHOST MODE ACTIVATED</b>
+
+                💰 Balance: $${message.authorize.balance} ${message.authorize.currency}
+                📊 Subscribing to ${this.config.requiredHistoryLength} ticks history for ${this.config.asset}
+                ⏰ ${new Date().toLocaleString()}
             `.trim());
         }
 
@@ -263,7 +557,7 @@ class BlackFibonacci {
         const inRecent = this.history.slice(-9).includes(sat);
 
         const concentration = 1 - (entropy / Math.log2(10));
-        const ultraLow = concentration > 0.0016;  // THIS IS THE REAL THRESHOLD
+        const ultraLow = concentration > 0.0075;  // THIS IS THE REAL THRESHOLD
 
         // Log analysis every 100 ticks
         if (this.history.length % 100 === 0) {
@@ -271,8 +565,8 @@ class BlackFibonacci {
         }
 
         // Trade signal
-        if (ultraLow && maxZ >= 22.30 && inRecent && sat !== this.lastTradeDigit) {
-            this.placeTrade(sat, maxZ, conc);
+        if (ultraLow && maxZ >= 11.30 && inRecent && sat !== this.lastTradeDigit) {
+            this.placeTrade(sat, maxZ, concentration);
         }
     }
 
@@ -305,14 +599,14 @@ class BlackFibonacci {
         });
 
         this.sendTelegram(`
-🎯 <b>TRADE SIGNAL</b>
+            🎯 <b>TRADE SIGNAL</b>
 
-📊 Digit: ${digit}
-📈 Z-Score: ${zScore.toFixed(2)}
-🔬 Concentration: ${concentration.toFixed(3)}
-💰 Stake: $${this.stake.toFixed(2)}
-📉 Consecutive Losses: ${this.consecutiveLosses}
-⏰ ${new Date().toLocaleTimeString()}
+            📊 Digit: ${digit}
+            📈 Z-Score: ${zScore.toFixed(2)}
+            🔬 Concentration: ${concentration.toFixed(3)}
+            💰 Stake: $${this.stake.toFixed(2)}
+            📉 Consecutive Losses: ${this.consecutiveLosses}
+            ⏰ ${new Date().toLocaleTimeString()}
         `.trim());
     }
 
@@ -376,6 +670,21 @@ class BlackFibonacci {
             `.trim());
         }
 
+        // Check stop conditions
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses) {
+            console.log('🛑 Stop loss reached');
+            this.sendTelegram(`🛑 <b>Stop Loss Reached!</b>\nFinal P&L: $${this.netProfit.toFixed(2)}`);
+            this.disconnect();
+            return;
+        }
+
+        if (this.netProfit >= this.config.takeProfit) {
+            console.log('🎉 Take profit reached');
+            this.sendTelegram(`🎉 <b>Take Profit Reached!</b>\nFinal P&L: $${this.netProfit.toFixed(2)}`);
+            this.disconnect();
+            return;
+        }
+
         this.tradeInProgress = false;
     }
 
@@ -436,9 +745,25 @@ class BlackFibonacci {
         this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
     }
 
+    processMessageQueue() {
+        if (this.messageQueue.length === 0) return;
+
+        console.log(`Processing ${this.messageQueue.length} queued messages...`);
+        const queue = [...this.messageQueue];
+        this.messageQueue = [];
+
+        queue.forEach(message => {
+            this.sendRequest(message);
+        });
+    }
+
     sendRequest(request) {
-        if (!this.connected || !this.ws || this.ws.readyState !== 1) {
+        if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
             console.warn('⚠️ Cannot send request: WebSocket not ready');
+            // Queue the message for later
+            if (this.messageQueue.length < this.maxQueueSize) {
+                this.messageQueue.push(request);
+            }
             return false;
         }
 
@@ -447,6 +772,9 @@ class BlackFibonacci {
             return true;
         } catch (error) {
             console.error('❌ Error sending request:', error.message);
+            if (this.messageQueue.length < this.maxQueueSize) {
+                this.messageQueue.push(request);
+            }
             return false;
         }
     }
