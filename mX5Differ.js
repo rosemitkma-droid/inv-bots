@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'mX5Differ-state000001.json');
+const STATE_FILE = path.join(__dirname, 'mX5Differ-state000002.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -599,34 +599,35 @@ class AIWeightedEnsembleBot {
 
         this.lastPrediction = history[history.length - 1];
         const volatility = this.calculateVolatilityLevel(history);
-        this.volatilityLevel = volatility.level;
+        this.volatilityLevel = this.getVolatilityLevel(history);
 
-        console.log(`[${asset}] Volatility: ${this.volatilityLevel} Score: ${volatility.score}`);
+        console.log(`[${asset}] Volatility1: ${this.volatilityLevel} | Volatility2: ${volatility.level}| Score: ${volatility.score}`);
 
         if (
             this.lastPrediction === history[history.length - 2] &&
             this.lastPrediction === history[history.length - 3] &&
             this.lastPrediction === history[history.length - 4] &&
             this.lastPrediction === history[history.length - 5] &&
-            volatility.level === 'ultra-low'
+            volatility.level === 'ultra-low' &&
+            (this.volatilityLevel === 'low' || this.volatilityLevel === 'medium')
         ) {
             this.placeTrade(asset, this.lastPrediction);
         }
     }
 
-    // getVolatilityLevel(tickHistory) {
-    //     if (tickHistory.length < 50) return 'unknown';
-    //     const recent = tickHistory.slice(-50);
-    //     const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
-    //     const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
-    //     const stdDev = Math.sqrt(variance);
+    getVolatilityLevel(tickHistory) {
+        if (tickHistory.length < 50) return 'unknown';
+        const recent = tickHistory.slice(-50);
+        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+        const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
+        const stdDev = Math.sqrt(variance);
 
-    //     if (stdDev > 3.1) return 'extreme';
-    //     if (stdDev > 2.8) return 'high';
-    //     if (stdDev > 2.0) return 'medium';
+        if (stdDev > 3.1) return 'extreme';
+        if (stdDev > 2.8) return 'high';
+        if (stdDev > 2.0) return 'medium';
 
-    //     return 'low';
-    // }
+        return 'low';
+    }
 
     calculateDeviation(history, windowSize) {
         if (history.length < windowSize) return null;
