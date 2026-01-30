@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'mX5Differ-state00009.json');
+const STATE_FILE = path.join(__dirname, 'mX5Differ-state000001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -486,6 +486,10 @@ class AIWeightedEnsembleBot {
             📈 <b>Daily Totals</b>
             ├ Total Trades: ${this.totalTrades}
             ├ Total W/L: ${this.totalWins}/${this.totalLosses}
+            ├ x2 Losses: ${this.x2Losses}
+            ├ x3 Losses: ${this.x3Losses}
+            ├ x4 Losses: ${this.x4Losses}
+            ├ x5 Losses: ${this.x5Losses}
             ├ Daily P&L: ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
             └ Current Capital: $${(this.config.initialStake + this.totalProfitLoss).toFixed(2)}
 
@@ -594,14 +598,17 @@ class AIWeightedEnsembleBot {
         if (history.length < 5) return;
 
         this.lastPrediction = history[history.length - 1];
-        this.volatilityLevel = this.calculateVolatilityLevel(history);
+        const volatility = this.calculateVolatilityLevel(history);
+        this.volatilityLevel = volatility.level;
+
+        console.log(`[${asset}] Volatility: ${this.volatilityLevel} Score: ${volatility.score}`);
 
         if (
             this.lastPrediction === history[history.length - 2] &&
             this.lastPrediction === history[history.length - 3] &&
             this.lastPrediction === history[history.length - 4] &&
             this.lastPrediction === history[history.length - 5] &&
-            this.volatilityLevel === 'ultra-low'
+            volatility.level === 'ultra-low'
         ) {
             this.placeTrade(asset, this.lastPrediction);
         }
