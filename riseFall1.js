@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'risefall02-state02.json');
+const STATE_FILE = path.join(__dirname, 'risefall00001-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -323,8 +323,8 @@ const CONFIG = {
     STAKE: 0.35,
 
     // Session Targets
-    SESSION_PROFIT_TARGET: 500,
-    SESSION_STOP_LOSS: -500,
+    SESSION_PROFIT_TARGET: 5,
+    SESSION_STOP_LOSS: -30,
 
     // Trade Duration Settings
     DURATION: 2,
@@ -333,12 +333,12 @@ const CONFIG = {
     // Trade Settings
     MAX_OPEN_POSITIONS: 1, // One at a time for alternating strategy
     TRADE_DELAY: 1000, // 2 seconds delay between trades
-    MARTINGALE_MULTIPLIER: 1.2,
-    MARTINGALE_MULTIPLIER2: 1.4,
-    MARTINGALE_MULTIPLIER3: 1.6,
-    MARTINGALE_MULTIPLIER4: 1.8,
-    MARTINGALE_MULTIPLIER5: 2,
-    MAX_MARTINGALE_STEPS: 25,
+    MARTINGALE_MULTIPLIER: 4,
+    MARTINGALE_MULTIPLIER2: 4,
+    MARTINGALE_MULTIPLIER3: 2.5,
+    MARTINGALE_MULTIPLIER4: 2.7,
+    MARTINGALE_MULTIPLIER5: 2.9,
+    MAX_MARTINGALE_STEPS: 4,
     System: 1, // 1 = Continue same direction on Win and Switch direction on Loss, 
     // 2 = Switch direction on Win and Continue same direction on Loss, 
     // 3 = Switch direction every trade, 4 = Same direction every trade
@@ -836,7 +836,7 @@ class DerivBot {
         let direction;
         if (state.lastTradeDirection === null || state.lastTradeWasWin === null || CONFIG.System === 4) {
             // First trade - start with CALL (Rise)
-            CONFIG.iDirection === 'CALL' ? direction = 'CALL' : direction = 'PUT';
+            CONFIG.iDirection === 'CALLE' ? direction = 'CALLE' : direction = 'PUTE';
         } else {
             // If last trade was a win, continue with same direction
             // If last trade was a loss, switch direction
@@ -844,17 +844,17 @@ class DerivBot {
                 if (CONFIG.System === 1) {
                     direction = state.lastTradeDirection; // Continue same direction
                 } else if (CONFIG.System === 2) {
-                    direction = state.lastTradeDirection === 'CALL' ? 'PUT' : 'CALL'; // Switch direction
+                    direction = state.lastTradeDirection === 'CALLE' ? 'PUTE' : 'CALLE'; // Switch direction
                 } else if (CONFIG.System === 3) {
-                    direction = state.lastTradeDirection === 'CALL' ? 'PUT' : 'CALL'; // Switch direction
+                    direction = state.lastTradeDirection === 'CALLE' ? 'PUTE' : 'CALLE'; // Switch direction
                 }
             } else {
                 if (CONFIG.System === 1) {
-                    direction = state.lastTradeDirection === 'CALL' ? 'PUT' : 'CALL'; // Switch direction
+                    direction = state.lastTradeDirection === 'CALLE' ? 'PUTE' : 'CALLE'; // Switch direction
                 } else if (CONFIG.System === 2) {
                     direction = direction = state.lastTradeDirection; // Continue same direction
                 } else if (CONFIG.System === 3) {
-                    direction = state.lastTradeDirection === 'CALL' ? 'PUT' : 'CALL'; // Switch direction
+                    direction = state.lastTradeDirection === 'CALLE' ? 'PUTE' : 'CALLE'; // Switch direction
                 }
             }
         }
@@ -868,7 +868,7 @@ class DerivBot {
                 ? 'Continue (Last was Win)'
                 : 'Switch (Last was Loss)';
 
-        LOGGER.trade(`🎯 Executing ${direction === 'CALL' ? 'RISE' : 'FALL'} trade on ${symbol} [${strategyNote}]`);
+        LOGGER.trade(`🎯 Executing ${direction === 'CALLE' ? 'RISE' : 'FALL'} trade on ${symbol} [${strategyNote}]`);
         LOGGER.trade(`   Stake: $${stake.toFixed(2)} | Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT}`);
 
         const position = {
