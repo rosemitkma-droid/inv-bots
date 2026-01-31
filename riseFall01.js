@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'riseFall01-state001.json');
+const STATE_FILE = path.join(__dirname, 'riseFall001-state001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -186,7 +186,7 @@ class AIWeightedEnsembleBot {
         // Negative deviation = less random than expected = more predictable
         this.TRADEABLE_LEVELS = ['low', 'ultra-low'];
 
-        this.System = 1; // 1 = Continue same direction on Win and Switch direction on Loss, 
+        this.System = 2; // 1 = Continue same direction on Win and Switch direction on Loss, 
         // 2 = Switch direction on Win and Continue same direction on Loss, 
         // 3 = Switch direction every trade, 4 = Same direction every trade
         this.iDirection = 'RISE'; //Set initial direction 'RISE' or 'FALL'
