@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fiboGrok001-state3.json');
+const STATE_FILE = path.join(__dirname, 'fiboGrok00001-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -624,7 +624,8 @@ class AIWeightedEnsembleBot {
         this.volatilityLevel = this.getVolatilityLevel2(history);
         console.log(`[${asset}] Volatility: ${vol} Volatility2: ${this.volatilityLevel}`);
 
-        if (vol === 'ultra-low' && (this.volatilityLevel === 'medium' || this.volatilityLevel === 'low')) {
+        // if (vol === 'ultra-low' && (this.volatilityLevel === 'medium' || this.volatilityLevel === 'low')) {
+        if (vol === 'ultra-low') {
             // Only trade Fibonacci saturation in these regimes
             if (maxScore >= 20.0 && recent.includes(predictedDigit)) {
                 this.lastPrediction = predictedDigit;
@@ -812,11 +813,11 @@ class AIWeightedEnsembleBot {
             if (this.consecutiveLosses === 4) this.x4Losses++;
             if (this.consecutiveLosses === 5) this.x5Losses++;
 
-            // if (this.consecutiveLosses === 2) {
-            //     this.currentStake = this.config.initialStake;
-            // } else {
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            // }
+            if (this.consecutiveLosses === 2) {
+                this.currentStake = this.config.initialStake;
+            } else {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            }
             // this.suspendAsset(asset);
         }
 
