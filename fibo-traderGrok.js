@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fiboGrok-state3.json');
+const STATE_FILE = path.join(__dirname, 'fiboGrok001-state3.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -621,9 +621,10 @@ class AIWeightedEnsembleBot {
         const recent = history.slice(-7);
 
         const vol = this.getVolatilityLevel(history);
-        console.log(`[${asset}] Volatility: ${vol}`);
+        this.volatilityLevel = this.getVolatilityLevel2(history);
+        console.log(`[${asset}] Volatility: ${vol} Volatility2: ${this.volatilityLevel}`);
 
-        if (vol === 'ultra-low' || vol === 'low') {
+        if (vol === 'ultra-low' && (this.volatilityLevel === 'medium' || this.volatilityLevel === 'low')) {
             // Only trade Fibonacci saturation in these regimes
             if (maxScore >= 20.0 && recent.includes(predictedDigit)) {
                 this.lastPrediction = predictedDigit;
@@ -721,6 +722,20 @@ class AIWeightedEnsembleBot {
         if (finalVolatilityIndex >= 0.44) return 'medium';    // Sweet spot for Fibonacci saturation
         if (finalVolatilityIndex >= 0.32) return 'low';       // Very safe, high win rate
         return 'ultra-low';                                   // Almost mechanical repeats
+    }
+
+    getVolatilityLevel2(tickHistory) {
+        if (tickHistory.length < 50) return 'unknown';
+        const recent = tickHistory.slice(-50);
+        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+        const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
+        const stdDev = Math.sqrt(variance);
+
+        if (stdDev > 3.1) return 'extreme';
+        if (stdDev > 2.8) return 'high';
+        if (stdDev > 2.0) return 'medium';
+
+        return 'low';
     }
 
     placeTrade(asset, predictedDigit) {
