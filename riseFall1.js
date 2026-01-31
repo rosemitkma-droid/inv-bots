@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'riseFall1-state001.json');
+const STATE_FILE = path.join(__dirname, 'riseFall1-state0001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -107,7 +107,8 @@ class AIWeightedEnsembleBot {
 
         this.assets = [
             // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
-            'stpRNG'
+            // 'stpRNG'
+            'RDBEAR'
         ];
 
         this.config = {
@@ -198,7 +199,7 @@ class AIWeightedEnsembleBot {
         this.lastTradeWasWin = false;
 
         // Telegram Configuration
-        this.telegramToken = '8588380880:AAH8tOl8dxvjJ4qfWf3yr-i7FS_qlew-8t0';
+        this.telegramToken = '8335656318:AAEVL50j7n8ZdQHcC-3ov6OYOTOh5ZyEgE0';
         this.telegramChatId = '752497117';
         this.telegramEnabled = true;
 
@@ -513,8 +514,6 @@ class AIWeightedEnsembleBot {
             ├ x6 Losses: ${this.x6Losses}
             ├ x7 Losses: ${this.x7Losses}
             ├ x8 Losses: ${this.x8Losses}
-            ├ x9 Losses: ${this.x9Losses}
-            ├ x10 Losses: ${this.x10Losses}
             ├ Daily P&L: ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
             └ Current Capital: $${(this.config.initialStake + this.totalProfitLoss).toFixed(2)}
 
@@ -631,10 +630,9 @@ class AIWeightedEnsembleBot {
         console.log(`[${asset}] Volatility1: ${this.volatilityLevel} | Volatility2: ${volatility.level}| Score: ${volatility.score}`);
 
         if (
-            // volatility.level === 'ultra-low' &&
-            // this.volatilityLevel === 'medium'
-            // ||
-            this.volatilityLevel === 'low'
+            volatility.level === 'ultra-low' &&
+            (this.volatilityLevel === 'medium' ||
+                this.volatilityLevel === 'low')
         ) {
             // NEW LOGIC: Determine next direction based on last trade result
             let direction;
@@ -802,7 +800,7 @@ class AIWeightedEnsembleBot {
 
         this.tradeInProgress = true;
 
-        console.log(`Placing Trade: [${asset}] Direction ${direction === 'CALL' ? 'RISE' : 'FALL'} | Stake: $${this.currentStake.toFixed(2)}`);
+        console.log(`Placing Trade: [${asset}] Direction: ${direction} | Stake: $${this.currentStake.toFixed(2)}`);
 
         const message = `
             🔔 <b>Trade Opened (Rise/Fall Bot)</b>
@@ -875,11 +873,12 @@ class AIWeightedEnsembleBot {
             if (this.consecutiveLosses === 7) this.x7Losses++;
             if (this.consecutiveLosses === 8) this.x8Losses++;
 
-            // if (this.consecutiveLosses === 2) {
-            //     this.currentStake = this.config.initialStake;
-            // } else {
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            // }
+            if (this.consecutiveLosses === 7) {
+                this.currentStake = this.config.initialStake;
+                this.consecutiveLosses = 0;
+            } else {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            }
             // this.suspendAsset(asset);
         }
 
@@ -926,6 +925,7 @@ class AIWeightedEnsembleBot {
             this.totalProfitLoss <= -this.config.stopLoss) {
             console.log('🛑 Stop loss reached');
             this.sendTelegramMessage(`🛑 <b>Stop Loss Reached!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`);
+            this.sendHourlySummary();
             this.endOfDay = true;
             this.disconnect();
             return;
@@ -934,6 +934,7 @@ class AIWeightedEnsembleBot {
         if (this.totalProfitLoss >= this.config.takeProfit) {
             console.log('🎉 Take profit reached');
             this.sendTelegramMessage(`🎉 <b>Take Profit Reached!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`);
+            this.sendHourlySummary();
             this.endOfDay = true;
             this.disconnect();
             return;
@@ -1134,9 +1135,9 @@ class AIWeightedEnsembleBot {
 // Initialize and start bot
 const bot = new AIWeightedEnsembleBot('0P94g4WdSrSrzir', {
     initialStake: 0.35,
-    multiplier: 4,
-    maxConsecutiveLosses: 5,
-    stopLoss: 89,
+    multiplier: 2.3,
+    maxConsecutiveLosses: 12,
+    stopLoss: 100,
     takeProfit: 5000,
     requiredHistoryLength: 3000,
     minWaitTime: 1000,
