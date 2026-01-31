@@ -1,878 +1,678 @@
-require('dotenv').config();
+/**
+ * ============================================================================
+ * FIBONACCI Z-SCORE SATURATION DIGIT DIFFER BOT
+ * ============================================================================
+ * 
+ * Implements EXACT specifications provided:
+ * - Multi-layer Fibonacci Z-score saturation (windows: 13-987)
+ * - Entropy + streak composite volatility filter
+ * - Ultra-low volatility bonus trigger
+ * - Specific martingale progression (1.8x, then 11.3^n)
+ * 
+ * ⚠️ CRITICAL WARNING:
+ * - No trading bot achieves 3000-8000% monthly returns consistently
+ * - Binary options are HIGH RISK - you can lose your entire capital
+ * - Past performance does NOT guarantee future results
+ * - Test extensively on DEMO before using real money
+ * - Only trade money you can afford to lose completely
+ * 
+ * ============================================================================
+ */
+
+'use strict';
+
 const WebSocket = require('ws');
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
-// ============================================
-// FIBONACCI DIGIT ANALYZER - ADVANCED ENGINE
-// ============================================
-class FibonacciDigitAnalyzer {
+// ============================================================================
+// FIBONACCI Z-SCORE SATURATION ENGINE
+// ============================================================================
+
+class FibonacciZScoreEngine {
     constructor() {
-        // Core Fibonacci sequence (first 30 numbers)
-        this.fibSequence = this.generateFibonacci(30);
+        // EXACT Fibonacci windows as specified
+        this.FIBONACCI_WINDOWS = [13, 21, 34, 55, 89, 144, 233, 377, 610, 987];
 
-        // Fibonacci digits (single digits that appear in Fibonacci sequence)
-        this.fibDigits = new Set([0, 1, 2, 3, 5, 8]);
-        this.nonFibDigits = new Set([4, 6, 7, 9]);
+        // EXACT thresholds as specified
+        this.MIN_VALID_WINDOWS = 8;
+        this.Z_SCORE_THRESHOLD = 11.15;
+        this.RECENT_TICKS_CHECK = 9;
 
-        // Golden ratio and derivatives
-        this.PHI = (1 + Math.sqrt(5)) / 2;           // ~1.6180339887
-        this.PHI_INVERSE = 1 / this.PHI;              // ~0.6180339887
-        this.PHI_SQUARED = this.PHI * this.PHI;       // ~2.6180339887
-        this.PSI = (1 - Math.sqrt(5)) / 2;            // ~-0.6180339887
-
-        // Fibonacci retracement levels
-        this.FIB_LEVELS = [0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618];
-
-        // Fibonacci analysis periods
-        this.FIB_PERIODS = [3, 5, 8, 13, 21, 34, 55, 89, 144];
-
-        // Pisano period for base 10 (last digits of Fibonacci repeat every 60)
-        this.PISANO_PERIOD = 60;
-        this.pisanoSequence = this.generatePisanoSequence();
-
-        // Lucas numbers (related to Fibonacci)
-        this.lucasNumbers = this.generateLucas(20);
-
-        // Tribonacci sequence (Fibonacci variant)
-        this.tribonacciSequence = this.generateTribonacci(20);
-
-        // Analysis weights based on golden ratio
-        this.methodWeights = {
-            frequencyAnalysis: this.PHI_INVERSE,           // 0.618
-            gapAnalysis: this.PHI_INVERSE * 0.618,         // 0.382
-            pisanoPattern: 0.236,                           // Fibonacci level
-            momentumScore: this.PHI_INVERSE * 0.382,       // 0.236
-            clusterAnalysis: 0.5,                           // Midpoint
-            cyclicalPattern: this.PHI_INVERSE * 0.5,       // 0.309
-            lucasCorrelation: 0.236,                        // Fibonacci level
-            entropyScore: this.PHI_INVERSE * 0.618         // 0.382
-        };
-
-        // Normalize weights to sum to 1
-        const totalWeight = Object.values(this.methodWeights).reduce((a, b) => a + b, 0);
-        Object.keys(this.methodWeights).forEach(key => {
-            this.methodWeights[key] /= totalWeight;
-        });
-
-        console.log('🔢 Fibonacci Analyzer initialized with Golden Ratio weights');
-    }
-
-    // Generate Fibonacci sequence
-    generateFibonacci(n) {
-        const fib = [0, 1];
-        for (let i = 2; i < n; i++) {
-            fib.push(fib[i - 1] + fib[i - 2]);
-        }
-        return fib;
-    }
-
-    // Generate Pisano sequence (last digits of Fibonacci mod 10)
-    generatePisanoSequence() {
-        const seq = [0, 1];
-        for (let i = 2; i < this.PISANO_PERIOD; i++) {
-            seq.push((seq[i - 1] + seq[i - 2]) % 10);
-        }
-        return seq;
-    }
-
-    // Generate Lucas numbers
-    generateLucas(n) {
-        const lucas = [2, 1];
-        for (let i = 2; i < n; i++) {
-            lucas.push(lucas[i - 1] + lucas[i - 2]);
-        }
-        return lucas;
-    }
-
-    // Generate Tribonacci sequence
-    generateTribonacci(n) {
-        const tri = [0, 0, 1];
-        for (let i = 3; i < n; i++) {
-            tri.push(tri[i - 1] + tri[i - 2] + tri[i - 3]);
-        }
-        return tri;
-    }
-
-    // ========================================
-    // CORE ANALYSIS METHODS
-    // ========================================
-
-    /**
-     * METHOD 1: Fibonacci-Weighted Frequency Analysis
-     * Analyzes digit frequencies over Fibonacci periods with golden ratio weighting
-     */
-    fibonacciFrequencyAnalysis(history) {
-        const scores = Array(10).fill(0);
-
-        for (const period of this.FIB_PERIODS) {
-            if (history.length < period) continue;
-
-            const recentHistory = history.slice(-period);
-            const frequency = Array(10).fill(0);
-
-            // Count frequencies with Fibonacci position weighting
-            recentHistory.forEach((digit, idx) => {
-                // Weight increases as we approach recent data (golden ratio decay)
-                const weight = Math.pow(this.PHI_INVERSE, (period - idx - 1) / period);
-                frequency[digit] += weight;
-            });
-
-            // Normalize and invert (high frequency = low score for appearing again)
-            const maxFreq = Math.max(...frequency);
-            const minFreq = Math.min(...frequency.filter(f => f > 0));
-
-            frequency.forEach((freq, digit) => {
-                if (maxFreq > 0) {
-                    // Apply Fibonacci retracement levels for scoring
-                    const normalizedFreq = (freq - minFreq) / (maxFreq - minFreq + 0.001);
-                    const fibLevel = this.nearestFibLevel(normalizedFreq);
-
-                    // Higher frequency = higher score for DIFFER (less likely to appear)
-                    scores[digit] += normalizedFreq * (1 / period) * this.PHI_INVERSE;
-                }
-            });
-        }
-
-        return this.normalizeScores(scores);
+        // Pre-compute expected frequency for uniform distribution
+        this.EXPECTED_FREQUENCY = 0.1; // Each digit should appear 10% of the time
+        this.EXPECTED_STD_DEV_FACTOR = Math.sqrt(0.1 * 0.9); // sqrt(p * (1-p))
     }
 
     /**
-     * METHOD 2: Fibonacci Gap Analysis
-     * Analyzes gaps between digit occurrences using Fibonacci numbers
+     * Calculate Z-score for a specific digit over a specific window
+     * Z = (observed - expected) / standard_deviation
      */
-    fibonacciGapAnalysis(history) {
-        const scores = Array(10).fill(0);
-        const gaps = this.calculateDigitGaps(history);
+    calculateDigitZScore(history, windowSize, digit) {
+        if (history.length < windowSize) {
+            return null;
+        }
 
-        gaps.forEach((gap, digit) => {
-            // Check if gap is close to a Fibonacci number
-            const nearestFib = this.nearestFibonacci(gap);
-            const fibDistance = Math.abs(gap - nearestFib);
+        const window = history.slice(-windowSize);
+        const count = window.filter(d => d === digit).length;
 
-            // If gap is near a Fibonacci number, digit might be "due"
-            // For DIFFER, we want digits that just appeared (low gap)
-            const fibScore = 1 / (1 + fibDistance * this.PHI_INVERSE);
+        // Expected count and standard deviation for binomial distribution
+        const expected = windowSize * this.EXPECTED_FREQUENCY;
+        const stdDev = Math.sqrt(windowSize) * this.EXPECTED_STD_DEV_FACTOR;
 
-            // Golden ratio based scoring
-            if (gap <= 2) {
-                // Recently appeared - HIGH score for DIFFER (unlikely to repeat)
-                scores[digit] = this.PHI;
-            } else if (gap <= 5) {
-                // Medium gap - moderate score
-                scores[digit] = 1.0;
-            } else if (gap <= 8) {
-                // Approaching Fibonacci threshold
-                scores[digit] = this.PHI_INVERSE;
-            } else {
-                // Long gap - digit might be due, LOW score for DIFFER
-                scores[digit] = this.PHI_INVERSE * this.PHI_INVERSE;
-            }
+        if (stdDev === 0) return 0;
 
-            // Fibonacci resonance bonus
-            if (this.isFibonacci(gap)) {
-                scores[digit] *= (1 + this.PHI_INVERSE * 0.5);
-            }
-        });
+        // Z-score: positive means digit appears MORE than expected (saturated)
+        const zScore = (count - expected) / stdDev;
 
-        return this.normalizeScores(scores);
+        return zScore;
     }
 
     /**
-     * METHOD 3: Pisano Period Pattern Analysis
-     * Uses the 60-cycle pattern of Fibonacci last digits
+     * Calculate aggregated Z-scores across all Fibonacci windows for each digit
+     * Returns: { digit, totalZScore, validWindows, windowScores }
      */
-    pisanoPatternAnalysis(history) {
-        const scores = Array(10).fill(0);
-        if (history.length < 60) return scores;
-
-        // Find position in Pisano cycle based on recent patterns
-        const recentDigits = history.slice(-10);
-        let bestMatch = 0;
-        let bestMatchScore = 0;
-
-        // Compare recent sequence with Pisano sequence at different offsets
-        for (let offset = 0; offset < this.PISANO_PERIOD; offset++) {
-            let matchScore = 0;
-            for (let i = 0; i < Math.min(recentDigits.length, 10); i++) {
-                const pisanoIdx = (offset + i) % this.PISANO_PERIOD;
-                if (recentDigits[i] === this.pisanoSequence[pisanoIdx]) {
-                    matchScore += Math.pow(this.PHI_INVERSE, recentDigits.length - i - 1);
-                }
-            }
-            if (matchScore > bestMatchScore) {
-                bestMatchScore = matchScore;
-                bestMatch = offset;
-            }
-        }
-
-        // Predict next digit based on Pisano pattern
-        const predictedPisanoDigit = this.pisanoSequence[(bestMatch + recentDigits.length) % this.PISANO_PERIOD];
-
-        // For DIFFER, score the predicted digit highest (least likely to match prediction)
-        for (let digit = 0; digit < 10; digit++) {
-            if (digit === predictedPisanoDigit) {
-                scores[digit] = this.PHI; // Best for DIFFER
-            } else {
-                // Distance from predicted digit affects score
-                const distance = Math.min(
-                    Math.abs(digit - predictedPisanoDigit),
-                    10 - Math.abs(digit - predictedPisanoDigit)
-                );
-                scores[digit] = this.PHI_INVERSE / (1 + distance * 0.1);
-            }
-        }
-
-        return this.normalizeScores(scores);
-    }
-
-    /**
-     * METHOD 4: Fibonacci Momentum Score
-     * Calculates momentum using Fibonacci-weighted moving averages
-     */
-    fibonacciMomentumScore(history) {
-        const scores = Array(10).fill(0);
-        if (history.length < 34) return scores;
-
-        // Calculate Fibonacci moving averages for each digit
-        const fmaShort = this.fibonacciMovingAverage(history, 8);
-        const fmaMedium = this.fibonacciMovingAverage(history, 21);
-        const fmaLong = this.fibonacciMovingAverage(history, 55);
+    calculateMultiLayerZScores(history) {
+        const results = [];
 
         for (let digit = 0; digit < 10; digit++) {
-            // Momentum based on FMA crossovers
-            const shortTrend = fmaShort[digit] - fmaMedium[digit];
-            const longTrend = fmaMedium[digit] - fmaLong[digit];
+            let totalZScore = 0;
+            let validWindows = 0;
+            const windowScores = [];
 
-            // Positive momentum = digit appearing more frequently
-            // For DIFFER, we want high momentum digits (less likely to break streak)
-            const momentum = shortTrend * this.PHI + longTrend;
+            for (const windowSize of this.FIBONACCI_WINDOWS) {
+                const zScore = this.calculateDigitZScore(history, windowSize, digit);
 
-            scores[digit] = Math.max(0, 0.5 + momentum);
-        }
-
-        return this.normalizeScores(scores);
-    }
-
-    /**
-     * METHOD 5: Fibonacci Cluster Analysis
-     * Detects digit clusters using Fibonacci thresholds
-     */
-    fibonacciClusterAnalysis(history) {
-        const scores = Array(10).fill(0);
-        if (history.length < 21) return scores;
-
-        const recent = history.slice(-21); // Last 21 ticks (Fibonacci number)
-
-        // Find clusters (consecutive or near-consecutive appearances)
-        for (let digit = 0; digit < 10; digit++) {
-            let maxClusterSize = 0;
-            let currentCluster = 0;
-            let lastPosition = -999;
-
-            recent.forEach((d, idx) => {
-                if (d === digit) {
-                    if (idx - lastPosition <= 3) { // Within Fibonacci gap of 3
-                        currentCluster++;
-                    } else {
-                        currentCluster = 1;
-                    }
-                    lastPosition = idx;
-                    maxClusterSize = Math.max(maxClusterSize, currentCluster);
+                if (zScore !== null) {
+                    // Simple sum aggregation as specified
+                    totalZScore += zScore;
+                    validWindows++;
+                    windowScores.push({
+                        window: windowSize,
+                        zScore: zScore.toFixed(3)
+                    });
                 }
-            });
-
-            // Larger clusters = digit is "hot" = good for DIFFER
-            if (maxClusterSize >= 5) {
-                scores[digit] = this.PHI_SQUARED;
-            } else if (maxClusterSize >= 3) {
-                scores[digit] = this.PHI;
-            } else if (maxClusterSize >= 2) {
-                scores[digit] = 1;
-            } else {
-                scores[digit] = this.PHI_INVERSE;
             }
+
+            results.push({
+                digit,
+                totalZScore,
+                validWindows,
+                windowScores,
+                meetsWindowRequirement: validWindows >= this.MIN_VALID_WINDOWS
+            });
         }
 
-        return this.normalizeScores(scores);
+        return results;
     }
 
     /**
-     * METHOD 6: Fibonacci Cyclical Pattern Detection
-     * Detects repeating patterns at Fibonacci intervals
+     * Check if digit appeared in last N ticks
      */
-    fibonacciCyclicalPattern(history) {
-        const scores = Array(10).fill(0);
-        if (history.length < 89) return scores;
-
-        const recent = history.slice(-89);
-
-        // Check for patterns at Fibonacci intervals
-        for (const period of [3, 5, 8, 13, 21, 34]) {
-            if (recent.length < period * 2) continue;
-
-            const patterns = {};
-            for (let i = 0; i <= recent.length - period; i++) {
-                const pattern = recent.slice(i, i + period).join('');
-                patterns[pattern] = (patterns[pattern] || 0) + 1;
-            }
-
-            // Find dominant patterns
-            const patternFreqs = Object.entries(patterns).sort((a, b) => b[1] - a[1]);
-
-            if (patternFreqs.length > 0 && patternFreqs[0][1] >= 2) {
-                // Strong pattern detected
-                const dominantPattern = patternFreqs[0][0];
-                const lastDigitOfPattern = parseInt(dominantPattern[dominantPattern.length - 1]);
-
-                // Score based on pattern strength
-                scores[lastDigitOfPattern] += patternFreqs[0][1] * this.PHI_INVERSE / period;
-            }
-        }
-
-        return this.normalizeScores(scores);
+    digitInRecentTicks(history, digit, n = 9) {
+        if (history.length < n) return false;
+        const recent = history.slice(-n);
+        return recent.includes(digit);
     }
 
     /**
-     * METHOD 7: Lucas Number Correlation
-     * Correlates digit patterns with Lucas numbers
+     * Find the most saturated digit that meets ALL criteria:
+     * 1. At least 8 valid windows
+     * 2. Total Z-score >= 10.82
+     * 3. Digit appeared in last 9 ticks
      */
-    lucasCorrelation(history) {
-        const scores = Array(10).fill(0);
-        if (history.length < 21) return scores;
+    findSaturatedDigit(history) {
+        const zScores = this.calculateMultiLayerZScores(history);
 
-        const lucasDigits = this.lucasNumbers.map(n => n % 10);
-        const recent = history.slice(-21);
+        // Filter by criteria and sort by total Z-score descending
+        const candidates = zScores
+            .filter(r => r.meetsWindowRequirement)
+            .filter(r => r.totalZScore >= this.Z_SCORE_THRESHOLD)
+            .filter(r => this.digitInRecentTicks(history, r.digit, this.RECENT_TICKS_CHECK))
+            .sort((a, b) => b.totalZScore - a.totalZScore);
 
-        // Check correlation with Lucas sequence
-        for (let digit = 0; digit < 10; digit++) {
-            const positions = [];
-            recent.forEach((d, idx) => {
-                if (d === digit) positions.push(idx);
-            });
-
-            // Check if positions correlate with Lucas numbers
-            let correlation = 0;
-            positions.forEach(pos => {
-                if (lucasDigits.includes(pos % 10)) {
-                    correlation += this.PHI_INVERSE;
-                }
-            });
-
-            scores[digit] = correlation;
+        if (candidates.length === 0) {
+            return null;
         }
 
-        return this.normalizeScores(scores);
-    }
-
-    /**
-     * METHOD 8: Fibonacci Entropy Score
-     * Measures predictability using Fibonacci-weighted entropy
-     */
-    fibonacciEntropyScore(history) {
-        const scores = Array(10).fill(0);
-        if (history.length < 55) return scores;
-
-        // Calculate entropy over different Fibonacci windows
-        for (const window of [8, 13, 21, 34, 55]) {
-            if (history.length < window) continue;
-
-            const slice = history.slice(-window);
-            const freq = Array(10).fill(0);
-            slice.forEach(d => freq[d]++);
-
-            // Calculate entropy for this window
-            let entropy = 0;
-            freq.forEach(f => {
-                if (f > 0) {
-                    const p = f / window;
-                    entropy -= p * Math.log2(p);
-                }
-            });
-
-            // Max entropy for 10 outcomes is log2(10) ≈ 3.32
-            const normalizedEntropy = entropy / 3.32;
-
-            // For each digit, score based on its deviation from expected
-            const expected = window / 10;
-            freq.forEach((f, digit) => {
-                const deviation = (f - expected) / expected;
-                // High positive deviation = overrepresented = good for DIFFER
-                scores[digit] += deviation * this.PHI_INVERSE * (1 / window);
-            });
-        }
-
-        return this.normalizeScores(scores);
-    }
-
-    // ========================================
-    // UTILITY METHODS
-    // ========================================
-
-    calculateDigitGaps(history) {
-        const gaps = Array(10).fill(history.length);
-        for (let i = history.length - 1; i >= 0; i--) {
-            const digit = history[i];
-            if (gaps[digit] === history.length) {
-                gaps[digit] = history.length - 1 - i;
-            }
-        }
-        return gaps;
-    }
-
-    nearestFibonacci(n) {
-        let closest = this.fibSequence[0];
-        for (const fib of this.fibSequence) {
-            if (Math.abs(fib - n) < Math.abs(closest - n)) {
-                closest = fib;
-            }
-        }
-        return closest;
-    }
-
-    isFibonacci(n) {
-        return this.fibSequence.includes(n);
-    }
-
-    nearestFibLevel(value) {
-        let closest = this.FIB_LEVELS[0];
-        for (const level of this.FIB_LEVELS) {
-            if (Math.abs(level - value) < Math.abs(closest - value)) {
-                closest = level;
-            }
-        }
-        return closest;
-    }
-
-    fibonacciMovingAverage(history, period) {
-        const fma = Array(10).fill(0);
-        if (history.length < period) return fma;
-
-        const slice = history.slice(-period);
-        let totalWeight = 0;
-
-        slice.forEach((digit, idx) => {
-            // Fibonacci weighting: more recent = higher weight
-            const weight = Math.pow(this.PHI_INVERSE, (period - idx - 1) / 5);
-            fma[digit] += weight;
-            totalWeight += weight;
-        });
-
-        // Normalize
-        fma.forEach((val, idx) => {
-            fma[idx] = val / totalWeight;
-        });
-
-        return fma;
-    }
-
-    normalizeScores(scores) {
-        const max = Math.max(...scores);
-        const min = Math.min(...scores);
-        const range = max - min;
-
-        if (range === 0) return scores.map(() => 1);
-
-        return scores.map(s => (s - min) / range);
-    }
-
-    // ========================================
-    // MAIN PREDICTION METHOD
-    // ========================================
-
-    /**
-     * Combines all Fibonacci methods to find the digit most unlikely to appear
-     * Returns: { digit, confidence, analysis }
-     */
-    predictUnlikelyDigit(history) {
-        if (history.length < 100) {
-            return { digit: null, confidence: 0, analysis: 'Insufficient data' };
-        }
-
-        // Run all analysis methods
-        const analyses = {
-            frequencyAnalysis: this.fibonacciFrequencyAnalysis(history),
-            gapAnalysis: this.fibonacciGapAnalysis(history),
-            pisanoPattern: this.pisanoPatternAnalysis(history),
-            momentumScore: this.fibonacciMomentumScore(history),
-            clusterAnalysis: this.fibonacciClusterAnalysis(history),
-            cyclicalPattern: this.fibonacciCyclicalPattern(history),
-            lucasCorrelation: this.lucasCorrelation(history),
-            entropyScore: this.fibonacciEntropyScore(history)
-        };
-
-        // Combine scores using golden ratio weights
-        const combinedScores = Array(10).fill(0);
-
-        Object.keys(analyses).forEach(method => {
-            const scores = analyses[method];
-            const weight = this.methodWeights[method];
-
-            scores.forEach((score, digit) => {
-                combinedScores[digit] += score * weight;
-            });
-        });
-
-        // Normalize combined scores
-        const normalizedScores = this.normalizeScores(combinedScores);
-
-        // Find the digit with highest "unlikely to appear" score
-        let bestDigit = 0;
-        let bestScore = normalizedScores[0];
-
-        normalizedScores.forEach((score, digit) => {
-            if (score > bestScore) {
-                bestScore = score;
-                bestDigit = digit;
-            }
-        });
-
-        // Calculate confidence using Fibonacci levels
-        const sortedScores = [...normalizedScores].sort((a, b) => b - a);
-        const scoreDiff = sortedScores[0] - sortedScores[1];
-        const confidenceRaw = scoreDiff * this.PHI;
-
-        // Map to Fibonacci confidence levels
-        let confidence;
-        if (confidenceRaw >= 0.618) {
-            confidence = 'VERY_HIGH';
-        } else if (confidenceRaw >= 0.382) {
-            confidence = 'HIGH';
-        } else if (confidenceRaw >= 0.236) {
-            confidence = 'MEDIUM';
-        } else {
-            confidence = 'LOW';
-        }
-
-        // Additional validation using recent history
-        const last5 = history.slice(-5);
-        const countInLast5 = last5.filter(d => d === bestDigit).length;
-
-        // If predicted digit appeared multiple times recently, boost confidence
-        if (countInLast5 >= 3) {
-            confidence = 'VERY_HIGH';
-        } else if (countInLast5 >= 2 && confidence === 'MEDIUM') {
-            confidence = 'HIGH';
-        }
+        const best = candidates[0];
 
         return {
-            digit: bestDigit,
-            confidence: confidence,
-            confidenceScore: confidenceRaw,
-            scores: normalizedScores,
-            recentCount: countInLast5,
-            analysis: {
-                frequencyScore: analyses.frequencyAnalysis[bestDigit].toFixed(3),
-                gapScore: analyses.gapAnalysis[bestDigit].toFixed(3),
-                pisanoScore: analyses.pisanoPattern[bestDigit].toFixed(3),
-                momentumScore: analyses.momentumScore[bestDigit].toFixed(3),
-                clusterScore: analyses.clusterAnalysis[bestDigit].toFixed(3),
-                cyclicalScore: analyses.cyclicalPattern[bestDigit].toFixed(3),
-                lucasScore: analyses.lucasCorrelation[bestDigit].toFixed(3),
-                entropyScore: analyses.entropyScore[bestDigit].toFixed(3)
-            },
-            isFibonacciDigit: this.fibDigits.has(bestDigit),
-            phi: this.PHI,
-            method: 'Fibonacci Ensemble Analysis'
+            digit: best.digit,
+            totalZScore: best.totalZScore,
+            validWindows: best.validWindows,
+            windowScores: best.windowScores,
+            allCandidates: candidates.length
         };
     }
 
     /**
-     * Advanced pattern detection using Fibonacci sequences
-     * Returns true if market conditions are favorable for trading
+     * Get analysis summary for logging
      */
-    isFavorableTradingCondition(history) {
-        if (history.length < 55) return false;
+    getAnalysisSummary(history) {
+        const zScores = this.calculateMultiLayerZScores(history);
 
-        const recent = history.slice(-55);
-
-        // Check for Fibonacci-based patterns
-        const patterns = {
-            // Pattern 1: Digit appeared at Fibonacci intervals
-            fibonacciInterval: false,
-            // Pattern 2: Strong cluster detected
-            clusterPresent: false,
-            // Pattern 3: Low entropy (predictable)
-            lowEntropy: false,
-            // Pattern 4: Pisano alignment
-            pisanoAligned: false
-        };
-
-        // Check Fibonacci interval pattern
-        const lastDigit = recent[recent.length - 1];
-        let fibIntervalCount = 0;
-        for (const interval of [3, 5, 8, 13, 21]) {
-            if (recent.length > interval && recent[recent.length - 1 - interval] === lastDigit) {
-                fibIntervalCount++;
-            }
-        }
-        patterns.fibonacciInterval = fibIntervalCount >= 2;
-
-        // Check cluster
-        const last8 = recent.slice(-8);
-        const digitCounts = Array(10).fill(0);
-        last8.forEach(d => digitCounts[d]++);
-        patterns.clusterPresent = Math.max(...digitCounts) >= 4;
-
-        // Check entropy
-        const freq = Array(10).fill(0);
-        recent.forEach(d => freq[d]++);
-        let entropy = 0;
-        freq.forEach(f => {
-            if (f > 0) {
-                const p = f / recent.length;
-                entropy -= p * Math.log2(p);
-            }
-        });
-        patterns.lowEntropy = entropy < 3.0; // Less than ~90% of max entropy
-
-        // Check Pisano alignment
-        const last3 = recent.slice(-3);
-        for (let i = 0; i < this.PISANO_PERIOD - 2; i++) {
-            if (last3[0] === this.pisanoSequence[i] &&
-                last3[1] === this.pisanoSequence[i + 1] &&
-                last3[2] === this.pisanoSequence[i + 2]) {
-                patterns.pisanoAligned = true;
-                break;
-            }
-        }
-
-        // Require at least 2 favorable patterns
-        const favorableCount = Object.values(patterns).filter(v => v).length;
-        return favorableCount >= 2;
+        return zScores
+            .filter(r => r.meetsWindowRequirement)
+            .sort((a, b) => b.totalZScore - a.totalZScore)
+            .slice(0, 3)
+            .map(r => `D${r.digit}:${r.totalZScore.toFixed(2)}`);
     }
 }
 
-// ============================================
-// STATE PERSISTENCE MANAGER
-// ============================================
-const STATE_FILE = path.join(__dirname, 'fibonacci-differ-state.json');
+// ============================================================================
+// ALTERNATIVE: RELATIVE VOLATILITY ENGINE
+// Uses deviation from baseline rather than absolute thresholds
+// ============================================================================
+
+class RelativeVolatilityEngine {
+    constructor() {
+        this.WINDOWS = [
+            { size: 50, weight: 1.0 },
+            { size: 100, weight: 1.0 },
+            { size: 200, weight: 1.0 },
+            { size: 500, weight: 2.5 }
+        ];
+
+        this.CONCENTRATION_WEIGHT = 0.60;
+        this.STREAK_WEIGHT = 0.40;
+
+        // Baseline expectations for random data
+        // For 10 equally likely outcomes:
+        this.EXPECTED_ENTROPY_RATIO = 0.95; // Random data is ~95% of max entropy
+        this.EXPECTED_MAX_STREAK_RATIO = 0.35; // Max streak is ~35% of log2(n)
+
+        // Thresholds based on deviation from expected
+        // Negative deviation = less random than expected = more predictable
+        this.TRADEABLE_LEVELS = ['low', 'ultra-low'];
+    }
+
+    calculateDeviation(history, windowSize) {
+        if (history.length < windowSize) return null;
+
+        const window = history.slice(-windowSize);
+
+        // Calculate actual entropy
+        const frequency = Array(10).fill(0);
+        window.forEach(d => frequency[d]++);
+
+        let entropy = 0;
+        for (let i = 0; i < 10; i++) {
+            if (frequency[i] > 0) {
+                const p = frequency[i] / windowSize;
+                entropy -= p * Math.log2(p);
+            }
+        }
+        const maxEntropy = Math.log2(10);
+        const entropyRatio = entropy / maxEntropy;
+
+        // Calculate actual max streak
+        let maxStreak = 1, currentStreak = 1;
+        for (let i = 1; i < window.length; i++) {
+            if (window[i] === window[i - 1]) {
+                currentStreak++;
+                maxStreak = Math.max(maxStreak, currentStreak);
+            } else {
+                currentStreak = 1;
+            }
+        }
+        const expectedMaxStreak = Math.log2(windowSize);
+        const streakRatio = maxStreak / expectedMaxStreak;
+
+        // Calculate deviations from expected
+        // Positive = more random than expected
+        // Negative = less random than expected (more predictable)
+        const entropyDeviation = (entropyRatio - this.EXPECTED_ENTROPY_RATIO) / this.EXPECTED_ENTROPY_RATIO;
+        const streakDeviation = (streakRatio - this.EXPECTED_MAX_STREAK_RATIO) / this.EXPECTED_MAX_STREAK_RATIO;
+
+        return {
+            entropyDeviation,
+            streakDeviation,
+            entropyRatio,
+            streakRatio,
+            maxStreak
+        };
+    }
+
+    calculateVolatilityLevel(history) {
+        let entropyDeviationSum = 0;
+        let streakDeviationSum = 0;
+        let totalWeight = 0;
+        const windowResults = [];
+
+        for (const { size, weight } of this.WINDOWS) {
+            const deviation = this.calculateDeviation(history, size);
+
+            if (deviation !== null) {
+                entropyDeviationSum += deviation.entropyDeviation * weight;
+                streakDeviationSum += deviation.streakDeviation * weight;
+                totalWeight += weight;
+
+                windowResults.push({
+                    window: size,
+                    entropyDev: (deviation.entropyDeviation * 100).toFixed(1) + '%',
+                    streakDev: (deviation.streakDeviation * 100).toFixed(1) + '%',
+                    maxStreak: deviation.maxStreak
+                });
+            }
+        }
+
+        if (totalWeight === 0) {
+            return { level: 'unknown', canTrade: false };
+        }
+
+        // Weighted average deviations
+        const avgEntropyDev = entropyDeviationSum / totalWeight;
+        const avgStreakDev = streakDeviationSum / totalWeight;
+
+        // Combined deviation score
+        // Negative = more predictable than expected
+        const combinedDeviation = avgEntropyDev * this.CONCENTRATION_WEIGHT +
+            (-avgStreakDev) * this.STREAK_WEIGHT;
+
+        // console.log('Combined Deviation:', combinedDeviation);
+
+        // Determine level based on how much less random than expected
+        let level;
+        if (combinedDeviation > 0.05) {
+            level = 'extreme';       // More random than expected
+        } else if (combinedDeviation > 0.02) {
+            level = 'high';          // Slightly more random
+        } else if (combinedDeviation > -0.02) {
+            level = 'medium';        // Around expected randomness
+        } else if (combinedDeviation > -0.05) {
+            level = 'low';           // Slightly less random (tradeable!)
+        } else {
+            level = 'ultra-low';     // Much less random (definitely tradeable!)
+        }
+
+        const canTrade = this.TRADEABLE_LEVELS.includes(level);
+
+        return {
+            level,
+            score: combinedDeviation,
+            canTrade,
+            avgEntropyDeviation: avgEntropyDev,
+            avgStreakDeviation: avgStreakDev,
+            windowResults
+        };
+    }
+
+    checkBonusTrigger(history) {
+        if (history.length < 5) return { triggered: false };
+
+        const last5 = history.slice(-5);
+        if (last5.every(d => d === last5[0])) {
+            let count = 0;
+            for (let i = history.length - 1; i >= 0 && history[i] === last5[0]; i--) {
+                count++;
+            }
+            return { triggered: true, digit: last5[0], streakLength: count };
+        }
+        return { triggered: false };
+    }
+}
+
+// ============================================================================
+// USAGE EXAMPLE WITH RECOMMENDATIONS
+// ============================================================================
+
+/*
+// OPTION 1: Use realistic thresholds (recommended for synthetic indices)
+const volatilityEngine = new VolatilityFilterEngine({
+    thresholdMode: 'realistic',
+    debug: false
+});
+
+// OPTION 2: Use adaptive thresholds (learns from data)
+const volatilityEngine = new VolatilityFilterEngine({
+    thresholdMode: 'adaptive',
+    debug: false
+});
+
+// OPTION 3: Use relative deviation approach
+const volatilityEngine = new RelativeVolatilityEngine();
+*/
+
+// module.exports = { VolatilityFilterEngine, RelativeVolatilityEngine };
+
+// ============================================================================
+// MONEY MANAGEMENT ENGINE
+// ============================================================================
+
+class MoneyManagementEngine {
+    constructor(config) {
+        // EXACT configuration as specified
+        this.baseStake = config.baseStake || 0.61;
+        this.firstLossMultiplier = 11.3;      // 1 loss → base × 1.8
+        this.subsequentMultiplier = 11.3;    // 2+ losses → base × 11.3^(n-1)
+        this.maxConsecutiveLosses = 3;
+
+        // State
+        this.consecutiveLosses = 0;
+        this.currentStake = this.baseStake;
+
+        // Stats tracking
+        this.stats = {
+            totalTrades: 0,
+            totalWins: 0,
+            totalLosses: 0,
+            totalProfitLoss: 0,
+            biggestWin: 0,
+            biggestLoss: 0,
+            maxConsecutiveLossesHit: 0,
+            lossStreaks: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+        };
+    }
+
+    /**
+     * Calculate next stake based on EXACT formula:
+     * Win → base
+     * 1 loss → base × 1.8
+     * 2+ losses → base × 11.3^(losses-1)
+     */
+    calculateStake() {
+        if (this.consecutiveLosses === 0) {
+            this.currentStake = this.baseStake;
+        } else if (this.consecutiveLosses === 1) {
+            this.currentStake = this.baseStake * this.firstLossMultiplier;
+        } else {
+            // 2+ losses: base × 11.3^(n-1)
+            const exponent = this.consecutiveLosses - 1;
+            this.currentStake = this.currentStake * Math.pow(this.subsequentMultiplier, exponent);
+        }
+
+        // Round to 2 decimal places
+        this.currentStake = Math.round(this.currentStake * 100) / 100;
+
+        return this.currentStake;
+    }
+
+    /**
+     * Check if we can trade (not hit max consecutive losses)
+     */
+    canTrade() {
+        return this.consecutiveLosses < this.maxConsecutiveLosses;
+    }
+
+    /**
+     * Update state after trade result
+     */
+    updateAfterTrade(won, profit) {
+        this.stats.totalTrades++;
+        this.stats.totalProfitLoss += profit;
+
+        if (won) {
+            this.stats.totalWins++;
+            this.stats.biggestWin = Math.max(this.stats.biggestWin, profit);
+
+            // Track loss streak before resetting
+            if (this.consecutiveLosses > 0) {
+                const streakKey = Math.min(this.consecutiveLosses, 5);
+                this.stats.lossStreaks[streakKey]++;
+            }
+
+            // Reset on win
+            this.consecutiveLosses = 0;
+        } else {
+            this.stats.totalLosses++;
+            this.stats.biggestLoss = Math.min(this.stats.biggestLoss, profit);
+            this.consecutiveLosses++;
+            this.stats.maxConsecutiveLossesHit = Math.max(
+                this.stats.maxConsecutiveLossesHit,
+                this.consecutiveLosses
+            );
+        }
+
+        // Calculate next stake
+        this.calculateStake();
+
+        return this.getStats();
+    }
+
+    /**
+     * Reset state (for new session)
+     */
+    reset() {
+        this.consecutiveLosses = 0;
+        this.currentStake = this.baseStake;
+    }
+
+    /**
+     * Get current stats
+     */
+    getStats() {
+        const winRate = this.stats.totalTrades > 0
+            ? ((this.stats.totalWins / this.stats.totalTrades) * 100).toFixed(1)
+            : 0;
+
+        return {
+            ...this.stats,
+            winRate: parseFloat(winRate),
+            consecutiveLosses: this.consecutiveLosses,
+            currentStake: this.currentStake,
+            canTrade: this.canTrade()
+        };
+    }
+
+    /**
+     * Get stake progression for display
+     */
+    getStakeProgression() {
+        const progression = [];
+        for (let losses = 0; losses <= this.maxConsecutiveLosses; losses++) {
+            let stake;
+            if (losses === 0) stake = this.baseStake;
+            else if (losses === 1) stake = this.baseStake * this.firstLossMultiplier;
+            else stake = this.baseStake * Math.pow(this.subsequentMultiplier, losses - 1);
+
+            progression.push({
+                losses,
+                stake: Math.round(stake * 100) / 100
+            });
+        }
+        return progression;
+    }
+}
+
+// ============================================================================
+// STATE PERSISTENCE
+// ============================================================================
+
+const STATE_FILE = path.join(__dirname, 'kclaude-000010-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
     static saveState(bot) {
         try {
-            const persistableState = {
+            const state = {
                 savedAt: Date.now(),
-                config: {
-                    initialStake: bot.config.initialStake,
-                    multiplier: bot.config.multiplier,
-                    maxConsecutiveLosses: bot.config.maxConsecutiveLosses,
-                    stopLoss: bot.config.stopLoss,
-                    takeProfit: bot.config.takeProfit,
-                    requiredHistoryLength: bot.config.requiredHistoryLength
+                version: 'zscore-1.0',
+                moneyManagement: {
+                    consecutiveLosses: bot.moneyManager.consecutiveLosses,
+                    currentStake: bot.moneyManager.currentStake,
+                    stats: bot.moneyManager.stats
                 },
                 trading: {
-                    currentStake: bot.currentStake,
-                    consecutiveLosses: bot.consecutiveLosses,
-                    totalTrades: bot.totalTrades,
-                    totalWins: bot.totalWins,
-                    totalLosses: bot.totalLosses,
-                    x2Losses: bot.x2Losses,
-                    x3Losses: bot.x3Losses,
-                    x4Losses: bot.x4Losses,
-                    x5Losses: bot.x5Losses,
                     totalProfitLoss: bot.totalProfitLoss,
                     lastPrediction: bot.lastPrediction,
-                    actualDigit: bot.actualDigit,
-                    lastFibonacciAnalysis: bot.lastFibonacciAnalysis
-                },
-                subscriptions: {
-                    tickSubscriptionIds: { ...bot.tickSubscriptionIds },
-                    activeSubscriptions: Array.from(bot.activeSubscriptions),
-                    contractSubscription: bot.contractSubscription
+                    lastTradeType: bot.lastTradeType,
+                    sessionStartTime: bot.sessionStartTime
                 },
                 assets: {}
             };
 
             bot.assets.forEach(asset => {
-                persistableState.assets[asset] = {
-                    tickHistory: bot.tickHistories[asset].slice(-200),
+                state.assets[asset] = {
+                    tickHistory: bot.tickHistories[asset].slice(-3000),
                     lastTickLogTime: bot.lastTickLogTime[asset]
                 };
             });
 
-            fs.writeFileSync(STATE_FILE, JSON.stringify(persistableState, null, 2));
+            fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
         } catch (error) {
-            console.error(`Failed to save state: ${error.message}`);
+            console.error(`State save failed: ${error.message}`);
         }
     }
 
     static loadState() {
         try {
             if (!fs.existsSync(STATE_FILE)) {
-                console.log('📂 No previous state file found, starting fresh');
-                return false;
+                console.log('📂 No saved state found, starting fresh');
+                return null;
             }
 
-            const savedData = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-            const ageMinutes = (Date.now() - savedData.savedAt) / 60000;
+            const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+            const ageMinutes = (Date.now() - data.savedAt) / 60000;
 
-            if (ageMinutes > 30) {
-                console.warn(`⚠️ Saved state is ${ageMinutes.toFixed(1)} minutes old, starting fresh`);
+            if (ageMinutes > 120) {
+                console.log(`⚠️ State is ${ageMinutes.toFixed(0)}min old, starting fresh`);
                 fs.unlinkSync(STATE_FILE);
-                return false;
+                return null;
             }
 
             console.log(`📂 Restoring state from ${ageMinutes.toFixed(1)} minutes ago`);
-            return savedData;
+            return data;
         } catch (error) {
-            console.error(`Failed to load state: ${error.message}`);
-            return false;
+            console.error(`State load failed: ${error.message}`);
+            return null;
         }
     }
 
     static startAutoSave(bot) {
-        setInterval(() => {
-            StatePersistence.saveState(bot);
-        }, STATE_SAVE_INTERVAL);
-        console.log('🔄 Auto-save started (every 5 seconds)');
+        setInterval(() => StatePersistence.saveState(bot), STATE_SAVE_INTERVAL);
+        console.log('💾 Auto-save enabled (every 5s)');
     }
 }
 
-// ============================================
-// FIBONACCI TRADING BOT
-// ============================================
-class FibonacciDifferBot {
+// ============================================================================
+// MAIN TRADING BOT
+// ============================================================================
+
+class FibonacciZScoreBot {
     constructor(token, config = {}) {
         this.token = token;
         this.ws = null;
         this.connected = false;
         this.wsReady = false;
 
+        // EXACT assets as specified
         this.assets = [
-            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
-            'R_100'
+            'R_10',
+            // 'R_25',
+            // 'R_50'
         ];
 
+        // Configuration
         this.config = {
-            initialStake: config.initialStake || 0.61,
-            multiplier: config.multiplier || 11.3,
-            maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
-            stopLoss: config.stopLoss || 129,
-            takeProfit: config.takeProfit || 25,
-            requiredHistoryLength: config.requiredHistoryLength || 1000,
-            minConfidence: config.minConfidence || 'MEDIUM', // Minimum confidence for trading
-            minWaitTime: config.minWaitTime || 120000,
-            maxWaitTime: config.maxWaitTime || 180000,
+            baseStake: config.baseStake || 2.20,
+            minHistoryLength: config.minHistoryLength || 2000,
+            maxHistoryLength: config.maxHistoryLength || 3000,
+            telegramToken: '8106601008:AAEMyCma6mvPYIHEvw3RHQX2tkD5-wUe1o0',
+            telegramChatId: '752497117'
         };
 
-        // Initialize Fibonacci Analyzer
-        this.fibAnalyzer = new FibonacciDigitAnalyzer();
+        // Initialize engines
+        this.zScoreEngine = new FibonacciZScoreEngine();
+        this.volatilityEngine = new RelativeVolatilityEngine();
+        this.moneyManager = new MoneyManagementEngine({
+            baseStake: this.config.baseStake
+        });
 
         // Trading state
-        this.currentStake = this.config.initialStake;
-        this.consecutiveLosses = 0;
-        this.totalTrades = 0;
-        this.totalWins = 0;
-        this.totalLosses = 0;
-        this.x2Losses = 0;
-        this.x3Losses = 0;
-        this.x4Losses = 0;
-        this.x5Losses = 0;
-        this.totalProfitLoss = 0;
         this.tradeInProgress = false;
+        this.totalProfitLoss = 0;
+        this.lastPrediction = null;
+        this.lastTradeType = null;
+        this.sessionStartTime = Date.now();
         this.suspendedAssets = new Set();
         this.endOfDay = false;
-        this.isWinTrade = false;
         this.lastPrediction = null;
-        this.actualDigit = null;
-        this.lastFibonacciAnalysis = null;
+        this.lastZScore = null;
 
-        // Reconnection logic
+        // Connection management
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 50;
-        this.reconnectDelay = 5000;
+        this.maxReconnectAttempts = 100;
+        this.reconnectDelay = 3000;
         this.reconnectTimer = null;
         this.isReconnecting = false;
 
-        // Heartbeat/Ping mechanism
+        // Heartbeat
         this.pingInterval = null;
-        this.checkDataInterval = null;
-        this.pongTimeout = null;
         this.lastPongTime = Date.now();
         this.lastDataTime = Date.now();
-        this.pingIntervalMs = 20000;
-        this.pongTimeoutMs = 10000;
-        this.dataTimeoutMs = 60000;
+        this.dataCheckInterval = null;
 
         // Message queue
         this.messageQueue = [];
-        this.maxQueueSize = 50;
 
         // Subscriptions
         this.activeSubscriptions = new Set();
-        this.contractSubscription = null;
+        this.tickSubscriptionIds = {};
 
-        // Telegram Configuration
-        this.telegramToken = '8106601008:AAEMyCma6mvPYIHEvw3RHQX2tkD5-wUe1o0';
-        this.telegramChatId = '752497117';
+        // Telegram
         this.telegramEnabled = true;
-
         if (this.telegramEnabled) {
-            this.telegramBot = new TelegramBot(this.telegramToken, { polling: false });
-            this.startTelegramTimer();
+            this.telegramBot = new TelegramBot(this.config.telegramToken, { polling: false });
         }
 
-        // Stats tracking
-        this.hourlyStats = {
-            trades: 0,
-            wins: 0,
-            losses: 0,
-            pnl: 0,
-            lastHour: new Date().getHours()
-        };
-
-        // Tick data storage
+        // Tick data
         this.tickHistories = {};
-        this.tickSubscriptionIds = {};
         this.lastTickLogTime = {};
         this.assets.forEach(asset => {
             this.tickHistories[asset] = [];
             this.lastTickLogTime[asset] = 0;
         });
 
+        // Stats
+        this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0 };
+
         // Load saved state
         this.loadSavedState();
     }
 
     loadSavedState() {
-        const savedState = StatePersistence.loadState();
-        if (!savedState) return;
+        const saved = StatePersistence.loadState();
+        if (!saved) return;
 
         try {
-            const trading = savedState.trading;
-            this.currentStake = trading.currentStake;
-            this.consecutiveLosses = trading.consecutiveLosses;
-            this.totalTrades = trading.totalTrades;
-            this.totalWins = trading.totalWins;
-            this.totalLosses = trading.totalLosses;
-            this.x2Losses = trading.x2Losses;
-            this.x3Losses = trading.x3Losses;
-            this.x4Losses = trading.x4Losses;
-            this.x5Losses = trading.x5Losses;
-            this.totalProfitLoss = trading.totalProfitLoss;
-            this.lastPrediction = trading.lastPrediction;
-            this.actualDigit = trading.actualDigit;
-            this.lastFibonacciAnalysis = trading.lastFibonacciAnalysis;
+            // Restore money management state
+            if (saved.moneyManagement) {
+                this.moneyManager.consecutiveLosses = saved.moneyManagement.consecutiveLosses;
+                this.moneyManager.currentStake = saved.moneyManagement.currentStake;
+                Object.assign(this.moneyManager.stats, saved.moneyManagement.stats);
+            }
 
-            savedState.assets && Object.keys(savedState.assets).forEach(asset => {
-                if (this.tickHistories[asset]) {
-                    this.tickHistories[asset] = savedState.assets[asset].tickHistory || [];
-                }
-            });
+            // Restore trading state
+            if (saved.trading) {
+                this.totalProfitLoss = saved.trading.totalProfitLoss || 0;
+            }
 
-            console.log('✅ State restored successfully');
-            console.log(`   Trades: ${this.totalTrades} | W/L: ${this.totalWins}/${this.totalLosses}`);
-            console.log(`   P&L: $${this.totalProfitLoss.toFixed(2)} | Current Stake: $${this.currentStake.toFixed(2)}`);
+            // Restore tick histories
+            if (saved.assets) {
+                Object.keys(saved.assets).forEach(asset => {
+                    if (this.tickHistories[asset]) {
+                        this.tickHistories[asset] = saved.assets[asset].tickHistory || [];
+                    }
+                });
+            }
+
+            const stats = this.moneyManager.getStats();
+            console.log('✅ State restored');
+            console.log(`   Trades: ${stats.totalTrades} | W/L: ${stats.totalWins}/${stats.totalLosses}`);
+            console.log(`   P&L: $${this.totalProfitLoss.toFixed(2)} | Consecutive Losses: ${stats.consecutiveLosses}`);
         } catch (error) {
-            console.error(`Error restoring state: ${error.message}`);
+            console.error(`State restore error: ${error.message}`);
         }
     }
 
+    // ========================================================================
+    // WEBSOCKET CONNECTION
+    // ========================================================================
+
     connect() {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        if (this.ws?.readyState === WebSocket.OPEN) {
             console.log('Already connected');
             return;
         }
@@ -883,7 +683,7 @@ class FibonacciDifferBot {
         this.ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
 
         this.ws.on('open', () => {
-            console.log('✅ Connected to Deriv API');
+            console.log('✅ WebSocket connected');
             this.connected = true;
             this.wsReady = false;
             this.reconnectAttempts = 0;
@@ -891,18 +691,18 @@ class FibonacciDifferBot {
             this.lastPongTime = Date.now();
             this.lastDataTime = Date.now();
 
-            this.startMonitor();
+            this.startHeartbeat();
             this.authenticate();
         });
 
         this.ws.on('message', (data) => {
             this.lastPongTime = Date.now();
             this.lastDataTime = Date.now();
+
             try {
-                const message = JSON.parse(data);
-                this.handleMessage(message);
+                this.handleMessage(JSON.parse(data));
             } catch (error) {
-                console.error('Error parsing message:', error);
+                console.error('Message parse error:', error.message);
             }
         });
 
@@ -911,7 +711,7 @@ class FibonacciDifferBot {
         });
 
         this.ws.on('close', (code, reason) => {
-            console.log(`Disconnected from Deriv API (Code: ${code}, Reason: ${reason || 'None'})`);
+            console.log(`WebSocket closed (${code}): ${reason || 'No reason'}`);
             this.handleDisconnect();
         });
 
@@ -920,57 +720,39 @@ class FibonacciDifferBot {
         });
     }
 
-    startMonitor() {
-        this.stopMonitor();
+    startHeartbeat() {
+        this.stopHeartbeat();
 
+        // Ping every 25 seconds
         this.pingInterval = setInterval(() => {
-            if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+            if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
                 this.ws.ping();
-
-                this.pongTimeout = setTimeout(() => {
-                    const timeSinceLastPong = Date.now() - this.lastPongTime;
-                    if (timeSinceLastPong > this.pongTimeoutMs) {
-                        console.warn('⚠️ No pong received, connection may be dead');
-                    }
-                }, this.pongTimeoutMs);
             }
-        }, this.pingIntervalMs);
+        }, 25000);
 
-        this.checkDataInterval = setInterval(() => {
+        // Check for data silence every 15 seconds
+        this.dataCheckInterval = setInterval(() => {
             if (!this.connected) return;
 
-            const silenceDuration = Date.now() - this.lastDataTime;
-            if (silenceDuration > this.dataTimeoutMs) {
-                console.error(`⚠️ No data for ${Math.round(silenceDuration / 1000)}s - Forcing reconnection...`);
+            const silence = Date.now() - this.lastDataTime;
+            if (silence > 90000) {
+                console.error(`⚠️ No data for ${Math.round(silence / 1000)}s, reconnecting...`);
                 StatePersistence.saveState(this);
-                if (this.ws) this.ws.terminate();
+                this.ws?.terminate();
             }
-        }, 10000);
-
-        console.log('🔄 Connection monitoring started');
+        }, 15000);
     }
 
-    stopMonitor() {
-        if (this.pingInterval) {
-            clearInterval(this.pingInterval);
-            this.pingInterval = null;
-        }
-        if (this.checkDataInterval) {
-            clearInterval(this.checkDataInterval);
-            this.checkDataInterval = null;
-        }
-        if (this.pongTimeout) {
-            clearTimeout(this.pongTimeout);
-            this.pongTimeout = null;
-        }
+    stopHeartbeat() {
+        if (this.pingInterval) clearInterval(this.pingInterval);
+        if (this.dataCheckInterval) clearInterval(this.dataCheckInterval);
+        this.pingInterval = null;
+        this.dataCheckInterval = null;
     }
 
     sendRequest(request) {
-        if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.warn('Cannot send request: WebSocket not ready');
-            if (this.messageQueue.length < this.maxQueueSize) {
-                this.messageQueue.push(request);
-            }
+        if (!this.connected || this.ws?.readyState !== WebSocket.OPEN) {
+            this.messageQueue.push(request);
             return false;
         }
 
@@ -978,167 +760,99 @@ class FibonacciDifferBot {
             this.ws.send(JSON.stringify(request));
             return true;
         } catch (error) {
-            console.error('Error sending request:', error.message);
-            if (this.messageQueue.length < this.maxQueueSize) {
-                this.messageQueue.push(request);
-            }
+            console.error('Send error:', error.message);
             return false;
         }
-    }
-
-    processMessageQueue() {
-        if (this.messageQueue.length === 0) return;
-
-        console.log(`Processing ${this.messageQueue.length} queued messages...`);
-        const queue = [...this.messageQueue];
-        this.messageQueue = [];
-
-        queue.forEach(message => {
-            this.sendRequest(message);
-        });
     }
 
     authenticate() {
         this.sendRequest({ authorize: this.token });
     }
 
-    handleMessage(message) {
-        if (message.msg_type === 'ping') {
+    // ========================================================================
+    // MESSAGE HANDLING
+    // ========================================================================
+
+    handleMessage(msg) {
+        if (msg.msg_type === 'ping') {
             this.sendRequest({ ping: 1 });
             return;
         }
 
-        if (message.msg_type === 'authorize') {
-            if (message.error) {
-                console.error('Authentication failed:', message.error.message);
-                this.sendTelegramMessage(`❌ <b>Authentication Failed:</b> ${message.error.message}`);
-                return;
-            }
-            console.log('✅ Authenticated successfully');
-            this.wsReady = true;
-            this.processMessageQueue();
-            this.initializeSubscriptions();
-
-        } else if (message.msg_type === 'history') {
-            const asset = message.echo_req.ticks_history;
-            this.handleTickHistory(asset, message.history);
-        } else if (message.msg_type === 'tick') {
-            if (message.subscription) {
-                const asset = message.tick.symbol;
-                this.tickSubscriptionIds[asset] = message.subscription.id;
-                this.activeSubscriptions.add(message.subscription.id);
-            }
-            this.handleTickUpdate(message.tick);
-        } else if (message.msg_type === 'buy') {
-            if (message.error) {
-                console.error('Error placing trade:', message.error.message);
-                this.sendTelegramMessage(`❌ <b>Trade Error:</b> ${message.error.message}`);
-                this.tradeInProgress = false;
-                return;
-            }
-            console.log('✅ Trade placed successfully');
-            this.subscribeToOpenContract(message.buy.contract_id);
-        } else if (message.msg_type === 'proposal_open_contract') {
-            if (message.proposal_open_contract.is_sold) {
-                this.handleTradeResult(message.proposal_open_contract);
-            }
-        } else if (message.error) {
-            console.error('API Error:', message.error.message);
-            if (message.error.code === 'AuthorizationRequired' ||
-                message.error.code === 'InvalidToken') {
-                console.log('Auth error detected, triggering reconnection...');
-                this.handleDisconnect();
-            }
+        switch (msg.msg_type) {
+            case 'authorize':
+                this.handleAuthorize(msg);
+                break;
+            case 'history':
+                this.handleTickHistory(msg);
+                break;
+            case 'tick':
+                this.handleTick(msg);
+                break;
+            case 'buy':
+                this.handleBuy(msg);
+                break;
+            case 'proposal_open_contract':
+                this.handleContractUpdate(msg);
+                break;
+            default:
+                if (msg.error) {
+                    console.error('API Error:', msg.error.message);
+                    if (msg.error.code === 'AuthorizationRequired') {
+                        this.handleDisconnect();
+                    }
+                }
         }
     }
 
-    async sendTelegramMessage(message) {
-        if (!this.telegramEnabled || !this.telegramBot) return;
-        try {
-            await this.telegramBot.sendMessage(this.telegramChatId, message, { parse_mode: 'HTML' });
-        } catch (error) {
-            console.error(`❌ Failed to send Telegram message: ${error.message}`);
-        }
-    }
-
-    async sendHourlySummary() {
-        const stats = this.hourlyStats;
-        const winRate = stats.wins + stats.losses > 0
-            ? ((stats.wins / (stats.wins + stats.losses)) * 100).toFixed(1)
-            : 0;
-        const pnlEmoji = stats.pnl >= 0 ? '🟢' : '🔴';
-        const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
-
-        const message = `
-⏰ <b>Fibonacci Differ Bot Hourly Summary</b>
-
-📊 <b>Last Hour</b>
-├ Trades: ${stats.trades}
-├ Wins: ${stats.wins} | Losses: ${stats.losses}
-├ Win Rate: ${winRate}%
-└ ${pnlEmoji} <b>P&L:</b> ${pnlStr}
-
-📈 <b>Daily Totals</b>
-├ Total Trades: ${this.totalTrades}
-├ Total W/L: ${this.totalWins}/${this.totalLosses}
-├ Daily P&L: ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
-└ Current Capital: $${(this.config.initialStake + this.totalProfitLoss).toFixed(2)}
-
-🔢 <b>Fibonacci Analysis Active</b>
-├ φ (Golden Ratio): 1.618
-└ Methods: 8 ensemble models
-
-⏰ ${new Date().toLocaleString()}
-`.trim();
-
-        try {
-            await this.sendTelegramMessage(message);
-            console.log('📱 Telegram: Hourly Summary sent');
-        } catch (error) {
-            console.error(`❌ Telegram hourly summary failed: ${error.message}`);
+    handleAuthorize(msg) {
+        if (msg.error) {
+            console.error('❌ Auth failed:', msg.error.message);
+            this.sendTelegram(`❌ Auth Failed: ${msg.error.message}`);
+            return;
         }
 
-        this.hourlyStats = {
-            trades: 0,
-            wins: 0,
-            losses: 0,
-            pnl: 0,
-            lastHour: new Date().getHours()
-        };
-    }
+        console.log('✅ Authenticated');
+        console.log(`   Account: ${msg.authorize.loginid}`);
+        console.log(`   Balance: $${parseFloat(msg.authorize.balance).toFixed(2)}`);
 
-    startTelegramTimer() {
-        const now = new Date();
-        const nextHour = new Date(now);
-        nextHour.setHours(nextHour.getHours() + 1);
-        nextHour.setMinutes(0);
-        nextHour.setSeconds(0);
-        nextHour.setMilliseconds(0);
+        this.wsReady = true;
 
-        const timeUntilNextHour = nextHour.getTime() - now.getTime();
+        // Process queued messages
+        const queue = [...this.messageQueue];
+        this.messageQueue = [];
+        queue.forEach(req => this.sendRequest(req));
 
-        setTimeout(() => {
-            this.sendHourlySummary();
-            setInterval(() => {
-                this.sendHourlySummary();
-            }, 60 * 60 * 1000);
-        }, timeUntilNextHour);
+        // Initialize subscriptions
+        this.initializeSubscriptions();
 
-        console.log(`📱 Hourly summaries scheduled. First in ${Math.ceil(timeUntilNextHour / 60000)} minutes.`);
+        this.sendTelegram(`
+            ✅ <b>Bot Started</b>
+
+            💼 Account: ${msg.authorize.loginid}
+            💰 Balance: $${parseFloat(msg.authorize.balance).toFixed(2)}
+            📊 Assets: ${this.assets.join(', ')}
+            🎯 Base Stake: $${this.config.baseStake}
+
+            ⏰ ${new Date().toLocaleString()}
+        `.trim());
     }
 
     initializeSubscriptions() {
-        console.log('📊 Initializing subscriptions for Fibonacci analysis...');
+        console.log('📊 Initializing subscriptions...');
+
         this.assets.forEach(asset => {
+            // Get historical ticks
             this.sendRequest({
                 ticks_history: asset,
                 adjust_start_time: 1,
-                count: this.config.requiredHistoryLength,
+                count: this.config.minHistoryLength,
                 end: 'latest',
                 start: 1,
                 style: 'ticks'
             });
 
+            // Subscribe to live ticks
             this.sendRequest({
                 ticks: asset,
                 subscribe: 1
@@ -1146,378 +860,358 @@ class FibonacciDifferBot {
         });
     }
 
-    getLastDigit(quote, asset) {
-        const quoteString = quote.toString();
-        const [, fractionalPart = ''] = quoteString.split('.');
+    handleTickHistory(msg) {
+        const asset = msg.echo_req.ticks_history;
+        const prices = msg.history?.prices || [];
 
-        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
-            return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
-        } else if (['R_10', 'R_25', '1HZ15V', '1HZ30V', '1HZ90V'].includes(asset)) {
-            return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
-        } else {
-            return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
-        }
+        this.tickHistories[asset] = prices.map(p => this.getLastDigit(p, asset));
+        console.log(`📊 ${asset}: Loaded ${this.tickHistories[asset].length} ticks`);
     }
 
-    handleTickHistory(asset, history) {
-        this.tickHistories[asset] = history.prices.map(price => this.getLastDigit(price, asset));
-        console.log(`📊 Loaded ${this.tickHistories[asset].length} ticks for ${asset}`);
-    }
+    handleTick(msg) {
+        const tick = msg.tick;
+        if (!tick) return;
 
-    handleTickUpdate(tick) {
         const asset = tick.symbol;
-        const lastDigit = this.getLastDigit(tick.quote, asset);
 
-        this.tickHistories[asset].push(lastDigit);
-        if (this.tickHistories[asset].length > this.config.requiredHistoryLength) {
+        // Track subscription
+        if (msg.subscription) {
+            this.tickSubscriptionIds[asset] = msg.subscription.id;
+            this.activeSubscriptions.add(msg.subscription.id);
+        }
+
+        // Update history
+        const digit = this.getLastDigit(tick.quote, asset);
+        this.tickHistories[asset].push(digit);
+
+        // Trim to max length
+        while (this.tickHistories[asset].length > this.config.maxHistoryLength) {
             this.tickHistories[asset].shift();
         }
 
+        // Periodic logging
         const now = Date.now();
-        if (now - this.lastTickLogTime[asset] >= 30000) {
-            console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
-            this.lastTickLogTime[asset] = now;
-        }
+        // if (now - this.lastTickLogTime[asset] >= 60000) {
+        this.logAssetStatus(asset);
+        this.lastTickLogTime[asset] = now;
+        console.log(`📊 ${asset}: ${this.tickHistories[asset].slice(-10).join(', ')}`);
+        // }
 
-        if (!this.tradeInProgress) {
-            this.analyzeTicks(asset);
+        // console.log(`📊 ${asset}: ${this.tickHistories[asset].slice(-10).join(', ')}`);
+
+        // Analyze for trading
+        if (!this.tradeInProgress && this.wsReady) {
+            this.analyzeAndTrade(asset);
         }
     }
 
-    analyzeTicks(asset) {
-        if (this.tradeInProgress || this.suspendedAssets.has(asset)) return;
+    handleBuy(msg) {
+        if (msg.error) {
+            console.error('❌ Trade failed:', msg.error.message);
+            this.sendTelegram(`❌ Trade Error: ${msg.error.message}`);
+            this.tradeInProgress = false;
+            return;
+        }
+
+        console.log('✅ Trade placed, contract:', msg.buy.contract_id);
+
+        this.sendRequest({
+            proposal_open_contract: 1,
+            contract_id: msg.buy.contract_id,
+            subscribe: 1
+        });
+    }
+
+    handleContractUpdate(msg) {
+        const contract = msg.proposal_open_contract;
+        if (!contract?.is_sold) return;
+
+        const won = contract.status === 'won';
+        const profit = parseFloat(contract.profit);
+        const asset = contract.underlying;
+        const exitDigit = this.getLastDigit(contract.exit_tick_display_value, asset);
+
+        // Update money manager
+        const stats = this.moneyManager.updateAfterTrade(won, profit);
+        this.totalProfitLoss += profit;
+
+        // Update hourly stats
+        this.hourlyStats.trades++;
+        this.hourlyStats.pnl += profit;
+        if (won) this.hourlyStats.wins++;
+        else this.hourlyStats.losses++;
+
+        // Log result
+        console.log(`\n${won ? '✅ WIN' : '❌ LOSS'} | ${asset}`);
+        console.log(`   Predicted: ${this.lastPrediction} | Actual: ${exitDigit}`);
+        console.log(`   P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`);
+        console.log(`   Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}`);
+        console.log(`   Stats: ${stats.totalWins}W/${stats.totalLosses}L (${stats.winRate}%)`);
+        console.log(`   Next Stake: $${stats.currentStake.toFixed(2)}`);
+
+        // Telegram notification
+        this.sendTelegram(`
+        ${won ? '✅ WIN' : '❌ LOSS'} | <b>${asset}</b>
+
+            🎯 Predicted: ${this.lastPrediction} | Actual: ${exitDigit}
+            📊 Type: ${this.lastTradeType}
+            ${profit >= 0 ? '🟢' : '🔴'} P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}
+
+            <b>Session Stats:</b>
+            ├ W/L: ${stats.totalWins}/${stats.totalLosses} (${stats.winRate}%)
+            ├ Streak: ${won ? '0L' : `${stats.consecutiveLosses}L`}
+            ├ Session P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}
+            └ Next Stake: $${stats.currentStake.toFixed(2)}
+
+            ⏰ ${new Date().toLocaleTimeString()}
+        `.trim());
+
+        // Check if we hit max losses
+        if (!stats.canTrade) {
+            console.log('🛑 MAX CONSECUTIVE LOSSES REACHED - STOPPING');
+            this.sendTelegram(`
+                🛑 <b>MAX LOSSES REACHED</b>
+
+                Session ended due to ${this.moneyManager.maxConsecutiveLosses} consecutive losses.
+
+                Final P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}
+                Total Trades: ${stats.totalTrades}
+                Win Rate: ${stats.winRate}%
+            `.trim());
+
+            this.endOfDay = true;
+            this.disconnect();
+            return;
+        }
+
+        // Suspend asset briefly after loss
+        // if (!won) {
+        //     this.suspendAsset(asset, 45000);
+        // }
+
+        this.tradeInProgress = false;
+    }
+
+    // ========================================================================
+    // ANALYSIS AND TRADING
+    // ========================================================================
+
+    analyzeAndTrade(asset) {
+        if (this.tradeInProgress || this.suspendedAssets.has(asset) || !this.wsReady) {
+            return;
+        }
 
         const history = this.tickHistories[asset];
-        if (history.length < 100) return;
+        if (history.length < this.config.minHistoryLength) return;
+        if (!this.moneyManager.canTrade()) return;
 
-        // Use Fibonacci analysis to predict unlikely digit
-        const prediction = this.fibAnalyzer.predictUnlikelyDigit(history);
-        // console.log('Prediction:', prediction);
+        this.volatilityLevel = this.getVolatilityLevel(history);
+        const volatility = this.volatilityEngine.calculateVolatilityLevel(history);
 
-        // Check if conditions are favorable
-        const isFavorable = this.fibAnalyzer.isFavorableTradingCondition(history);
-        // console.log('Is Favorable:', isFavorable);
+        console.log(`[${asset}] Volatilityn: ${this.volatilityLevel} | Volatility: ${volatility.level} (Score: ${volatility.score.toFixed(2)})`);
+        if (!volatility.canTrade) return;
 
-        // Check confidence threshold
-        const confidenceLevels = ['LOW', 'MEDIUM', 'HIGH', 'VERY_HIGH'];
-        const minConfidenceIndex = confidenceLevels.indexOf(this.config.minConfidence);
-        const currentConfidenceIndex = confidenceLevels.indexOf(prediction.confidence);
-        // console.log('Min Confidence Index:', minConfidenceIndex);
-        // console.log('Current Confidence Index:', currentConfidenceIndex);
+        let shouldTrade = false;
+        let digitToTrade = null;
+        let tradeType = null;
 
-        if (prediction.digit !== null &&
-            isFavorable &&
-            currentConfidenceIndex >= minConfidenceIndex) {
+        // === 1. ULTRA-LOW BONUS TRIGGER (5+ streak) ===
+        if (volatility.level === 'ultra-low' && (this.volatilityLevel === 'medium' || this.volatilityLevel === 'low')) {
+            const bonus = this.volatilityEngine.checkBonusTrigger(history);
+            if (bonus.triggered && this.lastPrediction !== bonus.digit) {
+                shouldTrade = true;
+                digitToTrade = bonus.digit;
+                tradeType = 'BONUS_STREAK';
+            }
+        }
 
-            this.lastFibonacciAnalysis = prediction;
-            this.lastPrediction = prediction.digit;
+        // === 2. FIBONACCI SATURATION (ROMANIAN GHOST EXACT LOGIC) ===
+        if (!shouldTrade) {
+            const saturation = this.zScoreEngine.findSaturatedDigit(history);
 
-            console.log(`\n🔢 FIBONACCI ANALYSIS for ${asset}:`);
-            console.log(`   Predicted Digit: ${prediction.digit} (${prediction.isFibonacciDigit ? 'Fibonacci' : 'Non-Fibonacci'})`);
-            console.log(`   Confidence: ${prediction.confidence} (${(prediction.confidenceScore * 100).toFixed(1)}%)`);
-            console.log(`   Recent Count: ${prediction.recentCount} in last 5`);
-            console.log(`   Analysis Scores:`, prediction.analysis);
+            if (saturation) {
+                // ROMANIAN GHOST'S EXACT CONDITION — ONLY +0.3 improvement OR new digit
+                // console.log('Saturation Score:', saturation.totalZScore)
+                const zImproved = !this.lastZScore || saturation.totalZScore > this.lastZScore + 0.3;
+                const newDigit = this.lastPrediction !== saturation.digit;
 
-            this.placeTrade(asset, prediction.digit, prediction);
+                // if ((newDigit || zImproved) && saturation.totalZScore >= 22.30 && (volatility.level === 'ultra-low' || volatility.level === 'low')) {
+                if (saturation.totalZScore >= 22.30 && (volatility.level === 'ultra-low' || volatility.level === 'low') && (this.volatilityLevel === 'medium' || this.volatilityLevel === 'low')) {
+                    shouldTrade = true;
+                    digitToTrade = saturation.digit;
+                    tradeType = 'FIB_SATURATION';
+                    this.lastZScore = saturation.totalZScore;  // Update for next comparison
+                }
+            }
+        }
+
+        if (shouldTrade && digitToTrade !== null) {
+            this.lastPrediction = digitToTrade;
+            this.executeTrade(asset, digitToTrade, tradeType, { volatility });
         }
     }
 
-    placeTrade(asset, predictedDigit, analysis) {
+    getVolatilityLevel(tickHistory) {
+        if (tickHistory.length < 50) return 'unknown';
+        const recent = tickHistory.slice(-50);
+        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+        const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
+        const stdDev = Math.sqrt(variance);
+
+        if (stdDev > 3.1) return 'extreme';
+        if (stdDev > 2.8) return 'high';
+        if (stdDev > 2.0) return 'medium';
+
+        return 'low';
+    }
+
+    executeTrade(asset, digit, tradeType, analysisData) {
         if (this.tradeInProgress || !this.wsReady) return;
 
         this.tradeInProgress = true;
+        this.lastPrediction = digit;
+        this.lastTradeType = tradeType;
 
-        console.log(`\n🎯 Placing Fibonacci Trade: [${asset}] Digit ${predictedDigit} | Stake: $${this.currentStake.toFixed(2)}`);
+        const stake = this.moneyManager.calculateStake();
 
-        const message = `
-            🔔 <b>Fibonacci Trade Opened</b>
+        console.log(`\n🎯 TRADE SIGNAL | ${asset}`);
+        console.log(`   Type: ${tradeType}`);
+        console.log(`   Digit: ${digit} (betting it WON'T appear)`);
+        console.log(`   Stake: $${stake.toFixed(2)}`);
+        console.log(`   Volatility: ${analysisData.volatility.level} (${analysisData.volatility.score.toFixed(3)})`);
 
-            📊 <b>${asset}</b>
-            🎯 <b>Differ Digit:</b> ${predictedDigit}
-            💰 <b>Stake:</b> $${this.currentStake.toFixed(2)}
+        if (analysisData.saturationInfo) {
+            console.log(`   Z-Score: ${analysisData.saturationInfo.totalZScore.toFixed(2)}`);
+            console.log(`   Valid Windows: ${analysisData.saturationInfo.validWindows}`);
+        }
+        if (analysisData.bonusInfo) {
+            console.log(`   Streak: ${analysisData.bonusInfo.streakLength}× digit ${digit}`);
+        }
 
-            🔢 <b>Fibonacci Analysis:</b>
-            ├ Confidence: ${analysis.confidence}
-            ├ Is Fib Digit: ${analysis.isFibonacciDigit ? 'Yes' : 'No'}
-            ├ Recent Count: ${analysis.recentCount}/5
-            ├ φ Score: ${analysis.confidenceScore.toFixed(3)}
+        // Send Telegram alert
+        this.sendTelegram(`
+            🔔 <b>Trade Signal</b> | ${asset}
 
-            📈 <b>Method Scores:</b>
-            ├ Frequency: ${analysis.analysis.frequencyScore}
-            ├ Gap: ${analysis.analysis.gapScore}
-            ├ Pisano: ${analysis.analysis.pisanoScore}
-            ├ Momentum: ${analysis.analysis.momentumScore}
-            ├ Cluster: ${analysis.analysis.clusterScore}
-            ├ Cyclical: ${analysis.analysis.cyclicalScore}
-            ├ Lucas: ${analysis.analysis.lucasScore}
-            └ Entropy: ${analysis.analysis.entropyScore}
+            🎯 Digit: <b>${digit}</b> (DIFFER)
+            💰 Stake: <b>$${stake.toFixed(2)}</b>
+            📊 Type: ${tradeType}
 
-            Last10: ${this.tickHistories[asset].slice(-10).join(',')}
+            📈 <b>Analysis:</b>
+            ├ Volatility: ${analysisData.volatility.level} (${analysisData.volatility.score.toFixed(3)})
+            ${analysisData.saturationInfo ? `├ Z-Score: ${analysisData.saturationInfo.totalZScore.toFixed(2)}
+            ├ Windows: ${analysisData.saturationInfo.validWindows}/10` : ''}
+            ${analysisData.bonusInfo ? `├ Streak: ${analysisData.bonusInfo.streakLength}×` : ''}
+            └ Last 10: ${this.tickHistories[asset].slice(-10).join(',')}
 
             ⏰ ${new Date().toLocaleTimeString()}
-        `.trim();
-        this.sendTelegramMessage(message);
+        `.trim());
 
-        const success = this.sendRequest({
+        // Place trade
+        this.sendRequest({
             buy: 1,
-            price: this.currentStake,
+            price: stake,
             parameters: {
-                amount: this.currentStake,
+                amount: stake,
                 basis: 'stake',
                 contract_type: 'DIGITDIFF',
                 currency: 'USD',
                 duration: 1,
                 duration_unit: 't',
                 symbol: asset,
-                barrier: predictedDigit.toString(),
+                barrier: digit.toString()
             }
         });
-
-        if (!success) {
-            console.error('Failed to send trade request');
-            this.tradeInProgress = false;
-        }
     }
 
-    subscribeToOpenContract(contractId) {
-        this.contractSubscription = contractId;
-        this.sendRequest({
-            proposal_open_contract: 1,
-            contract_id: contractId,
-            subscribe: 1
-        });
+    // ========================================================================
+    // UTILITIES
+    // ========================================================================
+
+    getLastDigit(quote, asset) {
+        const str = quote.toString();
+        const [, decimal = ''] = str.split('.');
+
+        // Different decimal places for different assets
+        if (asset === 'R_50') {
+            return decimal.length >= 4 ? parseInt(decimal[3]) : 0;
+        } else if (asset === 'R_10' || asset === 'R_25') {
+            return decimal.length >= 3 ? parseInt(decimal[2]) : 0;
+        }
+        return decimal.length >= 2 ? parseInt(decimal[1]) : 0;
     }
 
-    handleTradeResult(contract) {
-        const asset = contract.underlying;
-        const won = contract.status === 'won';
-        const profit = parseFloat(contract.profit);
-        const exitSpot = contract.exit_tick_display_value;
-        this.actualDigit = this.getLastDigit(exitSpot, asset);
+    logAssetStatus(asset) {
+        const history = this.tickHistories[asset];
+        const volatility = this.volatilityEngine.calculateVolatilityLevel(history);
+        const topZScores = this.zScoreEngine.getAnalysisSummary(history);
 
-        console.log(`[${asset}] ${won ? '✅ WON' : '❌ LOST'} | Profit: $${profit.toFixed(2)}`);
-
-        this.totalTrades++;
-        if (won) {
-            this.totalWins++;
-            this.consecutiveLosses = 0;
-            this.currentStake = this.config.initialStake;
-            this.isWinTrade = true;
-        } else {
-            this.isWinTrade = false;
-            this.totalLosses++;
-            this.consecutiveLosses++;
-
-            if (this.consecutiveLosses === 2) this.x2Losses++;
-            if (this.consecutiveLosses === 3) this.x3Losses++;
-            if (this.consecutiveLosses === 4) this.x4Losses++;
-            if (this.consecutiveLosses === 5) this.x5Losses++;
-
-            if (this.consecutiveLosses === 2) {
-                this.currentStake = this.config.initialStake;
-            } else {
-                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            }
-            // this.suspendAsset(asset);
-        }
-
-        this.totalProfitLoss += profit;
-
-        this.hourlyStats.trades++;
-        this.hourlyStats.pnl += profit;
-        if (won) this.hourlyStats.wins++;
-        else this.hourlyStats.losses++;
-
-        const resultEmoji = won ? '✅ WIN' : '❌ LOSS';
-        const pnlStr = (profit >= 0 ? '+' : '') + '$' + profit.toFixed(2);
-        const pnlColor = profit >= 0 ? '🟢' : '🔴';
-        const winRate = ((this.totalWins / this.totalTrades) * 100).toFixed(1);
-
-        const telegramMsg = `
-${resultEmoji} <b>Fibonacci Differ Bot</b>
-
-📊 <b>${asset}</b>
-${pnlColor} <b>P&L:</b> ${pnlStr}
-📊 <b>Predicted:</b> ${this.lastPrediction}
-🎯 <b>Actual:</b> ${this.actualDigit}
-
-🔢 <b>Fibonacci Info:</b>
-├ Method: ${this.lastFibonacciAnalysis?.method || 'N/A'}
-├ Confidence: ${this.lastFibonacciAnalysis?.confidence || 'N/A'}
-└ φ Used: ${this.lastFibonacciAnalysis?.phi?.toFixed(6) || 'N/A'}
-
-📊 <b>Session Stats:</b>
-├ Trades: ${this.totalTrades}
-├ Wins: ${this.totalWins} | Losses: ${this.totalLosses}
-├ x2-x5: ${this.x2Losses}/${this.x3Losses}/${this.x4Losses}/${this.x5Losses}
-├ Win Rate: ${winRate}%
-└ Daily P&L: ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
-
-💰 <b>Next Stake:</b> $${this.currentStake.toFixed(2)}
-
-⏰ ${new Date().toLocaleTimeString()}
-`.trim();
-        this.sendTelegramMessage(telegramMsg);
-
-        if (!this.endOfDay) {
-            this.logSummary();
-        }
-
-        // Check stop conditions
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses ||
-            this.totalProfitLoss <= -this.config.stopLoss) {
-            console.log('🛑 Stop loss reached');
-            this.sendTelegramMessage(`🛑 <b>Stop Loss Reached!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`);
-            this.endOfDay = true;
-            this.disconnect();
-            return;
-        }
-
-        if (this.totalProfitLoss >= this.config.takeProfit) {
-            console.log('🎉 Take profit reached');
-            this.sendTelegramMessage(`🎉 <b>Take Profit Reached!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`);
-            this.endOfDay = true;
-            this.disconnect();
-            return;
-        }
-
-        this.tradeInProgress = false;
-        this.contractSubscription = null;
+        console.log(`[${asset}] Ticks: ${history.length} | Vol: ${volatility.level} (${volatility.score?.toFixed(3) || 'N/A'}) | Top Z: ${topZScores.join(', ') || 'N/A'}`);
     }
 
-    suspendAsset(asset) {
+    suspendAsset(asset, duration = 60000) {
         this.suspendedAssets.add(asset);
-        console.log(`🚫 Suspended: ${asset}`);
+        console.log(`🚫 ${asset} suspended for ${duration / 1000}s`);
 
-        if (this.suspendedAssets.size > 1) {
-            const first = Array.from(this.suspendedAssets)[0];
-            this.suspendedAssets.delete(first);
-            console.log(`✅ Reactivated: ${first}`);
+        setTimeout(() => {
+            this.suspendedAssets.delete(asset);
+            console.log(`✅ ${asset} reactivated`);
+        }, duration);
+    }
+
+    async sendTelegram(message) {
+        if (!this.telegramEnabled) return;
+
+        try {
+            await this.telegramBot.sendMessage(
+                this.config.telegramChatId,
+                message,
+                { parse_mode: 'HTML' }
+            );
+        } catch (error) {
+            console.error('Telegram error:', error.message);
         }
     }
 
-    checkTimeForDisconnectReconnect() {
-        setInterval(() => {
-            const now = new Date();
-            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
-            const currentDay = gmtPlus1Time.getUTCDay();
-            const currentHours = gmtPlus1Time.getUTCHours();
-            const currentMinutes = gmtPlus1Time.getUTCMinutes();
-
-            const isWeekend = (currentDay === 0) ||
-                (currentDay === 6 && currentHours >= 23) ||
-                (currentDay === 1 && currentHours < 2);
-
-            if (isWeekend) {
-                if (!this.endOfDay) {
-                    console.log("Weekend trading suspension. Disconnecting...");
-                    this.sendHourlySummary();
-                    this.disconnect();
-                    this.endOfDay = true;
-                }
-                return;
-            }
-
-            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
-                console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
-                this.resetDailyStats();
-                this.endOfDay = false;
-                this.connect();
-            }
-
-            if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 0) {
-                    console.log("It's past 23:00 PM GMT+1 after a win trade, disconnecting.");
-                    this.sendHourlySummary();
-                    this.disconnect();
-                    this.endOfDay = true;
-                }
-            }
-        }, 20000);
-    }
-
-    resetDailyStats() {
-        this.tradeInProgress = false;
-        this.suspendedAssets.clear();
-        this.isWinTrade = false;
-    }
-
-    logSummary() {
-        console.log('\n📊 FIBONACCI TRADING SUMMARY');
-        console.log(`Trades: ${this.totalTrades}`);
-        console.log(`Wins: ${this.totalWins}`);
-        console.log(`Losses: ${this.totalLosses}`);
-        console.log(`x2-x5 Losses: ${this.x2Losses}/${this.x3Losses}/${this.x4Losses}/${this.x5Losses}`);
-        console.log(`Last Prediction: ${this.lastPrediction} | Actual Digit: ${this.actualDigit}`);
-        console.log(`Current Stake: $${this.currentStake.toFixed(2)}`);
-        console.log(`P&L: $${this.totalProfitLoss.toFixed(2)} | Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%`);
-        if (this.lastFibonacciAnalysis) {
-            console.log(`Fibonacci Confidence: ${this.lastFibonacciAnalysis.confidence}`);
-        }
-    }
+    // ========================================================================
+    // CONNECTION MANAGEMENT
+    // ========================================================================
 
     handleDisconnect() {
         if (this.endOfDay) {
-            console.log('Planned shutdown, not reconnecting.');
+            console.log('Planned shutdown, not reconnecting');
             this.cleanup();
             return;
         }
 
-        if (this.isReconnecting) {
-            console.log('Already handling disconnect, skipping...');
-            return;
-        }
+        if (this.isReconnecting) return;
 
         this.connected = false;
         this.wsReady = false;
-        this.stopMonitor();
+        this.stopHeartbeat();
 
         StatePersistence.saveState(this);
 
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
             console.error('❌ Max reconnection attempts reached');
-            this.sendTelegramMessage(
-                `❌ <b>Max Reconnection Attempts Reached</b>\n` +
-                `Please restart the bot manually.\n` +
-                `Final P&L: $${this.totalProfitLoss.toFixed(2)}`
-            );
-            this.isReconnecting = false;
+            this.sendTelegram(`❌ Max reconnections reached. P&L: $${this.totalProfitLoss.toFixed(2)}`);
             return;
         }
 
         this.isReconnecting = true;
         this.reconnectAttempts++;
 
-        const delay = Math.min(
-            this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
-            30000
-        );
+        const delay = Math.min(this.reconnectDelay * Math.pow(1.3, this.reconnectAttempts - 1), 60000);
 
-        console.log(
-            `🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... ` +
-            `(Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
-        );
-
-        this.sendTelegramMessage(
-            `⚠️ <b>CONNECTION LOST - RECONNECTING</b>\n` +
-            `📊 Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n` +
-            `⏱️ Retrying in ${(delay / 1000).toFixed(1)}s\n` +
-            `💾 State preserved: ${this.totalTrades} trades, $${this.totalProfitLoss.toFixed(2)} P&L`
-        );
-
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-        }
+        console.log(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
         this.reconnectTimer = setTimeout(() => {
-            console.log('🔄 Attempting reconnection...');
             this.isReconnecting = false;
             this.connect();
         }, delay);
     }
 
     cleanup() {
-        this.stopMonitor();
+        this.stopHeartbeat();
 
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
@@ -1526,19 +1220,8 @@ ${pnlColor} <b>P&L:</b> ${pnlStr}
 
         if (this.ws) {
             this.ws.removeAllListeners();
-            if (this.ws.readyState === WebSocket.OPEN ||
-                this.ws.readyState === WebSocket.CONNECTING) {
-                try {
-                    this.ws.close();
-                } catch (e) {
-                    console.log('WebSocket already closed');
-                }
-            }
+            try { this.ws.close(); } catch (e) { }
             this.ws = null;
-        }
-
-        if (this.endOfDay) {
-            this.activeSubscriptions.clear();
         }
 
         this.connected = false;
@@ -1546,56 +1229,109 @@ ${pnlColor} <b>P&L:</b> ${pnlStr}
     }
 
     disconnect() {
-        console.log('🛑 Disconnecting Fibonacci bot...');
+        console.log('🛑 Disconnecting...');
         StatePersistence.saveState(this);
         this.endOfDay = true;
         this.cleanup();
-        console.log('✅ Bot disconnected successfully');
+        console.log('✅ Disconnected');
     }
 
+    // ========================================================================
+    // STARTUP
+    // ========================================================================
+
     start() {
-        console.log('🚀 Starting Fibonacci Differ Bot...');
-        console.log('🔢 Using Golden Ratio (φ = 1.618) for analysis');
-        console.log(`📊 Session Summary:`);
-        console.log(`   Total Trades: ${this.totalTrades}`);
-        console.log(`   Wins/Losses: ${this.totalWins}/${this.totalLosses}`);
-        console.log(`   Total P&L: $${this.totalProfitLoss.toFixed(2)}`);
-        console.log(`   Current Stake: $${this.currentStake.toFixed(2)}`);
-        console.log(`   Min Confidence: ${this.config.minConfidence}`);
+        console.log('\n' + '═'.repeat(60));
+        console.log('  FIBONACCI Z-SCORE SATURATION BOT');
+        console.log('═'.repeat(60));
+        console.log('');
+        console.log('📋 Configuration:');
+        console.log(`   Assets: ${this.assets.join(', ')}`);
+        console.log(`   Base Stake: $${this.config.baseStake}`);
+        console.log(`   Min History: ${this.config.minHistoryLength} ticks`);
+        console.log(`   Z-Score Threshold: ${this.zScoreEngine.Z_SCORE_THRESHOLD}`);
+        console.log(`   Fibonacci Windows: ${this.zScoreEngine.FIBONACCI_WINDOWS.join(', ')}`);
+        console.log('');
+        console.log('📈 Stake Progression:');
+        this.moneyManager.getStakeProgression().forEach(({ losses, stake }) => {
+            console.log(`   ${losses}L → $${stake.toFixed(2)}`);
+        });
+        console.log('');
+
+        const stats = this.moneyManager.getStats();
+        if (stats.totalTrades > 0) {
+            console.log('📊 Restored Session:');
+            console.log(`   Trades: ${stats.totalTrades} | W/L: ${stats.totalWins}/${stats.totalLosses}`);
+            console.log(`   P&L: $${this.totalProfitLoss.toFixed(2)} | Win Rate: ${stats.winRate}%`);
+            console.log('');
+        }
+
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        this.startHourlySummary();
+    }
+
+    startHourlySummary() {
+        // Send summary every hour
+        setInterval(() => {
+            const stats = this.moneyManager.getStats();
+
+            this.sendTelegram(`
+⏰ <b>Hourly Summary</b>
+
+<b>Last Hour:</b>
+├ Trades: ${this.hourlyStats.trades}
+├ W/L: ${this.hourlyStats.wins}/${this.hourlyStats.losses}
+└ P&L: ${this.hourlyStats.pnl >= 0 ? '+' : ''}$${this.hourlyStats.pnl.toFixed(2)}
+
+<b>Session Total:</b>
+├ Trades: ${stats.totalTrades}
+├ W/L: ${stats.totalWins}/${stats.totalLosses} (${stats.winRate}%)
+├ P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}
+├ Streak: ${stats.consecutiveLosses}L
+└ Loss Streaks: 2L×${stats.lossStreaks[2]} | 3L×${stats.lossStreaks[3]} | 4L×${stats.lossStreaks[4]} | 5L×${stats.lossStreaks[5]}
+
+⏰ ${new Date().toLocaleString()}
+            `.trim());
+
+            // Reset hourly stats
+            this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0 };
+        }, 3600000);
     }
 }
 
-// ============================================
-// INITIALIZE AND START BOT
-// ============================================
-const bot = new FibonacciDifferBot('0P94g4WdSrSrzir', {
-    initialStake: 2.2,
-    multiplier: 11.3,
-    maxConsecutiveLosses: 4,
-    stopLoss: 55,
-    takeProfit: 5000,
-    requiredHistoryLength: 1000,
-    minConfidence: 'MEDIUM', // Can be: LOW, MEDIUM, HIGH, VERY_HIGH
-    minWaitTime: 1000,
-    maxWaitTime: 3000,
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+const bot = new FibonacciZScoreBot('0P94g4WdSrSrzir', {
+    baseStake: 2.20,
+    minHistoryLength: 2000,
+    maxHistoryLength: 3000,
+    telegramToken: '',      // Add your Telegram bot token
+    telegramChatId: ''      // Add your Telegram chat ID
 });
 
-// Start auto-save
 StatePersistence.startAutoSave(bot);
-
 bot.start();
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-    console.log('\n⚠️ Received SIGINT, shutting down gracefully...');
+    console.log('\n⚠️ SIGINT received, shutting down...');
     bot.disconnect();
     setTimeout(() => process.exit(0), 2000);
 });
 
 process.on('SIGTERM', () => {
-    console.log('\n⚠️ Received SIGTERM, shutting down gracefully...');
+    console.log('\n⚠️ SIGTERM received, shutting down...');
     bot.disconnect();
     setTimeout(() => process.exit(0), 2000);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error);
+    StatePersistence.saveState(bot);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled rejection:', reason);
 });
