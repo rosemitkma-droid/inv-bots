@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'riseFall1-state0001.json');
+const STATE_FILE = path.join(__dirname, 'riseFall1-state00001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -193,8 +193,8 @@ class AIWeightedEnsembleBot {
         this.iDirection = 'RISE'; //Set initial direction 'RISE' or 'FALL'
 
         // Contract Configuration
-        this.DURATION = 2;
-        this.DURATION_UNIT = 't';
+        this.DURATION = 116;
+        this.DURATION_UNIT = 's';
         this.lastTradeDirection = null;
         this.lastTradeWasWin = false;
 
