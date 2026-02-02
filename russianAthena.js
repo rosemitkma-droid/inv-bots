@@ -13,7 +13,7 @@ const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8212244373:AAE6-5-ANOmp2rEYYfPBSn8N7uSbRp6HM-k";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'athena9-state01.json');
+const STATE_FILE = path.join(__dirname, 'athena9-state001.json');
 
 class AthenaPureUltimate {
     constructor() {
@@ -24,65 +24,65 @@ class AthenaPureUltimate {
                 'R_10': {
                     decimals: 3,
                     digitIndex: 2,
-                    fractalThreshold: 1.6,      // was 1.32 (too low)
-                    minConfluence: 0.60,         // was 0.70
-                    minZScore: 1.3,              // was 1.6
-                    concentrationThreshold: 0.045,// was 0.055
+                    fractalThreshold: 1.58,      // was 1.32 (too low)
+                    minConfluence: 0.80,         // was 0.70
+                    minZScore: 1.7,              // was 1.6
+                    concentrationThreshold: 0.050,// was 0.055
                     weight: 1.3
                 },
                 'R_25': {
                     decimals: 3,
                     digitIndex: 2,
-                    fractalThreshold: 1.6,      // was 1.35
-                    minConfluence: 0.60,         // was 0.68
-                    minZScore: 1.4,              // was 1.7
-                    concentrationThreshold: 0.050,// was 0.060
-                    weight: 1.1
+                    fractalThreshold: 1.58,      // was 1.32 (too low)
+                    minConfluence: 0.80,         // was 0.70
+                    minZScore: 1.7,              // was 1.6
+                    concentrationThreshold: 0.050,// was 0.055
+                    weight: 1.3
                 },
                 'R_50': {
                     decimals: 4,
                     digitIndex: 3,
-                    fractalThreshold: 1.6,      // was 1.38
-                    minConfluence: 0.65,         // was 0.65
-                    minZScore: 1.5,              // was 1.8
-                    concentrationThreshold: 0.055,
-                    weight: 1.0
+                    fractalThreshold: 1.58,      // was 1.32 (too low)
+                    minConfluence: 0.80,         // was 0.70
+                    minZScore: 1.7,              // was 1.6
+                    concentrationThreshold: 0.050,// was 0.055
+                    weight: 1.1
                 },
                 'R_75': {
                     decimals: 4,
                     digitIndex: 3,
-                    fractalThreshold: 1.6,      // was 1.40
-                    minConfluence: 0.65,         // was 0.62
-                    minZScore: 1.6,              // was 1.9
-                    concentrationThreshold: 0.060,
-                    weight: 0.9
+                    fractalThreshold: 1.58,      // was 1.32 (too low)
+                    minConfluence: 0.80,         // was 0.70
+                    minZScore: 1.7,              // was 1.6
+                    concentrationThreshold: 0.050,// was 0.055
+                    weight: 1.1
                 },
                 'R_100': {
                     decimals: 2,
                     digitIndex: 1,
-                    fractalThreshold: 1.6,      // was 1.42
-                    minConfluence: 0.65,         // was 0.60
-                    minZScore: 1.7,              // was 2.0
-                    concentrationThreshold: 0.065,
-                    weight: 0.8
+                    fractalThreshold: 1.58,      // was 1.32 (too low)
+                    minConfluence: 0.80,         // was 0.70
+                    minZScore: 1.7,              // was 1.6
+                    concentrationThreshold: 0.050,// was 0.055
+                    weight: 1.1
                 },
                 'RDBEAR': {
                     decimals: 4,
                     digitIndex: 3,
-                    fractalThreshold: 1.6,      // was 1.35
-                    minConfluence: 0.65,         // was 0.68
-                    minZScore: 1.4,              // was 1.7
-                    concentrationThreshold: 0.050,// was 0.060
-                    weight: 1.1
+                    fractalThreshold: 1.58,      // was 1.32 (too low)
+                    minConfluence: 0.80,         // was 0.70
+                    minZScore: 1.7,              // was 1.6
+                    concentrationThreshold: 0.050,// was 0.055
+                    weight: 1.3
                 },
                 'RDBULL': {
                     decimals: 4,
                     digitIndex: 3,
-                    fractalThreshold: 1.6,      // was 1.35
-                    minConfluence: 0.65,         // was 0.68
-                    minZScore: 1.4,              // was 1.7
-                    concentrationThreshold: 0.050,// was 0.060
-                    weight: 1.1
+                    fractalThreshold: 1.58,      // was 1.32 (too low)
+                    minConfluence: 0.80,         // was 0.70
+                    minZScore: 1.7,              // was 1.6
+                    concentrationThreshold: 0.050,// was 0.055
+                    weight: 1.3
                 }
             },
 
