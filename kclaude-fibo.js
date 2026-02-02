@@ -386,11 +386,11 @@ class MoneyManagementEngine {
         // // Round to 2 decimal places
         // this.currentStake = Math.round(this.currentStake * 100) / 100;
 
-        if (this.consecutiveLosses === 2) {
-            this.currentStake = this.baseStake;
-        } else {
-            this.currentStake = Math.ceil(this.currentStake * this.firstLossMultiplier * 100) / 100;
-        }
+        // if (this.consecutiveLosses === 2) {
+        //     this.currentStake = this.baseStake;
+        // } else {
+        this.currentStake = Math.ceil(this.currentStake * this.firstLossMultiplier * 100) / 100;
+        // }
 
         return this.currentStake;
     }
@@ -486,7 +486,7 @@ class MoneyManagementEngine {
 // STATE PERSISTENCE
 // ============================================================================
 
-const STATE_FILE = path.join(__dirname, 'kclaude-000011-state.json');
+const STATE_FILE = path.join(__dirname, 'kclaude-000012-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1096,6 +1096,7 @@ class FibonacciZScoreBot {
             <b>Session Stats:</b>
             ├ W/L: ${stats.totalWins}/${stats.totalLosses} (${stats.winRate}%)
             ├ Streak: ${won ? '0L' : `${stats.consecutiveLosses}L`}
+            ├ Loss Streaks: 2L×${stats.lossStreaks[2]} | 3L×${stats.lossStreaks[3]} | 4L×${stats.lossStreaks[4]} | 5L×${stats.lossStreaks[5]}
             ├ Session P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}
             └ Next Stake: $${stats.currentStake.toFixed(2)}
 
@@ -1309,7 +1310,7 @@ class FibonacciZScoreBot {
 // ============================================================================
 
 const bot = new FibonacciZScoreBot('0P94g4WdSrSrzir', {
-    baseStake: 2.20,
+    baseStake: 1.2,
     minHistoryLength: 2000,
     maxHistoryLength: 3000,
     telegramToken: '',      // Add your Telegram bot token
