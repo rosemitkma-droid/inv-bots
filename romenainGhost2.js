@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'romenianGhost02-state.json');
+const STATE_FILE = path.join(__dirname, 'romenianGhost03-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -106,8 +106,8 @@ class AIWeightedEnsembleBot {
         this.wsReady = false;
 
         this.assets = [
-            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
-            'R_10', 'R_25', 'RDBULL', 'RDBEAR'
+            'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
+            // 'R_10', 'R_25', 'RDBULL', 'RDBEAR'
         ];
 
         this.config = {
@@ -654,7 +654,7 @@ class AIWeightedEnsembleBot {
 
         // CORRECT THRESHOLD: Average Z >= 2.0 means strong saturation
         if (ultraLowVol &&
-            bestAvgZ >= 2.3 &&
+            bestAvgZ >= 2.7 &&
             inRecent &&
             saturatedDigit !== -1 &&
             saturatedDigit !== this.lastTradeDigit) {
