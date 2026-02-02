@@ -13,7 +13,7 @@ const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8212244373:AAE6-5-ANOmp2rEYYfPBSn8N7uSbRp6HM-k";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'athena9-state001.json');
+const STATE_FILE = path.join(__dirname, 'athena9-state0001.json');
 
 class AthenaPureUltimate {
     constructor() {
