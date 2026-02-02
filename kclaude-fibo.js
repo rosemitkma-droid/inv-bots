@@ -373,23 +373,24 @@ class MoneyManagementEngine {
      * 2+ losses → base × 11.3^(losses-1)
      */
     calculateStake() {
-        // if (this.consecutiveLosses === 0) {
-        //     this.currentStake = this.baseStake;
-        // } else if (this.consecutiveLosses === 1) {
-        //     this.currentStake = this.baseStake * this.firstLossMultiplier;
-        // } else {
-        //     // 2+ losses: base × 11.3^(n-1)
-        //     const exponent = this.consecutiveLosses - 1;
-        //     this.currentStake = this.currentStake * Math.pow(this.subsequentMultiplier, exponent);
-        // }
+        if (this.consecutiveLosses === 0) {
+            this.currentStake = this.baseStake;
+        } else if (this.consecutiveLosses === 1) {
+            this.currentStake = this.baseStake * this.firstLossMultiplier;
+        } else {
+            // 2+ losses: base × 11.3^(n-1)
+            const exponent = this.consecutiveLosses - 1;
+            // this.currentStake = this.currentStake * Math.pow(this.subsequentMultiplier, exponent);
+            this.currentStake = Math.ceil(this.currentStake * this.subsequentMultiplier * 100) / 100;
+        }
 
-        // // Round to 2 decimal places
-        // this.currentStake = Math.round(this.currentStake * 100) / 100;
+        // Round to 2 decimal places
+        this.currentStake = Math.round(this.currentStake * 100) / 100;
 
         // if (this.consecutiveLosses === 2) {
         //     this.currentStake = this.baseStake;
         // } else {
-        this.currentStake = Math.ceil(this.currentStake * this.firstLossMultiplier * 100) / 100;
+        // this.currentStake = Math.ceil(this.currentStake * this.firstLossMultiplier * 100) / 100;
         // }
 
         return this.currentStake;
