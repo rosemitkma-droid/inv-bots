@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fiboGrok00002-state.json');
+const STATE_FILE = path.join(__dirname, 'fiboGrok00003-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -811,11 +811,11 @@ class AIWeightedEnsembleBot {
             if (this.consecutiveLosses === 4) this.x4Losses++;
             if (this.consecutiveLosses === 5) this.x5Losses++;
 
-            if (this.consecutiveLosses === 2) {
-                this.currentStake = this.config.initialStake;
-            } else {
-                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            }
+            // if (this.consecutiveLosses === 2) {
+            //     this.currentStake = this.config.initialStake;
+            // } else {
+            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            // }
             // this.suspendAsset(asset);
         }
 
@@ -1062,15 +1062,15 @@ class AIWeightedEnsembleBot {
         console.log(`   Total P&L: $${this.totalProfitLoss.toFixed(2)}`);
         console.log(`   Current Stake: $${this.currentStake.toFixed(2)}`);
         this.connect();
-        this.checkTimeForDisconnectReconnect();
+        // this.checkTimeForDisconnectReconnect();
     }
 }
 
 // Initialize and start bot
 const bot = new AIWeightedEnsembleBot('0P94g4WdSrSrzir', {
-    initialStake: 2.2,
+    initialStake: 1.2,
     multiplier: 11.3,
-    maxConsecutiveLosses: 6,
+    maxConsecutiveLosses: 3,
     stopLoss: 550,
     takeProfit: 5000,
     requiredHistoryLength: 1500,
