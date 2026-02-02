@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'romenianGhost2-state.json');
+const STATE_FILE = path.join(__dirname, 'romenianGhost02-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -106,8 +106,8 @@ class AIWeightedEnsembleBot {
         this.wsReady = false;
 
         this.assets = [
-            'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
-            // 'R_10', 'R_25', 'R_50',
+            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
+            'R_10', 'R_25', 'RDBULL', 'RDBEAR'
         ];
 
         this.config = {
@@ -641,7 +641,7 @@ class AIWeightedEnsembleBot {
         const concentration = 1 - (entropy / maxEntropy);
 
         // CORRECT THRESHOLD: 0.06 = 6% deviation from uniform (realistic for synthetics)
-        const ultraLowVol = concentration > 0.006;
+        const ultraLowVol = concentration > 0.0075;
 
         const inRecent = this.tickHistories[asset].slice(-9).includes(saturatedDigit);
 
@@ -654,7 +654,7 @@ class AIWeightedEnsembleBot {
 
         // CORRECT THRESHOLD: Average Z >= 2.0 means strong saturation
         if (ultraLowVol &&
-            bestAvgZ >= 2.0 &&
+            bestAvgZ >= 2.3 &&
             inRecent &&
             saturatedDigit !== -1 &&
             saturatedDigit !== this.lastTradeDigit) {
