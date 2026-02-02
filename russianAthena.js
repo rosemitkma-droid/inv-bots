@@ -13,7 +13,7 @@ const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8212244373:AAE6-5-ANOmp2rEYYfPBSn8N7uSbRp6HM-k";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'athena9-state0001.json');
+const STATE_FILE = path.join(__dirname, 'athena9-state0003.json');
 
 class AthenaPureUltimate {
     constructor() {
@@ -24,7 +24,7 @@ class AthenaPureUltimate {
                 'R_10': {
                     decimals: 3,
                     digitIndex: 2,
-                    fractalThreshold: 1.55,      // was 1.32 (too low)
+                    fractalThreshold: 1.5,      // was 1.32 (too low)
                     minConfluence: 0.80,         // was 0.70
                     minZScore: 1.7,              // was 1.6
                     concentrationThreshold: 0.050,// was 0.055
@@ -33,7 +33,7 @@ class AthenaPureUltimate {
                 'R_25': {
                     decimals: 3,
                     digitIndex: 2,
-                    fractalThreshold: 1.55,      // was 1.32 (too low)
+                    fractalThreshold: 1.5,      // was 1.32 (too low)
                     minConfluence: 0.80,         // was 0.70
                     minZScore: 1.7,              // was 1.6
                     concentrationThreshold: 0.050,// was 0.055
@@ -51,7 +51,7 @@ class AthenaPureUltimate {
                 'R_75': {
                     decimals: 4,
                     digitIndex: 3,
-                    fractalThreshold: 1.55,      // was 1.32 (too low)
+                    fractalThreshold: 1.5,      // was 1.32 (too low)
                     minConfluence: 0.80,         // was 0.70
                     minZScore: 1.7,              // was 1.6
                     concentrationThreshold: 0.050,// was 0.055
@@ -69,7 +69,7 @@ class AthenaPureUltimate {
                 'RDBEAR': {
                     decimals: 4,
                     digitIndex: 3,
-                    fractalThreshold: 1.55,      // was 1.32 (too low)
+                    fractalThreshold: 1.5,      // was 1.32 (too low)
                     minConfluence: 0.80,         // was 0.70
                     minZScore: 1.7,              // was 1.6
                     concentrationThreshold: 0.050,// was 0.055
@@ -78,7 +78,7 @@ class AthenaPureUltimate {
                 'RDBULL': {
                     decimals: 4,
                     digitIndex: 3,
-                    fractalThreshold: 1.55,      // was 1.32 (too low)
+                    fractalThreshold: 1.5,      // was 1.32 (too low)
                     minConfluence: 0.80,         // was 0.70
                     minZScore: 1.7,              // was 1.6
                     concentrationThreshold: 0.050,// was 0.055
