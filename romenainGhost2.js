@@ -676,7 +676,9 @@ class AIWeightedEnsembleBot {
             🔔 <b>Trade Opened (Romanian Ghost Differ Bot)</b>
 
             📊 <b>${asset}</b>
-            🎯 <b>Differ Digit:</b> ${predictedDigit} (${bestAvgZ.toFixed(2)}) | <b>Concentration:</b> ${concentration.toFixed(4)} | <b>Participation:</b> ${participation}
+            🎯 <b>Differ Digit:</b> ${predictedDigit} (${bestAvgZ.toFixed(2)}) | 
+            <b>Concentration:</b> ${concentration.toFixed(4)} | 
+            <b>Participation:</b> ${participation}
             💰 <b>Stake:</b> $${this.currentStake.toFixed(2)}
             Last10Digits = ${this.tickHistories[asset].slice(-10).join(',')}
 
@@ -765,7 +767,7 @@ class AIWeightedEnsembleBot {
             
             📊 <b>${asset}</b>
             ${pnlColor} <b>P&L:</b> ${pnlStr}
-            📊 <b>Last Prediction:</b> ${this.lastPrediction}
+            📊 <b>Last Prediction:</b> ${this.lastTradeDigit}
             🎯 <b>Exit Digit:</b> ${this.actualDigit}
             Last10Digits = ${this.tickHistories[asset].slice(-10).join(',')}
             
@@ -778,8 +780,6 @@ class AIWeightedEnsembleBot {
             🎯 <b>Win Rate:</b> ${winRate}%
             
             📊 <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
-            
-            ⏰ ${new Date().toLocaleTimeString()}
         `.trim();
         this.sendTelegramMessage(telegramMsg);
 
