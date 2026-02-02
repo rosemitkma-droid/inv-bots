@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'mX4Differ-state000002.json');
+const STATE_FILE = path.join(__dirname, 'mX4Differ-state000003.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -926,8 +926,8 @@ class AIWeightedEnsembleBot {
             }
 
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 0) {
-                    console.log("It's past 23:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendHourlySummary();
                     this.disconnect();
                     this.endOfDay = true;
@@ -1076,7 +1076,7 @@ class AIWeightedEnsembleBot {
 const bot = new AIWeightedEnsembleBot('0P94g4WdSrSrzir', {
     initialStake: 2.2,
     multiplier: 11.3,
-    maxConsecutiveLosses: 4,
+    maxConsecutiveLosses: 6,
     stopLoss: 65,
     takeProfit: 5000,
     requiredHistoryLength: 3000,
