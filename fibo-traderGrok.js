@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fiboGrok00001-state.json');
+const STATE_FILE = path.join(__dirname, 'fiboGrok00002-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -753,8 +753,6 @@ class AIWeightedEnsembleBot {
             🎯 <b>Differ Digit:</b> ${predictedDigit}
             💰 <b>Stake:</b> $${this.currentStake.toFixed(2)}
             Last10Digits = ${this.tickHistories[asset].slice(-10).join(',')}
-
-            ⏰ ${new Date().toLocaleTimeString()}
         `.trim();
         this.sendTelegramMessage(message);
 
@@ -851,8 +849,6 @@ class AIWeightedEnsembleBot {
             🎯 <b>Win Rate:</b> ${winRate}%
             
             📊 <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
-            
-            ⏰ ${new Date().toLocaleTimeString()}
         `.trim();
         this.sendTelegramMessage(telegramMsg);
 
@@ -1072,9 +1068,9 @@ class AIWeightedEnsembleBot {
 
 // Initialize and start bot
 const bot = new AIWeightedEnsembleBot('0P94g4WdSrSrzir', {
-    initialStake: 0.61,
+    initialStake: 2.2,
     multiplier: 11.3,
-    maxConsecutiveLosses: 4,
+    maxConsecutiveLosses: 6,
     stopLoss: 550,
     takeProfit: 5000,
     requiredHistoryLength: 1500,
