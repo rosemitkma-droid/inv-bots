@@ -373,18 +373,24 @@ class MoneyManagementEngine {
      * 2+ losses → base × 11.3^(losses-1)
      */
     calculateStake() {
-        if (this.consecutiveLosses === 0) {
-            this.currentStake = this.baseStake;
-        } else if (this.consecutiveLosses === 1) {
-            this.currentStake = this.baseStake * this.firstLossMultiplier;
-        } else {
-            // 2+ losses: base × 11.3^(n-1)
-            const exponent = this.consecutiveLosses - 1;
-            this.currentStake = this.currentStake * Math.pow(this.subsequentMultiplier, exponent);
-        }
+        // if (this.consecutiveLosses === 0) {
+        //     this.currentStake = this.baseStake;
+        // } else if (this.consecutiveLosses === 1) {
+        //     this.currentStake = this.baseStake * this.firstLossMultiplier;
+        // } else {
+        //     // 2+ losses: base × 11.3^(n-1)
+        //     const exponent = this.consecutiveLosses - 1;
+        //     this.currentStake = this.currentStake * Math.pow(this.subsequentMultiplier, exponent);
+        // }
 
-        // Round to 2 decimal places
-        this.currentStake = Math.round(this.currentStake * 100) / 100;
+        // // Round to 2 decimal places
+        // this.currentStake = Math.round(this.currentStake * 100) / 100;
+
+        if (this.consecutiveLosses === 2) {
+            this.currentStake = this.baseStake;
+        } else {
+            this.currentStake = Math.ceil(this.currentStake * this.firstLossMultiplier * 100) / 100;
+        }
 
         return this.currentStake;
     }
@@ -480,7 +486,7 @@ class MoneyManagementEngine {
 // STATE PERSISTENCE
 // ============================================================================
 
-const STATE_FILE = path.join(__dirname, 'kclaude-00009-state.json');
+const STATE_FILE = path.join(__dirname, 'kclaude-000011-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -922,6 +928,136 @@ class FibonacciZScoreBot {
         });
     }
 
+    // ========================================================================
+    // ANALYSIS AND TRADING
+    // ========================================================================
+
+    analyzeAndTrade(asset) {
+        if (this.tradeInProgress || this.suspendedAssets.has(asset) || !this.wsReady) {
+            return;
+        }
+
+        const history = this.tickHistories[asset];
+        if (history.length < this.config.minHistoryLength) return;
+        if (!this.moneyManager.canTrade()) return;
+
+        this.volatilityLevel = this.getVolatilityLevel(history);
+        const volatility = this.volatilityEngine.calculateVolatilityLevel(history);
+
+        console.log(`[${asset}] Volatilityn: ${this.volatilityLevel} | Volatility: ${volatility.level} (Score: ${volatility.score.toFixed(2)})`);
+        if (!volatility.canTrade) return;
+
+        let shouldTrade = false;
+        let digitToTrade = null;
+        let tradeType = null;
+
+        // === 1. ULTRA-LOW BONUS TRIGGER (5+ streak) ===
+        if (volatility.level === 'ultra-low' && (this.volatilityLevel === 'medium' || this.volatilityLevel === 'low')) {
+            const bonus = this.volatilityEngine.checkBonusTrigger(history);
+            if (bonus.triggered && this.lastPrediction !== bonus.digit) {
+                shouldTrade = true;
+                digitToTrade = bonus.digit;
+                tradeType = 'BONUS_STREAK';
+            }
+        }
+
+        // === 2. FIBONACCI SATURATION (ROMANIAN GHOST EXACT LOGIC) ===
+        if (!shouldTrade) {
+            const saturation = this.zScoreEngine.findSaturatedDigit(history);
+
+            if (saturation) {
+                // ROMANIAN GHOST'S EXACT CONDITION — ONLY +0.3 improvement OR new digit
+                // console.log('Saturation Score:', saturation.totalZScore)
+                const zImproved = !this.lastZScore || saturation.totalZScore > this.lastZScore + 0.3;
+                const newDigit = this.lastPrediction !== saturation.digit;
+
+                // if ((newDigit || zImproved) && saturation.totalZScore >= 22.30 && (volatility.level === 'ultra-low' || volatility.level === 'low')) {
+                if (saturation.totalZScore >= 22.30 && (volatility.level === 'ultra-low' || volatility.level === 'low') && (this.volatilityLevel === 'medium' || this.volatilityLevel === 'low')) {
+                    shouldTrade = true;
+                    digitToTrade = saturation.digit;
+                    tradeType = 'FIB_SATURATION';
+                    this.lastZScore = saturation.totalZScore;  // Update for next comparison
+                }
+            }
+        }
+
+        if (shouldTrade && digitToTrade !== null) {
+            this.lastPrediction = digitToTrade;
+            this.executeTrade(asset, digitToTrade, tradeType, { volatility });
+        }
+    }
+
+    getVolatilityLevel(tickHistory) {
+        if (tickHistory.length < 50) return 'unknown';
+        const recent = tickHistory.slice(-50);
+        const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+        const variance = recent.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / recent.length;
+        const stdDev = Math.sqrt(variance);
+
+        if (stdDev > 3.1) return 'extreme';
+        if (stdDev > 2.8) return 'high';
+        if (stdDev > 2.0) return 'medium';
+
+        return 'low';
+    }
+
+    executeTrade(asset, digit, tradeType, analysisData) {
+        if (this.tradeInProgress || !this.wsReady) return;
+
+        this.tradeInProgress = true;
+        this.lastPrediction = digit;
+        this.lastTradeType = tradeType;
+
+        const stake = this.moneyManager.calculateStake();
+
+        console.log(`\n🎯 TRADE SIGNAL | ${asset}`);
+        console.log(`   Type: ${tradeType}`);
+        console.log(`   Digit: ${digit} (betting it WON'T appear)`);
+        console.log(`   Stake: $${stake.toFixed(2)}`);
+        console.log(`   Volatility: ${analysisData.volatility.level} (${analysisData.volatility.score.toFixed(3)})`);
+
+        if (analysisData.saturationInfo) {
+            console.log(`   Z-Score: ${analysisData.saturationInfo.totalZScore.toFixed(2)}`);
+            console.log(`   Valid Windows: ${analysisData.saturationInfo.validWindows}`);
+        }
+        if (analysisData.bonusInfo) {
+            console.log(`   Streak: ${analysisData.bonusInfo.streakLength}× digit ${digit}`);
+        }
+
+        // Send Telegram alert
+        this.sendTelegram(`
+            🔔 <b>Trade Signal</b> | ${asset}
+
+            🎯 Digit: <b>${digit}</b> (DIFFER)
+            💰 Stake: <b>$${stake.toFixed(2)}</b>
+            📊 Type: ${tradeType}
+
+            📈 <b>Analysis:</b>
+            ├ Volatility: ${analysisData.volatility.level} (${analysisData.volatility.score.toFixed(3)})
+            ${analysisData.saturationInfo ? `├ Z-Score: ${analysisData.saturationInfo.totalZScore.toFixed(2)}
+            ├ Windows: ${analysisData.saturationInfo.validWindows}/10` : ''}
+            ${analysisData.bonusInfo ? `├ Streak: ${analysisData.bonusInfo.streakLength}×` : ''}
+            └ Last 10: ${this.tickHistories[asset].slice(-10).join(',')}
+        `.trim());
+
+        // Place trade
+        this.sendRequest({
+            buy: 1,
+            price: stake,
+            parameters: {
+                amount: stake,
+                basis: 'stake',
+                contract_type: 'DIGITDIFF',
+                currency: 'USD',
+                duration: 1,
+                duration_unit: 't',
+                symbol: asset,
+                barrier: digit.toString()
+            }
+        });
+    }
+
+
     handleContractUpdate(msg) {
         const contract = msg.proposal_open_contract;
         if (!contract?.is_sold) return;
@@ -990,120 +1126,6 @@ class FibonacciZScoreBot {
         // }
 
         this.tradeInProgress = false;
-    }
-
-    // ========================================================================
-    // ANALYSIS AND TRADING
-    // ========================================================================
-
-    analyzeAndTrade(asset) {
-        if (this.tradeInProgress || this.suspendedAssets.has(asset) || !this.wsReady) {
-            return;
-        }
-
-        const history = this.tickHistories[asset];
-        if (history.length < this.config.minHistoryLength) return;
-        if (!this.moneyManager.canTrade()) return;
-
-        const volatility = this.volatilityEngine.calculateVolatilityLevel(history);
-        if (!volatility.canTrade) return;
-
-        let shouldTrade = false;
-        let digitToTrade = null;
-        let tradeType = null;
-
-        // === 1. ULTRA-LOW BONUS TRIGGER (5+ streak) ===
-        if (volatility.level === 'ultra-low') {
-            const bonus = this.volatilityEngine.checkBonusTrigger(history);
-            if (bonus.triggered && this.lastPrediction !== bonus.digit) {
-                shouldTrade = true;
-                digitToTrade = bonus.digit;
-                tradeType = 'BONUS_STREAK';
-            }
-        }
-
-        // === 2. FIBONACCI SATURATION (ROMANIAN GHOST EXACT LOGIC) ===
-        if (!shouldTrade) {
-            const saturation = this.zScoreEngine.findSaturatedDigit(history);
-
-            if (saturation) {
-                // ROMANIAN GHOST'S EXACT CONDITION — ONLY +0.3 improvement OR new digit
-                // console.log('Saturation Score:', saturation.totalZScore)
-                const zImproved = !this.lastZScore || saturation.totalZScore > this.lastZScore + 0.3;
-                const newDigit = this.lastPrediction !== saturation.digit;
-
-                // if ((newDigit || zImproved) && saturation.totalZScore >= 22.30 && (volatility.level === 'ultra-low' || volatility.level === 'low')) {
-                if (saturation.totalZScore >= 22.30 && (volatility.level === 'ultra-low' || volatility.level === 'low')) {
-                    shouldTrade = true;
-                    digitToTrade = saturation.digit;
-                    tradeType = 'FIB_SATURATION';
-                    this.lastZScore = saturation.totalZScore;  // Update for next comparison
-                }
-            }
-        }
-
-        if (shouldTrade && digitToTrade !== null) {
-            this.lastPrediction = digitToTrade;
-            this.executeTrade(asset, digitToTrade, tradeType, { volatility });
-        }
-    }
-
-    executeTrade(asset, digit, tradeType, analysisData) {
-        if (this.tradeInProgress || !this.wsReady) return;
-
-        this.tradeInProgress = true;
-        this.lastPrediction = digit;
-        this.lastTradeType = tradeType;
-
-        const stake = this.moneyManager.calculateStake();
-
-        console.log(`\n🎯 TRADE SIGNAL | ${asset}`);
-        console.log(`   Type: ${tradeType}`);
-        console.log(`   Digit: ${digit} (betting it WON'T appear)`);
-        console.log(`   Stake: $${stake.toFixed(2)}`);
-        console.log(`   Volatility: ${analysisData.volatility.level} (${analysisData.volatility.score.toFixed(3)})`);
-
-        if (analysisData.saturationInfo) {
-            console.log(`   Z-Score: ${analysisData.saturationInfo.totalZScore.toFixed(2)}`);
-            console.log(`   Valid Windows: ${analysisData.saturationInfo.validWindows}`);
-        }
-        if (analysisData.bonusInfo) {
-            console.log(`   Streak: ${analysisData.bonusInfo.streakLength}× digit ${digit}`);
-        }
-
-        // Send Telegram alert
-        this.sendTelegram(`
-            🔔 <b>Trade Signal</b> | ${asset}
-
-            🎯 Digit: <b>${digit}</b> (DIFFER)
-            💰 Stake: <b>$${stake.toFixed(2)}</b>
-            📊 Type: ${tradeType}
-
-            📈 <b>Analysis:</b>
-            ├ Volatility: ${analysisData.volatility.level} (${analysisData.volatility.score.toFixed(3)})
-            ${analysisData.saturationInfo ? `├ Z-Score: ${analysisData.saturationInfo.totalZScore.toFixed(2)}
-            ├ Windows: ${analysisData.saturationInfo.validWindows}/10` : ''}
-            ${analysisData.bonusInfo ? `├ Streak: ${analysisData.bonusInfo.streakLength}×` : ''}
-            └ Last 10: ${this.tickHistories[asset].slice(-10).join(',')}
-
-            ⏰ ${new Date().toLocaleTimeString()}
-        `.trim());
-
-        // Place trade
-        this.sendRequest({
-            buy: 1,
-            price: stake,
-            parameters: {
-                amount: stake,
-                basis: 'stake',
-                contract_type: 'DIGITDIFF',
-                currency: 'USD',
-                duration: 1,
-                duration_unit: 't',
-                symbol: asset,
-                barrier: digit.toString()
-            }
-        });
     }
 
     // ========================================================================
@@ -1259,21 +1281,21 @@ class FibonacciZScoreBot {
             const stats = this.moneyManager.getStats();
 
             this.sendTelegram(`
-⏰ <b>Hourly Summary</b>
+                ⏰ <b>Hourly Summary</b>
 
-<b>Last Hour:</b>
-├ Trades: ${this.hourlyStats.trades}
-├ W/L: ${this.hourlyStats.wins}/${this.hourlyStats.losses}
-└ P&L: ${this.hourlyStats.pnl >= 0 ? '+' : ''}$${this.hourlyStats.pnl.toFixed(2)}
+                <b>Last Hour:</b>
+                ├ Trades: ${this.hourlyStats.trades}
+                ├ W/L: ${this.hourlyStats.wins}/${this.hourlyStats.losses}
+                └ P&L: ${this.hourlyStats.pnl >= 0 ? '+' : ''}$${this.hourlyStats.pnl.toFixed(2)}
 
-<b>Session Total:</b>
-├ Trades: ${stats.totalTrades}
-├ W/L: ${stats.totalWins}/${stats.totalLosses} (${stats.winRate}%)
-├ P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}
-├ Streak: ${stats.consecutiveLosses}L
-└ Loss Streaks: 2L×${stats.lossStreaks[2]} | 3L×${stats.lossStreaks[3]} | 4L×${stats.lossStreaks[4]} | 5L×${stats.lossStreaks[5]}
+                <b>Session Total:</b>
+                ├ Trades: ${stats.totalTrades}
+                ├ W/L: ${stats.totalWins}/${stats.totalLosses} (${stats.winRate}%)
+                ├ P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}
+                ├ Streak: ${stats.consecutiveLosses}L
+                └ Loss Streaks: 2L×${stats.lossStreaks[2]} | 3L×${stats.lossStreaks[3]} | 4L×${stats.lossStreaks[4]} | 5L×${stats.lossStreaks[5]}
 
-⏰ ${new Date().toLocaleString()}
+                ⏰ ${new Date().toLocaleString()}
             `.trim());
 
             // Reset hourly stats
