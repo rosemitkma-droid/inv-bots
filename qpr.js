@@ -17,7 +17,7 @@ const TELEGRAM_TOKEN = '8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4';   // Te
 const CHAT_ID = '752497117';                    // Your chat id
 // =====================================
 
-const STATE_FILE = path.join(__dirname, 'qpr01-state.json');
+const STATE_FILE = path.join(__dirname, 'qpr02-state.json');
 
 class QuantumPhaseReversalBot {
     constructor() {
@@ -41,7 +41,7 @@ class QuantumPhaseReversalBot {
                     zWindows: [55, 144, 233, 377],
                     minAvgZ: 1.4,                 // strong but not ultra‑extreme saturation
 
-                    minConcentration: 0.022,      // entropy-based concentration
+                    minConcentration: 0.027,      // entropy-based concentration
 
                     weight: 1.2                   // slightly favor R_10 in scoring
                 },
@@ -59,7 +59,7 @@ class QuantumPhaseReversalBot {
                     zWindows: [55, 144, 233, 377],
                     minAvgZ: 1.4,                 // strong but not ultra‑extreme saturation
 
-                    minConcentration: 0.022,      // entropy-based concentration
+                    minConcentration: 0.027,      // entropy-based concentration
 
                     weight: 1.1                   // slightly favor R_10 in scoring
                 },
@@ -81,7 +81,7 @@ class QuantumPhaseReversalBot {
                     zWindows: [55, 144, 233, 377],
                     minAvgZ: 1.8,                 // strong multi‑window saturation
 
-                    minConcentration: 0.023,      // clearly skewed digit distribution
+                    minConcentration: 0.028,      // clearly skewed digit distribution
 
                     weight: 1.1
                 },
@@ -102,7 +102,7 @@ class QuantumPhaseReversalBot {
                     zWindows: [55, 144, 233, 377],
                     minAvgZ: 2.0,                 // very strong saturation
 
-                    minConcentration: 0.023,
+                    minConcentration: 0.028,
 
                     weight: 1.0                    // slightly down‑weighted vs R_50
                 },
@@ -124,7 +124,7 @@ class QuantumPhaseReversalBot {
                     zWindows: [55, 144, 233, 377],
                     minAvgZ: 2.2,                 // extreme saturation across windows
 
-                    minConcentration: 0.023,
+                    minConcentration: 0.028,
 
                     weight: 0.9                    // a bit more conservative in scoring
                 },
@@ -147,7 +147,7 @@ class QuantumPhaseReversalBot {
                     zWindows: [55, 144, 233, 377],
                     minAvgZ: 2.0,
 
-                    minConcentration: 0.023,
+                    minConcentration: 0.028,
 
                     weight: 0.9                    // slightly cautious, they can be noisier
                 },
@@ -165,7 +165,7 @@ class QuantumPhaseReversalBot {
                     zWindows: [55, 144, 233, 377],
                     minAvgZ: 2.0,
 
-                    minConcentration: 0.023,
+                    minConcentration: 0.028,
 
                     weight: 0.9
                 },
