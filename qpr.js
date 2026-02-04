@@ -17,7 +17,7 @@ const TELEGRAM_TOKEN = '8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4';   // Te
 const CHAT_ID = '752497117';                    // Your chat id
 // =====================================
 
-const STATE_FILE = path.join(__dirname, 'qpr-state.json');
+const STATE_FILE = path.join(__dirname, 'qpr01-state.json');
 
 class QuantumPhaseReversalBot {
     constructor() {
