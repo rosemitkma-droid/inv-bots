@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'mX4Differ-state000003.json');
+const STATE_FILE = path.join(__dirname, 'mX4Differ-state000004.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -918,8 +918,8 @@ class AIWeightedEnsembleBot {
                 return; // Prevent any reconnection logic during the weekend
             }
 
-            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
-                console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
+            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
+                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
                 this.resetDailyStats();
                 this.endOfDay = false;
                 this.connect();
