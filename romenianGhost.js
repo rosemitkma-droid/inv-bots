@@ -14,7 +14,7 @@ const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'ghost92-state.json');
+const STATE_FILE = path.join(__dirname, 'ghost92-0001-state.json');
 
 class RomanianGhostUltimate {
     constructor() {
@@ -44,9 +44,9 @@ class RomanianGhostUltimate {
 
             // Money management
             baseStake: 2.20,
-            firstLossMultiplier: 1.8,
+            firstLossMultiplier: 11.3,
             subsequentMultiplier: 11.3,
-            maxConsecutiveLosses: 4,
+            maxConsecutiveLosses: 6,
             takeProfit: 10000,
             stopLoss: -500,
 
@@ -72,6 +72,8 @@ class RomanianGhostUltimate {
         this.lastTickLogTime = {};
         this.lastTickLogTime2 = {};
         this.tradeInProgress = false;
+        this.endOfDay = false;
+        this.isWinTrade = false;
 
         this.config.assets.forEach(a => {
             this.lastTradeDigit[a] = null;
@@ -109,6 +111,7 @@ class RomanianGhostUltimate {
         this.connect();
         this.startHourlySummary();
         this.startAutoSave();
+        this.checkTimeForDisconnectReconnect();
     }
 
     // ========================================================================
@@ -550,7 +553,9 @@ class RomanianGhostUltimate {
             this.hourly.wins++;
             this.consecutiveLosses = 0;
             this.stake = this.config.baseStake;
+            this.isWinTrade = true;
         } else {
+            this.isWinTrade = false;
             this.hourly.losses++;
             this.consecutiveLosses++;
 
@@ -822,7 +827,52 @@ class RomanianGhostUltimate {
 └ Net: $${this.netProfit.toFixed(2)}
             `.trim());
             this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
+            this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
         }, 3600000);
+    }
+
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Weekend logic: Saturday 11pm to Monday 8am GMT+1 -> Disconnect and stay disconnected
+            const isWeekend = (currentDay === 0) || // Sunday
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+                (currentDay === 1 && currentHours < 8);    // Monday before 8am
+
+            if (isWeekend) {
+                if (!this.endOfDay) {
+                    console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Prevent any reconnection logic during the weekend
+            }
+
+            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
+                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
+                this.resetDailyStats();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+        }, 20000);
+    }
+
+    resetDailyStats() {
+        this.tradeInProgress = false;
+        this.isWinTrade = false;
     }
 }
 
