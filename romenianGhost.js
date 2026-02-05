@@ -14,7 +14,7 @@ const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'ghost92-0001-state.json');
+const STATE_FILE = path.join(__dirname, 'ghost92-0003-state.json');
 
 class RomanianGhostUltimate {
     constructor() {
@@ -31,7 +31,7 @@ class RomanianGhostUltimate {
             minParticipation: 8,          // Digit must dominate 8+ windows
 
             // Volatility thresholds (CORRECTED - realistic values)
-            minConcentration: 0.055,      // Minimum concentration for ultra-low
+            minConcentration: 0.023,      // Minimum concentration for ultra-low
             maxConcentration: 0.25,       // Maximum (avoid extreme anomalies)
 
             // Confirmation layers
@@ -225,7 +225,7 @@ class RomanianGhostUltimate {
                 weightedConc < this.config.maxConcentration,
             streakInfo,
             hurst,
-            isMeanReverting: hurst < 0.45
+            isMeanReverting: hurst < 0.47
         };
     }
 
@@ -361,7 +361,7 @@ class RomanianGhostUltimate {
             avgZScore: best.avgZScore,
             participation: best.participation,
             inRecent,
-            isValid: totalScore >= 60 && inRecent  // Minimum 60 points to trade
+            isValid: totalScore >= 65 && inRecent  // Minimum 60 points to trade
         };
     }
 
@@ -376,12 +376,12 @@ class RomanianGhostUltimate {
         if (this.histories[asset].length < this.config.minHistoryForTrading) return false;
 
         // Cooldown check
-        // const ticksSinceLast = this.ticksSinceLastTrade[asset];
-        // const requiredCooldown = this.consecutiveLosses > 0
-        //     ? this.config.cooldownAfterLoss
-        //     : this.config.cooldownTicks;
+        const ticksSinceLast = this.ticksSinceLastTrade[asset];
+        const requiredCooldown = this.consecutiveLosses > 0
+            ? this.config.cooldownAfterLoss
+            : this.config.cooldownTicks;
 
-        // if (ticksSinceLast < requiredCooldown) return false;
+        if (ticksSinceLast < requiredCooldown) return false;
 
         // Time filter (avoid volatile minutes)
         const now = new Date();
@@ -422,11 +422,11 @@ class RomanianGhostUltimate {
         if (recentWinRate < 0.90) {
             // Increase thresholds if win rate dropping
             minScore = 70;
-            minZScore = 2.3;
+            minZScore = 2.6;
         } else if (recentWinRate > 0.97) {
             // Can slightly relax if performing well
-            minScore = 55;
-            minZScore = 1.8;
+            minScore = 60;
+            minZScore = 2.0;
         }
 
         return { minScore, minZScore };
@@ -455,7 +455,8 @@ class RomanianGhostUltimate {
         // LOG EVERY 30 SECONDS
         const now = Date.now();
         if (now - this.lastTickLogTime2[asset] >= 30000 && signal) {
-            console.log(`[${asset}] Score=${signal.totalScore.toFixed(1)} | AvgZ=${signal.avgZScore.toFixed(2)} | Digit=${signal.digit} | Conc=${volAnalysis.concentration.toFixed(4)} | Ultra=${volAnalysis.isUltraLow} | Recent=${signal.inRecent} | Cooldown=${this.ticksSinceLastTrade[asset]}`);
+            console.log(`[${asset}] Score=${signal.totalScore.toFixed(1)} | AvgZ=${signal.avgZScore.toFixed(2)} | Digit=${signal.digit} | Conc=${volAnalysis.concentration.toFixed(4)} | Ultra=${volAnalysis.isUltraLow} | Hurst=${volAnalysis.hurst.toFixed(4)} | Recent=${signal.inRecent} | Cooldown=${this.ticksSinceLastTrade[asset]}`);
+            // console.log(`Analysis: ${JSON.stringify(volAnalysis, null, 2)}`);
             this.lastTickLogTime2[asset] = now;
         }
 
@@ -464,6 +465,8 @@ class RomanianGhostUltimate {
 
         if (signal.totalScore < thresholds.minScore) return;
         if (signal.avgZScore < thresholds.minZScore) return;
+        if (volAnalysis.concentration < thresholds.minConcentration) return;
+        if (!volAnalysis.isUltraLow || !volAnalysis.isMeanReverting) return;
 
         // Step 6: Check if different from last trade
         if (signal.digit === this.lastTradeDigit[asset]) {
@@ -472,13 +475,13 @@ class RomanianGhostUltimate {
         }
 
         // Step 7: Execute trade
-        this.placeTrade(asset, signal.digit, signal.totalScore, signal.avgZScore, volAnalysis.concentration);
+        this.placeTrade(asset, signal.digit, signal.totalScore, signal.avgZScore, volAnalysis);
     }
 
     // ========================================================================
     // TRADE EXECUTION
     // ========================================================================
-    placeTrade(asset, digit, score, zScore, concentration) {
+    placeTrade(asset, digit, score, zScore, volAnalysis) {
         if (this.tradeInProgress) return;
 
         this.tradeInProgress = true;
@@ -490,7 +493,7 @@ class RomanianGhostUltimate {
         console.log(`   Digit: ${digit}`);
         console.log(`   Score: ${score.toFixed(1)}`);
         console.log(`   Avg Z-Score: ${zScore.toFixed(2)}`);
-        console.log(`   Concentration: ${concentration.toFixed(4)}`);
+        console.log(`   Concentration: ${volAnalysis.concentration.toFixed(4)}`);
         console.log(`   Stake: $${this.stake.toFixed(2)}`);
 
         this.sendRequest({
@@ -513,13 +516,13 @@ class RomanianGhostUltimate {
 
             📊 Asset: ${asset}
             🔢 Digit: ${digit}
+            last10Digits: ${this.histories[asset].slice(-10).join(',')}
             📈 Score: ${score.toFixed(1)}
             📉 Avg Z: ${zScore.toFixed(2)}
-            🔬 Conc: ${concentration.toFixed(4)}
+            🔬 Conc: ${volAnalysis.concentration.toFixed(4)}
+            📉 Hurst: ${volAnalysis.hurst.toFixed(4)}
             💰 Stake: $${this.stake.toFixed(2)}
             📊 Losses: ${this.consecutiveLosses}
-
-            ⏰ ${new Date().toLocaleTimeString()}
         `.trim());
     }
 
@@ -580,6 +583,7 @@ class RomanianGhostUltimate {
 
             📊 Asset: ${asset}
             🔢 Exit: ${exitDigit}
+            last10Digits: ${this.histories[asset].slice(-10).join(',')}
             💸 P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}
             📈 Total: ${this.totalTrades} | W/L: ${this.totalWins}/${this.totalTrades - this.totalWins}
             🔢 x2-x5: ${this.x2}/${this.x3}/${this.x4}/${this.x5}
@@ -670,7 +674,7 @@ class RomanianGhostUltimate {
         this.ws.on('close', () => {
             this.connected = false;
             this.wsReady = false;
-            if (!this.isReconnecting && this.reconnectAttempts < this.maxReconnectAttempts) {
+            if (!this.isReconnecting && this.reconnectAttempts < this.maxReconnectAttempts && !this.endOfDay) {
                 this.reconnect();
             }
         });
@@ -775,6 +779,7 @@ class RomanianGhostUltimate {
     disconnect() {
         console.log('🛑 Disconnecting...');
         this.saveState();
+        this.endOfDay = true;
         if (this.ws) this.ws.close();
     }
 
