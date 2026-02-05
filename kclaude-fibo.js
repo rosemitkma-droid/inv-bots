@@ -567,8 +567,8 @@ class FibonacciZScoreBot {
         // EXACT assets as specified
         this.assets = [
             'R_10',
-            'R_25',
-            'R_50'
+            // 'R_25',
+            // 'R_50'
         ];
 
         // Configuration
