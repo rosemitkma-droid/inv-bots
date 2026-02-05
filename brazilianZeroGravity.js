@@ -13,7 +13,7 @@ const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8591937854:AAESyF-8b17sRK-xdQXzrHfALnKA1sAR3CI";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'zerogravity5-state02.json');
+const STATE_FILE = path.join(__dirname, 'zerogravity5-state04.json');
 
 class ZeroGravityUltimate {
     constructor() {
@@ -1136,7 +1136,7 @@ class ZeroGravityUltimate {
         this.ws.on('close', () => {
             this.connected = false;
             this.wsReady = false;
-            if (!this.isReconnecting && this.reconnectAttempts < this.maxReconnectAttempts) {
+            if (!this.isReconnecting && this.reconnectAttempts < this.maxReconnectAttempts && !this.endOfDay) {
                 this.reconnect();
             }
         });
@@ -1245,6 +1245,7 @@ class ZeroGravityUltimate {
     disconnect() {
         console.log('🛑 Disconnecting...');
         this.saveState();
+        this.endOfDay = true;
         if (this.ws) this.ws.close();
     }
 
