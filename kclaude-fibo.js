@@ -373,23 +373,24 @@ class MoneyManagementEngine {
      * 2+ losses → base × 11.3^(losses-1)
      */
     calculateStake() {
-        // if (this.consecutiveLosses === 0) {
-        //     this.currentStake = this.baseStake;
-        // } else if (this.consecutiveLosses === 1) {
-        //     this.currentStake = this.baseStake * this.firstLossMultiplier;
-        // } else {
-        //     // 2+ losses: base × 11.3^(n-1)
-        //     const exponent = this.consecutiveLosses - 1;
-        //     this.currentStake = this.currentStake * Math.pow(this.subsequentMultiplier, exponent);
-        // }
+        if (this.consecutiveLosses === 0) {
+            this.currentStake = this.baseStake;
+        } else if (this.consecutiveLosses === 1) {
+            this.currentStake = this.baseStake * this.firstLossMultiplier;
+        } else {
+            // 2+ losses: base × 11.3^(n-1)
+            const exponent = this.consecutiveLosses - 1;
+            // this.currentStake = this.currentStake * Math.pow(this.subsequentMultiplier, exponent);
+            this.currentStake = Math.ceil(this.currentStake * this.firstLossMultiplier * 100) / 100;
+        }
 
-        // // Round to 2 decimal places
+        // Round to 2 decimal places
         // this.currentStake = Math.round(this.currentStake * 100) / 100;
 
         // if (this.consecutiveLosses === 2) {
         //     this.currentStake = this.baseStake;
         // } else {
-        this.currentStake = Math.ceil(this.currentStake * this.firstLossMultiplier * 100) / 100;
+        // this.currentStake = Math.ceil(this.currentStake * this.firstLossMultiplier * 100) / 100;
         // }
 
         return this.currentStake;
@@ -486,7 +487,7 @@ class MoneyManagementEngine {
 // STATE PERSISTENCE
 // ============================================================================
 
-const STATE_FILE = path.join(__dirname, 'kclaude-000014-state.json');
+const STATE_FILE = path.join(__dirname, 'kclaude-000015-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -898,11 +899,11 @@ class FibonacciZScoreBot {
 
         // Periodic logging
         const now = Date.now();
-        // if (now - this.lastTickLogTime[asset] >= 60000) {
-        this.logAssetStatus(asset);
-        this.lastTickLogTime[asset] = now;
-        console.log(`📊 ${asset}: ${this.tickHistories[asset].slice(-10).join(', ')}`);
-        // }
+        if (now - this.lastTickLogTime[asset] >= 30000 || this.tradeInProgress) {
+            this.logAssetStatus(asset);
+            this.lastTickLogTime[asset] = now;
+            console.log(`📊 ${asset}: ${this.tickHistories[asset].slice(-10).join(', ')}`);
+        }
 
         // console.log(`📊 ${asset}: ${this.tickHistories[asset].slice(-10).join(', ')}`);
 
@@ -953,14 +954,14 @@ class FibonacciZScoreBot {
         let tradeType = null;
 
         // === 1. ULTRA-LOW BONUS TRIGGER (5+ streak) ===
-        if (volatility.level === 'ultra-low' && (this.volatilityLevel === 'medium' || this.volatilityLevel === 'low')) {
-            const bonus = this.volatilityEngine.checkBonusTrigger(history);
-            if (bonus.triggered && this.lastPrediction !== bonus.digit) {
-                shouldTrade = true;
-                digitToTrade = bonus.digit;
-                tradeType = 'BONUS_STREAK';
-            }
-        }
+        // if (volatility.level === 'ultra-low' && (this.volatilityLevel === 'medium' || this.volatilityLevel === 'low')) {
+        //     const bonus = this.volatilityEngine.checkBonusTrigger(history);
+        //     if (bonus.triggered && this.lastPrediction !== bonus.digit) {
+        //         shouldTrade = true;
+        //         digitToTrade = bonus.digit;
+        //         tradeType = 'BONUS_STREAK';
+        //     }
+        // }
 
         // === 2. FIBONACCI SATURATION (ROMANIAN GHOST EXACT LOGIC) ===
         if (!shouldTrade) {
@@ -982,10 +983,10 @@ class FibonacciZScoreBot {
             }
         }
 
-        if (shouldTrade && digitToTrade !== null) {
-            this.lastPrediction = digitToTrade;
-            this.executeTrade(asset, digitToTrade, tradeType, { volatility });
-        }
+        // if (shouldTrade && digitToTrade !== null) {
+        this.lastPrediction = digitToTrade;
+        this.executeTrade(asset, digitToTrade, tradeType, { volatility }, saturation);
+        // }
     }
 
     getVolatilityLevel(tickHistory) {
@@ -1002,7 +1003,7 @@ class FibonacciZScoreBot {
         return 'low';
     }
 
-    executeTrade(asset, digit, tradeType, analysisData) {
+    executeTrade(asset, digit, tradeType, analysisData, saturationInfo) {
         if (this.tradeInProgress || !this.wsReady) return;
 
         this.tradeInProgress = true;
@@ -1016,13 +1017,12 @@ class FibonacciZScoreBot {
         console.log(`   Digit: ${digit} (betting it WON'T appear)`);
         console.log(`   Stake: $${stake.toFixed(2)}`);
         console.log(`   Volatility: ${analysisData.volatility.level} (${analysisData.volatility.score.toFixed(3)})`);
+        console.log(`   Average Entropy Deviation: ${analysisData.volatility.avgEntropyDeviation.toFixed(3)}`);
+        console.log(`   Entropy Streak Deviation: ${analysisData.volatility.avgStreakDeviation.toFixed(3)}`);
 
-        if (analysisData.saturationInfo) {
-            console.log(`   Z-Score: ${analysisData.saturationInfo.totalZScore.toFixed(2)}`);
-            console.log(`   Valid Windows: ${analysisData.saturationInfo.validWindows}`);
-        }
-        if (analysisData.bonusInfo) {
-            console.log(`   Streak: ${analysisData.bonusInfo.streakLength}× digit ${digit}`);
+        if (saturationInfo) {
+            console.log(`   Z-Score: ${saturationInfo.totalZScore.toFixed(2)}`);
+            console.log(`   Valid Windows: ${saturationInfo.validWindows}`);
         }
 
         // Send Telegram alert
@@ -1035,18 +1035,17 @@ class FibonacciZScoreBot {
 
             📈 <b>Analysis:</b>
             ├ Volatility: ${analysisData.volatility.level} (${analysisData.volatility.score.toFixed(3)})
-            ${analysisData.saturationInfo ? `├ Z-Score: ${analysisData.saturationInfo.totalZScore.toFixed(2)}
-            ├ Windows: ${analysisData.saturationInfo.validWindows}/10` : ''}
-            ${analysisData.bonusInfo ? `├ Streak: ${analysisData.bonusInfo.streakLength}×` : ''}
+            ${saturationInfo ? `├ Z-Score: ${saturationInfo.totalZScore.toFixed(2)}
+            ├ Windows: ${saturationInfo.validWindows}/10` : ''}
             └ Last 10: ${this.tickHistories[asset].slice(-10).join(',')}
         `.trim());
 
         // Place trade
         this.sendRequest({
             buy: 1,
-            price: stake,
+            price: stake.toFixed(2),
             parameters: {
-                amount: stake,
+                amount: stake.toFixed(2),
                 basis: 'stake',
                 contract_type: 'DIGITDIFF',
                 currency: 'USD',
