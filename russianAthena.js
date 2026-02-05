@@ -13,7 +13,7 @@ const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8212244373:AAE6-5-ANOmp2rEYYfPBSn8N7uSbRp6HM-k";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'athena9-state0001.json');
+const STATE_FILE = path.join(__dirname, 'athena9-state0003.json');
 
 class AthenaPureUltimate {
     constructor() {
@@ -1292,7 +1292,7 @@ class AthenaPureUltimate {
             💸 P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}
             📈 Total: ${this.totalTrades} | W/L: ${this.totalWins}/${this.totalTrades - this.totalWins}
             🔢 x2-x5: ${this.x2}/${this.x3}/${this.x4}/${this.x5}
-            📈 Win Rate: ${this.totalWins / this.totalTrades * 100}%
+            📈 Win Rate: ${(this.totalWins / this.totalTrades * 100).toFixed(2)}%
             💰 Next: $${this.stake.toFixed(2)}
             💵 Net: $${this.netProfit.toFixed(2)}
             ${this.assetConsecutiveLosses[asset] >= 2 ? `\n🚫 ${asset} SUSPENDED` : ''}
@@ -1373,7 +1373,7 @@ class AthenaPureUltimate {
         this.ws.on('close', () => {
             this.connected = false;
             this.wsReady = false;
-            if (!this.isReconnecting && this.reconnectAttempts < this.maxReconnectAttempts) {
+            if (!this.isReconnecting && this.reconnectAttempts < this.maxReconnectAttempts && !this.endOfDay) {
                 this.reconnect();
             }
         });
@@ -1485,6 +1485,7 @@ class AthenaPureUltimate {
     disconnect() {
         console.log('🛑 Disconnecting...');
         this.saveState();
+        this.endOfDay = true;
         if (this.ws) this.ws.close();
     }
 
@@ -1543,20 +1544,20 @@ class AthenaPureUltimate {
             });
 
             this.sendTelegram(`
-⏰ <b>HOURLY — ATHENA v9</b>
+                ⏰ <b>HOURLY — ATHENA v9</b>
 
-📊 Trades: ${this.hourly.trades}
-✅/❌ W/L: ${this.hourly.wins}/${this.hourly.losses}
-📈 Win Rate: ${winRate}%
-💰 P&L: ${this.hourly.pnl >= 0 ? '+' : ''}$${this.hourly.pnl.toFixed(2)}
+                📊 Trades: ${this.hourly.trades}
+                ✅/❌ W/L: ${this.hourly.wins}/${this.hourly.losses}
+                📈 Win Rate: ${winRate}%
+                💰 P&L: ${this.hourly.pnl >= 0 ? '+' : ''}$${this.hourly.pnl.toFixed(2)}
 
-<b>By Asset:</b>${assetBreakdown}
+                <b>By Asset:</b>${assetBreakdown}
 
-<b>Session:</b>
-├ Total: ${this.totalTrades}
-├ W/L: ${this.totalWins}/${this.totalTrades - this.totalWins}
-├ x2-x5: ${this.x2}/${this.x3}/${this.x4}/${this.x5}
-└ Net: $${this.netProfit.toFixed(2)}
+                <b>Session:</b>
+                ├ Total: ${this.totalTrades}
+                ├ W/L: ${this.totalWins}/${this.totalTrades - this.totalWins}
+                ├ x2-x5: ${this.x2}/${this.x3}/${this.x4}/${this.x5}
+                └ Net: $${this.netProfit.toFixed(2)}
             `.trim());
             this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
         }, 3600000);
