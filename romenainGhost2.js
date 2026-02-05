@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'romenianGhost03-state.json');
+const STATE_FILE = path.join(__dirname, 'romenianGhost04-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -106,8 +106,8 @@ class AIWeightedEnsembleBot {
         this.wsReady = false;
 
         this.assets = [
-            'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
-            // 'R_10', 'R_25', 'RDBULL', 'RDBEAR'
+            // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
+            'R_10', 'R_25', 'RDBULL', 'RDBEAR'
         ];
 
         this.config = {
@@ -654,7 +654,7 @@ class AIWeightedEnsembleBot {
 
         // CORRECT THRESHOLD: Average Z >= 2.0 means strong saturation
         if (ultraLowVol &&
-            bestAvgZ >= 2.7 &&
+            bestAvgZ >= 2.3 &&
             inRecent &&
             saturatedDigit !== -1 &&
             saturatedDigit !== this.lastTradeDigit) {
@@ -831,11 +831,11 @@ class AIWeightedEnsembleBot {
             // Weekend logic: Saturday 11pm to Monday 2am GMT+1 -> Disconnect and stay disconnected
             const isWeekend = (currentDay === 0) || // Sunday
                 (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
-                (currentDay === 1 && currentHours < 2);    // Monday before 2am
+                (currentDay === 1 && currentHours < 8);    // Monday before 8am
 
             if (isWeekend) {
                 if (!this.endOfDay) {
-                    console.log("Weekend trading suspension (Saturday 11pm - Monday 2am). Disconnecting...");
+                    console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
                     this.sendHourlySummary();
                     this.disconnect();
                     this.endOfDay = true;
@@ -843,16 +843,16 @@ class AIWeightedEnsembleBot {
                 return; // Prevent any reconnection logic during the weekend
             }
 
-            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
-                console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
+            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
+                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
                 this.resetDailyStats();
                 this.endOfDay = false;
                 this.connect();
             }
 
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 0) {
-                    console.log("It's past 23:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendHourlySummary();
                     this.disconnect();
                     this.endOfDay = true;
@@ -993,7 +993,7 @@ class AIWeightedEnsembleBot {
         console.log(`   Total P&L: $${this.totalProfitLoss.toFixed(2)}`);
         console.log(`   Current Stake: $${this.currentStake.toFixed(2)}`);
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
@@ -1001,7 +1001,7 @@ class AIWeightedEnsembleBot {
 const bot = new AIWeightedEnsembleBot('0P94g4WdSrSrzir', {
     initialStake: 2.2,
     multiplier: 11.3,
-    maxConsecutiveLosses: 4,
+    maxConsecutiveLosses: 6,
     stopLoss: 550,
     takeProfit: 5000,
     requiredHistoryLength: 3000,
