@@ -13,7 +13,7 @@ const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8212244373:AAE6-5-ANOmp2rEYYfPBSn8N7uSbRp6HM-k";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'athena9-state0003.json');
+const STATE_FILE = path.join(__dirname, 'athena9-state0001.json');
 
 class AthenaPureUltimate {
     constructor() {
@@ -24,7 +24,7 @@ class AthenaPureUltimate {
                 'R_10': {
                     decimals: 3,
                     digitIndex: 2,
-                    fractalThreshold: 1.5,      // was 1.32 (too low)
+                    fractalThreshold: 1.55,      // was 1.32 (too low)
                     minConfluence: 0.80,         // was 0.70
                     minZScore: 1.7,              // was 1.6
                     concentrationThreshold: 0.050,// was 0.055
@@ -33,7 +33,7 @@ class AthenaPureUltimate {
                 'R_25': {
                     decimals: 3,
                     digitIndex: 2,
-                    fractalThreshold: 1.5,      // was 1.32 (too low)
+                    fractalThreshold: 1.55,      // was 1.32 (too low)
                     minConfluence: 0.80,         // was 0.70
                     minZScore: 1.7,              // was 1.6
                     concentrationThreshold: 0.050,// was 0.055
@@ -51,7 +51,7 @@ class AthenaPureUltimate {
                 'R_75': {
                     decimals: 4,
                     digitIndex: 3,
-                    fractalThreshold: 1.5,      // was 1.32 (too low)
+                    fractalThreshold: 1.55,      // was 1.32 (too low)
                     minConfluence: 0.80,         // was 0.70
                     minZScore: 1.7,              // was 1.6
                     concentrationThreshold: 0.050,// was 0.055
@@ -69,7 +69,7 @@ class AthenaPureUltimate {
                 'RDBEAR': {
                     decimals: 4,
                     digitIndex: 3,
-                    fractalThreshold: 1.5,      // was 1.32 (too low)
+                    fractalThreshold: 1.55,      // was 1.32 (too low)
                     minConfluence: 0.80,         // was 0.70
                     minZScore: 1.7,              // was 1.6
                     concentrationThreshold: 0.050,// was 0.055
@@ -78,7 +78,7 @@ class AthenaPureUltimate {
                 'RDBULL': {
                     decimals: 4,
                     digitIndex: 3,
-                    fractalThreshold: 1.5,      // was 1.32 (too low)
+                    fractalThreshold: 1.55,      // was 1.32 (too low)
                     minConfluence: 0.80,         // was 0.70
                     minZScore: 1.7,              // was 1.6
                     concentrationThreshold: 0.050,// was 0.055
@@ -173,6 +173,8 @@ class AthenaPureUltimate {
 
         this.tradeInProgress = false;
         this.currentTradingAsset = null;
+        this.endOfDay = false;
+        this.isWinTrade = false;
 
         // Performance tracking
         this.recentTrades = [];
@@ -206,6 +208,7 @@ class AthenaPureUltimate {
         this.startHourlySummary();
         this.startHourlyReset();
         this.startAutoSave();
+        this.checkTimeForDisconnectReconnect();
     }
 
     // ========================================================================
@@ -1245,7 +1248,9 @@ class AthenaPureUltimate {
             this.consecutiveLosses = 0;
             this.assetConsecutiveLosses[asset] = 0;
             this.stake = this.config.baseStake;
+            this.isWinTrade = true;
         } else {
+            this.isWinTrade = false;
             this.hourly.losses++;
             this.assetPerformance[asset].losses++;
             this.consecutiveLosses++;
@@ -1555,6 +1560,50 @@ class AthenaPureUltimate {
             `.trim());
             this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
         }, 3600000);
+    }
+
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Weekend logic: Saturday 11pm to Monday 8am GMT+1 -> Disconnect and stay disconnected
+            const isWeekend = (currentDay === 0) || // Sunday
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+                (currentDay === 1 && currentHours < 8);    // Monday before 8am
+
+            if (isWeekend) {
+                if (!this.endOfDay) {
+                    console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Prevent any reconnection logic during the weekend
+            }
+
+            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
+                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
+                this.resetDailyStats();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+        }, 20000);
+    }
+
+    resetDailyStats() {
+        this.tradeInProgress = false;
+        this.isWinTrade = false;
     }
 }
 
