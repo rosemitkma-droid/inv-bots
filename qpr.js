@@ -13,7 +13,7 @@ const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'qpr-00001-state.json');
+const STATE_FILE = path.join(__dirname, 'qpr-00003-state.json');
 
 class QuantumPhaseReversalBot {
     constructor() {
@@ -177,7 +177,7 @@ class QuantumPhaseReversalBot {
             baseStake: 2.2,
             firstLossMultiplier: 11.3,
             subsequentMultiplier: 11.3,
-            maxConsecutiveLosses: 4,
+            maxConsecutiveLosses: 6,
             takeProfit: 5000,
             stopLoss: -400,
 
@@ -558,7 +558,7 @@ class QuantumPhaseReversalBot {
                 duration: 1,
                 duration_unit: "t",
                 symbol: asset,
-                barrier: signal.targetDigit.toString()
+                barrier: digit.toString()
             }
         });
 
@@ -741,7 +741,7 @@ class QuantumPhaseReversalBot {
         this.ws.on('close', () => {
             this.connected = false;
             this.wsReady = false;
-            if (!this.isReconnecting && this.reconnectAttempts < this.maxReconnectAttempts) {
+            if (!this.isReconnecting && this.reconnectAttempts < this.maxReconnectAttempts && !this.endOfDay) {
                 this.reconnect();
             }
         });
@@ -862,6 +862,7 @@ class QuantumPhaseReversalBot {
     disconnect() {
         console.log('🛑 Disconnecting...');
         this.saveState();
+        this.endOfDay = true;
         if (this.ws) this.ws.close();
     }
 
