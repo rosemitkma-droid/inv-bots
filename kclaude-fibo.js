@@ -487,7 +487,7 @@ class MoneyManagementEngine {
 // STATE PERSISTENCE
 // ============================================================================
 
-const STATE_FILE = path.join(__dirname, 'kclaude-000015-state.json');
+const STATE_FILE = path.join(__dirname, 'kclaude-000016-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -567,8 +567,8 @@ class FibonacciZScoreBot {
         // EXACT assets as specified
         this.assets = [
             'R_10',
-            // 'R_25',
-            // 'R_50'
+            'R_25',
+            'R_50'
         ];
 
         // Configuration
@@ -868,6 +868,23 @@ class FibonacciZScoreBot {
         });
     }
 
+    handleBuy(msg) {
+        if (msg.error) {
+            console.error('❌ Trade failed:', msg.error.message);
+            this.sendTelegram(`❌ Trade Error: ${msg.error.message}`);
+            this.tradeInProgress = false;
+            return;
+        }
+
+        console.log('✅ Trade placed, contract:', msg.buy.contract_id);
+
+        this.sendRequest({
+            proposal_open_contract: 1,
+            contract_id: msg.buy.contract_id,
+            subscribe: 1
+        });
+    }
+
     handleTickHistory(msg) {
         const asset = msg.echo_req.ticks_history;
         const prices = msg.history?.prices || [];
@@ -899,7 +916,8 @@ class FibonacciZScoreBot {
 
         // Periodic logging
         const now = Date.now();
-        if (now - this.lastTickLogTime[asset] >= 30000 || this.tradeInProgress) {
+        // if (now - this.lastTickLogTime[asset] >= 30000) {
+        if (this.tradeInProgress) {
             this.logAssetStatus(asset);
             this.lastTickLogTime[asset] = now;
             console.log(`📊 ${asset}: ${this.tickHistories[asset].slice(-10).join(', ')}`);
@@ -911,23 +929,6 @@ class FibonacciZScoreBot {
         if (!this.tradeInProgress && this.wsReady) {
             this.analyzeAndTrade(asset);
         }
-    }
-
-    handleBuy(msg) {
-        if (msg.error) {
-            console.error('❌ Trade failed:', msg.error.message);
-            this.sendTelegram(`❌ Trade Error: ${msg.error.message}`);
-            this.tradeInProgress = false;
-            return;
-        }
-
-        console.log('✅ Trade placed, contract:', msg.buy.contract_id);
-
-        this.sendRequest({
-            proposal_open_contract: 1,
-            contract_id: msg.buy.contract_id,
-            subscribe: 1
-        });
     }
 
     // ========================================================================
@@ -966,10 +967,11 @@ class FibonacciZScoreBot {
         // === 2. FIBONACCI SATURATION (ROMANIAN GHOST EXACT LOGIC) ===
         if (!shouldTrade) {
             const saturation = this.zScoreEngine.findSaturatedDigit(history);
+            // console.log('Saturation Score:', JSON.stringify(saturation))
 
             if (saturation) {
                 // ROMANIAN GHOST'S EXACT CONDITION — ONLY +0.3 improvement OR new digit
-                // console.log('Saturation Score:', saturation.totalZScore)
+                console.log('Saturation Score:', saturation.totalZScore)
                 const zImproved = !this.lastZScore || saturation.totalZScore > this.lastZScore + 0.3;
                 const newDigit = this.lastPrediction !== saturation.digit;
 
@@ -983,10 +985,10 @@ class FibonacciZScoreBot {
             }
         }
 
-        // if (shouldTrade && digitToTrade !== null) {
-        this.lastPrediction = digitToTrade;
-        this.executeTrade(asset, digitToTrade, tradeType, { volatility }, saturation);
-        // }
+        if (shouldTrade && digitToTrade !== null) {
+            this.lastPrediction = digitToTrade;
+            this.executeTrade(asset, digitToTrade, tradeType, { volatility }, saturation);
+        }
     }
 
     getVolatilityLevel(tickHistory) {
