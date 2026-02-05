@@ -373,24 +373,23 @@ class MoneyManagementEngine {
      * 2+ losses → base × 11.3^(losses-1)
      */
     calculateStake() {
-        if (this.consecutiveLosses === 0) {
-            this.currentStake = this.baseStake;
-        } else if (this.consecutiveLosses === 1) {
-            this.currentStake = this.baseStake * this.firstLossMultiplier;
-        } else {
-            // 2+ losses: base × 11.3^(n-1)
-            const exponent = this.consecutiveLosses - 1;
-            // this.currentStake = this.currentStake * Math.pow(this.subsequentMultiplier, exponent);
-            this.currentStake = Math.ceil(this.currentStake * this.subsequentMultiplier * 100) / 100;
-        }
+        // if (this.consecutiveLosses === 0) {
+        //     this.currentStake = this.baseStake;
+        // } else if (this.consecutiveLosses === 1) {
+        //     this.currentStake = this.baseStake * this.firstLossMultiplier;
+        // } else {
+        //     // 2+ losses: base × 11.3^(n-1)
+        //     const exponent = this.consecutiveLosses - 1;
+        //     this.currentStake = this.currentStake * Math.pow(this.subsequentMultiplier, exponent);
+        // }
 
-        // Round to 2 decimal places
-        this.currentStake = Math.round(this.currentStake * 100) / 100;
+        // // Round to 2 decimal places
+        // this.currentStake = Math.round(this.currentStake * 100) / 100;
 
         // if (this.consecutiveLosses === 2) {
         //     this.currentStake = this.baseStake;
         // } else {
-        // this.currentStake = Math.ceil(this.currentStake * this.firstLossMultiplier * 100) / 100;
+        this.currentStake = Math.ceil(this.currentStake * this.firstLossMultiplier * 100) / 100;
         // }
 
         return this.currentStake;
@@ -472,7 +471,7 @@ class MoneyManagementEngine {
             let stake;
             if (losses === 0) stake = this.baseStake;
             else if (losses === 1) stake = this.baseStake * this.firstLossMultiplier;
-            else stake = this.baseStake * Math.pow(this.subsequentMultiplier, losses - 1);
+            else stake = this.baseStake * this.baseStake * this.firstLossMultiplier;
 
             progression.push({
                 losses,
@@ -487,7 +486,7 @@ class MoneyManagementEngine {
 // STATE PERSISTENCE
 // ============================================================================
 
-const STATE_FILE = path.join(__dirname, 'kclaude-000013-state.json');
+const STATE_FILE = path.join(__dirname, 'kclaude-000014-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -595,6 +594,7 @@ class FibonacciZScoreBot {
         this.sessionStartTime = Date.now();
         this.suspendedAssets = new Set();
         this.endOfDay = false;
+        this.isWinTrade = false;
         this.lastPrediction = null;
         this.lastZScore = null;
 
@@ -1064,6 +1064,7 @@ class FibonacciZScoreBot {
         if (!contract?.is_sold) return;
 
         const won = contract.status === 'won';
+        this.isWinTrade = won;
         const profit = parseFloat(contract.profit);
         const asset = contract.underlying;
         const exitDigit = this.getLastDigit(contract.exit_tick_display_value, asset);
@@ -1247,6 +1248,51 @@ class FibonacciZScoreBot {
     // STARTUP
     // ========================================================================
 
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Weekend logic: Saturday 11pm to Monday 8am GMT+1 -> Disconnect and stay disconnected
+            const isWeekend = (currentDay === 0) || // Sunday
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+                (currentDay === 1 && currentHours < 8);    // Monday before 8am
+
+            if (isWeekend) {
+                if (!this.endOfDay) {
+                    console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Prevent any reconnection logic during the weekend
+            }
+
+            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
+                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
+                this.resetDailyStats();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+        }, 20000);
+    }
+
+    resetDailyStats() {
+        this.tradeInProgress = false;
+        this.suspendedAssets.clear(); // Using clear() for Set
+        this.isWinTrade = false;
+    }
+
     start() {
         console.log('\n' + '═'.repeat(60));
         console.log('  FIBONACCI Z-SCORE SATURATION BOT');
@@ -1275,6 +1321,7 @@ class FibonacciZScoreBot {
 
         this.connect();
         this.startHourlySummary();
+        this.checkTimeForDisconnectReconnect();
     }
 
     startHourlySummary() {
@@ -1311,7 +1358,7 @@ class FibonacciZScoreBot {
 // ============================================================================
 
 const bot = new FibonacciZScoreBot('0P94g4WdSrSrzir', {
-    baseStake: 1.2,
+    baseStake: 0.61,
     minHistoryLength: 2000,
     maxHistoryLength: 3000,
     telegramToken: '',      // Add your Telegram bot token
