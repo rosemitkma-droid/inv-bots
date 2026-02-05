@@ -13,7 +13,7 @@ const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8591937854:AAESyF-8b17sRK-xdQXzrHfALnKA1sAR3CI";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'zerogravity5-state01.json');
+const STATE_FILE = path.join(__dirname, 'zerogravity5-state02.json');
 
 class ZeroGravityUltimate {
     constructor() {
@@ -40,7 +40,7 @@ class ZeroGravityUltimate {
                 'R_50': {
                     decimals: 4,
                     digitIndex: 3,
-                    hurstThreshold: 0.50,   // was 0.40
+                    hurstThreshold: 0.48,   // was 0.40
                     entropyThreshold: 0.055,//0.065
                     minDominance: 0.28,
                     weight: 0.9
@@ -48,7 +48,7 @@ class ZeroGravityUltimate {
                 'R_75': {
                     decimals: 4,
                     digitIndex: 3,
-                    hurstThreshold: 0.52,   // was 0.42
+                    hurstThreshold: 0.47,   // was 0.42
                     entropyThreshold: 0.060,//0.070
                     minDominance: 0.27,
                     weight: 0.8
@@ -56,7 +56,7 @@ class ZeroGravityUltimate {
                 'R_100': {
                     decimals: 2,
                     digitIndex: 1,
-                    hurstThreshold: 0.50,
+                    hurstThreshold: 0.47,
                     entropyThreshold: 0.055,
                     minDominance: 0.28,
                     weight: 0.8
@@ -158,6 +158,8 @@ class ZeroGravityUltimate {
 
         this.tradeInProgress = false;
         this.currentTradingAsset = null;
+        this.endOfDay = false;
+        this.isWinTrade = false;
 
         // Performance tracking
         this.recentTrades = [];
@@ -191,6 +193,7 @@ class ZeroGravityUltimate {
         this.startHourlySummary();
         this.startHourlyReset();
         this.startAutoSave();
+        this.checkTimeForDisconnectReconnect();
     }
 
     // ========================================================================
@@ -1013,9 +1016,13 @@ class ZeroGravityUltimate {
         if (won) {
             this.totalWins++;
             this.hourly.wins++;
+            this.assetPerformance[asset].wins++;
             this.consecutiveLosses = 0;
+            this.assetConsecutiveLosses[asset] = 0;
             this.stake = this.config.baseStake;
+            this.isWinTrade = true;
         } else {
+            this.isWinTrade = false;
             this.hourly.losses++;
             this.consecutiveLosses++;
 
@@ -1315,6 +1322,50 @@ class ZeroGravityUltimate {
             `.trim());
             this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
         }, 3600000);
+    }
+
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Weekend logic: Saturday 11pm to Monday 8am GMT+1 -> Disconnect and stay disconnected
+            const isWeekend = (currentDay === 0) || // Sunday
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+                (currentDay === 1 && currentHours < 8);    // Monday before 8am
+
+            if (isWeekend) {
+                if (!this.endOfDay) {
+                    console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Prevent any reconnection logic during the weekend
+            }
+
+            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
+                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
+                this.resetDailyStats();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+        }, 20000);
+    }
+
+    resetDailyStats() {
+        this.tradeInProgress = false;
+        this.isWinTrade = false;
     }
 }
 
