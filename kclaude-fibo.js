@@ -487,7 +487,7 @@ class MoneyManagementEngine {
 // STATE PERSISTENCE
 // ============================================================================
 
-const STATE_FILE = path.join(__dirname, 'kclaude-000016-state.json');
+const STATE_FILE = path.join(__dirname, 'kclaude-000017-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -567,8 +567,8 @@ class FibonacciZScoreBot {
         // EXACT assets as specified
         this.assets = [
             'R_10',
-            // 'R_25',
-            // 'R_50'
+            'R_25',
+            'R_50'
         ];
 
         // Configuration
