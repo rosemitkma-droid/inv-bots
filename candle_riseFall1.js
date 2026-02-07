@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF1002-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF1007-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -385,11 +385,11 @@ const CONFIG = {
 
     // Capital Settings
     INITIAL_CAPITAL: 500,
-    STAKE: 0.35,
+    STAKE: 1,
 
     // Session Targets
     SESSION_PROFIT_TARGET: 5000,
-    SESSION_STOP_LOSS: -100,
+    SESSION_STOP_LOSS: -250,
 
     // Candle Settings
     GRANULARITY: 60, // 60 seconds = 1 minute candles
@@ -398,18 +398,18 @@ const CONFIG = {
     CANDLES_TO_LOAD: 50,
 
     // Trade Duration Settings
-    DURATION: 116,
+    DURATION: 54,
     DURATION_UNIT: 's', // t=ticks, s=seconds, m=minutes
 
     // Trade Settings
     MAX_OPEN_POSITIONS: 1, // One at a time for alternating strategy
     TRADE_DELAY: 1000, // 2 seconds delay between trades
-    MARTINGALE_MULTIPLIER: 2,
-    MARTINGALE_MULTIPLIER2: 2.3,
+    MARTINGALE_MULTIPLIER: 1,
+    MARTINGALE_MULTIPLIER2: 2,
     MARTINGALE_MULTIPLIER3: 2.5,
     MARTINGALE_MULTIPLIER4: 2.3,
     MARTINGALE_MULTIPLIER5: 3,
-    MAX_MARTINGALE_STEPS: 8,
+    MAX_MARTINGALE_STEPS: 10,
     System: 1, // 1 = Continue same direction on Win and Switch direction on Loss, 
     // 2 = Switch direction on Win and Continue same direction on Loss, 
     // 3 = Switch direction every trade, 4 = Same direction every trade
@@ -427,7 +427,7 @@ const CONFIG = {
 
 let ACTIVE_ASSETS = [
     // 'R_75', 'R_100', '1HZ25V', '1HZ50V', '1HZ100V' 'stpRNG',
-    'stpRNG'
+    'R_100'
 ];
 
 // ============================================
@@ -586,10 +586,10 @@ class SessionManager {
 
 
             // Martingale Multiplier
-            if (state.martingaleLevel <= 5) {
+            if (state.martingaleLevel <= 3) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER * 100) / 100;
             };
-            if (state.martingaleLevel >= 6 && state.martingaleLevel <= 10) {
+            if (state.martingaleLevel >= 4 && state.martingaleLevel <= 10) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER2 * 100) / 100;
             };
             if (state.martingaleLevel >= 11 && state.martingaleLevel <= 15) {
