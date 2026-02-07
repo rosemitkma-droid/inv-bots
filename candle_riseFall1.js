@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF1007-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF1008-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -464,7 +464,7 @@ const state = {
         dailyLosses: 0,
         activePositions: []
     },
-    lastTradeDirection: null, // 'CALL' or 'PUT'
+    lastTradeDirection: null, // 'CALLE' or 'PUTE'
     lastTradeWasWin: null, // NEW: track if last trade won
     martingaleLevel: 0,
     hourlyStats: {
@@ -1119,10 +1119,10 @@ class DerivBot {
         if (lastClosedCandle) {
             // Trade based on candle pattern
             if (CandleAnalyzer.isBullish(lastClosedCandle)) {
-                direction = 'PUT'; // Buy if previous candle was bullish
+                direction = 'PUTE'; // Buy if previous candle was bullish
                 LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing FALL trade`);
             } else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
-                direction = 'CALL'; // Sell if previous candle was bearish
+                direction = 'CALLE'; // Sell if previous candle was bearish
                 LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing RISE trade`);
             }
         }
@@ -1130,7 +1130,7 @@ class DerivBot {
         state.canTrade = false; // Prevent multiple trades
         state.lastTradeDirection = direction;
 
-        LOGGER.trade(`🎯 Executing ${direction === 'CALL' ? 'RISE' : 'FALL'} trade on ${tradeSymbol}`);
+        LOGGER.trade(`🎯 Executing ${direction === 'CALLE' ? 'RISE' : 'FALL'} trade on ${tradeSymbol}`);
         LOGGER.trade(`   Stake: $${stake.toFixed(2)} | Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT} | Martingale Level: ${state.martingaleLevel}`);
 
         const position = {
@@ -1245,10 +1245,10 @@ class DerivBot {
         const sessionStats = SessionManager.getSessionStats();
 
         const nextDirection = state.lastTradeWasWin === null
-            ? 'CALL (First trade)'
+            ? 'CALLE (First trade)'
             : state.lastTradeWasWin
                 ? state.lastTradeDirection // Same if won
-                : (state.lastTradeDirection === 'CALL' ? 'PUT' : 'CALL'); // Switch if lost
+                : (state.lastTradeDirection === 'CALLE' ? 'PUTE' : 'CALLE'); // Switch if lost
 
         return {
             connected: state.isConnected,
