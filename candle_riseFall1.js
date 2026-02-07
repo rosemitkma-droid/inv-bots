@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF1008-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF1009-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -1328,7 +1328,7 @@ console.log('\n🚀 Initializing...\n');
 bot.connection.connect();
 
 // FIX: Start the time-based disconnect/reconnect checker
-bot.checkTimeForDisconnectReconnect();
+// bot.checkTimeForDisconnectReconnect();
 
 // Status display every 30 seconds
 setInterval(() => {
