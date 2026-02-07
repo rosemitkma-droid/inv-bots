@@ -1119,10 +1119,10 @@ class DerivBot {
         if (lastClosedCandle) {
             // Trade based on candle pattern
             if (CandleAnalyzer.isBullish(lastClosedCandle)) {
-                direction = 'PUTE'; // Buy if previous candle was bullish
+                direction = 'CALLE'; // Buy if previous candle was bullish
                 LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing FALL trade`);
             } else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
-                direction = 'CALLE'; // Sell if previous candle was bearish
+                direction = 'PUTE'; // Sell if previous candle was bearish
                 LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing RISE trade`);
             }
         }
