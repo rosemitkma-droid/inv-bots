@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'will_riseFall1-state.json');
+const STATE_FILE = path.join(__dirname, 'will_riseFall2-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -444,12 +444,12 @@ const CONFIG = {
     // Trade Settings
     MAX_OPEN_POSITIONS: 1, // One at a time for alternating strategy
     TRADE_DELAY: 1000, // 2 seconds delay between trades
-    MARTINGALE_MULTIPLIER: 1,
-    MARTINGALE_MULTIPLIER2: 2,
+    MARTINGALE_MULTIPLIER: 2,
+    MARTINGALE_MULTIPLIER2: 2.3,
     MARTINGALE_MULTIPLIER3: 2.5,
     MARTINGALE_MULTIPLIER4: 2.3,
     MARTINGALE_MULTIPLIER5: 3,
-    MAX_MARTINGALE_STEPS: 10,
+    MAX_MARTINGALE_STEPS: 7,
     System: 1,
     iDirection: 'RISE',
 
@@ -457,7 +457,7 @@ const CONFIG = {
     DEBUG_MODE: true,
 
     // Telegram Settings
-    TELEGRAM_ENABLED: false,
+    TELEGRAM_ENABLED: true,
     TELEGRAM_BOT_TOKEN: '8306232249:AAGMwjFngs68Lcq27oGmqewQgthXTJJRxP0',
     TELEGRAM_CHAT_ID: '752497117',
 };
@@ -1415,7 +1415,7 @@ console.log('\n🚀 Initializing...\n');
 bot.connection.connect();
 
 // FIX: Start the time-based disconnect/reconnect checker
-bot.checkTimeForDisconnectReconnect();
+// bot.checkTimeForDisconnectReconnect();
 
 // Status display every 30 seconds
 setInterval(() => {
