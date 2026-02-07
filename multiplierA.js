@@ -41,12 +41,12 @@ const CONFIG = {
   asset: 'R_100',//frxXAUUSD, frxEURUSD, frxGBPUSD, frxUSDCAD, frxUSDCHF, frxUSDJPY, frxNZDUS
   // 'R_75', 'R_100', '1HZ25V', '1HZ50V', '1HZ100V' 'stpRNG',
   multiplier: 100,//x100 Assest Specific Multiplier
-  timeFrame: 180,//300 seconds
+  timeFrame: 60,//300 seconds
   stake: 1,
 
   // Take Profit / Stop Loss
-  takeProfit: 1000,
-  stopLoss: 124,
+  takeProfit: 5000,
+  stopLoss: 250,
   dailyLossLimit: 0,
   maxDrawdown: 0, // Percentage
   maxConsecutiveLosses: 10,
@@ -54,7 +54,7 @@ const CONFIG = {
   // Martingale Settings
   martingale: true,
   martingaleMultiplier: 1,
-  lossesB4Multiplier: 4,
+  lossesB4Multiplier: 3,
   martingaleSteps: 10,
 
   // Cooldown
@@ -800,6 +800,7 @@ function scheduleTradeClose(candleEnd) {
 function calculateNextStake(lastProfit) {
   if (lastProfit >= 0) {
     martingaleCount = 0;
+    CONFIG.martingaleMultiplier = 1;
     return CONFIG.stake;
   }
 
