@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF0090-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF000010-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -379,7 +379,7 @@ class CandleAnalyzer {
 // ============================================
 const CONFIG = {
     // API Settings
-    API_TOKEN: '0P94g4WdSrSrzir',
+    API_TOKEN: 'Dz2V2KvRf4Uukt3',
     APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
@@ -388,7 +388,7 @@ const CONFIG = {
     STAKE: 1,
 
     // Session Targets
-    SESSION_PROFIT_TARGET: 5000,
+    SESSION_PROFIT_TARGET: 500,
     SESSION_STOP_LOSS: -250,
 
     // Candle Settings
@@ -398,18 +398,18 @@ const CONFIG = {
     CANDLES_TO_LOAD: 50,
 
     // Trade Duration Settings
-    DURATION: 54,
-    DURATION_UNIT: 's', // t=ticks, s=seconds, m=minutes
+    DURATION: 2,
+    DURATION_UNIT: 't', // t=ticks, s=seconds, m=minutes
 
     // Trade Settings
     MAX_OPEN_POSITIONS: 1, // One at a time for alternating strategy
     TRADE_DELAY: 1000, // 2 seconds delay between trades
     MARTINGALE_MULTIPLIER: 1,
-    MARTINGALE_MULTIPLIER2: 2,
-    MARTINGALE_MULTIPLIER3: 2.5,
+    MARTINGALE_MULTIPLIER2: 1,
+    MARTINGALE_MULTIPLIER3: 1,
     MARTINGALE_MULTIPLIER4: 2.3,
     MARTINGALE_MULTIPLIER5: 3,
-    MAX_MARTINGALE_STEPS: 10,
+    MAX_MARTINGALE_STEPS: 100,
     System: 1, // 1 = Continue same direction on Win and Switch direction on Loss, 
     // 2 = Switch direction on Win and Continue same direction on Loss, 
     // 3 = Switch direction every trade, 4 = Same direction every trade
@@ -420,14 +420,14 @@ const CONFIG = {
 
     // Telegram Settings
     TELEGRAM_ENABLED: true,
-    TELEGRAM_BOT_TOKEN: '7683695132:AAGA9_4uDcyZWEOAwv1_zj7Nnz5Oy0gVw04',
+    TELEGRAM_BOT_TOKEN: '8588380880:AAH8tOl8dxvjJ4qfWf3yr-i7FS_qlew-8t0',
     TELEGRAM_CHAT_ID: '752497117',
 };
 
 
 let ACTIVE_ASSETS = [
-    // 'R_75', 'R_100', '1HZ25V', '1HZ50V', '1HZ100V' 'stpRNG',
-    'R_100'
+    // 'R_75', 'R_100', '1HZ25V', '1HZ50V', '1HZ100V' 'stpRNG', 'RDBULL', 'RDBEAR',
+    'stpRNG'
 ];
 
 // ============================================
@@ -464,7 +464,7 @@ const state = {
         dailyLosses: 0,
         activePositions: []
     },
-    lastTradeDirection: null, // 'CALLE' or 'PUTE'
+    lastTradeDirection: null, // 'CALL' or 'PUT'
     lastTradeWasWin: null, // NEW: track if last trade won
     martingaleLevel: 0,
     hourlyStats: {
@@ -1119,18 +1119,18 @@ class DerivBot {
         if (lastClosedCandle) {
             // Trade based on candle pattern
             if (CandleAnalyzer.isBullish(lastClosedCandle)) {
-                direction = 'CALLE'; // Buy if previous candle was bullish
-                LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing FALL trade`);
+                direction = 'PUT'; // Sell if previous candle was bullish
+                LOGGER.trade(`📈 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
             } else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
-                direction = 'PUTE'; // Sell if previous candle was bearish
-                LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing RISE trade`);
+                direction = 'CALL'; // Buy if previous candle was bearish
+                LOGGER.trade(`📉 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
             }
         }
 
         state.canTrade = false; // Prevent multiple trades
         state.lastTradeDirection = direction;
 
-        LOGGER.trade(`🎯 Executing ${direction === 'CALLE' ? 'RISE' : 'FALL'} trade on ${tradeSymbol}`);
+        LOGGER.trade(`🎯 Executing ${direction === 'CALL' ? 'RISE' : 'FALL'} trade on ${tradeSymbol}`);
         LOGGER.trade(`   Stake: $${stake.toFixed(2)} | Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT} | Martingale Level: ${state.martingaleLevel}`);
 
         const position = {
@@ -1245,10 +1245,10 @@ class DerivBot {
         const sessionStats = SessionManager.getSessionStats();
 
         const nextDirection = state.lastTradeWasWin === null
-            ? 'CALLE (First trade)'
+            ? 'CALL (First trade)'
             : state.lastTradeWasWin
                 ? state.lastTradeDirection // Same if won
-                : (state.lastTradeDirection === 'CALLE' ? 'PUTE' : 'CALLE'); // Switch if lost
+                : (state.lastTradeDirection === 'CALL' ? 'PUT' : 'CALL'); // Switch if lost
 
         return {
             connected: state.isConnected,
