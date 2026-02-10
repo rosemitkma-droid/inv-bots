@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF000011-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF000012-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -1170,8 +1170,8 @@ class DerivBot {
         }
 
         const isOdd = lastDigit % 2 !== 0;
-        if (!isOdd) {
-            LOGGER.info(`🚫 Skipping trade on ${tradeSymbol} - Last digit ${lastDigit} is EVEN (Odd required)`);
+        if (isOdd) {
+            LOGGER.info(`🚫 Skipping trade on ${tradeSymbol} - Last digit ${lastDigit} is ODD (Even required)`);
             state.canTrade = false;
             return;
         }
