@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFall-state.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFall0001-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -49,7 +49,9 @@ class StatePersistence {
                     candlesLoaded: asset.candlesLoaded,
                     // Fractal State
                     lastFractalHigh: asset.lastFractalHigh,
-                    lastFractalLow: asset.lastFractalLow
+                    lastFractalLow: asset.lastFractalLow,
+                    tradedFractalHigh: asset.tradedFractalHigh,
+                    tradedFractalLow: asset.tradedFractalLow
                 };
             });
 
@@ -140,6 +142,8 @@ class StatePersistence {
                             saved.lastFractalHigh || null;
                         asset.lastFractalLow =
                             saved.lastFractalLow || null;
+                        asset.tradedFractalHigh = saved.tradedFractalHigh || null;
+                        asset.tradedFractalLow = saved.tradedFractalLow || null;
                     }
                 });
             }
@@ -953,7 +957,9 @@ class ConnectionManager {
                     candlesLoaded: false,
                     // Fractal State
                     lastFractalHigh: null,
-                    lastFractalLow: null
+                    lastFractalLow: null,
+                    tradedFractalHigh: null,  // The resistance level that was already broken & traded
+                    tradedFractalLow: null    // The support level that was already broken & traded
                 };
                 LOGGER.info(`📊 Initialized asset: ${symbol}`);
             } else {
@@ -1255,32 +1261,37 @@ class ConnectionManager {
                 // UPDATE FRACTAL LEVELS after every new closed candle
                 // so breakout levels are always current
                 // ===================================================
-                const fractals =
-                    TechnicalIndicators.findFractals(
-                        assetState.closedCandles
-                    );
+                const fractals = TechnicalIndicators.findFractals(assetState.closedCandles);
 
                 const prevHigh = assetState.lastFractalHigh;
                 const prevLow = assetState.lastFractalLow;
 
                 if (fractals.fractalHigh !== null) {
-                    assetState.lastFractalHigh =
-                        fractals.fractalHigh;
-                }
-                if (fractals.fractalLow !== null) {
-                    assetState.lastFractalLow =
-                        fractals.fractalLow;
+                    // NEW: If fractal high changed, reset the traded flag for it
+                    if (fractals.fractalHigh !== assetState.lastFractalHigh) {
+                        assetState.tradedFractalHigh = null;
+                        LOGGER.info(
+                            `${symbol} 🔺 NEW Fractal Resistance: ${fractals.fractalHigh.toFixed(5)} (was ${assetState.lastFractalHigh !== null ? assetState.lastFractalHigh.toFixed(5) : 'N/A'}) — breakout reset`
+                        );
+                    }
+                    assetState.lastFractalHigh = fractals.fractalHigh;
                 }
 
-                // Log if fractal levels changed
+                if (fractals.fractalLow !== null) {
+                    // NEW: If fractal low changed, reset the traded flag for it
+                    if (fractals.fractalLow !== assetState.lastFractalLow) {
+                        assetState.tradedFractalLow = null;
+                        LOGGER.info(
+                            `${symbol} 🔻 NEW Fractal Support: ${fractals.fractalLow.toFixed(5)} (was ${assetState.lastFractalLow !== null ? assetState.lastFractalLow.toFixed(5) : 'N/A'}) — breakout reset`
+                        );
+                    }
+                    assetState.lastFractalLow = fractals.fractalLow;
+                }
+
                 if (
-                    assetState.lastFractalHigh !== prevHigh ||
-                    assetState.lastFractalLow !== prevLow
+                    assetState.lastFractalHigh === prevHigh &&
+                    assetState.lastFractalLow === prevLow
                 ) {
-                    LOGGER.info(
-                        `${symbol} 🔄 FRACTAL LEVELS UPDATED — Resistance: ${assetState.lastFractalHigh !== null ? assetState.lastFractalHigh.toFixed(5) : 'N/A'} (was ${prevHigh !== null ? prevHigh.toFixed(5) : 'N/A'}) | Support: ${assetState.lastFractalLow !== null ? assetState.lastFractalLow.toFixed(5) : 'N/A'} (was ${prevLow !== null ? prevLow.toFixed(5) : 'N/A'})`
-                    );
-                } else {
                     LOGGER.debug(
                         `${symbol} Fractals unchanged — R: ${assetState.lastFractalHigh !== null ? assetState.lastFractalHigh.toFixed(5) : 'N/A'} | S: ${assetState.lastFractalLow !== null ? assetState.lastFractalLow.toFixed(5) : 'N/A'}`
                     );
@@ -1646,14 +1657,30 @@ class DerivBot {
             // NORMAL MODE: Check fractal breakout
 
             // BREAKOUT UP: Close is ABOVE Fractal Resistance → RISE
+            // BUT only if this resistance level hasn't been traded yet
             if (closePrice > resistance) {
-                direction = 'CALLE'; // RISE
-                signalReason = `BREAKOUT UP — Close ${closePrice.toFixed(5)} > Resistance ${resistance.toFixed(5)} (diff: +${(closePrice - resistance).toFixed(5)})`;
+                if (assetState.tradedFractalHigh === resistance) {
+                    // Already traded this breakout — skip
+                    LOGGER.debug(
+                        `${tradeSymbol} ⏭️ Breakout UP already traded at Resistance ${resistance.toFixed(5)} — waiting for new fractal level`
+                    );
+                } else {
+                    direction = 'CALLE'; // RISE
+                    signalReason = `BREAKOUT UP — Close ${closePrice.toFixed(5)} > Resistance ${resistance.toFixed(5)} (diff: +${(closePrice - resistance).toFixed(5)})`;
+                }
             }
             // BREAKOUT DOWN: Close is BELOW Fractal Support → FALL
+            // BUT only if this support level hasn't been traded yet
             else if (closePrice < support) {
-                direction = 'PUTE'; // FALL
-                signalReason = `BREAKOUT DOWN — Close ${closePrice.toFixed(5)} < Support ${support.toFixed(5)} (diff: -${(support - closePrice).toFixed(5)})`;
+                if (assetState.tradedFractalLow === support) {
+                    // Already traded this breakout — skip
+                    LOGGER.debug(
+                        `${tradeSymbol} ⏭️ Breakout DOWN already traded at Support ${support.toFixed(5)} — waiting for new fractal level`
+                    );
+                } else {
+                    direction = 'PUTE'; // FALL
+                    signalReason = `BREAKOUT DOWN — Close ${closePrice.toFixed(5)} < Support ${support.toFixed(5)} (diff: -${(support - closePrice).toFixed(5)})`;
+                }
             }
             // NO BREAKOUT: Price is between Support and Resistance
             else {
@@ -1663,9 +1690,7 @@ class DerivBot {
             }
 
             if (direction) {
-                LOGGER.trade(
-                    `⚡ FRACTAL SIGNAL: ${signalReason}`
-                );
+                LOGGER.trade(`⚡ FRACTAL SIGNAL: ${signalReason}`);
             }
         }
 
@@ -1725,6 +1750,19 @@ class DerivBot {
 
         const reqId = this.connection.send(tradeRequest);
         position.reqId = reqId;
+
+        // NEW: Mark this fractal level as traded so we don't trade it again
+        if (direction === 'CALLE' && !isRecoveryMode) {
+            assetState.tradedFractalHigh = resistance;
+            LOGGER.info(
+                `${tradeSymbol} ✅ Marked Resistance ${resistance.toFixed(5)} as TRADED — will not re-trade until new fractal forms`
+            );
+        } else if (direction === 'PUTE' && !isRecoveryMode) {
+            assetState.tradedFractalLow = support;
+            LOGGER.info(
+                `${tradeSymbol} ✅ Marked Support ${support.toFixed(5)} as TRADED — will not re-trade until new fractal forms`
+            );
+        }
     }
 
     stop() {
