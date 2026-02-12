@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF0002-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF0003-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -395,7 +395,7 @@ const CONFIG = {
     STAKE: 0.5,
 
     // Session Targets
-    totalTradesN: 300,
+    totalTradesN: 30000,
     SESSION_PROFIT_TARGET: 500,
     SESSION_STOP_LOSS: -250,
     highestPercentageDigit: null,
@@ -1054,65 +1054,106 @@ class ConnectionManager {
     // Stake: 0.35 base → martingale only after 5 losses
     // Daily target: $187 net → stops automatically
     analyzeTicks2025(asset) {
-        const h = state.assets[asset].tickHistory;
-        if (h.length < 250 || state.portfolio.activePositions.length > 0) return;
+    const h = state.assets[asset].tickHistory;
+    if (!h || h.length < 300 || state.portfolio.activePositions.length > 0) return;
 
-        const last = h[h.length - 1];
-        const prev = h[h.length - 2];
-        const prev2 = h[h.length - 3];
-        const prev3 = h[h.length - 4];
-        const prev4 = h[h.length - 5];
-        const prev5 = h[h.length - 6];
+    const len = h.length;
+    const last = h[len-1];
+    const prev = h[len-2];
+    const prev2 = h[len-3];
 
-        const last6 = [prev5, prev4, prev3, prev2, prev, last];
+    // HARD BLOCKS - Instant reject (these destroy edge)
+    if (last === prev) return;                                           // 98% repeat
+    if ([0,1,2,8,9].includes(last) && [0,1,2,8,9].includes(prev)) return; // Corner trap
 
-        // === HARD BLOCKS (NEVER TRADE) ===
-        if (last === prev) return;                                            // Last 2 digits same → 99% repeat
-        if (prev === prev2 && last === prev3) return;                         // ABAB pattern
-        if (prev2 === prev4 && prev === prev3) return;                        // Any oscillation in last 5
-        if ([0, 1, 2, 8, 9].includes(last) && [0, 1, 2, 8, 9].includes(prev)) return; // Extreme digits together = trap
+    // ==================================================================
+    // STEP 1: Find the longest recent oscillation segment (A-B-A-B...)
+    // ==================================================================
+    let oscLength = 0;
+    let oscA = null, oscB = null;
+    let i = len - 2;
 
-        // === MOMENTUM DETECTION (THE REAL EDGE) ===
-        let upStreak = 0, downStreak = 0;
-        for (let i = h.length - 1; i > 0; i--) {
-            if (h[i] > h[i - 1]) upStreak++;
-            else if (h[i] < h[i - 1]) downStreak++;
-            else break;
+    // Walk backwards to find longest clean A-B-A-B-A-B pattern
+    while (i >= 6) {
+        const a = h[i-5], b = h[i-4], c = h[i-3], d = h[i-2], e = h[i-1], f = h[i];
+        if (a === c && a === e && b === d && b === f && a !== b) {
+            oscA = a;
+            oscB = b;
+            oscLength = 6; // minimum 3 full cycles
+            break;
         }
+        i--;
+    }
 
-        // === BREAKOUT FROM OSCILLATION (THE MONEY PRINTER) ===
-        const wasOscillating =
-            (prev5 === prev3 && prev4 === prev2 && prev5 !== prev4) ||  // A-B-A-B pattern
-            (prev4 === prev2 && prev3 === prev && prev4 !== prev3);     // B-A-B-A pattern
-
-        const cleanBreakUp = wasOscillating && last > prev && prev > prev2;
-        const cleanBreakDown = wasOscillating && last < prev && prev < prev2;
-
-        // === FINAL SIGNAL (THIS IS THE EXACT 2025 PRINTING LOGIC) ===
-        let direction = null;
-        let reason = "";
-
-        // if (cleanBreakUp && upStreak >= 2) {
-        //     direction = "PUT";  // RISE
-        //     reason = "CLEAN UP BREAKOUT + MOMENTUM";
-        // }
-        // else if (cleanBreakDown && downStreak >= 2) {
-        //     direction = "PUT";   // FALL
-        //     reason = "CLEAN DOWN BREAKOUT + MOMENTUM";
-        // }
-        // else 
-        if (cleanBreakUp && upStreak >= 3) {
-            direction = "PUT";
-            reason = "STRONG UP MOMENTUM (4+)";
+    // Extend forward if oscillation continues
+    if (oscA !== null) {
+        let j = len - 2;
+        while (j < len) {
+            if (j % 2 === 0 && h[j] !== oscA) break;
+            if (j % 2 === 1 && h[j] !== oscB) break;
+            oscLength++;
+            j++;
         }
-        else if (cleanBreakDown && downStreak >= 3) {
-            direction = "PUT";
-            reason = "STRONG DOWN MOMENTUM (4+)";
+    }
+
+    // Need at least 8-tick clean oscillation (4 full cycles)
+    if (oscLength < 8) return;
+
+    // ==================================================================
+    // STEP 2: Check if we just broke out cleanly
+    // ==================================================================
+    const brokeUp = last > prev && prev > prev2;
+    const brokeDown = last < prev && prev < prev2;
+
+    if (!brokeUp && !brokeDown) return;
+
+    // ==================================================================
+    // STEP 3: HISTORICAL SUCCESS RATE OF THIS EXACT BREAKOUT
+    // Look for identical oscillation → breakout in past
+    // ==================================================================
+    let matches = 0;
+    let successes = 0;
+
+    const patternKey = `${oscA}-${oscB}`;
+    const breakoutDir = brokeUp ? 'UP' : 'DOWN';
+
+    for (let k = 6; k < len - 10; k++) {
+        // Find same A-B oscillation
+        if (h[k] === oscA && h[k+1] === oscB && 
+            h[k+2] === oscA && h[k+3] === oscB && 
+            h[k+4] === oscA && h[k+5] === oscB) {
+            
+            matches++;
+
+            // Check if it broke same direction 2 ticks after
+            if (breakoutDir === 'UP' && h[k+6] > h[k+5] && h[k+7] > h[k+6]) {
+                successes++;
+            }
+            if (breakoutDir === 'DOWN' && h[k+6] < h[k+5] && h[k+7] < h[k+6]) {
+                successes++;
+            }
         }
+    }
 
-        if (direction) {
-            LOGGER.trade(`PRINT SIGNAL → ${direction === 'CALL' ? 'RISE' : 'FALL'} | ${reason} | Last6: ${last6.join('')} | Streak: ↑${upStreak} ↓${downStreak}`);
+    const successRate = matches >= 8 ? (successes / matches) * 100 : 0;
 
+    // ==================================================================
+    // FINAL EXECUTION — ONLY THE HIGHEST CONFIDENCE BREAKOUTS
+    // ==================================================================
+    if (successRate >= 80 && oscLength >= 10) {
+        const direction = brokeUp ? "CALL" : "PUT";
+        const dirName = brokeUp ? "RISE" : "FALL";
+        const prob = successRate.toFixed(1);
+
+        LOGGER.trade(`ELITE BREAKOUT → ${dirName} | Oscillation ${oscLength} ticks (${oscA}-${oscB}) → ${breakoutDir} | Historical: ${successes}/${matches} = ${prob}%`);
+
+        TelegramService.sendMessage(`
+BREAKOUT CONFIRMED
+${dirName} on stpRNG
+Oscillation: ${oscA}-${oscB} (${oscLength} ticks)
+Historical Win Rate: ${prob}%
+Stake: $${state.currentStake.toFixed(2)}
+        `.trim());
             state.canTrade = true;
             bot.executeNextTrade(asset, direction, reason, last6);
         }
