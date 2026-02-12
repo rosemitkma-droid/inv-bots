@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF00001-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF00002-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -1101,11 +1101,11 @@ class ConnectionManager {
         //     reason = "CLEAN DOWN BREAKOUT + MOMENTUM";
         // }
         // else 
-        if (upStreak >= 3) {
+        if (cleanBreakUp && upStreak >= 3) {
             direction = "CALL";
             reason = "STRONG UP MOMENTUM (4+)";
         }
-        else if (downStreak >= 3) {
+        else if (cleanBreakDown && downStreak >= 3) {
             direction = "CALL";
             reason = "STRONG DOWN MOMENTUM (4+)";
         }
