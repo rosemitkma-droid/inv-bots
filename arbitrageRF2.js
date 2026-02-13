@@ -1054,108 +1054,114 @@ class ConnectionManager {
     // Stake: 0.35 base → martingale only after 5 losses
     // Daily target: $187 net → stops automatically
     analyzeTicks2025(asset) {
-    const h = state.assets[asset].tickHistory;
-    if (!h || h.length < 300 || state.portfolio.activePositions.length > 0) return;
+        const h = state.assets[asset].tickHistory;
+        if (!h || h.length < 300 || state.portfolio.activePositions.length > 0) return;
 
-    const len = h.length;
-    const last = h[len-1];
-    const prev = h[len-2];
-    const prev2 = h[len-3];
+        const len = h.length;
+        const last = h[len - 1];
+        const prev = h[len - 2];
+        const prev2 = h[len - 3];
 
-    // HARD BLOCKS - Instant reject (these destroy edge)
-    if (last === prev) return;                                           // 98% repeat
-    if ([0,1,2,8,9].includes(last) && [0,1,2,8,9].includes(prev)) return; // Corner trap
+        // HARD BLOCKS - Instant reject (these destroy edge)
+        if (last === prev) return;                                           // 98% repeat
+        if ([0, 1, 2, 8, 9].includes(last) && [0, 1, 2, 8, 9].includes(prev)) return; // Corner trap
 
-    // ==================================================================
-    // STEP 1: Find the longest recent oscillation segment (A-B-A-B...)
-    // ==================================================================
-    let oscLength = 0;
-    let oscA = null, oscB = null;
-    let i = len - 2;
+        // ==================================================================
+        // STEP 1: Find the longest recent oscillation segment (A-B-A-B...)
+        // ==================================================================
+        let oscLength = 0;
+        let oscA = null, oscB = null;
+        let i = len - 2;
 
-    // Walk backwards to find longest clean A-B-A-B-A-B pattern
-    while (i >= 6) {
-        const a = h[i-5], b = h[i-4], c = h[i-3], d = h[i-2], e = h[i-1], f = h[i];
-        if (a === c && a === e && b === d && b === f && a !== b) {
-            oscA = a;
-            oscB = b;
-            oscLength = 6; // minimum 3 full cycles
-            break;
-        }
-        i--;
-    }
-
-    // Extend forward if oscillation continues
-    if (oscA !== null) {
-        let j = len - 2;
-        while (j < len) {
-            if (j % 2 === 0 && h[j] !== oscA) break;
-            if (j % 2 === 1 && h[j] !== oscB) break;
-            oscLength++;
-            j++;
-        }
-    }
-
-    // Need at least 8-tick clean oscillation (4 full cycles)
-    if (oscLength < 8) return;
-
-    // ==================================================================
-    // STEP 2: Check if we just broke out cleanly
-    // ==================================================================
-    const brokeUp = last > prev && prev > prev2;
-    const brokeDown = last < prev && prev < prev2;
-
-    if (!brokeUp && !brokeDown) return;
-
-    // ==================================================================
-    // STEP 3: HISTORICAL SUCCESS RATE OF THIS EXACT BREAKOUT
-    // Look for identical oscillation → breakout in past
-    // ==================================================================
-    let matches = 0;
-    let successes = 0;
-
-    const patternKey = `${oscA}-${oscB}`;
-    const breakoutDir = brokeUp ? 'UP' : 'DOWN';
-
-    for (let k = 6; k < len - 10; k++) {
-        // Find same A-B oscillation
-        if (h[k] === oscA && h[k+1] === oscB && 
-            h[k+2] === oscA && h[k+3] === oscB && 
-            h[k+4] === oscA && h[k+5] === oscB) {
-            
-            matches++;
-
-            // Check if it broke same direction 2 ticks after
-            if (breakoutDir === 'UP' && h[k+6] > h[k+5] && h[k+7] > h[k+6]) {
-                successes++;
+        // Walk backwards to find longest clean A-B-A-B-A-B pattern
+        while (i >= 6) {
+            const a = h[i - 5], b = h[i - 4], c = h[i - 3], d = h[i - 2], e = h[i - 1], f = h[i];
+            if (a === c && a === e && b === d && b === f && a !== b) {
+                oscA = a;
+                oscB = b;
+                oscLength = 6; // minimum 3 full cycles
+                break;
             }
-            if (breakoutDir === 'DOWN' && h[k+6] < h[k+5] && h[k+7] < h[k+6]) {
-                successes++;
+            i--;
+        }
+
+        // Extend forward if oscillation continues
+        if (oscA !== null) {
+            let j = len - 2;
+            while (j < len) {
+                if (j % 2 === 0 && h[j] !== oscA) break;
+                if (j % 2 === 1 && h[j] !== oscB) break;
+                oscLength++;
+                j++;
             }
         }
-    }
 
-    const successRate = matches >= 8 ? (successes / matches) * 100 : 0;
+        // Need at least 8-tick clean oscillation (4 full cycles)
+        LOGGER.trade(`OSCILLATION LENGTH: ${oscLength}`);
+        if (oscLength < 6) return;
 
-    // ==================================================================
-    // FINAL EXECUTION — ONLY THE HIGHEST CONFIDENCE BREAKOUTS
-    // ==================================================================
-    if (successRate >= 80 && oscLength >= 10) {
-        const direction = brokeUp ? "CALL" : "PUT";
-        const dirName = brokeUp ? "RISE" : "FALL";
+        // ==================================================================
+        // STEP 2: Check if we just broke out cleanly
+        // ==================================================================
+        const brokeUp = last > prev && prev > prev2;
+        const brokeDown = last < prev && prev < prev2;
+
+        LOGGER.trade(`isBREAKOUT? → ${brokeUp} | ${brokeDown}`);
+        if (!brokeUp && !brokeDown) return;
+        LOGGER.trade(`BREAKOUT DETECTED → ${brokeUp ? 'UP' : 'DOWN'} | Oscillation ${oscLength} ticks (${oscA}-${oscB})`);
+
+        // ==================================================================
+        // STEP 3: HISTORICAL SUCCESS RATE OF THIS EXACT BREAKOUT
+        // Look for identical oscillation → breakout in past
+        // ==================================================================
+        let matches = 0;
+        let successes = 0;
+
+        const patternKey = `${oscA}-${oscB}`;
+        const breakoutDir = brokeUp ? 'UP' : 'DOWN';
+
+        for (let k = 6; k < len - 10; k++) {
+            // Find same A-B oscillation
+            if (h[k] === oscA && h[k + 1] === oscB &&
+                h[k + 2] === oscA && h[k + 3] === oscB &&
+                h[k + 4] === oscA && h[k + 5] === oscB) {
+
+                matches++;
+
+                // Check if it broke same direction 2 ticks after
+                if (breakoutDir === 'UP' && h[k + 6] > h[k + 5] && h[k + 7] > h[k + 6]) {
+                    successes++;
+                }
+                if (breakoutDir === 'DOWN' && h[k + 6] < h[k + 5] && h[k + 7] < h[k + 6]) {
+                    successes++;
+                }
+            }
+        }
+
+        const successRate = matches >= 5 ? (successes / matches) * 100 : 0;
         const prob = successRate.toFixed(1);
 
-        LOGGER.trade(`ELITE BREAKOUT → ${dirName} | Oscillation ${oscLength} ticks (${oscA}-${oscB}) → ${breakoutDir} | Historical: ${successes}/${matches} = ${prob}%`);
+        LOGGER.trade(`Scanning → Oscillation ${oscLength} ticks (${oscA}-${oscB}) | Historical: ${successes}/${matches} = ${prob}%`);
 
-        TelegramService.sendMessage(`
-BREAKOUT CONFIRMED
-${dirName} on stpRNG
-Oscillation: ${oscA}-${oscB} (${oscLength} ticks)
-Historical Win Rate: ${prob}%
-Stake: $${state.currentStake.toFixed(2)}
+
+        // ==================================================================
+        // FINAL EXECUTION — ONLY THE HIGHEST CONFIDENCE BREAKOUTS
+        // ==================================================================
+        if (successRate >= 60 && oscLength >= 6) {
+            const direction = brokeUp ? "PUT" : "PUT";
+            const dirName = brokeUp ? "FALL" : "FALL";
+
+            LOGGER.trade(`ELITE BREAKOUT → ${dirName} | Oscillation ${oscLength} ticks (${oscA}-${oscB}) → ${breakoutDir} | Historical: ${successes}/${matches} = ${prob}%`);
+
+            TelegramService.sendMessage(`
+            BREAKOUT CONFIRMED
+            ${dirName} on stpRNG
+            Oscillation: ${oscA}-${oscB} (${oscLength} ticks)
+            Historical Win Rate: ${prob}%
+            Stake: $${state.currentStake.toFixed(2)}
         `.trim());
             state.canTrade = true;
-            bot.executeNextTrade(asset, direction, reason, last6);
+            bot.executeNextTrade(asset, direction);
         }
     }
 
