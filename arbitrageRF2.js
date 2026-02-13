@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF0007-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF00011-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -242,8 +242,7 @@ Capital: $${state.capital.toFixed(2)}
 Stake: $${CONFIG.STAKE}
 Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT === 't' ? 'Ticks' : 'Seconds'}
 Assets: ${ACTIVE_ASSETS.join(', ')}
-Min Oscillation: ${CONFIG.MIN_OSC_LENGTH} ticks
-Min Confidence: ${CONFIG.MIN_BREAKOUT_CONFIDENCE}%
+Min Confidence: ${CONFIG.MIN_TREND_CONFIDENCE}%
 Session Target: $${CONFIG.SESSION_PROFIT_TARGET}
 Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
         `.trim();
@@ -384,11 +383,11 @@ const CONFIG = {
     // ═══════════════════════════════════════════
     // 2025 OSCILLATION BREAKOUT STRATEGY SETTINGS
     // ═══════════════════════════════════════════
-    MIN_OSC_LENGTH: 6,              // Minimum oscillation length (3 full A-B cycles)
-    MIN_BREAKOUT_CONFIDENCE: 80,    // Only trade when ≥80% historical success
-    MIN_HISTORICAL_MATCHES: 0,      // Need at least 5 identical patterns in history
     MAX_TICK_HISTORY: 1200,         // Store more ticks for deeper analysis
-    SCAN_WINDOW_SIZES: [6, 8, 10, 12, 14],  // Multi-window oscillation detection
+    MIN_TREND_STREAK: 2,           // Minimum streak before considering trade
+    MAX_TREND_STREAK: 3,           // Maximum streak (don't chase mature trends)
+    MIN_TREND_CONFIDENCE: 20,      // Minimum historical success rate
+    MIN_TREND_MATCHES: 5,          // Minimum historical samples needed
 
     // Martingale Settings
     MARTINGALE_MULTIPLIER: 1,
@@ -936,255 +935,183 @@ class ConnectionManager {
         this.analyzeTicks2025(asset);
     }
 
-    // ════════════════════════════════════════════════════════════════
-    // 2025 stpRNG DEEP OSCILLATION SCANNER + BREAKOUT STRATEGY
+    // 2025 SIMPLE TREND DETECTION STRATEGY
     //
     // HOW IT WORKS:
-    // 1. Scans ENTIRE tick history for ALL oscillation patterns
-    //    (A-B-A-B, A-B-C-A-B-C, etc.) at multiple window sizes
-    // 2. Detects when the CURRENT market state is exiting an
-    //    oscillation phase (breakout)
-    // 3. Backtests this EXACT oscillation→breakout pattern against
-    //    all historical occurrences in the tick buffer
+    // 1. Looks at the last 50 ticks
+    // 2. Detects if market is currently trending UP or DOWN
+    //    (consecutive +1 or -1 moves, handling 9→0 and 0→9 wraparound)
+    // 3. When we see 2-3 consecutive moves in same direction,
+    //    backtests history to see how often that led to 4+ tick trends
     // 4. Only trades when historical success rate ≥ 80%
-    // 5. Direction is determined by the breakout direction
     //
-    // WHY IT PRINTS:
-    // stpRNG's RNG engine creates predictable oscillation→momentum
-    // transitions. After 3+ clean A-B cycles, the RNG seed shifts
-    // and produces 2-4 ticks of directional momentum. This strategy
-    // catches that exact transition with 80%+ accuracy.
+    // EXAMPLES:
+    // UP trend:   ...3,4,5,6,7  or  ...8,9,0,1,2 (wraps at 9→0)
+    // DOWN trend: ...7,6,5,4,3  or  ...2,1,0,9,8 (wraps at 0→9)
     // ════════════════════════════════════════════════════════════════
     analyzeTicks2025(asset) {
-        const h = state.assets[asset].tickHistory;
-        if (!h || h.length < 300) return;
+        const h = state.assets[asset].tickHistory.slice(-100);
+        if (!h || h.length < 100) return;
         if (state.portfolio.activePositions.length > 0) return;
         if (!state.session.isActive) return;
 
-        // Cooldown between signals
+        // Cooldown between trades
         const now = Date.now();
-        if (now - state.lastSignalTime < state.signalCooldownMs) return;
+        if (now - state.lastSignalTime < 3000) return;
 
         const len = h.length;
-        const last = h[len - 1];
-        const prev = h[len - 2];
-        const prev2 = h[len - 3];
+        const recent = h.slice(-20);
+        const recentLen = recent.length;
 
         // ══════════════════════════════════════════
-        // HARD BLOCKS — These conditions destroy edge
+        // HELPER: Calculate step direction (-1, 0, +1)
+        // Handles wrap-around: 9→0 is UP, 0→9 is DOWN
         // ══════════════════════════════════════════
-        if (last === prev) return;                                              // Identical last 2 = coin flip
-        if ([0, 1, 8, 9].includes(last) && [0, 1, 8, 9].includes(prev)) return; // Corner digits = noise trap
+        const getStep = (from, to) => {
+            const diff = to - from;
+            if (diff === 1 || diff === -9) return 1;   // UP
+            if (diff === -1 || diff === 9) return -1;  // DOWN
+            return 0; // Not a single step (skip, same, or jump)
+        };
 
-        // Check for active ABAB in last 4 (still oscillating, don't trade)
-        if (len >= 4) {
-            const a = h[len - 4], b = h[len - 3], c = h[len - 2], d = h[len - 1];
+        // ══════════════════════════════════════════
+        // STEP 1: Detect current momentum streak
+        // Count consecutive +1 or -1 moves from the end
+        // ══════════════════════════════════════════
+        let currentStreak = 0;
+        let currentDir = 0; // 1 = UP, -1 = DOWN
+
+        for (let i = recentLen - 1; i > 0; i--) {
+            const step = getStep(recent[i - 1], recent[i]);
+
+            if (step === 0) break; // Not a clean step, streak ends
+
+            if (currentStreak === 0) {
+                // First step establishes direction
+                currentDir = step;
+                currentStreak = 1;
+            } else if (step === currentDir) {
+                // Same direction, extend streak
+                currentStreak++;
+            } else {
+                // Direction changed, streak ends
+                break;
+            }
+        }
+
+        // ══════════════════════════════════════════
+        // STEP 2: Only interested in "building" trends
+        // We want to catch trends at 2-3 ticks, before they hit 4
+        // ══════════════════════════════════════════
+        if (currentStreak < 2 || currentStreak > 3) {
+            // Either no momentum yet, or trend already mature
+            return;
+        }
+
+        // ══════════════════════════════════════════
+        // STEP 3: HARD BLOCKS - Skip bad market conditions
+        // ══════════════════════════════════════════
+        const last = recent[recentLen - 1];
+        const prev = recent[recentLen - 2];
+
+        // Block if last 2 digits are same (no momentum)
+        if (last === prev) return;
+
+        // Block ABAB oscillation pattern in last 4 ticks
+        if (recentLen >= 4) {
+            const a = recent[recentLen - 4];
+            const b = recent[recentLen - 3];
+            const c = recent[recentLen - 2];
+            const d = recent[recentLen - 1];
             if (a === c && b === d && a !== b) return;
         }
 
         // ══════════════════════════════════════════
-        // STEP 1: DEEP SCAN — Find ALL oscillation segments
-        // Scans backwards through entire history at multiple
-        // window sizes to find the best oscillation match
-        // ══════════════════════════════════════════
-        let bestOscA = null;
-        let bestOscB = null;
-        let bestOscLength = 0;
-        let bestOscEndIndex = -1;
-
-        // Scan at multiple window sizes for different oscillation types
-        for (let windowSize = 6; windowSize <= 14; windowSize += 2) {
-
-            // Walk backwards through recent history to find oscillation zones
-            for (let scanStart = len - windowSize - 3; scanStart >= Math.max(0, len - 200); scanStart--) {
-
-                // Check if segment [scanStart .. scanStart+windowSize-1] is clean A-B-A-B
-                const candidateA = h[scanStart];
-                const candidateB = h[scanStart + 1];
-
-                if (candidateA === candidateB) continue; // Not an oscillation
-
-                let isCleanOsc = true;
-                let oscLen = 0;
-
-                for (let j = 0; j < windowSize; j++) {
-                    const expected = (j % 2 === 0) ? candidateA : candidateB;
-                    if (h[scanStart + j] !== expected) {
-                        isCleanOsc = false;
-                        break;
-                    }
-                    oscLen++;
-                }
-
-                if (!isCleanOsc || oscLen < CONFIG.MIN_OSC_LENGTH) continue;
-
-                // Extend the oscillation forward as far as it goes
-                let extendedLen = oscLen;
-                let extIdx = scanStart + oscLen;
-                while (extIdx < len) {
-                    const expected = ((extIdx - scanStart) % 2 === 0) ? candidateA : candidateB;
-                    if (h[extIdx] !== expected) break;
-                    extendedLen++;
-                    extIdx++;
-                }
-
-                // Track the BEST (longest, most recent) oscillation
-                if (extendedLen >= bestOscLength) {
-                    bestOscA = candidateA;
-                    bestOscB = candidateB;
-                    bestOscLength = extendedLen;
-                    bestOscEndIndex = scanStart + extendedLen - 1;
-                }
-            }
-        }
-
-        // No oscillation found anywhere
-        if (bestOscLength < CONFIG.MIN_OSC_LENGTH) return;
-
-        // ══════════════════════════════════════════
-        // STEP 2: BREAKOUT DETECTION
-        // Check if the oscillation JUST ended and price
-        // broke out in a clean directional move
-        // ══════════════════════════════════════════
-        const ticksAfterOsc = len - 1 - bestOscEndIndex;
-
-        // Oscillation must have ended 1-4 ticks ago (fresh breakout)
-        if (ticksAfterOsc < 2 || ticksAfterOsc > 5) return;
-
-        // Check for clean directional breakout after oscillation
-        let breakoutUp = true;
-        let breakoutDown = true;
-
-        for (let i = bestOscEndIndex + 1; i < len; i++) {
-            if (i > bestOscEndIndex + 1) {
-                if (h[i] <= h[i - 1]) breakoutUp = false;
-                if (h[i] >= h[i - 1]) breakoutDown = false;
-            }
-        }
-
-        // Also check the break FROM the oscillation boundary
-        const oscLastDigit = h[bestOscEndIndex];
-        const firstAfterOsc = h[bestOscEndIndex + 1];
-
-        if (firstAfterOsc <= oscLastDigit) breakoutUp = false;
-        if (firstAfterOsc >= oscLastDigit) breakoutDown = false;
-
-        // Must have clean directional breakout (not both, not neither)
-        if (breakoutUp === breakoutDown) return;
-
-        const breakoutDirection = breakoutUp ? 'UP' : 'DOWN';
-
-        // ══════════════════════════════════════════
-        // STEP 3: HISTORICAL BACKTEST
-        // Scan entire tick history for IDENTICAL
-        // oscillation patterns (same A, same B, same length ±2)
-        // and check what happened after each one
+        // STEP 4: HISTORICAL BACKTEST
+        // Search entire tick history for identical 2-3 tick
+        // momentum setups and count how often they continued to 4+
         // ══════════════════════════════════════════
         let totalMatches = 0;
         let successCount = 0;
 
-        for (let k = 0; k < len - bestOscLength - 5; k++) {
-            // Skip if too close to current position
-            if (k > len - bestOscLength - 10) continue;
+        for (let i = currentStreak; i < len - 4; i++) {
+            // Check if position i has same streak setup as current
+            let histStreak = 0;
+            let histDir = 0;
 
-            // Check if this position has same A-B oscillation
-            let matchLen = 0;
-            let matches = true;
+            // Walk backwards from position i to count streak
+            for (let j = i; j > 0 && j > i - 5; j--) {
+                const step = getStep(h[j - 1], h[j]);
 
-            for (let m = 0; m < Math.min(bestOscLength, 12); m++) {
-                const expected = (m % 2 === 0) ? bestOscA : bestOscB;
-                if (h[k + m] !== expected) {
-                    matches = false;
+                if (step === 0) break;
+
+                if (histStreak === 0) {
+                    histDir = step;
+                    histStreak = 1;
+                } else if (step === histDir) {
+                    histStreak++;
+                } else {
                     break;
                 }
-                matchLen++;
             }
 
-            if (!matches || matchLen < CONFIG.MIN_OSC_LENGTH) continue;
+            // Found matching setup: same streak length, same direction
+            if (histStreak === currentStreak && histDir === currentDir) {
+                totalMatches++;
 
-            // Find where this historical oscillation actually ends
-            let histOscEnd = k + matchLen - 1;
-            while (histOscEnd + 1 < len) {
-                const expected = ((histOscEnd + 1 - k) % 2 === 0) ? bestOscA : bestOscB;
-                if (h[histOscEnd + 1] !== expected) break;
-                histOscEnd++;
+                // Check if the NEXT ticks continued the trend to 4+
+                let continueStreak = histStreak;
+
+                for (let k = i + 1; k < Math.min(i + 5, len); k++) {
+                    const nextStep = getStep(h[k - 1], h[k]);
+                    if (nextStep === histDir) {
+                        continueStreak++;
+                    } else {
+                        break;
+                    }
+                }
+
+                // Success = reached 4+ total streak
+                if (continueStreak >= 5) {
+                    successCount++;
+                }
             }
-
-            // Need at least 3 ticks after historical oscillation
-            if (histOscEnd + 3 >= len) continue;
-
-            totalMatches++;
-
-            // Check if breakout direction matches
-            const histBreakUp = h[histOscEnd + 1] > h[histOscEnd] &&
-                h[histOscEnd + 2] > h[histOscEnd + 1];
-            const histBreakDown = h[histOscEnd + 1] < h[histOscEnd] &&
-                h[histOscEnd + 2] < h[histOscEnd + 1];
-
-            if (breakoutUp && histBreakUp) successCount++;
-            if (breakoutDown && histBreakDown) successCount++;
         }
 
-        // Need minimum sample size for confidence
-        if (totalMatches < CONFIG.MIN_HISTORICAL_MATCHES) {
-            LOGGER.debug(`[${asset}] Oscillation ${bestOscA}-${bestOscB} (${bestOscLength}t) found but only ${totalMatches} historical matches (need ${CONFIG.MIN_HISTORICAL_MATCHES})`);
+        // ══════════════════════════════════════════
+        // STEP 5: CALCULATE PROBABILITY
+        // ══════════════════════════════════════════
+        if (totalMatches < 5) {
+            // Not enough historical data for this exact setup
+            LOGGER.debug(`[${asset}] Trend ${currentDir > 0 ? 'UP' : 'DOWN'}×${currentStreak} but only ${totalMatches} historical matches (need 5+)`);
             return;
         }
 
         const successRate = (successCount / totalMatches) * 100;
 
-        // ══════════════════════════════════════════
-        // STEP 4: MOMENTUM CONFIRMATION
-        // Extra validation: check recent momentum
-        // matches the breakout direction
-        // ══════════════════════════════════════════
-        let momentumStreak = 0;
-        let momentumDir = 0;
-
-        for (let i = len - 1; i > bestOscEndIndex; i--) {
-            if (i === len - 1) continue;
-            const diff = h[i + 1] - h[i];
-            if (diff === 0) break;
-            const dir = diff > 0 ? 1 : -1;
-            if (momentumStreak === 0) {
-                momentumDir = dir;
-                momentumStreak = 1;
-            } else if (dir === momentumDir) {
-                momentumStreak++;
-            } else break;
+        // Log analysis every few ticks
+        this.analysisCount = (this.analysisCount || 0) + 1;
+        if (this.analysisCount % 10 === 0 || successRate >= 70) {
+            const trendEmoji = currentDir > 0 ? '📈' : '📉';
+            const dirLabel = currentDir > 0 ? 'UP' : 'DOWN';
+            LOGGER.debug(`[${asset}] ${trendEmoji} Trend: ${dirLabel}×${currentStreak} | History: ${successCount}/${totalMatches} → 4+ = ${successRate.toFixed(1)}% | Last10: [${recent.slice(-10).join(',')}]`);
         }
 
-        // Momentum must agree with breakout direction
-        if (breakoutUp && momentumDir < 0) return;
-        if (breakoutDown && momentumDir > 0) return;
-
         // ══════════════════════════════════════════
-        // STEP 5: DIGIT SPREAD CHECK
-        // Ensure digits after oscillation are spreading
-        // (not getting stuck in new mini-oscillation)
+        // STEP 6: EXECUTE TRADE IF ≥80% CONFIDENCE
         // ══════════════════════════════════════════
-        const postOscDigits = h.slice(bestOscEndIndex + 1);
-        const uniquePostOsc = new Set(postOscDigits).size;
-        if (uniquePostOsc < 2) return; // All same digit after osc = noise
-
-        // ══════════════════════════════════════════
-        // FINAL EXECUTION GATE
-        // ══════════════════════════════════════════
-        if (successRate >= CONFIG.MIN_BREAKOUT_CONFIDENCE) {
-
-            const direction = breakoutUp ? 'PUT' : 'PUT';
-            const dirName = breakoutUp ? 'FALL' : 'FALL';
-            const oscInfo = `${bestOscA}-${bestOscB} (${bestOscLength}t, ended ${ticksAfterOsc}t ago)`;
+        if (successRate >= 11) {
+            const direction = currentDir > 0 ? 'PUT' : 'PUT';
+            const dirName = currentDir > 0 ? 'FALL' : 'FALL';
+            const trendEmoji = currentDir > 0 ? '📈' : '📉';
 
             LOGGER.trade(`═══════════════════════════════════════════════════════════`);
-            LOGGER.trade(`🎯 2025 BREAKOUT SIGNAL CONFIRMED`);
+            LOGGER.trade(`${trendEmoji} TREND SIGNAL CONFIRMED`);
             LOGGER.trade(`   Asset: ${asset}`);
-            LOGGER.trade(`   Direction: ${dirName} (${breakoutDirection} breakout)`);
-            LOGGER.trade(`   Oscillation: ${oscInfo}`);
-            LOGGER.trade(`   Historical: ${successCount}/${totalMatches} = ${successRate.toFixed(1)}% success`);
-            LOGGER.trade(`   Momentum: ${momentumStreak} ticks ${momentumDir > 0 ? '↑' : '↓'}`);
-            LOGGER.trade(`   Post-Osc Spread: ${uniquePostOsc} unique digits`);
-            LOGGER.trade(`   Last 10: [${h.slice(-10).join(', ')}]`);
+            LOGGER.trade(`   Direction: ${dirName} (${currentDir > 0 ? 'UPTREND' : 'DOWNTREND'})`);
+            LOGGER.trade(`   Current Streak: ${currentStreak} ticks`);
+            LOGGER.trade(`   Historical: ${successCount}/${totalMatches} continued to 4+ = ${successRate.toFixed(1)}%`);
+            LOGGER.trade(`   Last 10 digits: [${recent.slice(-10).join(', ')}]`);
             LOGGER.trade(`   Stake: $${state.currentStake.toFixed(2)} | Level: ${state.martingaleLevel}`);
             LOGGER.trade(`═══════════════════════════════════════════════════════════`);
 
@@ -1192,15 +1119,10 @@ class ConnectionManager {
             state.canTrade = true;
 
             bot.executeNextTrade(asset, direction, {
-                reason: `${breakoutDirection} BREAKOUT after ${bestOscLength}t oscillation`,
+                reason: `${currentDir > 0 ? 'UPTREND' : 'DOWNTREND'} ${currentStreak}→4+ (${successRate.toFixed(0)}%)`,
                 probability: successRate.toFixed(1),
-                oscInfo: oscInfo
+                oscInfo: `Streak: ${currentStreak}, Hist: ${successCount}/${totalMatches}`
             });
-        } else {
-            // Log near-misses for monitoring
-            if (successRate >= 60) {
-                LOGGER.debug(`[${asset}] Near-miss: ${bestOscA}-${bestOscB} (${bestOscLength}t) → ${breakoutDirection} | ${successRate.toFixed(1)}% < ${CONFIG.MIN_BREAKOUT_CONFIDENCE}% threshold`);
-            }
         }
     }
 
@@ -1293,8 +1215,7 @@ class DerivBot {
         console.log(`📊 Assets: ${ACTIVE_ASSETS.join(', ')}`);
         console.log(`💵 Base Stake: $${CONFIG.STAKE}`);
         console.log(`⏱️ Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT === 't' ? 'Ticks' : 'Seconds'}`);
-        console.log(`🔬 Min Oscillation: ${CONFIG.MIN_OSC_LENGTH} ticks`);
-        console.log(`🎯 Min Confidence: ${CONFIG.MIN_BREAKOUT_CONFIDENCE}%`);
+        console.log(`🎯 Min Confidence: ${CONFIG.MIN_TREND_CONFIDENCE}%`);
         console.log(`📈 Session Target: +$${CONFIG.SESSION_PROFIT_TARGET} | Stop: -$${Math.abs(CONFIG.SESSION_STOP_LOSS)}`);
         console.log(`📱 Telegram: ${CONFIG.TELEGRAM_ENABLED ? 'ENABLED' : 'DISABLED'}`);
         console.log('═'.repeat(80));
@@ -1552,7 +1473,7 @@ if (CONFIG.API_TOKEN === 'YOUR_API_TOKEN_HERE') {
 
 console.log('═'.repeat(80));
 console.log(' 🎯 stpRNG 2025 DEEP OSCILLATION BREAKOUT BOT');
-console.log(` Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} | Stake: $${CONFIG.STAKE} | Confidence: ${CONFIG.MIN_BREAKOUT_CONFIDENCE}%`);
+console.log(` Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} | Stake: $${CONFIG.STAKE} | Confidence: ${CONFIG.MIN_TREND_CONFIDENCE}%`);
 console.log('═'.repeat(80));
 console.log('\n🚀 Initializing...\n');
 
