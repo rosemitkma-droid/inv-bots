@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF000011-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF000012-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -555,11 +555,21 @@ class SessionManager {
             if (state.martingaleLevel === 7) state.session.x7Losses++;
 
             // 2025 Smart Martingale: flat stake for first 5 losses, then scale
-            if (state.martingaleLevel >= 6) {
-                state.currentStake = Number((CONFIG.STAKE * Math.pow(CONFIG.MARTINGALE_MULTIPLIER5, state.martingaleLevel - 5)).toFixed(2));
-            } else {
-                state.currentStake = CONFIG.STAKE;
-            }
+            if (state.martingaleLevel <= 5) {
+                state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER * 100) / 100;
+            };
+            if (state.martingaleLevel >= 6 && state.martingaleLevel <= 10) {
+                state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER2 * 100) / 100;
+            };
+            if (state.martingaleLevel >= 11 && state.martingaleLevel <= 15) {
+                state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER3 * 100) / 100;
+            };
+            if (state.martingaleLevel >= 16 && state.martingaleLevel <= 20) {
+                state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER4 * 100) / 100;
+            };
+            if (state.martingaleLevel >= 21 && state.martingaleLevel <= 25) {
+                state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER5 * 100) / 100;
+            };
 
             // Cap stake at 10% of capital
             const maxStake = state.capital * 0.10;
