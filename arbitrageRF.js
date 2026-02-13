@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF000012-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF000016-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -388,6 +388,11 @@ const CONFIG = {
     MAX_TREND_STREAK: 3,           // Maximum streak (don't chase mature trends)
     MIN_TREND_CONFIDENCE: 20,      // Minimum historical success rate
     MIN_TREND_MATCHES: 5,          // Minimum historical samples needed
+
+    OSC_TARGET_RATIO: 0.85,      // Trigger at 85% of max oscillation length
+    MIN_OSC_EVENTS: 5,           // Need at least 5 historical osc→trend events
+    MIN_CONFIDENCE: 60,          // Minimum confidence to trade
+    MAX_OSC_MULTIPLIER: 1.5,     // Skip if oscillation > 150% of max (anomaly)
 
     // Martingale Settings
     MARTINGALE_MULTIPLIER: 1,
@@ -959,181 +964,469 @@ class ConnectionManager {
     // UP trend:   ...3,4,5,6,7  or  ...8,9,0,1,2 (wraps at 9→0)
     // DOWN trend: ...7,6,5,4,3  or  ...2,1,0,9,8 (wraps at 0→9)
     // ════════════════════════════════════════════════════════════════
+    // analyzeTicks2025(asset) {
+    //     const h = state.assets[asset].tickHistory.slice(-100);
+    //     if (!h || h.length < 100) return;
+    //     if (state.portfolio.activePositions.length > 0) return;
+    //     if (!state.session.isActive) return;
+
+    //     // Cooldown between trades
+    //     const now = Date.now();
+    //     if (now - state.lastSignalTime < 3000) return;
+
+    //     const len = h.length;
+    //     const recent = h.slice(-20);
+    //     const recentLen = recent.length;
+
+    //     // ══════════════════════════════════════════
+    //     // HELPER: Calculate step direction (-1, 0, +1)
+    //     // Handles wrap-around: 9→0 is UP, 0→9 is DOWN
+    //     // ══════════════════════════════════════════
+    //     const getStep = (from, to) => {
+    //         const diff = to - from;
+    //         if (diff === 1 || diff === -9) return 1;   // UP
+    //         if (diff === -1 || diff === 9) return -1;  // DOWN
+    //         return 0; // Not a single step (skip, same, or jump)
+    //     };
+
+    //     // ══════════════════════════════════════════
+    //     // STEP 1: Detect current momentum streak
+    //     // Count consecutive +1 or -1 moves from the end
+    //     // ══════════════════════════════════════════
+    //     let currentStreak = 0;
+    //     let currentDir = 0; // 1 = UP, -1 = DOWN
+
+    //     for (let i = recentLen - 1; i > 0; i--) {
+    //         const step = getStep(recent[i - 1], recent[i]);
+
+    //         if (step === 0) break; // Not a clean step, streak ends
+
+    //         if (currentStreak === 0) {
+    //             // First step establishes direction
+    //             currentDir = step;
+    //             currentStreak = 1;
+    //         } else if (step === currentDir) {
+    //             // Same direction, extend streak
+    //             currentStreak++;
+    //         } else {
+    //             // Direction changed, streak ends
+    //             break;
+    //         }
+    //     }
+
+    //     // ══════════════════════════════════════════
+    //     // STEP 2: Only interested in "building" trends
+    //     // We want to catch trends at 2-3 ticks, before they hit 4
+    //     // ══════════════════════════════════════════
+    //     if (currentStreak < 2 || currentStreak > 3) {
+    //         // Either no momentum yet, or trend already mature
+    //         return;
+    //     }
+
+    //     // ══════════════════════════════════════════
+    //     // STEP 3: HARD BLOCKS - Skip bad market conditions
+    //     // ══════════════════════════════════════════
+    //     const last = recent[recentLen - 1];
+    //     const prev = recent[recentLen - 2];
+
+    //     // Block if last 2 digits are same (no momentum)
+    //     if (last === prev) return;
+
+    //     // Block ABAB oscillation pattern in last 4 ticks
+    //     if (recentLen >= 4) {
+    //         const a = recent[recentLen - 4];
+    //         const b = recent[recentLen - 3];
+    //         const c = recent[recentLen - 2];
+    //         const d = recent[recentLen - 1];
+    //         if (a === c && b === d && a !== b) return;
+    //     }
+
+    //     // ══════════════════════════════════════════
+    //     // STEP 4: HISTORICAL BACKTEST
+    //     // Search entire tick history for identical 2-3 tick
+    //     // momentum setups and count how often they continued to 4+
+    //     // ══════════════════════════════════════════
+    //     let totalMatches = 0;
+    //     let successCount = 0;
+
+    //     for (let i = currentStreak; i < len - 4; i++) {
+    //         // Check if position i has same streak setup as current
+    //         let histStreak = 0;
+    //         let histDir = 0;
+
+    //         // Walk backwards from position i to count streak
+    //         for (let j = i; j > 0 && j > i - 5; j--) {
+    //             const step = getStep(h[j - 1], h[j]);
+
+    //             if (step === 0) break;
+
+    //             if (histStreak === 0) {
+    //                 histDir = step;
+    //                 histStreak = 1;
+    //             } else if (step === histDir) {
+    //                 histStreak++;
+    //             } else {
+    //                 break;
+    //             }
+    //         }
+
+    //         // Found matching setup: same streak length, same direction
+    //         if (histStreak === currentStreak && histDir === currentDir) {
+    //             totalMatches++;
+
+    //             // Check if the NEXT ticks continued the trend to 4+
+    //             let continueStreak = histStreak;
+
+    //             for (let k = i + 1; k < Math.min(i + 5, len); k++) {
+    //                 const nextStep = getStep(h[k - 1], h[k]);
+    //                 if (nextStep === histDir) {
+    //                     continueStreak++;
+    //                 } else {
+    //                     break;
+    //                 }
+    //             }
+
+    //             // Success = reached 4+ total streak
+    //             if (continueStreak >= 5) {
+    //                 successCount++;
+    //             }
+    //         }
+    //     }
+
+    //     // ══════════════════════════════════════════
+    //     // STEP 5: CALCULATE PROBABILITY
+    //     // ══════════════════════════════════════════
+    //     if (totalMatches < 5) {
+    //         // Not enough historical data for this exact setup
+    //         LOGGER.debug(`[${asset}] Trend ${currentDir > 0 ? 'UP' : 'DOWN'}×${currentStreak} but only ${totalMatches} historical matches (need 5+)`);
+    //         return;
+    //     }
+
+    //     const successRate = (successCount / totalMatches) * 100;
+
+    //     // Log analysis every few ticks
+    //     this.analysisCount = (this.analysisCount || 0) + 1;
+    //     if (this.analysisCount % 10 === 0 || successRate >= 70) {
+    //         const trendEmoji = currentDir > 0 ? '📈' : '📉';
+    //         const dirLabel = currentDir > 0 ? 'UP' : 'DOWN';
+    //         LOGGER.debug(`[${asset}] ${trendEmoji} Trend: ${dirLabel}×${currentStreak} | History: ${successCount}/${totalMatches} → 4+ = ${successRate.toFixed(1)}% | Last10: [${recent.slice(-10).join(',')}]`);
+    //     }
+
+    //     // ══════════════════════════════════════════
+    //     // STEP 6: EXECUTE TRADE IF ≥80% CONFIDENCE
+    //     // ══════════════════════════════════════════
+    //     if (successRate >= 11) {
+    //         const direction = currentDir > 0 ? 'CALL' : 'CALL';
+    //         const dirName = currentDir > 0 ? 'RISE' : 'RISE';
+    //         const trendEmoji = currentDir > 0 ? '📈' : '📉';
+
+    //         LOGGER.trade(`═══════════════════════════════════════════════════════════`);
+    //         LOGGER.trade(`${trendEmoji} TREND SIGNAL CONFIRMED`);
+    //         LOGGER.trade(`   Asset: ${asset}`);
+    //         LOGGER.trade(`   Direction: ${dirName} (${currentDir > 0 ? 'UPTREND' : 'DOWNTREND'})`);
+    //         LOGGER.trade(`   Current Streak: ${currentStreak} ticks`);
+    //         LOGGER.trade(`   Historical: ${successCount}/${totalMatches} continued to 4+ = ${successRate.toFixed(1)}%`);
+    //         LOGGER.trade(`   Last 10 digits: [${recent.slice(-10).join(', ')}]`);
+    //         LOGGER.trade(`   Stake: $${state.currentStake.toFixed(2)} | Level: ${state.martingaleLevel}`);
+    //         LOGGER.trade(`═══════════════════════════════════════════════════════════`);
+
+    //         state.lastSignalTime = now;
+    //         state.canTrade = true;
+
+    //         bot.executeNextTrade(asset, direction, {
+    //             reason: `${currentDir > 0 ? 'UPTREND' : 'DOWNTREND'} ${currentStreak}→4+ (${successRate.toFixed(0)}%)`,
+    //             probability: successRate.toFixed(1),
+    //             oscInfo: `Streak: ${currentStreak}, Hist: ${successCount}/${totalMatches}`
+    //         });
+    //     }
+    // }
+
+
+    // ════════════════════════════════════════════════════════════════
+    // 2025 OSCILLATION LENGTH TRACKER + TREND PREDICTOR
+    //
+    // HOW IT WORKS:
+    // 1. Scans tick history to find all OSCILLATION → TREND transitions
+    // 2. Records the length of each oscillation phase before breakout
+    // 3. Learns the "typical" oscillation length before a 3+ trend
+    // 4. When current oscillation reaches that length → EXECUTE TRADE
+    // 5. Direction = most likely breakout direction from historical data
+    //
+    // DEFINITIONS:
+    // - OSCILLATION: Ticks bouncing back and forth (reversals)
+    // - TREND: 3+ consecutive ticks in same direction (up or down)
+    // ════════════════════════════════════════════════════════════════
     analyzeTicks2025(asset) {
-        const h = state.assets[asset].tickHistory.slice(-100);
-        if (!h || h.length < 100) return;
+        const h = state.assets[asset].tickHistory;
+        if (!h || h.length < 200) return;
         if (state.portfolio.activePositions.length > 0) return;
         if (!state.session.isActive) return;
 
-        // Cooldown between trades
         const now = Date.now();
         if (now - state.lastSignalTime < 3000) return;
 
         const len = h.length;
-        const recent = h.slice(-20);
-        const recentLen = recent.length;
 
         // ══════════════════════════════════════════
-        // HELPER: Calculate step direction (-1, 0, +1)
-        // Handles wrap-around: 9→0 is UP, 0→9 is DOWN
+        // HELPER: Get step direction
+        // Returns: 1 (UP), -1 (DOWN), 0 (same/invalid)
+        // Handles wrap: 9→0 is UP, 0→9 is DOWN
         // ══════════════════════════════════════════
         const getStep = (from, to) => {
+            if (from === to) return 0;
             const diff = to - from;
             if (diff === 1 || diff === -9) return 1;   // UP
             if (diff === -1 || diff === 9) return -1;  // DOWN
-            return 0; // Not a single step (skip, same, or jump)
+            return 0; // Jump (not single step)
         };
 
         // ══════════════════════════════════════════
-        // STEP 1: Detect current momentum streak
-        // Count consecutive +1 or -1 moves from the end
+        // STEP 1: Build direction array
+        // Convert tick history to sequence of +1/-1/0 moves
         // ══════════════════════════════════════════
-        let currentStreak = 0;
-        let currentDir = 0; // 1 = UP, -1 = DOWN
+        const directions = [];
+        for (let i = 1; i < len; i++) {
+            directions.push(getStep(h[i - 1], h[i]));
+        }
 
-        for (let i = recentLen - 1; i > 0; i--) {
-            const step = getStep(recent[i - 1], recent[i]);
+        // ══════════════════════════════════════════
+        // STEP 2: Find all OSCILLATION → TREND events in history
+        // Oscillation = sequence of alternating +1/-1 (reversals)
+        // Trend = 3+ consecutive same direction
+        // ══════════════════════════════════════════
+        const oscillationLengthsBeforeTrend = [];
+        const trendDirectionsAfterOsc = [];
 
-            if (step === 0) break; // Not a clean step, streak ends
+        let i = 0;
+        while (i < directions.length - 5) {
+            // Check if we're in an oscillation phase
+            // Count consecutive reversals (direction changes)
+            let oscStart = i;
+            let oscLength = 0;
+            let lastDir = directions[i];
 
-            if (currentStreak === 0) {
-                // First step establishes direction
-                currentDir = step;
-                currentStreak = 1;
-            } else if (step === currentDir) {
-                // Same direction, extend streak
-                currentStreak++;
-            } else {
-                // Direction changed, streak ends
+            if (lastDir === 0) {
+                i++;
+                continue;
+            }
+
+            // Walk forward counting oscillation ticks
+            let j = i + 1;
+            while (j < directions.length - 3) {
+                const currDir = directions[j];
+
+                if (currDir === 0) {
+                    j++;
+                    continue;
+                }
+
+                // Is this a reversal? (direction changed from last)
+                if (currDir === -lastDir) {
+                    oscLength++;
+                    lastDir = currDir;
+                    j++;
+                } else if (currDir === lastDir) {
+                    // Same direction = potential trend start
+                    // Check if it's a 3+ trend
+                    let trendLen = 1;
+                    let trendDir = currDir;
+                    let k = j + 1;
+
+                    while (k < directions.length && directions[k] === trendDir) {
+                        trendLen++;
+                        k++;
+                    }
+
+                    if (trendLen >= 2) {
+                        // Found a 3+ trend after oscillation
+                        // (trendLen counts moves, so 2 moves = 3 ticks in trend)
+                        if (oscLength >= 3) {
+                            oscillationLengthsBeforeTrend.push(oscLength);
+                            trendDirectionsAfterOsc.push(trendDir);
+                        }
+                        i = k;
+                        break;
+                    } else {
+                        // Not a real trend, continue oscillation
+                        oscLength++;
+                        lastDir = currDir;
+                        j++;
+                    }
+                } else {
+                    j++;
+                }
+            }
+
+            if (j >= directions.length - 3) {
+                i = j;
+            }
+            i++;
+        }
+
+        // ══════════════════════════════════════════
+        // STEP 3: Calculate typical oscillation length
+        // ══════════════════════════════════════════
+        if (oscillationLengthsBeforeTrend.length < 5) {
+            LOGGER.debug(`[${asset}] Not enough osc→trend data: ${oscillationLengthsBeforeTrend.length} events`);
+            return;
+        }
+
+        // Get recent oscillation lengths (last 15 events)
+        const recentOscLengths = oscillationLengthsBeforeTrend.slice(-15);
+        const recentTrendDirs = trendDirectionsAfterOsc.slice(-15);
+
+        // Calculate stats
+        const sortedLengths = [...recentOscLengths].sort((a, b) => a - b);
+        const avgOscLength = recentOscLengths.reduce((a, b) => a + b, 0) / recentOscLengths.length;
+        const medianOscLength = sortedLengths[Math.floor(sortedLengths.length / 2)];
+        const maxOscLength = Math.max(...recentOscLengths);
+        const minOscLength = Math.min(...recentOscLengths);
+
+        // Target = when oscillation "should" break (we use 80-90% of max)
+        const targetOscLength = Math.floor(maxOscLength * 0.85);
+
+        // ══════════════════════════════════════════
+        // STEP 4: Measure CURRENT oscillation length
+        // ══════════════════════════════════════════
+        let currentOscLength = 0;
+        let lastDirection = 0;
+        const recent50 = directions.slice(-50);
+
+        // Walk backwards from the end to count current oscillation
+        for (let r = recent50.length - 1; r >= 0; r--) {
+            const dir = recent50[r];
+
+            if (dir === 0) continue;
+
+            if (lastDirection === 0) {
+                lastDirection = dir;
+                currentOscLength = 1;
+            } else if (dir === -lastDirection) {
+                // Reversal = still oscillating
+                currentOscLength++;
+                lastDirection = dir;
+            } else if (dir === lastDirection) {
+                // Same direction = oscillation ended, we're in trend/breakout
                 break;
             }
         }
 
         // ══════════════════════════════════════════
-        // STEP 2: Only interested in "building" trends
-        // We want to catch trends at 2-3 ticks, before they hit 4
+        // STEP 5: Log current state for debugging
         // ══════════════════════════════════════════
-        if (currentStreak < 2 || currentStreak > 3) {
-            // Either no momentum yet, or trend already mature
+        this.logCount = (this.logCount || 0) + 1;
+        if (this.logCount % 20 === 0) {
+            LOGGER.debug(`[${asset}] 📊 Osc Stats: avg=${avgOscLength.toFixed(1)}, median=${medianOscLength}, max=${maxOscLength}, current=${currentOscLength}, target=${targetOscLength}`);
+            LOGGER.debug(`[${asset}] 📊 Last 15 osc lengths: [${recentOscLengths.join(',')}]`);
+        }
+
+        // ══════════════════════════════════════════
+        // STEP 6: Check if current oscillation is "ripe"
+        // Trade when current oscillation >= target length
+        // ══════════════════════════════════════════
+        if (currentOscLength < targetOscLength) {
+            return;
+        }
+
+        // Extra safety: don't trade if oscillation is way beyond max (anomaly)
+        if (currentOscLength > maxOscLength * 1.5) {
+            LOGGER.debug(`[${asset}] ⚠️ Oscillation too long: ${currentOscLength} > ${maxOscLength * 1.5}, skipping`);
             return;
         }
 
         // ══════════════════════════════════════════
-        // STEP 3: HARD BLOCKS - Skip bad market conditions
+        // STEP 7: Predict breakout direction
+        // Based on historical trend directions after similar oscillations
         // ══════════════════════════════════════════
-        const last = recent[recentLen - 1];
-        const prev = recent[recentLen - 2];
+        let upBreaks = 0;
+        let downBreaks = 0;
 
-        // Block if last 2 digits are same (no momentum)
-        if (last === prev) return;
-
-        // Block ABAB oscillation pattern in last 4 ticks
-        if (recentLen >= 4) {
-            const a = recent[recentLen - 4];
-            const b = recent[recentLen - 3];
-            const c = recent[recentLen - 2];
-            const d = recent[recentLen - 1];
-            if (a === c && b === d && a !== b) return;
+        // Weight recent breakouts more heavily
+        for (let t = 0; t < recentTrendDirs.length; t++) {
+            const weight = 1 + (t / recentTrendDirs.length); // More recent = higher weight
+            if (recentTrendDirs[t] > 0) upBreaks += weight;
+            else if (recentTrendDirs[t] < 0) downBreaks += weight;
         }
 
-        // ══════════════════════════════════════════
-        // STEP 4: HISTORICAL BACKTEST
-        // Search entire tick history for identical 2-3 tick
-        // momentum setups and count how often they continued to 4+
-        // ══════════════════════════════════════════
-        let totalMatches = 0;
-        let successCount = 0;
+        // Also check last few ticks for early breakout hint
+        const lastFew = h.slice(-5);
+        let earlyHintDir = 0;
 
-        for (let i = currentStreak; i < len - 4; i++) {
-            // Check if position i has same streak setup as current
-            let histStreak = 0;
-            let histDir = 0;
+        if (lastFew.length >= 3) {
+            const step1 = getStep(lastFew[lastFew.length - 3], lastFew[lastFew.length - 2]);
+            const step2 = getStep(lastFew[lastFew.length - 2], lastFew[lastFew.length - 1]);
 
-            // Walk backwards from position i to count streak
-            for (let j = i; j > 0 && j > i - 5; j--) {
-                const step = getStep(h[j - 1], h[j]);
-
-                if (step === 0) break;
-
-                if (histStreak === 0) {
-                    histDir = step;
-                    histStreak = 1;
-                } else if (step === histDir) {
-                    histStreak++;
-                } else {
-                    break;
-                }
-            }
-
-            // Found matching setup: same streak length, same direction
-            if (histStreak === currentStreak && histDir === currentDir) {
-                totalMatches++;
-
-                // Check if the NEXT ticks continued the trend to 4+
-                let continueStreak = histStreak;
-
-                for (let k = i + 1; k < Math.min(i + 5, len); k++) {
-                    const nextStep = getStep(h[k - 1], h[k]);
-                    if (nextStep === histDir) {
-                        continueStreak++;
-                    } else {
-                        break;
-                    }
-                }
-
-                // Success = reached 4+ total streak
-                if (continueStreak >= 5) {
-                    successCount++;
-                }
+            if (step1 !== 0 && step1 === step2) {
+                // Last 2 moves in same direction = early breakout signal
+                earlyHintDir = step1;
             }
         }
 
-        // ══════════════════════════════════════════
-        // STEP 5: CALCULATE PROBABILITY
-        // ══════════════════════════════════════════
-        if (totalMatches < 5) {
-            // Not enough historical data for this exact setup
-            LOGGER.debug(`[${asset}] Trend ${currentDir > 0 ? 'UP' : 'DOWN'}×${currentStreak} but only ${totalMatches} historical matches (need 5+)`);
+        // Determine final direction
+        let predictedDir = 0;
+        let confidence = 0;
+
+        if (earlyHintDir !== 0) {
+            // Trust the early hint more
+            predictedDir = earlyHintDir;
+            confidence = 75; // Base confidence for early hint
+
+            // Boost confidence if historical data agrees
+            if ((earlyHintDir > 0 && upBreaks > downBreaks) ||
+                (earlyHintDir < 0 && downBreaks > upBreaks)) {
+                confidence = 85;
+            }
+        } else {
+            // No early hint, use historical bias
+            const totalBreaks = upBreaks + downBreaks;
+            if (totalBreaks < 3) return;
+
+            if (upBreaks > downBreaks * 1.3) {
+                predictedDir = 1;
+                confidence = (upBreaks / totalBreaks) * 100;
+            } else if (downBreaks > upBreaks * 1.3) {
+                predictedDir = -1;
+                confidence = (downBreaks / totalBreaks) * 100;
+            } else {
+                // No clear bias, skip
+                LOGGER.debug(`[${asset}] ⚠️ No clear direction bias: UP=${upBreaks.toFixed(1)}, DOWN=${downBreaks.toFixed(1)}`);
+                return;
+            }
+        }
+
+        if (confidence < 60) {
+            LOGGER.debug(`[${asset}] ⚠️ Confidence too low: ${confidence.toFixed(1)}%`);
             return;
         }
 
-        const successRate = (successCount / totalMatches) * 100;
-
-        // Log analysis every few ticks
-        this.analysisCount = (this.analysisCount || 0) + 1;
-        if (this.analysisCount % 10 === 0 || successRate >= 70) {
-            const trendEmoji = currentDir > 0 ? '📈' : '📉';
-            const dirLabel = currentDir > 0 ? 'UP' : 'DOWN';
-            LOGGER.debug(`[${asset}] ${trendEmoji} Trend: ${dirLabel}×${currentStreak} | History: ${successCount}/${totalMatches} → 4+ = ${successRate.toFixed(1)}% | Last10: [${recent.slice(-10).join(',')}]`);
-        }
-
         // ══════════════════════════════════════════
-        // STEP 6: EXECUTE TRADE IF ≥80% CONFIDENCE
+        // STEP 8: EXECUTE TRADE
         // ══════════════════════════════════════════
-        if (successRate >= 11) {
-            const direction = currentDir > 0 ? 'CALL' : 'CALL';
-            const dirName = currentDir > 0 ? 'RISE' : 'RISE';
-            const trendEmoji = currentDir > 0 ? '📈' : '📉';
+        const direction = predictedDir > 0 ? 'CALL' : 'CALL';
+        const dirName = predictedDir > 0 ? 'RISE' : 'RISE';
+        const trendEmoji = predictedDir > 0 ? '📈' : '📉';
 
-            LOGGER.trade(`═══════════════════════════════════════════════════════════`);
-            LOGGER.trade(`${trendEmoji} TREND SIGNAL CONFIRMED`);
-            LOGGER.trade(`   Asset: ${asset}`);
-            LOGGER.trade(`   Direction: ${dirName} (${currentDir > 0 ? 'UPTREND' : 'DOWNTREND'})`);
-            LOGGER.trade(`   Current Streak: ${currentStreak} ticks`);
-            LOGGER.trade(`   Historical: ${successCount}/${totalMatches} continued to 4+ = ${successRate.toFixed(1)}%`);
-            LOGGER.trade(`   Last 10 digits: [${recent.slice(-10).join(', ')}]`);
-            LOGGER.trade(`   Stake: $${state.currentStake.toFixed(2)} | Level: ${state.martingaleLevel}`);
-            LOGGER.trade(`═══════════════════════════════════════════════════════════`);
+        LOGGER.trade(`═══════════════════════════════════════════════════════════`);
+        LOGGER.trade(`${trendEmoji} OSCILLATION BREAKOUT SIGNAL`);
+        LOGGER.trade(`   Asset: ${asset}`);
+        LOGGER.trade(`   Direction: ${dirName}`);
+        LOGGER.trade(`   Current Oscillation: ${currentOscLength} ticks (target: ${targetOscLength})`);
+        LOGGER.trade(`   Typical Lengths: avg=${avgOscLength.toFixed(1)}, median=${medianOscLength}, max=${maxOscLength}`);
+        LOGGER.trade(`   Historical Bias: UP=${upBreaks.toFixed(1)}, DOWN=${downBreaks.toFixed(1)}`);
+        LOGGER.trade(`   Early Hint: ${earlyHintDir > 0 ? 'UP' : earlyHintDir < 0 ? 'DOWN' : 'NONE'}`);
+        LOGGER.trade(`   Confidence: ${confidence.toFixed(1)}%`);
+        LOGGER.trade(`   Last 10 digits: [${h.slice(-10).join(', ')}]`);
+        LOGGER.trade(`   Stake: $${state.currentStake.toFixed(2)} | Level: ${state.martingaleLevel}`);
+        LOGGER.trade(`═══════════════════════════════════════════════════════════`);
 
-            state.lastSignalTime = now;
-            state.canTrade = true;
+        state.lastSignalTime = now;
+        state.canTrade = true;
 
-            bot.executeNextTrade(asset, direction, {
-                reason: `${currentDir > 0 ? 'UPTREND' : 'DOWNTREND'} ${currentStreak}→4+ (${successRate.toFixed(0)}%)`,
-                probability: successRate.toFixed(1),
-                oscInfo: `Streak: ${currentStreak}, Hist: ${successCount}/${totalMatches}`
-            });
-        }
+        bot.executeNextTrade(asset, direction, {
+            reason: `OSC ${currentOscLength}/${targetOscLength} → ${dirName}`,
+            probability: confidence.toFixed(1),
+            oscInfo: `Osc: ${currentOscLength}t, avg=${avgOscLength.toFixed(1)}, max=${maxOscLength}`
+        });
     }
 
     getLastDigit(quote, asset) {
