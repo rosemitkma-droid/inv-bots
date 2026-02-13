@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF0005-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF00007-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -351,7 +351,7 @@ class CandleAnalyzer {
 // ============================================
 const CONFIG = {
     // API Settings
-    API_TOKEN: 'Dz2V2KvRf4Uukt3',
+    API_TOKEN: '0P94g4WdSrSrzir',
     APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
@@ -1172,8 +1172,8 @@ class ConnectionManager {
         // ══════════════════════════════════════════
         if (successRate >= CONFIG.MIN_BREAKOUT_CONFIDENCE) {
 
-            const direction = breakoutUp ? 'CALL' : 'PUT';
-            const dirName = breakoutUp ? 'RISE' : 'FALL';
+            const direction = breakoutUp ? 'CALL' : 'CALL';
+            const dirName = breakoutUp ? 'RISE' : 'RISE';
             const oscInfo = `${bestOscA}-${bestOscB} (${bestOscLength}t, ended ${ticksAfterOsc}t ago)`;
 
             LOGGER.trade(`═══════════════════════════════════════════════════════════`);
