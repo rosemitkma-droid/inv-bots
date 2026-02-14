@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF00012-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF00019-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -388,6 +388,7 @@ const CONFIG = {
     STAKE: 1,
 
     // Session Targets
+    totalTradesN: 300000,
     SESSION_PROFIT_TARGET: 500,
     SESSION_STOP_LOSS: -250,
 
@@ -398,7 +399,7 @@ const CONFIG = {
     CANDLES_TO_LOAD: 50,
 
     // Trade Duration Settings
-    DURATION: 2,
+    DURATION: 6,
     DURATION_UNIT: 't', // t=ticks, s=seconds, m=minutes
 
     // Trade Settings
@@ -407,8 +408,8 @@ const CONFIG = {
     MARTINGALE_MULTIPLIER: 1,
     MARTINGALE_MULTIPLIER2: 1,
     MARTINGALE_MULTIPLIER3: 1,
-    MARTINGALE_MULTIPLIER4: 2.3,
-    MARTINGALE_MULTIPLIER5: 3,
+    MARTINGALE_MULTIPLIER4: 1,
+    MARTINGALE_MULTIPLIER5: 2.2,
     MAX_MARTINGALE_STEPS: 100,
     System: 1, // 1 = Continue same direction on Win and Switch direction on Loss, 
     // 2 = Switch direction on Win and Continue same direction on Loss, 
@@ -503,6 +504,12 @@ class SessionManager {
         if (netPL <= CONFIG.SESSION_STOP_LOSS || state.martingaleLevel >= CONFIG.MAX_MARTINGALE_STEPS) {
             LOGGER.error(`🛑 SESSION STOP LOSS REACHED! Net P/L: $${netPL.toFixed(2)}`);
             this.endSession('STOP_LOSS');
+            return true;
+        }
+
+        if (state.session.tradesCount >= CONFIG.totalTradesN) {
+            LOGGER.info(`⏸️ Session ended (reached total trades Net P/L: $${netPL.toFixed(2)}).`);
+            this.endSession('TOTAL_TRADES');
             return true;
         }
 
@@ -1169,26 +1176,39 @@ class DerivBot {
             return;
         }
 
-        const isOdd = lastDigit % 2 !== 0;
-        if (isOdd) {
-            LOGGER.info(`🚫 Skipping trade on ${tradeSymbol} - Last digit ${lastDigit} is ODD (Even required)`);
-            state.canTrade = false;
-            return;
-        }
+
+        // if (isOdd) {
+        //     LOGGER.info(`🚫 Skipping trade on ${tradeSymbol} - Last digit ${lastDigit} is ODD (Even required)`);
+        //     state.canTrade = false;
+        //     return;
+        // }
 
         LOGGER.info(`✅ Last digit ${lastDigit} is ODD - Proceeding with trade on ${tradeSymbol}`);
 
         // Determine direction based on last closed candle
         let direction;
 
+        // if (lastClosedCandle) {
+        //     // Trade based on candle pattern
+        //     if (CandleAnalyzer.isBullish(lastClosedCandle)) {
+        //         direction = 'CALL'; // Buy if previous candle was bullish
+        //         LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
+        //     } else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
+        //         direction = 'PUT'; // Sell if previous candle was bearish
+        //         LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
+        //     }
+        // }
+
         if (lastClosedCandle) {
+            const isOdd = lastDigit % 2 !== 0;
             // Trade based on candle pattern
-            if (CandleAnalyzer.isBullish(lastClosedCandle)) {
-                direction = 'CALL'; // Buy if previous candle was bullish
+            // if (CandleAnalyzer.isBullish(lastClosedCandle)) {
+            if (isOdd) {
+                direction = 'CALL'; // Sell if previous candle was bullish
                 LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
-            } else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
-                direction = 'PUT'; // Sell if previous candle was bearish
-                LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
+            } else { //else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
+                direction = 'CALL'; // Sell if previous candle was bullish
+                LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
             }
         }
 
