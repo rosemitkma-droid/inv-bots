@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF000017-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF00017-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -350,7 +350,7 @@ class CandleAnalyzer {
 // ============================================
 const CONFIG = {
     // API Settings
-    API_TOKEN: '0P94g4WdSrSrzir',
+    API_TOKEN: 'Dz2V2KvRf4Uukt3',
     APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
@@ -359,7 +359,7 @@ const CONFIG = {
     STAKE: 0.5,
 
     // Session Targets
-    totalTradesN: 5000000,
+    totalTradesN: 500000,
     SESSION_PROFIT_TARGET: 2500,
     SESSION_STOP_LOSS: -150,
     highestPercentageDigit: null,
@@ -1115,8 +1115,8 @@ class ConnectionManager {
     //     // STEP 6: EXECUTE TRADE IF ≥80% CONFIDENCE
     //     // ══════════════════════════════════════════
     //     if (successRate >= 11) {
-    //         const direction = currentDir > 0 ? 'CALL' : 'CALL';
-    //         const dirName = currentDir > 0 ? 'RISE' : 'RISE';
+    //         const direction = currentDir > 0 ? 'PUT' : 'PUT';
+    //         const dirName = currentDir > 0 ? 'FALL' : 'FALL';
     //         const trendEmoji = currentDir > 0 ? '📈' : '📉';
 
     //         LOGGER.trade(`═══════════════════════════════════════════════════════════`);
@@ -1401,8 +1401,8 @@ class ConnectionManager {
         // ══════════════════════════════════════════
         // STEP 8: EXECUTE TRADE
         // ══════════════════════════════════════════
-        const direction = predictedDir > 0 ? 'CALL' : 'CALL';
-        const dirName = predictedDir > 0 ? 'RISE' : 'RISE';
+        const direction = predictedDir > 0 ? 'PUT' : 'PUT';
+        const dirName = predictedDir > 0 ? 'FALL' : 'FALL';
         const trendEmoji = predictedDir > 0 ? '📈' : '📉';
 
         LOGGER.trade(`═══════════════════════════════════════════════════════════`);
