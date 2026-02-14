@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF000016-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF000017-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -356,11 +356,11 @@ const CONFIG = {
 
     // Capital Settings
     INITIAL_CAPITAL: 500,
-    STAKE: 0.35,
+    STAKE: 0.5,
 
     // Session Targets
-    totalTradesN: 500,
-    SESSION_PROFIT_TARGET: 250,
+    totalTradesN: 5000000,
+    SESSION_PROFIT_TARGET: 2500,
     SESSION_STOP_LOSS: -150,
     highestPercentageDigit: null,
 
@@ -370,7 +370,7 @@ const CONFIG = {
     MAX_CANDLES_STORED: 100,
     CANDLES_TO_LOAD: 50,
 
-    TOTAL_TICK_HISTORY: 1200,
+    TOTAL_TICK_HISTORY: 100,
 
     // Trade Duration Settings
     DURATION: 2,
@@ -383,15 +383,14 @@ const CONFIG = {
     // ═══════════════════════════════════════════
     // 2025 OSCILLATION BREAKOUT STRATEGY SETTINGS
     // ═══════════════════════════════════════════
-    MAX_TICK_HISTORY: 1200,         // Store more ticks for deeper analysis
     MIN_TREND_STREAK: 2,           // Minimum streak before considering trade
     MAX_TREND_STREAK: 3,           // Maximum streak (don't chase mature trends)
     MIN_TREND_CONFIDENCE: 20,      // Minimum historical success rate
     MIN_TREND_MATCHES: 5,          // Minimum historical samples needed
 
-    OSC_TARGET_RATIO: 0.85,      // Trigger at 85% of max oscillation length
-    MIN_OSC_EVENTS: 5,           // Need at least 5 historical osc→trend events
-    MIN_CONFIDENCE: 60,          // Minimum confidence to trade
+    OSC_TARGET_RATIO: 0.95,      // Trigger at 85% of max oscillation length
+    MIN_OSC_EVENTS: 0,           // Need at least 5 historical osc→trend events
+    MIN_CONFIDENCE: 70,          // Minimum confidence to trade
     MAX_OSC_MULTIPLIER: 1.5,     // Skip if oscillation > 150% of max (anomaly)
 
     // Martingale Settings
@@ -938,7 +937,7 @@ class ConnectionManager {
 
         if (!assetState.tickHistory) assetState.tickHistory = [];
         assetState.tickHistory.push(lastDigit);
-        if (assetState.tickHistory.length > CONFIG.MAX_TICK_HISTORY) {
+        if (assetState.tickHistory.length > CONFIG.TOTAL_TICK_HISTORY) {
             assetState.tickHistory.shift();
         }
 
@@ -1158,7 +1157,7 @@ class ConnectionManager {
     // ════════════════════════════════════════════════════════════════
     analyzeTicks2025(asset) {
         const h = state.assets[asset].tickHistory;
-        if (!h || h.length < 200) return;
+        if (!h || h.length < 10) return;
         if (state.portfolio.activePositions.length > 0) return;
         if (!state.session.isActive) return;
 
@@ -1266,7 +1265,7 @@ class ConnectionManager {
         // ══════════════════════════════════════════
         // STEP 3: Calculate typical oscillation length
         // ══════════════════════════════════════════
-        if (oscillationLengthsBeforeTrend.length < 5) {
+        if (oscillationLengthsBeforeTrend.length < CONFIG.MIN_OSC_EVENTS) {
             LOGGER.debug(`[${asset}] Not enough osc→trend data: ${oscillationLengthsBeforeTrend.length} events`);
             return;
         }
@@ -1283,7 +1282,7 @@ class ConnectionManager {
         const minOscLength = Math.min(...recentOscLengths);
 
         // Target = when oscillation "should" break (we use 80-90% of max)
-        const targetOscLength = Math.floor(maxOscLength * 0.85);
+        const targetOscLength = Math.floor(maxOscLength * CONFIG.OSC_TARGET_RATIO);
 
         // ══════════════════════════════════════════
         // STEP 4: Measure CURRENT oscillation length
@@ -1329,8 +1328,8 @@ class ConnectionManager {
         }
 
         // Extra safety: don't trade if oscillation is way beyond max (anomaly)
-        if (currentOscLength > maxOscLength * 1.5) {
-            LOGGER.debug(`[${asset}] ⚠️ Oscillation too long: ${currentOscLength} > ${maxOscLength * 1.5}, skipping`);
+        if (currentOscLength > maxOscLength * CONFIG.MAX_OSC_MULTIPLIER) {
+            LOGGER.debug(`[${asset}] ⚠️ Oscillation too long: ${currentOscLength} > ${maxOscLength * CONFIG.MAX_OSC_MULTIPLIER}, skipping`);
             return;
         }
 
@@ -1394,7 +1393,7 @@ class ConnectionManager {
             }
         }
 
-        if (confidence < 60) {
+        if (confidence < CONFIG.MIN_CONFIDENCE) {
             LOGGER.debug(`[${asset}] ⚠️ Confidence too low: ${confidence.toFixed(1)}%`);
             return;
         }
