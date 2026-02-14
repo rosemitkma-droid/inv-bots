@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF00020-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF00021-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -399,7 +399,7 @@ const CONFIG = {
     CANDLES_TO_LOAD: 50,
 
     // Trade Duration Settings
-    DURATION: 8,
+    DURATION: 2,
     DURATION_UNIT: 't', // t=ticks, s=seconds, m=minutes
 
     // Trade Settings
@@ -428,7 +428,7 @@ const CONFIG = {
 
 let ACTIVE_ASSETS = [
     // 'R_75', 'R_100', '1HZ25V', '1HZ50V', '1HZ100V' 'stpRNG', 'RDBULL', 'RDBEAR',
-    'stpRNG'
+    'stpRNG5'
 ];
 
 // ============================================
@@ -930,7 +930,7 @@ class ConnectionManager {
                 // TRIGGER TRADE AFTER CANDLE CLOSE
                 // setTimeout(() => {
                 state.canTrade = true;
-                bot.executeNextTrade(symbol, closedCandle);
+                // bot.executeNextTrade(symbol, closedCandle);
                 // }, 500); // Small delay to ensure candle is fully processed
             }
         }
@@ -988,15 +988,25 @@ class ConnectionManager {
     }
 
     // NEW: Handle live tick updates for Odd/Even checking
-    // NEW: Handle live tick updates for Odd/Even checking
     handleTickUpdate(tick) {
         const asset = tick.symbol;
         const lastDigit = this.getLastDigit(tick.quote, asset);
+        if (!state.assets[asset]) return;
+
+        const assetState = state.assets[asset];
+        assetState.lastTick = tick;
+        assetState.lastDigit = lastDigit;
 
         state.tickData.lastTick = tick;
         state.tickData.lastDigit = lastDigit;
 
-        LOGGER.debug(`[${asset}] Tick: ${tick.quote} | Last Digit: ${lastDigit} (${lastDigit % 2 === 0 ? 'EVEN' : 'ODD'})`);
+        LOGGER.debug(`[${asset}] Tick: ${tick.quote} | Digit: ${lastDigit}`);
+
+        const odd = lastDigit % 2 === 0;
+
+        if (state.canTrade && !odd) {
+            bot.executeNextTrade(asset);
+        }
     }
 
     // NEW: Get last digit from quote based on asset type (from mX4Differ.js)
@@ -1199,18 +1209,19 @@ class DerivBot {
         //     }
         // }
 
-        if (lastClosedCandle) {
-            const isOdd = lastDigit % 2 !== 0;
-            // Trade based on candle pattern
-            // if (CandleAnalyzer.isBullish(lastClosedCandle)) {
-            if (isOdd) {
-                direction = 'CALL'; // Sell if previous candle was bullish
-                LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
-            } else { //else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
-                direction = 'CALL'; // Sell if previous candle was bullish
-                LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
-            }
-        }
+        // if (lastClosedCandle) {
+        //     const isOdd = lastDigit % 2 !== 0;
+        // Trade based on candle pattern
+        // if (CandleAnalyzer.isBullish(lastClosedCandle)) {
+        // if (!isOdd) {
+        direction = 'CALL'; // Sell if previous candle was bullish
+        LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
+        // }
+        // else { //else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
+        //     direction = 'CALL'; // Sell if previous candle was bullish
+        //     LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
+        // }
+        // }
 
         state.canTrade = false; // Prevent multiple trades
         state.lastTradeDirection = direction;
