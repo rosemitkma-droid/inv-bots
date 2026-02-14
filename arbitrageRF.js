@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF000018-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF000017-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -370,7 +370,7 @@ const CONFIG = {
     MAX_CANDLES_STORED: 100,
     CANDLES_TO_LOAD: 50,
 
-    TOTAL_TICK_HISTORY: 100,
+    TOTAL_TICK_HISTORY: 50,
 
     // Trade Duration Settings
     DURATION: 2,
@@ -390,7 +390,7 @@ const CONFIG = {
 
     OSC_TARGET_RATIO: 1,      // Trigger at 85% of max oscillation length
     MIN_OSC_EVENTS: 0,           // Need at least 5 historical osc→trend events
-    MIN_CONFIDENCE: 70,          // Minimum confidence to trade
+    MIN_CONFIDENCE: 60,          // Minimum confidence to trade
     MAX_OSC_MULTIPLIER: 1.5,     // Skip if oscillation > 150% of max (anomaly)
 
     // Martingale Settings
@@ -1289,7 +1289,7 @@ class ConnectionManager {
         // ══════════════════════════════════════════
         let currentOscLength = 0;
         let lastDirection = 0;
-        const recent50 = directions.slice(-50);
+        const recent50 = directions.slice(-20);
 
         // Walk backwards from the end to count current oscillation
         for (let r = recent50.length - 1; r >= 0; r--) {
