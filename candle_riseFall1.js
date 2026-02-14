@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF000020-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF000021-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -399,7 +399,7 @@ const CONFIG = {
     CANDLES_TO_LOAD: 50,
 
     // Trade Duration Settings
-    DURATION: 8,
+    DURATION: 2,
     DURATION_UNIT: 't', // t=ticks, s=seconds, m=minutes
 
     // Trade Settings
@@ -428,7 +428,7 @@ const CONFIG = {
 
 let ACTIVE_ASSETS = [
     // 'R_75', 'R_100', '1HZ25V', '1HZ50V', '1HZ100V' 'stpRNG', 'RDBULL', 'RDBEAR',
-    'stpRNG'
+    'stpRNG5'
 ];
 
 // ============================================
@@ -929,7 +929,7 @@ class ConnectionManager {
                 // TRIGGER TRADE AFTER CANDLE CLOSE
                 // setTimeout(() => {
                 state.canTrade = true;
-                bot.executeNextTrade(symbol, closedCandle);
+                // bot.executeNextTrade(symbol, closedCandle);
                 // }, 500); // Small delay to ensure candle is fully processed
             }
         }
@@ -987,15 +987,25 @@ class ConnectionManager {
     }
 
     // NEW: Handle live tick updates for Odd/Even checking
-    // NEW: Handle live tick updates for Odd/Even checking
     handleTickUpdate(tick) {
         const asset = tick.symbol;
         const lastDigit = this.getLastDigit(tick.quote, asset);
+        if (!state.assets[asset]) return;
+
+        const assetState = state.assets[asset];
+        assetState.lastTick = tick;
+        assetState.lastDigit = lastDigit;
 
         state.tickData.lastTick = tick;
         state.tickData.lastDigit = lastDigit;
 
-        LOGGER.debug(`[${asset}] Tick: ${tick.quote} | Last Digit: ${lastDigit} (${lastDigit % 2 === 0 ? 'EVEN' : 'ODD'})`);
+        LOGGER.debug(`[${asset}] Tick: ${tick.quote} | Digit: ${lastDigit}`);
+
+        const odd = lastDigit % 2 === 0;
+
+        if (state.canTrade && !odd) {
+            bot.executeNextTrade(asset);
+        }
     }
 
     // NEW: Get last digit from quote based on asset type (from mX4Differ.js)
@@ -1187,24 +1197,25 @@ class DerivBot {
         // Determine direction based on last closed candle
         let direction;
 
-        if (lastClosedCandle) {
-            const isOdd = lastDigit % 2 !== 0;
-            // Trade based on candle pattern
-            // if (CandleAnalyzer.isBullish(lastClosedCandle)) {
-            if (!isOdd) {
-                direction = 'PUT'; // Sell if previous candle was bullish
-                LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
-            } else { //else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
-                direction = 'PUT'; // Sell if previous candle was bullish
-                LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
-            }
-        }
+        // if (lastClosedCandle) {
+        //     const isOdd = lastDigit % 2 !== 0;
+        // Trade based on candle pattern
+        // if (CandleAnalyzer.isBullish(lastClosedCandle)) {
+        // if (!isOdd) {
+        direction = 'PUT'; // Sell if previous candle was bullish
+        LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
+        // }
+        // else { //else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
+        //     direction = 'PUT'; // Sell if previous candle was bullish
+        //     LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
+        // }
+        // }
 
         state.canTrade = false; // Prevent multiple trades
         state.lastTradeDirection = direction;
 
-        LOGGER.trade(`🎯 Executing ${direction === 'CALL' ? 'RISE' : 'FALL'} trade on ${tradeSymbol}`);
-        LOGGER.trade(`   Stake: $${stake.toFixed(2)} | Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT} | Martingale Level: ${state.martingaleLevel}`);
+        LOGGER.trade(`🎯 Executing ${direction === 'CALL' ? 'RISE' : 'FALL'} trade on ${tradeSymbol} `);
+        LOGGER.trade(`   Stake: $${stake.toFixed(2)} | Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT} | Martingale Level: ${state.martingaleLevel} `);
 
         const position = {
             symbol: tradeSymbol,
@@ -1337,7 +1348,7 @@ class DerivBot {
                 symbol: pos.symbol,
                 direction: pos.direction,
                 stake: pos.stake,
-                duration: `${pos.duration} ${pos.durationUnit}`,
+                duration: `${pos.duration} ${pos.durationUnit} `,
                 profit: pos.currentProfit,
                 contractId: pos.contractId
             }))
@@ -1394,7 +1405,7 @@ if (CONFIG.API_TOKEN === 'YOUR_API_TOKEN_HERE') {
 
 console.log('═'.repeat(80));
 console.log(' DERIV RISE/FALL ALTERNATING BOT');
-console.log(` Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT} | Stake: $${CONFIG.STAKE}`);
+console.log(` Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT} | Stake: $${CONFIG.STAKE} `);
 console.log('═'.repeat(80));
 console.log('\n🚀 Initializing...\n');
 
@@ -1409,6 +1420,6 @@ setInterval(() => {
         const status = bot.getStatus();
         const s = state.session;
         console.log(`\n📊 ${getGMTTime()} | ${status.session.trades} trades | ${status.session.winRate} | $${status.session.netPL.toFixed(2)} | ${status.activePositions.length} active`);
-        console.log(`📉 Loss Stats: x2:${s.x2Losses} x3:${s.x3Losses} x4:${s.x4Losses} x5:${s.x5Losses} x6:${s.x6Losses} x7:${s.x7Losses} | Level: ${state.martingaleLevel}`);
+        console.log(`📉 Loss Stats: x2:${s.x2Losses} x3:${s.x3Losses} x4:${s.x4Losses} x5:${s.x5Losses} x6:${s.x6Losses} x7:${s.x7Losses} | Level: ${state.martingaleLevel} `);
     }
 }, 30000);
