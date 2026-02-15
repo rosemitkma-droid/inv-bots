@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF00021-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF00022-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -405,12 +405,12 @@ const CONFIG = {
     // Trade Settings
     MAX_OPEN_POSITIONS: 1, // One at a time for alternating strategy
     TRADE_DELAY: 1000, // 2 seconds delay between trades
-    MARTINGALE_MULTIPLIER: 1,
-    MARTINGALE_MULTIPLIER2: 1,
-    MARTINGALE_MULTIPLIER3: 1,
+    MARTINGALE_MULTIPLIER: 4,
+    MARTINGALE_MULTIPLIER2: 5,
+    MARTINGALE_MULTIPLIER3: 5,
     MARTINGALE_MULTIPLIER4: 1,
     MARTINGALE_MULTIPLIER5: 2.2,
-    MAX_MARTINGALE_STEPS: 100,
+    MAX_MARTINGALE_STEPS: 5,
     System: 1, // 1 = Continue same direction on Win and Switch direction on Loss, 
     // 2 = Switch direction on Win and Continue same direction on Loss, 
     // 3 = Switch direction every trade, 4 = Same direction every trade
@@ -421,7 +421,7 @@ const CONFIG = {
 
     // Telegram Settings
     TELEGRAM_ENABLED: true,
-    TELEGRAM_BOT_TOKEN: '8356265372:AAELmgFj-xJP3EJNPR5G_D2R2fke-T9wxBA',
+    TELEGRAM_BOT_TOKEN: '8588380880:AAH8tOl8dxvjJ4qfWf3yr-i7FS_qlew-8t0',
     TELEGRAM_CHAT_ID: '752497117',
 };
 
@@ -598,13 +598,13 @@ class SessionManager {
 
 
             // Martingale Multiplier
-            if (state.martingaleLevel <= 3) {
+            if (state.martingaleLevel <= 1) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER * 100) / 100;
             };
-            if (state.martingaleLevel >= 4 && state.martingaleLevel <= 10) {
+            if (state.martingaleLevel >= 2 && state.martingaleLevel <= 2) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER2 * 100) / 100;
             };
-            if (state.martingaleLevel >= 11 && state.martingaleLevel <= 15) {
+            if (state.martingaleLevel >= 3 && state.martingaleLevel <= 3) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER3 * 100) / 100;
             };
             if (state.martingaleLevel >= 16 && state.martingaleLevel <= 20) {
@@ -1002,10 +1002,10 @@ class ConnectionManager {
 
         LOGGER.debug(`[${asset}] Tick: ${tick.quote} | Digit: ${lastDigit}`);
 
-        const odd = lastDigit % 2 === 0;
+        const isOdd = lastDigit % 2 === 0;
 
-        if (state.canTrade && !odd) {
-            bot.executeNextTrade(asset);
+        if (state.canTrade && !isOdd) {
+            bot.executeNextTrade(asset, isOdd);
         }
     }
 
@@ -1161,7 +1161,7 @@ class DerivBot {
         });
     }
 
-    executeNextTrade(symbol, lastClosedCandle) {
+    executeNextTrade(symbol, isOdd) {
         if (!state.canTrade) return;
         if (!SessionManager.isSessionActive()) return;
         if (state.portfolio.activePositions.length >= CONFIG.MAX_OPEN_POSITIONS) return;
@@ -1213,20 +1213,20 @@ class DerivBot {
         //     const isOdd = lastDigit % 2 !== 0;
         // Trade based on candle pattern
         // if (CandleAnalyzer.isBullish(lastClosedCandle)) {
-        // if (!isOdd) {
-        direction = 'CALL'; // Sell if previous candle was bullish
-        LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
-        // }
-        // else { //else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
-        //     direction = 'CALL'; // Sell if previous candle was bullish
-        //     LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
-        // }
+        if (!isOdd) {
+            direction = 'CALLE'; // Sell if previous candle was bullish
+            LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
+        }
+        else { //else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
+            direction = 'PUTE'; // Sell if previous candle was bearish
+            LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
+        }
         // }
 
         state.canTrade = false; // Prevent multiple trades
         state.lastTradeDirection = direction;
 
-        LOGGER.trade(`🎯 Executing ${direction === 'CALL' ? 'RISE' : 'FALL'} trade on ${tradeSymbol}`);
+        LOGGER.trade(`🎯 Executing ${direction === 'CALLE' ? 'RISE' : 'FALL'} trade on ${tradeSymbol}`);
         LOGGER.trade(`   Stake: $${stake.toFixed(2)} | Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT} | Martingale Level: ${state.martingaleLevel}`);
 
         const position = {
@@ -1341,10 +1341,10 @@ class DerivBot {
         const sessionStats = SessionManager.getSessionStats();
 
         const nextDirection = state.lastTradeWasWin === null
-            ? 'CALL (First trade)'
+            ? 'CALLE (First trade)'
             : state.lastTradeWasWin
                 ? state.lastTradeDirection // Same if won
-                : (state.lastTradeDirection === 'CALL' ? 'PUT' : 'CALL'); // Switch if lost
+                : (state.lastTradeDirection === 'CALLE' ? 'PUTE' : 'CALLE'); // Switch if lost
 
         return {
             connected: state.isConnected,
