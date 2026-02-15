@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF000027-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF000028-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -411,6 +411,7 @@ const CONFIG = {
     MARTINGALE_MULTIPLIER4: 4,
     MARTINGALE_MULTIPLIER5: 4,
     MAX_MARTINGALE_STEPS: 6,
+    SYSTEM: 1, // ODD/EVEN Entry System
 
     iDirection: 'FALL', //Set initial direction 'RISE' or 'FALL'
 
@@ -593,6 +594,12 @@ class SessionManager {
             if (state.martingaleLevel === 6) state.session.x6Losses++;
             if (state.martingaleLevel === 7) state.session.x7Losses++;
 
+            // Switch System
+            if (CONFIG.SYSTEM === 1) {
+                CONFIG.SYSTEM = 2
+            } else {
+                CONFIG.SYSTEM = 1
+            }
 
             // Martingale Multiplier
             if (state.martingaleLevel <= 1) {
@@ -822,7 +829,7 @@ class ConnectionManager {
             position.buyPrice = contract.buy_price;
 
             TelegramService.sendTradeAlert(
-                'OPEN 2',
+                'OPEN',
                 position.symbol,
                 position.direction,
                 position.stake,
@@ -1001,8 +1008,15 @@ class ConnectionManager {
 
         const isOdd = lastDigit % 2 === 0;
 
-        if (state.canTrade && !isOdd) {
-            bot.executeNextTrade(asset, isOdd);
+        // NEW: Execute trade if conditions are met
+        if (CONFIG.SYSTEM === 1) {
+            if (state.canTrade && !isOdd) {
+                bot.executeNextTrade(asset, isOdd);
+            }
+        } else {
+            if (state.canTrade && isOdd) {
+                bot.executeNextTrade(asset, isOdd);
+            }
         }
     }
 
