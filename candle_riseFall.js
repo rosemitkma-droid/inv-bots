@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF00022-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF00024-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -388,7 +388,7 @@ const CONFIG = {
     STAKE: 1,
 
     // Session Targets
-    totalTradesN: 300000,
+    totalTradesN: 30000000,
     SESSION_PROFIT_TARGET: 500,
     SESSION_STOP_LOSS: -250,
 
@@ -411,9 +411,7 @@ const CONFIG = {
     MARTINGALE_MULTIPLIER4: 1,
     MARTINGALE_MULTIPLIER5: 2.2,
     MAX_MARTINGALE_STEPS: 5,
-    System: 1, // 1 = Continue same direction on Win and Switch direction on Loss, 
-    // 2 = Switch direction on Win and Continue same direction on Loss, 
-    // 3 = Switch direction every trade, 4 = Same direction every trade
+
     iDirection: 'RISE', //Set initial direction 'RISE' or 'FALL'
 
     // Debug
@@ -617,7 +615,7 @@ class SessionManager {
 
             if (state.martingaleLevel >= CONFIG.MAX_MARTINGALE_STEPS) {
                 LOGGER.warn(`⚠️ Maximum Martingale step reached (${CONFIG.MAX_MARTINGALE_STEPS}), resetting level to 0`);
-                state.martingaleLevel = 0;
+                // state.martingaleLevel = 0;
             } else {
                 LOGGER.trade(`❌ LOSS: -$${Math.abs(profit).toFixed(2)} | Direction: ${direction} | Next Martingale Level: ${state.martingaleLevel}`);
             }
@@ -1179,49 +1177,19 @@ class DerivBot {
             return;
         }
 
-        // NEW: Check if last digit is Odd before trading
-        const lastDigit = state.tickData.lastDigit;
-        if (lastDigit === null) {
-            LOGGER.warn(`⚠️ No tick data available yet, skipping trade for ${tradeSymbol}`);
-            return;
-        }
-
-
-        // if (isOdd) {
-        //     LOGGER.info(`🚫 Skipping trade on ${tradeSymbol} - Last digit ${lastDigit} is ODD (Even required)`);
-        //     state.canTrade = false;
-        //     return;
-        // }
-
-        LOGGER.info(`✅ Last digit ${lastDigit} is ODD - Proceeding with trade on ${tradeSymbol}`);
-
-        // Determine direction based on last closed candle
         let direction;
 
-        // if (lastClosedCandle) {
-        //     // Trade based on candle pattern
-        //     if (CandleAnalyzer.isBullish(lastClosedCandle)) {
-        //         direction = 'CALL'; // Buy if previous candle was bullish
-        //         LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
-        //     } else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
-        //         direction = 'PUT'; // Sell if previous candle was bearish
-        //         LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
-        //     }
-        // }
+        CONFIG.iDirection === 'RISE' ? direction = 'CALLE' : direction = 'PUTE';
 
-        // if (lastClosedCandle) {
-        //     const isOdd = lastDigit % 2 !== 0;
-        // Trade based on candle pattern
-        // if (CandleAnalyzer.isBullish(lastClosedCandle)) {
-        if (!isOdd) {
-            direction = 'CALLE'; // Sell if previous candle was bullish
+        if (direction === 'CALLE') {
+            // direction = 'PUTE'; // Sell if previous candle was bearish
             LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
-        }
-        else { //else if (CandleAnalyzer.isBearish(lastClosedCandle)) {
-            direction = 'PUTE'; // Sell if previous candle was bearish
+            CONFIG.iDirection = 'FALL';
+        } else {
+            // direction = 'PUTE'; // Sell if previous candle was bearish
             LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
+            CONFIG.iDirection = 'RISE';
         }
-        // }
 
         state.canTrade = false; // Prevent multiple trades
         state.lastTradeDirection = direction;
