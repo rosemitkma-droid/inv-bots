@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF000025-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF000026-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -218,7 +218,7 @@ class TelegramService {
         const emoji = type === 'OPEN' ? '🚀' : (type === 'WIN' ? '✅' : '❌');
         const stats = SessionManager.getSessionStats();
         const message = `
-            ${emoji} <b>${type} TRADE ALERT</b>
+            ${emoji} <b>${type} TRADE ALERT 2</b>
             Asset: ${symbol}
             Direction: ${direction}
             Stake: $${stake.toFixed(2)}
@@ -236,7 +236,7 @@ class TelegramService {
     static async sendSessionSummary() {
         const stats = SessionManager.getSessionStats();
         const message = `
-            📊 <b>SESSION SUMMARY</b>
+            📊 <b>SESSION SUMMARY 2</b>
             Duration: ${stats.duration}
             Trades: ${stats.trades}
             Wins: ${stats.wins} | Losses: ${stats.losses}
@@ -250,7 +250,7 @@ class TelegramService {
 
     static async sendStartupMessage() {
         const message = `
-            🤖 <b>DERIV RISE/FALL BOT STARTED</b>
+            🤖 <b>DERIV RISE/FALL BOT2 STARTED</b>
             Strategy: Alternating Rise/Fall
             Capital: $${CONFIG.INITIAL_CAPITAL}
             Stake: $${CONFIG.STAKE}
@@ -385,7 +385,7 @@ const CONFIG = {
 
     // Capital Settings
     INITIAL_CAPITAL: 500,
-    STAKE: 1,
+    STAKE: 0.35,
 
     // Session Targets
     totalTradesN: 30000000,
@@ -405,12 +405,12 @@ const CONFIG = {
     // Trade Settings
     MAX_OPEN_POSITIONS: 1, // One at a time for alternating strategy
     TRADE_DELAY: 1000, // 2 seconds delay between trades
-    MARTINGALE_MULTIPLIER: 1,
+    MARTINGALE_MULTIPLIER: 4,
     MARTINGALE_MULTIPLIER2: 4,
-    MARTINGALE_MULTIPLIER3: 5,
-    MARTINGALE_MULTIPLIER4: 1,
-    MARTINGALE_MULTIPLIER5: 2.2,
-    MAX_MARTINGALE_STEPS: 5,
+    MARTINGALE_MULTIPLIER3: 4,
+    MARTINGALE_MULTIPLIER4: 4,
+    MARTINGALE_MULTIPLIER5: 4,
+    MAX_MARTINGALE_STEPS: 6,
 
     iDirection: 'FALL', //Set initial direction 'RISE' or 'FALL'
 
@@ -604,10 +604,10 @@ class SessionManager {
             if (state.martingaleLevel >= 3 && state.martingaleLevel <= 3) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER3 * 100) / 100;
             };
-            if (state.martingaleLevel >= 16 && state.martingaleLevel <= 20) {
+            if (state.martingaleLevel >= 4 && state.martingaleLevel <= 4) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER4 * 100) / 100;
             };
-            if (state.martingaleLevel >= 21 && state.martingaleLevel <= 25) {
+            if (state.martingaleLevel >= 5 && state.martingaleLevel <= 5) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER5 * 100) / 100;
             };
 
@@ -822,7 +822,7 @@ class ConnectionManager {
             position.buyPrice = contract.buy_price;
 
             TelegramService.sendTradeAlert(
-                'OPEN',
+                'OPEN 2',
                 position.symbol,
                 position.direction,
                 position.stake,
