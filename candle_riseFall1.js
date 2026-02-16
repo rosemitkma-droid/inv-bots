@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF000028-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF000029-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -390,7 +390,7 @@ const CONFIG = {
     // Session Targets
     totalTradesN: 30000000,
     SESSION_PROFIT_TARGET: 500,
-    SESSION_STOP_LOSS: -250,
+    SESSION_STOP_LOSS: -116,
 
     // Candle Settings
     GRANULARITY: 60, // 60 seconds = 1 minute candles
@@ -410,10 +410,10 @@ const CONFIG = {
     MARTINGALE_MULTIPLIER3: 4,
     MARTINGALE_MULTIPLIER4: 4,
     MARTINGALE_MULTIPLIER5: 4,
-    MAX_MARTINGALE_STEPS: 6,
+    MAX_MARTINGALE_STEPS: 5,
     SYSTEM: 1, // ODD/EVEN Entry System
 
-    iDirection: 'FALL', //Set initial direction 'RISE' or 'FALL'
+    iDirection: 'RISE', //Set initial direction 'RISE' or 'FALL'
 
     // Debug
     DEBUG_MODE: true,
@@ -427,7 +427,7 @@ const CONFIG = {
 
 let ACTIVE_ASSETS = [
     // 'R_75', 'R_100', '1HZ25V', '1HZ50V', '1HZ100V' 'stpRNG', 'RDBULL', 'RDBEAR',
-    'stpRNG5'
+    'stpRNG'
 ];
 
 // ============================================
