@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF000017-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF000019-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -360,8 +360,8 @@ const CONFIG = {
 
     // Session Targets
     totalTradesN: 5000000,
-    SESSION_PROFIT_TARGET: 2500,
-    SESSION_STOP_LOSS: -150,
+    SESSION_PROFIT_TARGET: 5000,
+    SESSION_STOP_LOSS: -125,
     highestPercentageDigit: null,
 
     // Candle Settings
@@ -394,12 +394,12 @@ const CONFIG = {
     MAX_OSC_MULTIPLIER: 1.5,     // Skip if oscillation > 150% of max (anomaly)
 
     // Martingale Settings
-    MARTINGALE_MULTIPLIER: 1,
-    MARTINGALE_MULTIPLIER2: 1,
-    MARTINGALE_MULTIPLIER3: 1,
-    MARTINGALE_MULTIPLIER4: 1,
-    MARTINGALE_MULTIPLIER5: 2.8,
-    MAX_MARTINGALE_STEPS: 100,
+    MARTINGALE_MULTIPLIER: 4,
+    MARTINGALE_MULTIPLIER2: 5,
+    MARTINGALE_MULTIPLIER3: 5,
+    MARTINGALE_MULTIPLIER4: 5,
+    MARTINGALE_MULTIPLIER5: 5,
+    MAX_MARTINGALE_STEPS: 4,
 
     // Debug
     DEBUG_MODE: true,
@@ -584,8 +584,8 @@ class SessionManager {
 
             if (state.martingaleLevel >= CONFIG.MAX_MARTINGALE_STEPS) {
                 LOGGER.warn(`⚠️ Maximum Martingale step reached (${CONFIG.MAX_MARTINGALE_STEPS}), resetting`);
-                state.martingaleLevel = 0;
-                state.currentStake = CONFIG.STAKE;
+                // state.martingaleLevel = 0;
+                // state.currentStake = CONFIG.STAKE;
             } else {
                 LOGGER.trade(`❌ LOSS: -$${Math.abs(profit).toFixed(2)} | Direction: ${direction} | Capital: $${state.capital.toFixed(2)} | Next Level: ${state.martingaleLevel} | Next Stake: $${state.currentStake.toFixed(2)}`);
             }
@@ -1401,9 +1401,14 @@ class ConnectionManager {
         // ══════════════════════════════════════════
         // STEP 8: EXECUTE TRADE
         // ══════════════════════════════════════════
-        const direction = predictedDir > 0 ? 'CALL' : 'CALL';
-        const dirName = predictedDir > 0 ? 'RISE' : 'RISE';
+        const direction = predictedDir > 0 ? 'CALLE' : 'PUTE';
+        const dirName = predictedDir > 0 ? 'RISE' : 'FALL';
         const trendEmoji = predictedDir > 0 ? '📈' : '📉';
+
+        if (dirName === 'FALL') {
+            LOGGER.debug(`[${asset}] ⚠️ FALL direction not allowed`);
+            return;
+        }
 
         LOGGER.trade(`═══════════════════════════════════════════════════════════`);
         LOGGER.trade(`${trendEmoji} OSCILLATION BREAKOUT SIGNAL`);
@@ -1585,7 +1590,7 @@ class DerivBot {
             return;
         }
 
-        const dirName = direction === 'CALL' ? 'RISE' : 'FALL';
+        const dirName = direction === 'CALLE' ? 'RISE' : 'FALL';
         state.canTrade = false;
         state.lastTradeDirection = dirName;
 
