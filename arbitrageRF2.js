@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF00017-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF00019-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -202,7 +202,7 @@ class TelegramService {
         const emoji = type === 'OPEN' ? '🚀' : (type === 'WIN' ? '✅' : '❌');
         const stats = SessionManager.getSessionStats();
         const message = `
-${emoji} <b>${type} TRADE ALERT</b>
+${emoji} <b>${type} TRADE ALERT 2</b>
 Asset: ${symbol}
 Direction: ${direction}
 Stake: $${stake.toFixed(2)}
@@ -222,7 +222,7 @@ Win Rate: ${stats.winRate}` : ''}
     static async sendSessionSummary() {
         const stats = SessionManager.getSessionStats();
         const message = `
-📊 <b>SESSION SUMMARY</b>
+📊 <b>SESSION SUMMARY 2</b>
 Duration: ${stats.duration}
 Trades: ${stats.trades}
 Wins: ${stats.wins} | Losses: ${stats.losses}
@@ -236,7 +236,7 @@ Current Capital: $${state.capital.toFixed(2)}
 
     static async sendStartupMessage() {
         const message = `
-🤖 <b>stpRNG 2025 OSCILLATION BREAKOUT BOT</b>
+🤖 <b>stpRNG 2025 OSCILLATION BREAKOUT BOT 2</b>
 Strategy: Deep Oscillation Scanner + Breakout
 Capital: $${state.capital.toFixed(2)}
 Stake: $${CONFIG.STAKE}
@@ -263,7 +263,7 @@ Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
         const pnlStr = (statsSnapshot.pnl >= 0 ? '+' : '') + '$' + statsSnapshot.pnl.toFixed(2);
 
         const message = `
-⏰ <b>Hourly Summary</b>
+⏰ <b>Hourly Summary 2</b>
 
 📊 <b>Last Hour</b>
 ├ Trades: ${statsSnapshot.trades}
@@ -359,9 +359,9 @@ const CONFIG = {
     STAKE: 0.5,
 
     // Session Targets
-    totalTradesN: 500000,
-    SESSION_PROFIT_TARGET: 2500,
-    SESSION_STOP_LOSS: -150,
+    totalTradesN: 50000000,
+    SESSION_PROFIT_TARGET: 5000,
+    SESSION_STOP_LOSS: -125,
     highestPercentageDigit: null,
 
     // Candle Settings
@@ -394,12 +394,12 @@ const CONFIG = {
     MAX_OSC_MULTIPLIER: 1.5,     // Skip if oscillation > 150% of max (anomaly)
 
     // Martingale Settings
-    MARTINGALE_MULTIPLIER: 1,
-    MARTINGALE_MULTIPLIER2: 1,
-    MARTINGALE_MULTIPLIER3: 1,
-    MARTINGALE_MULTIPLIER4: 1,
-    MARTINGALE_MULTIPLIER5: 2.8,
-    MAX_MARTINGALE_STEPS: 100,
+    MARTINGALE_MULTIPLIER: 4,
+    MARTINGALE_MULTIPLIER2: 5,
+    MARTINGALE_MULTIPLIER3: 5,
+    MARTINGALE_MULTIPLIER4: 5,
+    MARTINGALE_MULTIPLIER5: 5,
+    MAX_MARTINGALE_STEPS: 4,
 
     // Debug
     DEBUG_MODE: true,
@@ -559,16 +559,16 @@ class SessionManager {
             if (state.martingaleLevel === 7) state.session.x7Losses++;
 
             // 2025 Smart Martingale: flat stake for first 5 losses, then scale
-            if (state.martingaleLevel <= 5) {
+            if (state.martingaleLevel <= 1) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER * 100) / 100;
             };
-            if (state.martingaleLevel >= 6 && state.martingaleLevel <= 10) {
+            if (state.martingaleLevel >= 2 && state.martingaleLevel <= 2) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER2 * 100) / 100;
             };
-            if (state.martingaleLevel >= 11 && state.martingaleLevel <= 15) {
+            if (state.martingaleLevel >= 3 && state.martingaleLevel <= 3) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER3 * 100) / 100;
             };
-            if (state.martingaleLevel >= 16 && state.martingaleLevel <= 20) {
+            if (state.martingaleLevel >= 4 && state.martingaleLevel <= 4) {
                 state.currentStake = Math.ceil(state.currentStake * CONFIG.MARTINGALE_MULTIPLIER4 * 100) / 100;
             };
             if (state.martingaleLevel >= 21 && state.martingaleLevel <= 25) {
@@ -584,8 +584,8 @@ class SessionManager {
 
             if (state.martingaleLevel >= CONFIG.MAX_MARTINGALE_STEPS) {
                 LOGGER.warn(`⚠️ Maximum Martingale step reached (${CONFIG.MAX_MARTINGALE_STEPS}), resetting`);
-                state.martingaleLevel = 0;
-                state.currentStake = CONFIG.STAKE;
+                // state.martingaleLevel = 0;
+                // state.currentStake = CONFIG.STAKE;
             } else {
                 LOGGER.trade(`❌ LOSS: -$${Math.abs(profit).toFixed(2)} | Direction: ${direction} | Capital: $${state.capital.toFixed(2)} | Next Level: ${state.martingaleLevel} | Next Stake: $${state.currentStake.toFixed(2)}`);
             }
@@ -1401,9 +1401,14 @@ class ConnectionManager {
         // ══════════════════════════════════════════
         // STEP 8: EXECUTE TRADE
         // ══════════════════════════════════════════
-        const direction = predictedDir > 0 ? 'PUT' : 'PUT';
-        const dirName = predictedDir > 0 ? 'FALL' : 'FALL';
+        const direction = predictedDir > 0 ? 'CALLE' : 'PUTE';
+        const dirName = predictedDir > 0 ? 'RISE' : 'FALL';
         const trendEmoji = predictedDir > 0 ? '📈' : '📉';
+
+        if (dirName === 'RISE') {
+            LOGGER.debug(`[${asset}] ⚠️ RISE direction not allowed`);
+            return;
+        }
 
         LOGGER.trade(`═══════════════════════════════════════════════════════════`);
         LOGGER.trade(`${trendEmoji} OSCILLATION BREAKOUT SIGNAL`);
@@ -1585,7 +1590,7 @@ class DerivBot {
             return;
         }
 
-        const dirName = direction === 'CALL' ? 'RISE' : 'FALL';
+        const dirName = direction === 'CALLE' ? 'RISE' : 'FALL';
         state.canTrade = false;
         state.lastTradeDirection = dirName;
 
