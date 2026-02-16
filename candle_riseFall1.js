@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'candleRF000029-state.json');
+const STATE_FILE = path.join(__dirname, 'candleRF000030-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -1009,15 +1009,16 @@ class ConnectionManager {
         const isOdd = lastDigit % 2 === 0;
 
         // NEW: Execute trade if conditions are met
-        if (CONFIG.SYSTEM === 1) {
-            if (state.canTrade && !isOdd) {
-                bot.executeNextTrade(asset, isOdd);
-            }
-        } else {
-            if (state.canTrade && isOdd) {
-                bot.executeNextTrade(asset, isOdd);
-            }
+        // if (CONFIG.SYSTEM === 1) {
+        if (state.canTrade && !isOdd) {
+            bot.executeNextTrade(asset, isOdd);
         }
+        // } 
+        // else {
+        //     if (state.canTrade && isOdd) {
+        //         bot.executeNextTrade(asset, isOdd);
+        //     }
+        // }
     }
 
     // NEW: Get last digit from quote based on asset type (from mX4Differ.js)
@@ -1192,16 +1193,16 @@ class DerivBot {
 
         let direction;
 
-        CONFIG.iDirection === 'RISE' ? direction = 'CALLE' : direction = 'PUTE';
+        CONFIG.SYSTEM === 1 ? direction = 'CALLE' : direction = 'PUTE';
 
         if (direction === 'CALLE') {
             // direction = 'PUTE'; // Sell if previous candle was bearish
             LOGGER.trade(`📈 Last candle was BULLISH (Close > Open) → Executing RISE trade`);
-            CONFIG.iDirection = 'FALL';
+            // CONFIG.iDirection = 'FALL';
         } else {
             // direction = 'PUTE'; // Sell if previous candle was bearish
             LOGGER.trade(`📉 Last candle was BEARISH (Close < Open) → Executing FALL trade`);
-            CONFIG.iDirection = 'RISE';
+            // CONFIG.iDirection = 'RISE';
         }
 
         state.canTrade = false; // Prevent multiple trades
