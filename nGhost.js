@@ -27,6 +27,7 @@
 
 const WebSocket = require('ws');
 const TelegramBot = require('node-telegram-bot-api');
+const { stubFalse } = require('lodash');
 
 const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
@@ -85,26 +86,26 @@ function parseArgs() {
         api_token: TOKEN,
         app_id: '1089',
         endpoint: 'wss://ws.derivws.com/websockets/v3',
-        symbol: 'R_100',
+        symbol: 'R_75',
         base_stake: 0.61,
         currency: 'USD',
         contract_type: 'DIGITDIFF',
 
         // History & analysis
-        tick_history_size: 300,
-        analysis_window: 300,          // HMM training window
+        tick_history_size: 5000,
+        analysis_window: 5000,          // HMM training window
         min_ticks_for_hmm: 50,         // Minimum ticks before HMM is reliable
 
         // Regime detection thresholds
-        repeat_threshold: 7,           // Raw per-digit repeat % gate
-        repeat_confidence: 95,        // Bayesian P(repeat | observations) required
-        hmm_nonrep_confidence: 0.95,   // Bayesian P(NON-REP) required
+        repeat_threshold: 9,           // Raw per-digit repeat % gate
+        repeat_confidence: 90,        // Bayesian P(repeat | observations) required
+        hmm_nonrep_confidence: 0.90,   // Bayesian P(NON-REP) required
         min_regime_persistence: 8,     // Ticks current regime must have lasted
         cusum_threshold: 4.5,          // CUSUM alarm threshold (regime shift detector)
         cusum_slack: 0.005,            // CUSUM slack (sensitivity tuning)
 
         // Ghost trading
-        ghost_enabled: true,
+        ghost_enabled: false,
         ghost_wins_required: 1,
         ghost_max_rounds: 20000000000,
 
@@ -1145,11 +1146,12 @@ class RomanianGhostBot {
         }
         if (immediate) {
             this.placeTrade();
-        } else {
-            this.pendingTrade = true;
-            this.botState = STATE.GHOST_TRADING;
-            logBot(`⚡ Recovery trade queued — waiting for digit ${bold(cyan(this.targetDigit))}`);
-        }
+        } 
+        // else {
+        //     this.pendingTrade = true;
+        //     this.botState = STATE.GHOST_TRADING;
+        //     logBot(`⚡ Recovery trade queued — waiting for digit ${bold(cyan(this.targetDigit))}`);
+        // }
     }
 
     placeTrade() {
