@@ -1099,7 +1099,7 @@ class RomanianGhostBotV3 {
 
           📊 Asset: <b>${asset}</b>
           🔢 Target Digit: ${as.targetDigit}
-          📜 Last 10 ticks: ${as.tickHistory.slice(-10).join(', ')}
+          📜 Last 10: ${as.tickHistory.slice(-10).join(', ')}
           💰 Stake: $${this.currentStake.toFixed(2)} | Mart step: ${this.martingaleStep}
           📈 Repeat Rate: ${as.targetRepeatRate.toFixed(1)}%
           🔬 Score: ${score}/100 | P(NR): ${pnrPct}
