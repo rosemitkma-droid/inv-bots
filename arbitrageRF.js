@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF000028-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF000029-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -356,7 +356,7 @@ const CONFIG = {
 
     // Capital Settings
     INITIAL_CAPITAL: 500,
-    STAKE: 4,
+    STAKE: 0.5,
 
     // Session Targets
     totalTradesN: 5000000,
@@ -395,10 +395,10 @@ const CONFIG = {
     // Martingale Settings
     MARTINGALE_MULTIPLIER: 1,
     MARTINGALE_MULTIPLIER2: 1,
-    MARTINGALE_MULTIPLIER3: 1,
+    MARTINGALE_MULTIPLIER3: 4,
     MARTINGALE_MULTIPLIER4: 1,
     MARTINGALE_MULTIPLIER5: 1,
-    MAX_MARTINGALE_STEPS: 50,
+    MAX_MARTINGALE_STEPS: 13,
 
     // Debug
     DEBUG_MODE: true,
