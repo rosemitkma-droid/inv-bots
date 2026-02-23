@@ -1,39 +1,62 @@
+#!/usr/bin/env node
 // ============================================================================
-// ROMANIAN GHOST BLACK FIBONACCI 9.2 ULTIMATE — NOVEMBER 2025
-// All mathematical flaws fixed + 7 new enhancements
-// Expected: 97.8% win rate, 25-35 trades/day, +12,000% monthly
+//  ROMANIAN GHOST BOT v2.0 — Multi-Asset Single-File Node.js
+//  Advanced HMM + Bayesian + CUSUM Regime Detection
+//  Trades 7 assets simultaneously: R_10, R_25, R_50, R_75, R_100, RDBULL, RDBEAR
+//
+//  Install:  npm install ws
+//  Run:      node romanian-ghost-bot.js --token YOUR_DERIV_API_TOKEN [options]
+//  Help:     node romanian-ghost-bot.js --help
 // ============================================================================
+'use strict';
 
 const WebSocket = require('ws');
 const TelegramBot = require('node-telegram-bot-api');
-const fs = require('fs');
-const path = require('path');
-
 
 const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'ghost92-0005-state.json');
+// ── ANSI Colours ──────────────────────────────────────────────────────────────
+const C = {
+  reset:   '\x1b[0m',
+  bold:    '\x1b[1m',
+  dim:     '\x1b[2m',
+  cyan:    '\x1b[36m',
+  blue:    '\x1b[34m',
+  green:   '\x1b[32m',
+  red:     '\x1b[31m',
+  yellow:  '\x1b[33m',
+  magenta: '\x1b[35m',
+  orange:  '\x1b[38;5;208m',
+  white:   '\x1b[37m',
+};
+const col    = (t, ...codes) => codes.join('') + t + C.reset;
+const bold   = t => col(t, C.bold);
+const dim    = t => col(t, C.dim);
+const cyan   = t => col(t, C.cyan);
+const blue   = t => col(t, C.blue);
+const green  = t => col(t, C.green);
+const red    = t => col(t, C.red);
+const yellow = t => col(t, C.yellow);
+const magenta= t => col(t, C.magenta);
+const orange = t => col(t, C.orange);
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  UTILITY FUNCTIONS
-// ══════════════════════════════════════════════════════════════════════════════
-function clamp(v, lo, hi) {
-  return Math.max(lo, Math.min(hi, v));
-}
+// ── Logger ────────────────────────────────────────────────────────────────────
+const PREFIX_FN = {
+  BOT:      cyan,
+  API:      blue,
+  TICK:     dim,
+  ANALYSIS: yellow,
+  GHOST:    magenta,
+  TRADE:    t => col(t, C.bold, C.white),
+  RESULT:   t => col(t, C.bold),
+  RISK:     red,
+  STATS:    cyan,
+  ERROR:    t => col(t, C.bold, C.red),
+  HMM:      orange,
+};
 
-function logSumExp(arr) {
-  const m = Math.max(...arr);
-  if (!isFinite(m)) return -Infinity;
-  return m + Math.log(arr.reduce((s, x) => s + Math.exp(x - m), 0));
-}
-
-function formatMoney(v) {
-  return `${v >= 0 ? '+' : ''}$${v.toFixed(2)}`;
-}
-
-// ── Logger helpers ─────────────────────────────────────────────────────────
 function getTimestamp() {
   const n = new Date();
   return [
@@ -43,20 +66,163 @@ function getTimestamp() {
   ].join(':');
 }
 
-const logHMM = (msg) => {
-  const ts = `[${getTimestamp()}]`;
-  console.log(`${ts} [HMM] ${msg}`);
-};
+function log(prefix, message) {
+  const ts  = dim(`[${getTimestamp()}]`);
+  const pfx = (PREFIX_FN[prefix] || (t => t))(`[${prefix}]`);
+  console.log(`${ts} ${pfx} ${message}`);
+}
 
-const logBot = (msg) => {
-  const ts = `[${getTimestamp()}]`;
-  console.log(`${ts} [BOT] ${msg}`);
-};
+const logBot      = m => log('BOT',      m);
+const logApi      = m => log('API',      m);
+const logTick     = m => log('TICK',     m);
+const logAnalysis = m => log('ANALYSIS', m);
+const logGhost    = m => log('GHOST',    m);
+const logTrade    = m => log('TRADE',    m);
+const logResult   = m => log('RESULT',   m);
+const logRisk     = m => log('RISK',     m);
+const logStats    = m => log('STATS',    m);
+const logError    = m => log('ERROR',    m);
+const logHMM      = m => log('HMM',      m);
 
-const logAnalysis = (msg) => {
-  const ts = `[${getTimestamp()}]`;
-  console.log(`${ts} [ANALYSIS] ${msg}`);
-};
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function logSumExp(arr) {
+  const m = Math.max(...arr);
+  if (!isFinite(m)) return -Infinity;
+  return m + Math.log(arr.reduce((s, x) => s + Math.exp(x - m), 0));
+}
+
+function getLastDigit(price, asset) {
+  const parts = price.toString().split('.');
+  const frac  = parts.length > 1 ? parts[1] : '';
+  if (['RDBULL','RDBEAR','R_75','R_50'].includes(asset))
+    return frac.length >= 4 ? parseInt(frac[3], 10) : 0;
+  if (['R_10','R_25','1HZ15V','1HZ30V','1HZ90V'].includes(asset))
+    return frac.length >= 3 ? parseInt(frac[2], 10) : 0;
+  return frac.length >= 2 ? parseInt(frac[1], 10) : 0;
+}
+
+function formatMoney(v) { return `${v >= 0 ? '+' : ''}$${v.toFixed(2)}`; }
+
+function formatDuration(ms) {
+  const t = Math.floor(ms / 1000);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`;
+  return `${m}m ${String(s).padStart(2,'0')}s`;
+}
+
+// ── CLI argument parser ───────────────────────────────────────────────────────
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const get  = (flag, def) => {
+    const i = args.indexOf(flag);
+    return i >= 0 && args[i+1] !== undefined ? args[i+1] : def;
+  };
+  const has  = flag => args.includes(flag);
+
+  if (has('--help') || has('-h')) {
+    console.log(`
+${bold(cyan('Romanian Ghost Bot v2.0 — Multi-Asset'))}
+
+${bold('Usage:')}
+  node romanian-ghost-bot.js --token YOUR_TOKEN [options]
+
+${bold('Connection:')}
+  --token   <string>   Deriv API token (required)
+  --appid   <number>   App ID (default: 1089)
+
+${bold('Assets:')}
+  --assets  <csv>      Comma-separated list (default: R_10,R_25,R_50,R_75,R_100,RDBULL,RDBEAR)
+                       Example: --assets R_10,R_50,R_100
+
+${bold('Tick History:')}
+  --history <number>   Tick history size per asset (default: 5000)
+  --window  <number>   Analysis window size (default: 300)
+  --min-ticks <number> Minimum ticks before HMM (default: 50)
+
+${bold('HMM Regime Detection:')}
+  --threshold <number> Repeat % threshold for signal (default: 8)
+  --confidence <number> Min P(NON-REP) 0-1 (default: 0.90)
+  --min-score <number> Min safety score 0-100 (default: 90)
+  --persistence <number> Min regime persistence ticks (default: 8)
+  --cusum <number>     CUSUM alarm threshold (default: 4.5)
+  --cusum-slack <number> CUSUM slack (default: 0.005)
+
+${bold('Trading:')}
+  --stake   <number>   Base stake USD (default: 0.35)
+  --symbol  <string>   Contract symbol (default: DIGITDIFF)
+  --currency <string>  Currency (default: USD)
+
+${bold('Ghost Trading:')}
+  --no-ghost           Disable ghost trading
+  --ghost-wins <number> Ghost wins required (default: 1)
+  --ghost-max <number> Max ghost rounds (default: 999999)
+
+${bold('Martingale:')}
+  --no-mart            Disable martingale
+  --mart-steps <number> Max martingale steps (default: 3)
+  --mart-mult <number> Martingale multiplier (default: 11)
+  --max-stake <number> Maximum stake (default: 500)
+
+${bold('Risk:')}
+  --tp <number>        Take profit USD (default: 10)
+  --sl <number>        Stop loss USD (default: 50)
+  --cooldown <number>  Cooldown ms after max loss (default: 30000)
+
+${bold('Examples:')}
+  node romanian-ghost-bot.js --token T0K3N
+  node romanian-ghost-bot.js --token T0K3N --assets R_10,R_50 --stake 0.50 --tp 20
+  node romanian-ghost-bot.js --token T0K3N --confidence 0.95 --min-score 95 --no-ghost
+`);
+    process.exit(0);
+  }
+
+  const token = '0P94g4WdSrSrzir';
+  if (!token) {
+    console.error(red('ERROR: --token is required. Run with --help for usage.'));
+    process.exit(1);
+  }
+
+  const assetsArg = get('--assets', 'R_10,R_25,R_50,R_75,RDBULL,RDBEAR');
+  const SUPPORTED = ['R_10','R_25','R_50','R_75','RDBULL','RDBEAR'];
+  const activeAssets = assetsArg.split(',').map(s => s.trim()).filter(s => SUPPORTED.includes(s));
+  if (activeAssets.length === 0) {
+    console.error(red('ERROR: No valid assets specified.'));
+    process.exit(1);
+  }
+
+  return {
+    api_token:              token,
+    app_id:                 '1089',
+    endpoint:               'wss://ws.derivws.com/websockets/v3',
+    active_assets:          activeAssets,
+    base_stake:             0.61,
+    currency:               'USD',
+    contract_type:          'DIGITDIFF',
+    tick_history_size:      5000,
+    analysis_window:        5000,
+    min_ticks_for_hmm:      50,
+    repeat_threshold:       7,
+    hmm_nonrep_confidence:  0.93,
+    min_safety_score:       90,
+    min_regime_persistence: 8,
+    cusum_threshold:        4.5,
+    cusum_slack:            0.005,
+    ghost_enabled:          false,
+    ghost_wins_required:    1,
+    ghost_max_rounds:       999999,
+    martingale_enabled:     true,
+    martingale_multiplier:  11.3,
+    max_martingale_steps:   3,
+    max_stake:              500,
+    take_profit:            10000,
+    stop_loss:              50,
+    cooldown_after_max_loss:30000,
+  };
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  HMM REGIME DETECTOR — one instance per asset
@@ -231,7 +397,7 @@ class HMMRegimeDetector {
   }
 
   // ── Full regime analysis ───────────────────────────────────────────────────
-  analyze(tickHistory, targetDigit, tickCount, asset) {
+  analyze(tickHistory, targetDigit, tickCount) {
     const window = tickHistory.slice(-this.cfg.analysis_window);
     const len    = window.length;
     if (len < this.cfg.min_ticks_for_hmm)
@@ -242,12 +408,11 @@ class HMMRegimeDetector {
     for (let t = 1; t < len; t++) obs[t-1] = window[t] === window[t-1] ? 1 : 0;
 
     // Re-fit HMM every 50 ticks
-    // if (!this.hmmFitted || tickCount >= 30) {
+    if (!this.hmmFitted || tickCount % 50 === 0) {
       const ok = this.baumWelch(obs);
-    if (!this.hmmFitted || tickCount >= 30) {
       if (ok) {
         logHMM(
-          `[${asset}] HMM refitted | ` +
+          `HMM refitted | ` +
           `A[NR→NR]=${(this.A[0][0]*100).toFixed(1)}% A[NR→R]=${(this.A[0][1]*100).toFixed(1)}% ` +
           `A[R→NR]=${(this.A[1][0]*100).toFixed(1)}% A[R→R]=${(this.A[1][1]*100).toFixed(1)}% | ` +
           `B(rep|NR)=${(this.B[0][1]*100).toFixed(1)}% B(rep|R)=${(this.B[1][1]*100).toFixed(1)}%`
@@ -359,991 +524,887 @@ class HMMRegimeDetector {
   }
 }
 
-class RomanianGhostUltimate {
-    constructor() {
-        // ====== CONFIGURATION ======
-        this.config = {
-            assets: [
-                'R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR',
-            ],  // Multi-asset support
-            requiredHistoryLength: 5000,
-            minHistoryForTrading: 5000,
+// ══════════════════════════════════════════════════════════════════════════════
+//  MULTI-ASSET GHOST BOT
+// ══════════════════════════════════════════════════════════════════════════════
+class RomanianGhostBot {
+  constructor(config) {
+    this.config = config;
+    this.ws = null;
+    this.botState = 'INITIALIZING';
+    this.reconnectAttempts = 0;
+    this.MAX_RECONNECT = 5;
+    this.pingInterval  = null;
+    this.cooldownTimer = null;
+    this.requestId     = 0;
 
-            // ====== HMM REGIME DETECTION SETTINGS ======
-            min_ticks_for_hmm:      50,
-            repeat_threshold:       8,
-            hmm_nonrep_confidence:  0.93,
-            min_safety_score:       90,
-            min_regime_persistence: 8,
-            cusum_threshold:        4.5,
-            cusum_slack:            0.005,
-            analysis_window:        5000,
+    // Account
+    this.accountBalance  = 0;
+    this.startingBalance = 0;
+    this.accountId       = '';
 
-            // Z-Score thresholds (CORRECTED - uses AVERAGE not sum)
-            minAvgZScore: 2.0,           // Average Z-score per window
-            minParticipation: 8,          // Digit must dominate 8+ windows
+    // Per-asset maps
+    this.assetStates = new Map(); // symbol → AssetState
+    this.assetHMMs   = new Map(); // symbol → HMMRegimeDetector
 
-            // Volatility thresholds (CORRECTED - realistic values)
-            minConcentration: 0.023,      // Minimum concentration for ultra-low
-            maxConcentration: 0.25,       // Maximum (avoid extreme anomalies)
+    // Telegram
+    this.telegramBot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
-            // Confirmation layers
-            minStreakLength: 3,           // Minimum current streak
-            maxStreakLength: 8,           // Maximum before exhaustion
+    // Global trade state
+    this.isTradeActive       = false;
+    this.activeTradeAsset    = null;
+    this.currentStake        = 0;
+    this.martingaleStep      = 0;
+    this.totalMartingaleLoss = 0;
+    this.lastBuyPrice        = 0;
+    this.lastContractId      = null;
+    this.tradeRegimeSnapshot = null;
+    this.tradePendingAsset   = null;
 
-            // Cooldown (prevents overtrading)
-            cooldownTicks: 15,            // Wait 15 ticks between trades
-            cooldownAfterLoss: 30,        // Wait 30 ticks after loss
+    // Session stats
+    this.sessionStartTime    = Date.now();
+    this.totalTrades         = 0;
+    this.totalWins           = 0;
+    this.totalLosses         = 0;
+    this.sessionProfit       = 0;
+    this.currentWinStreak    = 0;
+    this.currentLossStreak   = 0;
+    this.maxWinStreak        = 0;
+    this.maxLossStreak       = 0;
+    this.maxMartingaleReached= 0;
+    this.largestWin          = 0;
+    this.largestLoss         = 0;
+  }
 
-            // Money management
-            baseStake: 2.20,
-            firstLossMultiplier: 11.3,
-            subsequentMultiplier: 11.3,
-            maxConsecutiveLosses: 6,
-            takeProfit: 10000,
-            stopLoss: -500,
+  // ── Asset initialisation ───────────────────────────────────────────────────
+  initAssetStates() {
+    this.assetStates.clear();
+    this.assetHMMs.clear();
+    for (const sym of this.config.active_assets) {
+      this.assetStates.set(sym, {
+        symbol:               sym,
+        tickHistory:          [],
+        tickCount:            0,
+        regime:               null,
+        targetDigit:          -1,
+        targetRepeatRate:     0,
+        signalActive:         false,
+        ghostConsecutiveWins: 0,
+        ghostRoundsPlayed:    0,
+        ghostConfirmed:       false,
+        ghostAwaitingResult:  false,
+        ready:                false,
+        subscribed:           false,
+      });
+      this.assetHMMs.set(sym, new HMMRegimeDetector(this.config));
+    }
+  }
 
-            // Time filters (avoid volatile periods)
-            avoidMinutesAroundHour: 5,    // Avoid first/last 5 min of hour
-            tradingHoursUTC: { start: 0, end: 24 },  // 24/7 for synthetics
-        };
+  // ── Start ──────────────────────────────────────────────────────────────────
+  start() {
+    this.initAssetStates();
+    this.sessionStartTime = Date.now();
+    this.printBanner();
+    this.connectWS();
+  }
 
-        // ====== TRADING STATE ======
-        this.histories = {};
-        this.config.assets.forEach(a => this.histories[a] = []);
+  printBanner() {
+    const c = this.config;
+    console.log('');
+    console.log(bold(cyan('═══════════════════════════════════════════════════════════════')));
+    console.log(bold(cyan('   👻  ROMANIAN GHOST BOT v2.0 — Multi-Asset Node.js          ')));
+    console.log(bold(cyan('   HMM + Bayesian + CUSUM Regime Detection                    ')));
+    console.log(bold(cyan('═══════════════════════════════════════════════════════════════')));
+    console.log(`  ${bold('Active Assets')}      : ${bold(cyan(c.active_assets.join(', ')))}`);
+    console.log(`  ${bold('Base Stake')}         : ${bold(green('$' + c.base_stake.toFixed(2)))}`);
+    console.log(`  ${bold('History/Window')}     : ${bold(c.tick_history_size)} / ${bold(c.analysis_window)} ticks`);
+    console.log(`  ${bold('Min Ticks HMM')}      : ${bold(c.min_ticks_for_hmm)}`);
+    console.log(`  ${bold('Repeat Threshold')}   : ${bold(c.repeat_threshold + '%')}`);
+    console.log(`  ${bold('HMM P(NR) Min')}      : ${bold((c.hmm_nonrep_confidence*100).toFixed(0) + '%')}`);
+    console.log(`  ${bold('Min Safety Score')}   : ${bold(c.min_safety_score + '/100')}`);
+    console.log(`  ${bold('Min Persistence')}    : ${bold(c.min_regime_persistence + ' ticks')}`);
+    console.log(`  ${bold('CUSUM Threshold')}    : ${bold(c.cusum_threshold)}`);
+    console.log(`  ${bold('Ghost Trading')}      : ${c.ghost_enabled ? green('ON') + ` | Wins: ${bold(c.ghost_wins_required)}` : red('OFF')}`);
+    console.log(`  ${bold('Martingale')}         : ${c.martingale_enabled ? green('ON') + ` | Steps: ${c.max_martingale_steps} | Mult: ${c.martingale_multiplier}x` : red('OFF')}`);
+    console.log(`  ${bold('Take Profit')}        : ${green('$' + c.take_profit.toFixed(2))}`);
+    console.log(`  ${bold('Stop Loss')}          : ${red('$' + c.stop_loss.toFixed(2))}`);
+    console.log(bold(cyan('═══════════════════════════════════════════════════════════════')));
+    console.log('');
+    console.log(bold(yellow('  MULTI-ASSET STRATEGY:')));
+    console.log(dim('  • Each asset runs its own independent HMM regime detector'));
+    console.log(dim('  • All assets analyzed simultaneously on one WebSocket connection'));
+    console.log(dim('  • Only ONE trade fires at a time across all assets'));
+    console.log(dim('  • After any trade (win/loss), ALL asset ghost states reset'));
+    console.log(dim('  • Ghost phase: wait for target digit to appear N times without repeating'));
+    console.log(dim('  • Trade fires immediately when ghost wins reach required count'));
+    console.log('');
+  }
 
-        this.stake = this.config.baseStake;
-        this.consecutiveLosses = 0;
-        this.totalTrades = 0;
-        this.totalWins = 0;
-        this.x2 = 0; this.x3 = 0; this.x4 = 0; this.x5 = 0;
-        this.netProfit = 0;
-
-        this.lastTradeDigit = {};
-        this.asset_safety_score = {};
-        this.lastTradeTime = {};
-        this.ticksSinceLastTrade = {};
-        this.lastTickLogTime = {};
-        this.lastTickLogTime2 = {};
-        this.tradeInProgress = false;
-        this.endOfDay = false;
-        this.isWinTrade = false;
-
-        this.config.assets.forEach(a => {
-            this.lastTradeDigit[a] = null;
-            this.asset_safety_score[a] = null;
-            this.lastTradeTime[a] = 0;
-            this.ticksSinceLastTrade[a] = 999;
-            this.lastTickLogTime[a] = 0;
-            this.lastTickLogTime2[a] = 0;
-        });
-
-        this.assetHMMs   = new Map(); // symbol → HMMRegimeDetector
-        this.tickCount = 0;
-
-        // Performance tracking (for adaptive thresholds)
-        this.recentTrades = [];  // Last 50 trades for analysis
-        this.maxRecentTrades = 50;
-
-        // Hourly stats
-        this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
-
-        // WebSocket
-        this.ws = null;
-        this.connected = false;
-        this.wsReady = false;
-        this.historyLoaded = {};
-        this.config.assets.forEach(a => this.historyLoaded[a] = false);
-
-        // Reconnection
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 50;
-        this.reconnectDelay = 5000;
-        this.isReconnecting = false;
-
-        // Telegram
-        this.telegramBot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
-
-        // Load state & connect
-        this.loadState();
-        this.connect();
-        this.startHourlySummary();
-        this.startAutoSave();
-        // this.checkTimeForDisconnectReconnect();
+  // ── WebSocket ──────────────────────────────────────────────────────────────
+  connectWS() {
+    this.botState = 'CONNECTING';
+    const url = `${this.config.endpoint}?app_id=${this.config.app_id}`;
+    logApi(`Connecting to ${dim(url)} ...`);
+    try {
+      this.ws = new WebSocket(url);
+    } catch (e) {
+      logError(`Failed to create WebSocket: ${e.message}`);
+      this.attemptReconnect();
+      return;
     }
 
-    // ========================================================================
-    // WEBSOCKET & UTILITIES
-    // ========================================================================
-    connect() {
-        console.log('🔌 Connecting to Deriv API...');
-        this.ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+    this.ws.on('open', () => {
+      logApi(green('✅ Connected'));
+      this.reconnectAttempts = 0;
+      if (this.pingInterval) clearInterval(this.pingInterval);
+      this.pingInterval = setInterval(() => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) this.send({ ping: 1 });
+      }, 30_000);
+      this.botState = 'AUTHENTICATING';
+      logApi('Authenticating...');
+      this.send({ authorize: this.config.api_token });
+    });
 
-        this.ws.on('open', () => {
-            console.log('✅ Connected');
-            this.connected = true;
-            this.reconnectAttempts = 0;
-            this.sendRequest({ authorize: TOKEN });
-        });
+    this.ws.on('message', raw => {
+      try { this.handleMessage(JSON.parse(raw)); }
+      catch (e) { logError(`Parse error: ${e.message}`); }
+    });
 
-        this.ws.on('message', (data) => {
-            try {
-                this.handleMessage(JSON.parse(data));
-            } catch (e) {
-                console.error('Parse error:', e.message);
-            }
-        });
+    this.ws.on('close', code => {
+      logApi(`⚠️  Connection closed (code: ${code})`);
+      if (this.pingInterval) { clearInterval(this.pingInterval); this.pingInterval = null; }
+      if (this.botState !== 'STOPPED') this.attemptReconnect();
+    });
 
-        this.ws.on('close', () => {
-            this.connected = false;
-            this.wsReady = false;
-            if (!this.isReconnecting && this.reconnectAttempts < this.maxReconnectAttempts && !this.endOfDay) {
-                this.reconnect();
-            }
-        });
+    this.ws.on('error', e => logError(`WebSocket error: ${e.message}`));
+  }
 
-        this.ws.on('error', (e) => console.error('WS Error:', e.message));
+  attemptReconnect() {
+    if (this.reconnectAttempts >= this.MAX_RECONNECT) {
+      logError(`Max reconnection attempts reached.`);
+      this.stop('Max reconnect attempts exceeded');
+      return;
     }
+    this.reconnectAttempts++;
+    const delay = Math.pow(2, this.reconnectAttempts - 1) * 1000;
+    logApi(`Reconnecting in ${delay/1000}s (${this.reconnectAttempts}/${this.MAX_RECONNECT})...`);
+    this.isTradeActive = false;
+    setTimeout(() => { if (this.botState !== 'STOPPED') this.connectWS(); }, delay);
+  }
 
-    reconnect() {
-        this.isReconnecting = true;
-        this.reconnectAttempts++;
-        const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
-        console.log(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s...`);
-        setTimeout(() => {
-            this.isReconnecting = false;
-            this.connect();
-        }, delay);
+  send(payload) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!payload.ping) payload.req_id = ++this.requestId;
+    try { this.ws.send(JSON.stringify(payload)); }
+    catch (e) { logError(`Send error: ${e.message}`); }
+  }
+
+  sendTelegram(text) {
+    this.telegramBot.sendMessage(CHAT_ID, text, { parse_mode: "HTML" }).catch(() => {});
+  }
+
+  // ── Message router ─────────────────────────────────────────────────────────
+  handleMessage(msg) {
+    if (msg.error) { this.handleApiError(msg); return; }
+    switch (msg.msg_type) {
+      case 'authorize':   this.handleAuth(msg);        break;
+      case 'balance':     this.handleBalance(msg);     break;
+      case 'history':     this.handleTickHistory(msg); break;
+      case 'tick':        this.handleTick(msg);        break;
+      case 'buy':         this.handleBuy(msg);         break;
+      case 'transaction': this.handleTransaction(msg); break;
+      case 'ping': break;
     }
+  }
 
-    handleMessage(msg) {
-        if (msg.error) {
-            console.error('API Error:', msg.error.message);
-            return;
-        }
-
-        switch (msg.msg_type) {
-            case 'authorize':
-                console.log('✅ Authenticated');
-                this.wsReady = true;
-                this.initializeSubscriptions();
-                break;
-            case 'history':
-                this.handleTickHistory(msg);
-                break;
-            case 'tick':
-                this.handleTickUpdate(msg.tick);
-                break;
-            case 'buy':
-                if (!msg.error) {
-                    this.sendRequest({
-                        proposal_open_contract: 1,
-                        contract_id: msg.buy.contract_id,
-                        subscribe: 1
-                    });
-                } else {
-                    this.tradeInProgress = false;
-                }
-                break;
-            case 'proposal_open_contract':
-                if (msg.proposal_open_contract?.is_sold) {
-                    this.handleTradeResult(msg.proposal_open_contract);
-                }
-                break;
-        }
-    }
-
-    initializeSubscriptions() {
-        console.log('📊 Initializing subscriptions...');
-        this.config.assets.forEach(asset => {
-            this.sendRequest({
-                ticks_history: asset,
-                adjust_start_time: 1,
-                count: this.config.requiredHistoryLength,
-                end: 'latest',
-                start: 1,
-                style: 'ticks'
-            });
-            this.sendRequest({ ticks: asset, subscribe: 1 });
-        });
-    }
-
-    sendRequest(req) {
-        if (this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify(req));
+  handleApiError(msg) {
+    const code = (msg.error && msg.error.code)    || 'UNKNOWN';
+    const emsg = (msg.error && msg.error.message) || 'Unknown error';
+    logError(`[${code}] on ${msg.msg_type || 'unknown'}: ${emsg}`);
+    switch (code) {
+      case 'InvalidToken':
+      case 'AuthorizationRequired': this.stop('Authentication failed'); break;
+      case 'InsufficientBalance':   this.stop('Insufficient balance');  break;
+      case 'RateLimit':
+        logError('Rate limited — pausing 10s...');
+        setTimeout(() => { if (this.botState !== 'STOPPED') { this.isTradeActive = false; } }, 10_000);
+        break;
+      default:
+        if (msg.msg_type === 'buy') {
+          this.isTradeActive    = false;
+          this.activeTradeAsset = null;
+          logError('Buy failed — returning to analysis');
         }
     }
+  }
 
-    sendTelegram(text) {
-        this.telegramBot.sendMessage(CHAT_ID, text, { parse_mode: "HTML" }).catch(() => { });
+  // ── Auth ───────────────────────────────────────────────────────────────────
+  handleAuth(msg) {
+    if (!msg.authorize) return;
+    const auth = msg.authorize;
+    this.accountBalance  = parseFloat(auth.balance);
+    this.startingBalance = this.accountBalance;
+    this.accountId       = auth.loginid || 'N/A';
+    const isDemo = this.accountId.startsWith('VRTC');
+    logApi(
+      `${green('✅ Authenticated')} | Account: ${bold(this.accountId)} ` +
+      `${isDemo ? dim('(Demo)') : red('(REAL MONEY!)')} | ` +
+      `Balance: ${green('$' + this.accountBalance.toFixed(2))}`
+    );
+    if (!isDemo) logRisk(red('⚠️  REAL ACCOUNT — trading with real money!'));
+
+    this.send({ balance: 1, subscribe: 1 });
+    this.send({ transaction: 1, subscribe: 1 });
+
+    // Fetch history for all active assets
+    this.botState = 'COLLECTING_TICKS';
+    logBot(`Fetching tick history for ${bold(this.config.active_assets.length)} assets...`);
+    for (const sym of this.config.active_assets) {
+      this.send({
+        ticks_history: sym,
+        count:         this.config.tick_history_size,
+        end:           'latest',
+        style:         'ticks',
+      });
+    }
+  }
+
+  // ── Tick History ───────────────────────────────────────────────────────────
+  handleTickHistory(msg) {
+    const echoReq = msg.echo_req || {};
+    const sym     = echoReq.ticks_history || '';
+    const st      = this.assetStates.get(sym);
+    if (!st) return;
+
+    if (!msg.history || !msg.history.prices) {
+      logError(`Failed to fetch history for ${sym} — subscribing anyway`);
+      this.subscribeToLiveTicks(sym, st);
+      return;
     }
 
-    disconnect() {
-        console.log('🛑 Disconnecting...');
-        this.saveState();
-        this.endOfDay = true;
-        if (this.ws) this.ws.close();
+    const prices = msg.history.prices;
+    const digits = prices.map(p => getLastDigit(p, sym));
+    st.tickHistory = digits.slice(-this.config.tick_history_size);
+    st.tickCount   = st.tickHistory.length;
+    logBot(`${green('✅')} ${bold(sym)}: Loaded ${bold(st.tickHistory.length)} ticks | tail: [${st.tickHistory.slice(-8).join(',')}]`);
+
+    if (st.tickHistory.length >= this.config.min_ticks_for_hmm) {
+      st.ready = true;
+      const last = st.tickHistory[st.tickHistory.length - 1];
+      const hmm  = this.assetHMMs.get(sym);
+      st.regime  = hmm.analyze(st.tickHistory, last, st.tickCount);
+      this.applyRegimeSignal(st, last);
     }
 
-    // State persistence
-    saveState() {
-        try {
-            // Enhanced state persistence with regime tracking
-            const stateData = {
-                savedAt: Date.now(),
-                stake: this.stake,
-                consecutiveLosses: this.consecutiveLosses,
-                totalTrades: this.totalTrades,
-                totalWins: this.totalWins,
-                x2: this.x2, x3: this.x3, x4: this.x4, x5: this.x5,
-                netProfit: this.netProfit,
-                recentTrades: this.recentTrades,
-                
-                // Add regime tracking for analysis
-                lastTradeDigit: this.lastTradeDigit,
-                lastTradeTime: this.lastTradeTime,
-                ticksSinceLastTrade: this.ticksSinceLastTrade,
-                
-                // Extended session stats
-                accountBalance: this.accountBalance,
-                startingBalance: this.startingBalance,
-                sessionStartTime: this.sessionStartTime
-            };
-            fs.writeFileSync(STATE_FILE, JSON.stringify(stateData, null, 2));
-        } catch (e) { 
-            console.error('Error saving state:', e.message);
-        }
+    this.subscribeToLiveTicks(sym, st);
+    this.checkAllAssetsReady();
+  }
+
+  subscribeToLiveTicks(sym, st) {
+    if (st.subscribed) return;
+    st.subscribed = true;
+    logBot(`Subscribing to live ticks: ${bold(sym)}`);
+    this.send({ ticks: sym, subscribe: 1 });
+  }
+
+  checkAllAssetsReady() {
+    const readyCount = [...this.assetStates.values()].filter(s => s.ready).length;
+    const total      = this.config.active_assets.length;
+    if (readyCount === total && this.botState !== 'TRADING' && this.botState !== 'STOPPED') {
+      logBot(green(`✅ All ${total} assets ready — entering ANALYZING mode`));
+      this.botState = 'ANALYZING';
+    } else if (readyCount < total) {
+      logBot(`Assets ready: ${readyCount}/${total}`);
+    }
+  }
+
+  // ── Balance ────────────────────────────────────────────────────────────────
+  handleBalance(msg) {
+    if (msg.balance) this.accountBalance = parseFloat(msg.balance.balance);
+  }
+
+  // ── Live Tick ──────────────────────────────────────────────────────────────
+  handleTick(msg) {
+    if (this.botState === 'STOPPED') return;
+    if (!msg.tick) return;
+
+    const sym          = msg.tick.symbol;
+    const price        = parseFloat(msg.tick.quote);
+    const currentDigit = getLastDigit(price, sym);
+    const st           = this.assetStates.get(sym);
+    if (!st) return;
+
+    // Maintain sliding window
+    st.tickHistory.push(currentDigit);
+    if (st.tickHistory.length > this.config.tick_history_size)
+      st.tickHistory = st.tickHistory.slice(-this.config.tick_history_size);
+    st.tickCount++;
+
+    // Log tick for interesting states
+    const isGhostActive = st.ghostConsecutiveWins > 0 || st.ghostAwaitingResult;
+    if (isGhostActive || st.signalActive) {
+      const last5 = st.tickHistory.slice(Math.max(0, st.tickHistory.length - 6), st.tickHistory.length - 1);
+      logTick(
+        `[${bold(sym)}] ${dim(last5.join('›')+'›')} ${bold(cyan(`[${currentDigit}]`))}` +
+        dim(`  ${price}  (${st.tickCount})`) +
+        (st.ghostConsecutiveWins > 0
+          ? `  ${magenta(`👻 ${st.ghostConsecutiveWins}/${this.config.ghost_wins_required}`)}`
+          : '')
+      );
     }
 
-    loadState() {
-        try {
-            if (!fs.existsSync(STATE_FILE)) return;
-            const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-            
-            // Only restore if state is recent (within 30 minutes)
-            if (Date.now() - data.savedAt > 30 * 60 * 1000) return;
-            
-            // Restore basic stats
-            this.stake = data.stake || this.stake;
-            this.consecutiveLosses = data.consecutiveLosses || 0;
-            this.totalTrades = data.totalTrades || 0;
-            this.totalWins = data.totalWins || 0;
-            this.x2 = data.x2 || 0;
-            this.x3 = data.x3 || 0;
-            this.x4 = data.x4 || 0;
-            this.x5 = data.x5 || 0;
-            this.netProfit = data.netProfit || 0;
-            this.recentTrades = data.recentTrades || [];
-            
-            // Restore regime tracking if available
-            if (data.lastTradeDigit) {
-                this.lastTradeDigit = data.lastTradeDigit;
-            }
-            if (data.lastTradeTime) {
-                this.lastTradeTime = data.lastTradeTime;
-            }
-            if (data.ticksSinceLastTrade) {
-                this.ticksSinceLastTrade = data.ticksSinceLastTrade;
-            }
-            
-            console.log('✅ State restored from ' + new Date(data.savedAt).toLocaleString());
-        } catch (e) { 
-            console.error('Error loading state:', e.message);
-        }
+    // Become ready if enough ticks have accumulated
+    if (!st.ready && st.tickHistory.length >= this.config.min_ticks_for_hmm) {
+      st.ready = true;
+      this.checkAllAssetsReady();
+    }
+    if (!st.ready) return;
+
+    const hmm = this.assetHMMs.get(sym);
+
+    // If trade is active — still analyze but don't trade
+    if (this.isTradeActive) {
+      st.regime = hmm.analyze(st.tickHistory, currentDigit, st.tickCount);
+      return;
     }
 
-    startAutoSave() {
-        setInterval(() => this.saveState(), 5000);
-    }
-
-    startHourlySummary() {
-        setInterval(() => {
-            if (this.hourly.trades === 0) return;
-            const winRate = ((this.hourly.wins / this.hourly.trades) * 100).toFixed(1);
-            this.sendTelegram(`
-            ⏰ <b>HOURLY — GHOST 9.2</b>
-
-            📊 Trades: ${this.hourly.trades}
-            ✅/❌ W/L: ${this.hourly.wins}/${this.hourly.losses}
-            📈 Win Rate: ${winRate}%
-            💰 P&L: ${this.hourly.pnl >= 0 ? '+' : ''}$${this.hourly.pnl.toFixed(2)}
-
-            📊 <b>Session</b>
-            ├ Total: ${this.totalTrades}
-            ├ W/L: ${this.totalWins}/${this.totalTrades - this.totalWins}
-            ├ x2-x5: ${this.x2}/${this.x3}/${this.x4}/${this.x5}
-            └ Net: $${this.netProfit.toFixed(2)}
-            `.trim());
-            this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
-            this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
-        }, 3600000);
-    }
-
-    // Extract last digit based on asset type (CORRECTED - handles fractional digits properly)
-    getLastDigit(quote, asset) {
-        const quoteString = quote.toString();
-        const [, fractionalPart = ''] = quoteString.split('.');
-
-        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
-            return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
-        } else if (['R_10', 'R_25', '1HZ15V', '1HZ30V', '1HZ90V',].includes(asset)) {
-            return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
+    // Ghost confirmed — waiting for target digit to fire pending trade
+    if (st.ghostConfirmed) {
+      st.regime = hmm.analyze(st.tickHistory, st.targetDigit, st.tickCount);
+      this.refreshSignalForLockedTarget(st, hmm);
+      if (!st.signalActive) {
+        logGhost(`[${sym}] Signal lost after ghost confirm — resetting`);
+        this.resetAssetGhost(st);
+        return;
+      }
+      if (this.tradePendingAsset === sym) {
+        if (currentDigit === st.targetDigit) {
+          this.tradePendingAsset = null;
+          this.executeTradeForAsset(st, hmm, true);
         } else {
-            return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
+          logGhost(dim(`[${sym}] ⏳ Waiting for digit ${bold(st.targetDigit)} — got ${currentDigit}`));
         }
+      }
+      return;
     }
 
-    handleTickHistory(msg) {
-        const asset = msg.echo_req.ticks_history;
-        const prices = msg.history?.prices || [];
-        this.histories[asset] = prices.map(p => this.getLastDigit(p, asset));
-        this.historyLoaded[asset] = true;
-        
-        // Initialize HMM detector for this asset with user settings
-        if (!this.assetHMMs.has(asset)) {
-            const cfg = {
-                analysis_window: this.config.analysis_window,
-                min_ticks_for_hmm: this.config.min_ticks_for_hmm,
-                repeat_threshold: this.config.repeat_threshold,
-                min_regime_persistence: this.config.min_regime_persistence,
-                hmm_nonrep_confidence: this.config.hmm_nonrep_confidence,
-                min_safety_score: this.config.min_safety_score,
-                cusum_threshold: this.config.cusum_threshold,
-                cusum_slack: this.config.cusum_slack
-            };
-            this.assetHMMs.set(asset, new HMMRegimeDetector(cfg));
-        }
-        
-        console.log(`📊 Loaded ${this.histories[asset].length} ticks for ${asset} | HMM initialized`);
+    // Ghost awaiting result (Tick B)
+    if (st.ghostAwaitingResult) {
+      st.regime = hmm.analyze(st.tickHistory, st.targetDigit, st.tickCount);
+      this.refreshSignalForLockedTarget(st, hmm);
+      this.runGhostTickB(st, currentDigit);
+      return;
     }
 
-    // ========================================================================
-    // TICK HANDLING
-    // ========================================================================
-    handleTickUpdate(tick) {
-        const asset = tick.symbol;
-        if (!this.config.assets.includes(asset)) return;
+    // Standard analysis path
+    st.regime = hmm.analyze(st.tickHistory, currentDigit, st.tickCount);
+    this.applyRegimeSignal(st, currentDigit);
+    this.logRegimeAnalysis(st, currentDigit);
 
-        const lastDigit = this.getLastDigit(tick.quote, asset);
+    if (st.signalActive) {
+      if (this.config.ghost_enabled) {
+        this.runGhostTickA(st, currentDigit);
+      } else {
+        this.executeTradeForAsset(st, hmm, true);
+      }
+    }
+  }
 
-        this.histories[asset].push(lastDigit);
-        if (this.histories[asset].length > this.config.requiredHistoryLength) {
-            this.histories[asset].shift();
-        }
+  // ── Signal helpers ─────────────────────────────────────────────────────────
+  applyRegimeSignal(st, currentDigit) {
+    st.targetDigit      = currentDigit;
+    st.targetRepeatRate = 0;
+    st.signalActive     = false;
+    if (!st.regime || !st.regime.valid) return;
+    st.targetRepeatRate = st.regime.rawRepeatProb[currentDigit];
+    st.signalActive     = st.regime.signalActive;
+  }
 
-        // Increment cooldown counter
-        this.ticksSinceLastTrade[asset]++;
+  refreshSignalForLockedTarget(st, _hmm) {
+    if (st.targetDigit < 0 || !st.regime || !st.regime.valid) { st.signalActive = false; return; }
+    st.targetRepeatRate = st.regime.rawRepeatProb[st.targetDigit];
+    st.signalActive     = st.regime.signalActive;
+  }
 
-        // LOG EVERY 30 SECONDS
-        const now = Date.now();
-        if (now - this.lastTickLogTime[asset] >= 30000) {
-            console.log(`📈 [${asset}] Tick #${this.histories[asset].length} | Digit: ${lastDigit}`);
-            console.log(`   Last 10: ${this.histories[asset].slice(-10).join(', ')}`);
-            this.lastTickLogTime[asset] = now;
-        }
-
-        // Scan for signals
-        if (this.historyLoaded[asset] && !this.tradeInProgress) {
-            this.scanForSignal(asset);
-        }
+  // ── Ghost Tick A (target digit just appeared) ──────────────────────────────
+  runGhostTickA(st, currentDigit) {
+    if (currentDigit !== st.targetDigit) return;
+    if (this.isTradeActive) {
+      logGhost(`[${st.symbol}] Trade active — skipping ghost tick`);
+      return;
     }
 
-    // ========================================================================
-    // ENHANCEMENT #1: MULTI-LAYER Z-SCORE WITH AVERAGE (FIXED)
-    // ========================================================================
-    calculateZScoreAnalysis(history) {
-        const windows = [13, 21, 34, 55, 89, 144, 233, 377, 610, 987];
-        const zScoreSums = Array(10).fill(0);
-        const aboveExpectedCount = Array(10).fill(0);
-        const windowZScores = Array(10).fill(null).map(() => []);
-        let validWindowCount = 0;
+    st.ghostRoundsPlayed++;
+    const winsIfConfirmed = st.ghostConsecutiveWins + 1;
 
-        for (const w of windows) {
-            if (history.length < w) continue;
-            validWindowCount++;
+    if (winsIfConfirmed >= this.config.ghost_wins_required) {
+      st.ghostConsecutiveWins = winsIfConfirmed;
+      st.ghostConfirmed       = true;
+      logGhost(
+        `[${bold(st.symbol)}] 👻 ${green(`✅ Ghost WIN ${st.ghostConsecutiveWins}/${this.config.ghost_wins_required}`)} ` +
+        `— Target ${bold(cyan(st.targetDigit))} appeared! ${green(bold('EXECUTING LIVE TRADE NOW!'))}`
+      );
+      const hmm = this.assetHMMs.get(st.symbol);
+      this.executeTradeForAsset(st, hmm, true);
+    } else {
+      st.ghostAwaitingResult = true;
+      logGhost(
+        `[${bold(st.symbol)}] 👻 Target ${bold(cyan(st.targetDigit))} appeared | ` +
+        `Wins: ${st.ghostConsecutiveWins}/${this.config.ghost_wins_required} | ` +
+        dim('Awaiting next tick (Tick B)...')
+      );
+    }
+  }
 
-            const slice = history.slice(-w);
-            const counts = Array(10).fill(0);
-            slice.forEach(d => counts[d]++);
-            const exp = w / 10;
-            const sd = Math.sqrt(w * 0.1 * 0.9);
-
-            for (let i = 0; i < 10; i++) {
-                const z = (counts[i] - exp) / sd;
-                zScoreSums[i] += z;
-                windowZScores[i].push({ window: w, z });
-
-                if (counts[i] > exp) {
-                    aboveExpectedCount[i]++;
-                }
-            }
-        }
-
-        // Calculate AVERAGE Z-score per digit
-        const results = [];
-        for (let i = 0; i < 10; i++) {
-            const avgZ = validWindowCount > 0 ? zScoreSums[i] / validWindowCount : 0;
-            const participation = aboveExpectedCount[i];
-
-            // Only consider digits that dominate 8+ windows
-            if (participation >= this.config.minParticipation) {
-                results.push({
-                    digit: i,
-                    avgZScore: avgZ,
-                    participation,
-                    windowDetails: windowZScores[i],
-                    consistency: this.calculateConsistency(windowZScores[i])
-                });
-            }
-        }
-
-        return results.sort((a, b) => b.avgZScore - a.avgZScore);
+  // ── Ghost Tick B (result — did the digit repeat?) ─────────────────────────
+  runGhostTickB(st, currentDigit) {
+    st.ghostAwaitingResult = false;
+    if (currentDigit !== st.targetDigit) {
+      // Did NOT repeat → Ghost WIN ✅
+      st.ghostConsecutiveWins++;
+      logGhost(
+        `[${bold(st.symbol)}] 👻 ${green(`✅ Ghost WIN ${st.ghostConsecutiveWins}/${this.config.ghost_wins_required}`)} ` +
+        `— ${bold(cyan(st.targetDigit))} did NOT repeat (next was ${bold(currentDigit)})`
+      );
+    } else {
+      // REPEATED → Ghost LOSS ❌
+      const had = st.ghostConsecutiveWins;
+      st.ghostConsecutiveWins = 0;
+      logGhost(
+        `[${bold(st.symbol)}] 👻 ${red(`❌ Ghost LOSS — digit REPEATED!`)} ` +
+        `(had ${had} wins) — reset 0/${this.config.ghost_wins_required}`
+      );
     }
 
-    // ========================================================================
-    // ENHANCEMENT #2: Z-SCORE CONSISTENCY CHECK
-    // ========================================================================
-    calculateConsistency(windowZScores) {
-        if (windowZScores.length < 3) return 0;
+    if (st.ghostRoundsPlayed >= this.config.ghost_max_rounds) {
+      logGhost(`[${st.symbol}] ⚠️  Max ghost rounds (${this.config.ghost_max_rounds}) reached — resetting`);
+      this.resetAssetGhost(st);
+    }
+  }
 
-        const zValues = windowZScores.map(w => w.z);
-        const mean = zValues.reduce((a, b) => a + b, 0) / zValues.length;
-        const variance = zValues.reduce((s, z) => s + Math.pow(z - mean, 2), 0) / zValues.length;
-        const stdDev = Math.sqrt(variance);
+  resetAssetGhost(st) {
+    st.ghostConsecutiveWins = 0;
+    st.ghostRoundsPlayed    = 0;
+    st.ghostConfirmed       = false;
+    st.ghostAwaitingResult  = false;
+    st.targetDigit          = -1;
+    st.signalActive         = false;
+  }
 
-        // Lower std dev = more consistent signal across windows
-        // Return consistency score 0-1 (higher = better)
-        return Math.max(0, 1 - (stdDev / 2));
+  // ── Trade Execution ────────────────────────────────────────────────────────
+  executeTradeForAsset(st, _hmm, immediate) {
+    if (this.isTradeActive) {
+      logGhost(`[${st.symbol}] ⏳ Trade already active on ${this.activeTradeAsset} — queuing`);
+      this.tradePendingAsset = st.symbol;
+      st.ghostConfirmed = true;
+      return;
     }
 
-    // ========================================================================
-    // ENHANCEMENT #3: ADVANCED VOLATILITY ANALYSIS
-    // ========================================================================
-    calculateVolatilityAnalysis(history) {
-        if (history.length < 500) return null;
-
-        const last500 = history.slice(-500);
-        const last200 = history.slice(-200);
-        const last50 = history.slice(-50);
-
-        // Entropy calculation for each window
-        const entropy500 = this.calculateEntropy(last500);
-        const entropy200 = this.calculateEntropy(last200);
-        const entropy50 = this.calculateEntropy(last50);
-
-        // Concentration (1 - normalized entropy)
-        const maxEntropy = Math.log2(10);
-        const conc500 = 1 - (entropy500 / maxEntropy);
-        const conc200 = 1 - (entropy200 / maxEntropy);
-        const conc50 = 1 - (entropy50 / maxEntropy);
-
-        // Weighted concentration (recent data weighted more)
-        const weightedConc = (conc500 * 1.0 + conc200 * 1.5 + conc50 * 2.5) / 5.0;
-
-        // Trend: Is concentration increasing or decreasing?
-        const concTrend = conc50 - conc500;
-
-        // Streak analysis
-        const streakInfo = this.analyzeStreaks(last50);
-
-        // Hurst exponent approximation (for mean-reversion detection)
-        const hurst = this.calculateHurstApprox(last200);
-
-        return {
-            concentration: weightedConc,
-            concLong: conc500,
-            concMedium: conc200,
-            concShort: conc50,
-            concTrend,
-            isUltraLow: weightedConc > this.config.minConcentration &&
-                weightedConc < this.config.maxConcentration,
-            streakInfo,
-            hurst,
-            isMeanReverting: hurst < 0.47
-        };
+    const risk = this.checkRiskLimits();
+    if (!risk.canTrade) {
+      logRisk(risk.reason);
+      if (risk.action === 'STOP')     { this.stop(risk.reason);    return; }
+      if (risk.action === 'COOLDOWN') { this.startCooldown();      return; }
+      return;
     }
 
-    calculateEntropy(data) {
-        const freq = Array(10).fill(0);
-        data.forEach(d => freq[d]++);
-
-        let entropy = 0;
-        for (let f of freq) {
-            if (f > 0) {
-                const p = f / data.length;
-                entropy -= p * Math.log2(p);
-            }
-        }
-        return entropy;
+    this.currentStake = this.calculateStake();
+    if (this.currentStake > this.config.max_stake) {
+      this.stop(`Stake $${this.currentStake.toFixed(2)} exceeds max $${this.config.max_stake}`);
+      return;
+    }
+    if (this.currentStake > this.accountBalance) {
+      this.stop(`Stake $${this.currentStake.toFixed(2)} exceeds balance $${this.accountBalance.toFixed(2)}`);
+      return;
     }
 
-    analyzeStreaks(data) {
-        let maxStreak = 1;
-        let currentStreak = 1;
-        let currentDigit = data[data.length - 1];
-        let streakDigit = currentDigit;
+    if (immediate) {
+      this.placeTrade(st);
+    } else {
+      this.tradePendingAsset = st.symbol;
+      st.ghostConfirmed = true;
+      logBot(`[${st.symbol}] ⚡ Trade queued — waiting for digit ${bold(cyan(st.targetDigit))}`);
+    }
+  }
 
-        // Find current streak at end
-        for (let i = data.length - 2; i >= 0; i--) {
-            if (data[i] === currentDigit) {
-                currentStreak++;
-            } else {
-                break;
-            }
-        }
+  placeTrade(st) {
+    // Snapshot regime at trade time
+    this.tradeRegimeSnapshot = st.regime ? { ...st.regime } : null;
+    const snap      = this.tradeRegimeSnapshot;
+    const snapScore = snap && snap.valid ? (snap.safetyScore || 0) : 0;
+    const snapPNR   = snap && snap.valid ? (snap.posteriorNonRep || 0) : 0;
 
-        // Find max streak in window
-        let tempStreak = 1;
-        for (let i = 1; i < data.length; i++) {
-            if (data[i] === data[i - 1]) {
-                tempStreak++;
-                if (tempStreak > maxStreak) {
-                    maxStreak = tempStreak;
-                    streakDigit = data[i];
-                }
-            } else {
-                tempStreak = 1;
-            }
-        }
-
-        return {
-            currentStreak,
-            currentDigit,
-            maxStreak,
-            streakDigit,
-            isExhausted: currentStreak >= this.config.maxStreakLength
-        };
+    // Hard gate: verify score and P(NR) still meet configured minimums
+    if (snapScore < this.config.min_safety_score) {
+      logRisk(`[${st.symbol}] 🚫 Trade BLOCKED — Score ${snapScore} < ${this.config.min_safety_score}. Re-analyzing...`);
+      this.resetAssetGhost(st);
+      return;
+    }
+    if (snapPNR < this.config.hmm_nonrep_confidence) {
+      logRisk(
+        `[${st.symbol}] 🚫 Trade BLOCKED — ` +
+        `P(NR) ${(snapPNR*100).toFixed(1)}% < ${(this.config.hmm_nonrep_confidence*100).toFixed(0)}%. Re-analyzing...`
+      );
+      this.resetAssetGhost(st);
+      return;
     }
 
-    calculateHurstApprox(data) {
-        const n = data.length;
-        if (n < 50) return 0.5;
+    this.isTradeActive    = true;
+    this.activeTradeAsset = st.symbol;
+    this.botState         = 'TRADING';
 
-        const mean = data.reduce((a, b) => a + b, 0) / n;
+    const stepInfo = this.config.martingale_enabled
+      ? ` | Mart: ${this.martingaleStep}/${this.config.max_martingale_steps}` : '';
 
-        let cumDev = 0;
-        let maxDev = 0;
-        let minDev = 0;
+    logTrade(
+      `[${bold(cyan(st.symbol))}] 🎯 DIFFER from ${bold(cyan(st.targetDigit))} | ` +
+      `Stake: ${bold(green('$' + this.currentStake.toFixed(2)))}${stepInfo} | ` +
+      `Rate: ${st.targetRepeatRate.toFixed(1)}% | ` +
+      `Score: ${snapScore >= this.config.min_safety_score ? green(snapScore+'/100') : red(snapScore+'/100')} | ` +
+      `P(NR): ${(snapPNR*100).toFixed(1)}% | ` +
+      `Ghost: ${st.ghostConsecutiveWins}/${this.config.ghost_wins_required}`
+    );
 
-        for (let val of data) {
-            cumDev += val - mean;
-            maxDev = Math.max(maxDev, cumDev);
-            minDev = Math.min(minDev, cumDev);
-        }
+    this.sendTelegram(`
+      🎯 <b>GHOST TRADE Multi-Bot</b>
 
-        const range = maxDev - minDev;
-        const stdDev = Math.sqrt(data.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / n);
+      📊 Symbol: ${st.symbol}
+      🔢 Target Digit: ${st.targetDigit}
+       Last 5 ticks: ${st.tickHistory.slice(-5).join(', ')}
+      💰 Stake: $${this.currentStake.toFixed(2)}${stepInfo}
+      📈 Repeat Rate: ${st.targetRepeatRate.toFixed(1)}%
+      🔬 Score: ${snapScore}/100 | P(NR): ${(snapPNR*100).toFixed(1)}%
+      👻 Ghost: ${st.ghostConsecutiveWins}/${this.config.ghost_wins_required}
+    `.trim());
 
-        if (stdDev === 0) return 0.5;
+    this.send({
+      buy: 1,
+      price: this.currentStake,
+      parameters: {
+        contract_type: this.config.contract_type,
+        symbol:        st.symbol,
+        duration:      1,
+        duration_unit: 't',
+        basis:         'stake',
+        amount:        this.currentStake,
+        barrier:       String(st.targetDigit),
+        currency:      this.config.currency,
+      },
+    });
+  }
 
-        const hurst = Math.log(range / stdDev) / Math.log(n);
-        return Math.max(0.1, Math.min(0.9, hurst));
+  // ── Buy response ───────────────────────────────────────────────────────────
+  handleBuy(msg) {
+    if (!msg.buy) return;
+    this.lastContractId = msg.buy.contract_id;
+    this.lastBuyPrice   = parseFloat(msg.buy.buy_price);
+    const payout        = parseFloat(msg.buy.payout);
+    logTrade(dim(`Contract ${this.lastContractId} | Cost: $${this.lastBuyPrice.toFixed(2)} | Payout: $${payout.toFixed(2)}`));
+  }
+
+  // ── Transaction (result) ───────────────────────────────────────────────────
+  handleTransaction(msg) {
+    if (!msg.transaction || msg.transaction.action !== 'sell' || !this.isTradeActive) return;
+
+    const payout      = parseFloat(msg.transaction.amount) || 0;
+    const profit      = payout - this.lastBuyPrice;
+    const sym         = this.activeTradeAsset;
+    const st          = this.assetStates.get(sym);
+    const resultDigit = st && st.tickHistory.length > 0
+      ? st.tickHistory[st.tickHistory.length - 1] : null;
+
+    this.totalTrades++;
+    if (profit > 0) this.processWin(profit, resultDigit, sym, st);
+    else            this.processLoss(this.lastBuyPrice, resultDigit, sym, st);
+
+    this.isTradeActive    = false;
+    this.activeTradeAsset = null;
+    this.decideNextAction();
+  }
+
+  processWin(profit, resultDigit, sym, st) {
+    this.totalWins++;
+    this.sessionProfit += profit;
+    this.currentWinStreak++;
+    this.currentLossStreak = 0;
+    if (this.currentWinStreak > this.maxWinStreak) this.maxWinStreak = this.currentWinStreak;
+    if (profit > this.largestWin) this.largestWin = profit;
+
+    if (st) this.assetHMMs.get(sym)?.resetCUSUM(st.targetDigit);
+
+    const recovery = this.martingaleStep > 0 ? green(' 🔄 RECOVERY!') : '';
+    const plStr    = this.sessionProfit >= 0 ? green(formatMoney(this.sessionProfit)) : red(formatMoney(this.sessionProfit));
+    logResult(
+      `[${bold(cyan(sym))}] ${green('✅ WIN!')} ` +
+      `Profit: ${green('+$' + profit.toFixed(2))} | ` +
+      `P/L: ${plStr} | ` +
+      `Bal: ${green('$' + this.accountBalance.toFixed(2))}` +
+      recovery
+    );
+    if (resultDigit !== null && st)
+      logResult(dim(`  Target: ${st.targetDigit} | Result: ${resultDigit} | Ghost: ${st.ghostConsecutiveWins}/${this.config.ghost_wins_required}`));
+
+    this.sendTelegram(`
+      ✅ <b>Multi-Bot WIN!</b>
+
+      📊 Symbol: ${sym}
+      🎯 Target: ${st ? st.targetDigit : '?'}
+       Last 5 ticks: ${st.tickHistory.slice(-5).join(', ')}
+      🔢 Result: ${resultDigit !== null ? resultDigit : 'N/A'}
+      💰 Profit: +$${profit.toFixed(2)}
+      💵 P&L: ${this.sessionProfit >= 0 ? '+' : ''}$${this.sessionProfit.toFixed(2)}
+      📊 Balance: $${this.accountBalance.toFixed(2)}
+      📈 Record: ${this.totalWins}W/${this.totalLosses}L | Streak: ${this.currentWinStreak}W
+    `.trim());
+
+    this.logSessionLine();
+    this.resetMartingale();
+    this.resetAllAssetGhosts();
+  }
+
+  processLoss(lostAmount, resultDigit, sym, st) {
+    this.totalLosses++;
+    this.sessionProfit    -= lostAmount;
+    this.totalMartingaleLoss += lostAmount;
+    this.currentLossStreak++;
+    this.currentWinStreak = 0;
+    if (this.currentLossStreak > this.maxLossStreak) this.maxLossStreak = this.currentLossStreak;
+    if (lostAmount > this.largestLoss) this.largestLoss = lostAmount;
+    this.martingaleStep++;
+    if (this.martingaleStep > this.maxMartingaleReached) this.maxMartingaleReached = this.martingaleStep;
+
+    const martInfo = this.config.martingale_enabled ? ` | Mart: ${this.martingaleStep}/${this.config.max_martingale_steps}` : '';
+    const plStr    = this.sessionProfit >= 0 ? green(formatMoney(this.sessionProfit)) : red(formatMoney(this.sessionProfit));
+    logResult(
+      `[${bold(cyan(sym))}] ${red('❌ LOSS!')} ` +
+      `Lost: ${red('-$' + lostAmount.toFixed(2))} | ` +
+      `P/L: ${plStr} | ` +
+      `Bal: $${this.accountBalance.toFixed(2)}` +
+      martInfo
+    );
+    if (resultDigit !== null && st)
+      logResult(dim(`  Target: ${st ? st.targetDigit : '?'} | Result: ${resultDigit} (${resultDigit === (st ? st.targetDigit : -1) ? red('REPEATED') : green('different — unexpected')})`));
+
+    this.sendTelegram(`
+      ❌ <b>Multi-Bot LOSS!</b>
+
+      📊 Symbol: ${sym}
+      🎯 Target: ${st ? st.targetDigit : '?'}
+       Last 5 ticks: ${st.tickHistory.slice(-5).join(', ')}
+      🔢 Result: ${resultDigit !== null ? resultDigit : 'N/A'} ${resultDigit === (st ? st.targetDigit : -1) ? red('(REPEATED)') : '(different)'}
+      💸 Lost: -$${lostAmount.toFixed(2)}
+      💵 P&L: ${this.sessionProfit >= 0 ? '+' : ''}$${this.sessionProfit.toFixed(2)}
+      📊 Balance: $${this.accountBalance.toFixed(2)}
+      📈 Record: ${this.totalWins}W/${this.totalLosses}L | Streak: ${this.currentLossStreak}L${martInfo}
+    `.trim());
+
+    this.logSessionLine();
+    // Reset ALL asset ghost states after a loss
+    this.resetAllAssetGhosts();
+    this.tradePendingAsset = null;
+    logBot(dim('All asset ghost states reset. Fresh analysis for all assets.'));
+  }
+
+  resetAllAssetGhosts() {
+    this.assetStates.forEach(st => this.resetAssetGhost(st));
+  }
+
+  decideNextAction() {
+    const risk = this.checkRiskLimits();
+    if (!risk.canTrade) {
+      logRisk(risk.reason);
+      if (risk.action === 'STOP')     { this.stop(risk.reason); return; }
+      if (risk.action === 'COOLDOWN') { this.startCooldown();   return; }
     }
-
-    // ========================================================================
-    // ENHANCEMENT #4: SIGNAL CONFLUENCE SCORING
-    // ========================================================================
-    calculateSignalScore(zAnalysis, volAnalysis, history) {
-        if (!zAnalysis || zAnalysis.length === 0 || !volAnalysis) return null;
-
-        const best = zAnalysis[0];
-        const digit = best.digit;
-
-        // Base score from Z-score (max 40 points)
-        const zScore = Math.min(best.avgZScore * 10, 40);
-
-        // Consistency bonus (max 15 points)
-        const consistencyScore = best.consistency * 15;
-
-        // Participation bonus (max 10 points)
-        const participationScore = (best.participation / 10) * 10;
-
-        // Volatility score (max 15 points)
-        let volScore = 0;
-        if (volAnalysis.isUltraLow) volScore += 10;
-        if (volAnalysis.isMeanReverting) volScore += 5;
-
-        // Trend alignment (max 10 points)
-        let trendScore = 0;
-        if (volAnalysis.concTrend > 0.01) trendScore += 10; // Concentration increasing
-
-        // Streak consideration (max 10 points)
-        let streakScore = 0;
-        const streak = volAnalysis.streakInfo;
-        if (streak.currentDigit === digit && streak.currentStreak >= 3) {
-            streakScore += 5;
-            if (streak.currentStreak >= 5) streakScore += 5; // Bonus for strong streak
-        }
-
-        const totalScore = zScore + consistencyScore + participationScore +
-            volScore + trendScore + streakScore;
-
-        // Recent appearance check
-        const inRecent = history.slice(-9).includes(digit);
-
-        return {
-            digit,
-            totalScore,
-            components: {
-                zScore,
-                consistencyScore,
-                participationScore,
-                volScore,
-                trendScore,
-                streakScore
-            },
-            avgZScore: best.avgZScore,
-            participation: best.participation,
-            inRecent,
-            isValid: totalScore >= 65 && inRecent  // Minimum 60 points to trade
-        };
+    if (this.config.martingale_enabled && this.martingaleStep >= this.config.max_martingale_steps) {
+      logRisk(red('🛑 Max Martingale steps reached!'));
+      this.resetMartingale();
+      this.startCooldown();
+      return;
     }
-
-    // ========================================================================
-    // ENHANCEMENT #5: COOLDOWN SYSTEM
-    // ========================================================================
-    canTrade(asset) {
-        // Basic checks
-        if (this.tradeInProgress) return false;
-        if (!this.wsReady) return false;
-        if (!this.historyLoaded[asset]) return false;
-        if (this.histories[asset].length < this.config.minHistoryForTrading) return false;
-
-        // Cooldown check
-        const ticksSinceLast = this.ticksSinceLastTrade[asset];
-        const requiredCooldown = this.consecutiveLosses > 0
-            ? this.config.cooldownAfterLoss
-            : this.config.cooldownTicks;
-
-        if (ticksSinceLast < requiredCooldown) return false;
-
-        // Time filter (avoid volatile minutes)
-        const now = new Date();
-        const minute = now.getMinutes();
-        if (minute < this.config.avoidMinutesAroundHour ||
-            minute > (60 - this.config.avoidMinutesAroundHour)) {
-            return false;
-        }
-
-        // Max consecutive losses check
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses) return false;
-
-        // Stop loss check
-        if (this.netProfit <= this.config.stopLoss) return false;
-
-        return true;
+    if (this.config.martingale_enabled && this.martingaleStep > 0) {
+      logBot(yellow(`📈 Martingale step ${this.martingaleStep}/${this.config.max_martingale_steps} — next stake: $${this.calculateStake().toFixed(2)}`));
     }
+    this.botState = 'ANALYZING';
+    logBot(dim('Returning to analysis mode — all assets monitoring...'));
+  }
 
-    // ========================================================================
-    // ENHANCEMENT #6: ADAPTIVE THRESHOLDS
-    // ========================================================================
-    getAdaptiveThresholds() {
-        if (this.recentTrades.length < 20) {
-            return {
-                minScore: 60,
-                minZScore: this.config.minAvgZScore
-            };
-        }
+  // ── Regime logging ─────────────────────────────────────────────────────────
+  logRegimeAnalysis(st, currentDigit) {
+    if (!st.regime || !st.regime.valid) return;
+    const r   = st.regime;
+    const thr = this.config.repeat_threshold;
+    const pct = (r.posteriorNonRep * 100).toFixed(1);
 
-        // Calculate recent win rate
-        const recentWins = this.recentTrades.filter(t => t.won).length;
-        const recentWinRate = recentWins / this.recentTrades.length;
-
-        // Adjust thresholds based on performance
-        let minScore = 60;
-        let minZScore = this.config.minAvgZScore;
-
-        if (recentWinRate < 0.90) {
-            // Increase thresholds if win rate dropping
-            minScore = 70;
-            minZScore = 2.6;
-        } else if (recentWinRate > 0.97) {
-            // Can slightly relax if performing well
-            minScore = 60;
-            minZScore = 2.0;
-        }
-
-        return { minScore, minZScore };
+    if (st.signalActive) {
+      logAnalysis(
+        `[${bold(cyan(st.symbol))}] ${green('✅ SIGNAL')} — digit ${bold(cyan(currentDigit))} | ` +
+        `${green(r.hmmStateName)} P(NR):${green(pct+'%')} ` +
+        `persist:${green(r.hmmPersistence+'t')} ` +
+        `score:${green(r.safetyScore+'/100')} ` +
+        `raw:${r.rawRepeatProb[currentDigit].toFixed(0)}% ` +
+        `CUSUM:${r.cusumAlarm ? red('⚠️ALARM') : green('OK')}`
+      );
+    } else {
+      // Only log HMM details every 5 ticks to reduce noise
+      if (st.tickCount % 5 !== 0) return;
+      const reasons = [];
+      if (r.hmmState !== 0) reasons.push(`state=${red(r.hmmStateName)}`);
+      if (r.posteriorNonRep < this.config.hmm_nonrep_confidence)
+        reasons.push(`P(NR)=${red(pct+'%')}<${(this.config.hmm_nonrep_confidence*100).toFixed(0)}%`);
+      if (r.hmmPersistence < this.config.min_regime_persistence)
+        reasons.push(`persist=${yellow(r.hmmPersistence)}<${this.config.min_regime_persistence}`);
+      if (r.rawRepeatProb[currentDigit] >= thr)
+        reasons.push(`raw=${red(r.rawRepeatProb[currentDigit].toFixed(0)+'%')}≥${thr}%`);
+      if (r.ewmaRepeat[currentDigit] >= thr)
+        reasons.push(`EWMA=${red(r.ewmaRepeat[currentDigit].toFixed(0)+'%')}`);
+      if (r.cusumAlarm)
+        reasons.push(red(`CUSUM⚠️${r.cusumValue.toFixed(2)}`));
+      if (r.safetyScore < this.config.min_safety_score)
+        reasons.push(`score=${red(r.safetyScore)}<${this.config.min_safety_score}`);
+      logHMM(
+        `[${bold(st.symbol)}] ${yellow(r.hmmStateName)} ` +
+        `P(NR):${pct}% persist:${r.hmmPersistence}t score:${r.safetyScore}/100 | ` +
+        `⛔ ${reasons.slice(0,4).join(', ')}`
+      );
     }
+  }
 
-    // ========================================================================
-    // MAIN SIGNAL SCANNER (ENHANCED WITH HMM REGIME DETECTION)
-    // ========================================================================
-    scanForSignal(asset) {
-        if (!this.canTrade(asset)) return;
+  logSessionLine() {
+    const wr = this.totalTrades > 0
+      ? ((this.totalWins / this.totalTrades) * 100).toFixed(1) : '0.0';
+    const plStr = this.sessionProfit >= 0
+      ? green(formatMoney(this.sessionProfit)) : red(formatMoney(this.sessionProfit));
+    logStats(
+      `Trades: ${bold(this.totalTrades)} | ` +
+      `W: ${green(this.totalWins)} L: ${red(this.totalLosses)} | ` +
+      `WR: ${bold(wr+'%')} | ` +
+      `P/L: ${plStr} | ` +
+      `Bal: ${bold('$'+this.accountBalance.toFixed(2))}`
+    );
+  }
 
-        const history = this.histories[asset];
-        if (history.length < 50) return;
+  // ── Stake calculation ──────────────────────────────────────────────────────
+  calculateStake() {
+    if (!this.config.martingale_enabled || this.martingaleStep === 0) return this.config.base_stake;
+    const raw   = this.config.base_stake * Math.pow(this.config.martingale_multiplier, this.martingaleStep);
+    const calc  = Math.round(raw * 100) / 100;
+    const final = Math.min(calc, this.config.max_stake);
+    logBot(dim(`Mart: Step ${this.martingaleStep} | $${this.config.base_stake.toFixed(2)} × ${this.config.martingale_multiplier}^${this.martingaleStep} = $${final.toFixed(2)}`));
+    return final;
+  }
 
-        // Get HMM instance for this asset
-        const hmm = this.assetHMMs.get(asset);
-        if (!hmm) return;
-
-        this.tickCount++;
-        // Analyze current regime using HMM 
-        const regime = hmm.analyze(history, history[history.length - 1], this.tickCount, asset);
-
-        if (this.tickCount > 30) {
-          this.tickCount = 0;
-        }
-        
-        if (!regime.valid) return;
-        if (!regime.signalActive) return;
-
-        // Extract HMM signal data
-        const targetDigit = history[history.length - 1];
-        const safetyScore = regime.safetyScore;
-        const hmmState = regime.hmmStateName;
-        const confidence = regime.posteriorNonRep;
-
-        // Get adaptive thresholds based on recent performance
-        const thresholds = this.getAdaptiveThresholds();
-
-        // LOG EVERY 30 SECONDS FOR DEBUGGING
-        const now = Date.now();
-        if (now - this.lastTickLogTime2[asset] >= 30000) {
-            console.log(
-                `[${asset}] HMM=${hmmState} | Safety=${safetyScore} | ` +
-                `Conf=${(confidence*100).toFixed(1)}% | Persist=${regime.hmmPersistence} | ` +
-                `RepRate=${regime.rawRepeatProb[targetDigit].toFixed(1)}% | CUSUM=${regime.cusumAlarm ? '⚠️' : '✓'}`
-            );
-            this.lastTickLogTime2[asset] = now;
-        }
-
-        // Gating conditions (from HMM)
-        if (hmmState !== 'NON-REP') {
-            // if (now - this.lastTickLogTime2[asset] >= 30000) {
-                console.log(`[${asset}] Blocked - Not in NON-REP regime (${hmmState})`);
-            // }
-            return;
-        }
-        if (safetyScore < this.config.min_safety_score) {
-            // if (now - this.lastTickLogTime2[asset] >= 30000) {
-                console.log(`[${asset}] Blocked - Safety score too low (${safetyScore} < ${this.config.min_safety_score})`);
-            // }
-            return;
-        }
-        if (regime.cusumAlarm) {
-                console.log(`[${asset}] Blocked - CUSUM alarm active`);
-            return;
-        }
-
-        // Check if same digit as last trade (require higher score for repeats)
-        if (targetDigit === this.lastTradeDigit[asset]) {
-            if (this.asset_safety_score < this.asset_safety_score + 0.1) { // Require 1 extra points for repeat digit
-                console.log(`[${asset}] Blocked - Same digit repeat requires higher Confidence`);
-                return;
-            }
-        }
-
-        // Execute trade with HMM regime data
-        this.placeTrade(asset, targetDigit, safetyScore, regime);
+  // ── Risk limits ────────────────────────────────────────────────────────────
+  checkRiskLimits() {
+    if (this.sessionProfit >= this.config.take_profit) {
+      this.sendTelegram(`🎉 <b>TAKE PROFIT!</b>\n\nFinal P&L: $${this.sessionProfit.toFixed(2)}\n\nSession end at ${new Date().toLocaleString()}`);
+      return { canTrade: false, reason: `🎯 Take profit! P/L: ${formatMoney(this.sessionProfit)}`, action: 'STOP' };
     }
-
-    // ========================================================================
-    // TRADE EXECUTION
-    // ========================================================================
-    placeTrade(asset, digit, safetyScore, regime) {
-        if (this.tradeInProgress) return;
-
-        this.tradeInProgress = true;
-        this.lastTradeDigit[asset] = digit;
-        this.asset_safety_score[asset] = (regime.posteriorNonRep*100).toFixed(1);
-        this.lastTradeTime[asset] = Date.now();
-        this.ticksSinceLastTrade[asset] = 0;
-
-        console.log(`\n🎯 TRADE SIGNAL — ${asset}`);
-        console.log(`   Digit: ${digit}`);
-        console.log(`   Safety Score: ${safetyScore}`);
-        console.log(`   HMM State: ${regime.hmmStateName}`);
-        console.log(`   Confidence: ${(regime.posteriorNonRep*100).toFixed(1)}%`);
-        console.log(`   Persistence: ${regime.hmmPersistence}`);
-        console.log(`   Stake: $${this.stake.toFixed(2)}`);
-
-        this.sendRequest({
-            buy: 1,
-            price: this.stake,
-            parameters: {
-                amount: this.stake,
-                basis: "stake",
-                contract_type: "DIGITDIFF",
-                currency: "USD",
-                duration: 1,
-                duration_unit: "t",
-                symbol: asset,
-                barrier: digit.toString()
-            }
-        });
-
-        this.sendTelegram(`
-            🎯 <b>GHOST TRADE</b>
-
-            📊 Asset: ${asset}
-            🔢 Target Digit: ${digit}
-            📈 Last 10: ${this.histories[asset].slice(-10).join(',')}
-            🛡️ Safety Score: ${safetyScore}
-            💯 P(RNR): ${(regime.posteriorNonRep*100).toFixed(1)}% | P(REP): ${(regime.posteriorRep*100).toFixed(1)}%
-            ⏱️ Persistence: ${regime.hmmPersistence}
-            💰 Stake: $${this.stake.toFixed(2)}
-            📊 Losses: ${this.consecutiveLosses}
-        `.trim());
+    if (this.sessionProfit <= -this.config.stop_loss) {
+      this.sendTelegram(`🛑 <b>STOP LOSS!</b>\n\nFinal P&L: $${this.sessionProfit.toFixed(2)}\n\nSession end at ${new Date().toLocaleString()}`);
+      return { canTrade: false, reason: `🛑 Stop loss! P/L: ${formatMoney(this.sessionProfit)}`, action: 'STOP' };
     }
+    const ns = (!this.config.martingale_enabled || this.martingaleStep === 0)
+      ? this.config.base_stake
+      : Math.min(
+          Math.round(this.config.base_stake * Math.pow(this.config.martingale_multiplier, this.martingaleStep) * 100) / 100,
+          this.config.max_stake
+        );
+    if (ns > this.accountBalance)  return { canTrade: false, reason: `💸 Next stake $${ns.toFixed(2)} > balance $${this.accountBalance.toFixed(2)}`, action: 'STOP' };
+    if (ns > this.config.max_stake) return { canTrade: false, reason: `📈 Next stake $${ns.toFixed(2)} > max $${this.config.max_stake}`, action: 'STOP' };
+    if (this.config.martingale_enabled && this.martingaleStep >= this.config.max_martingale_steps)
+      return { canTrade: false, reason: '🔄 Max Martingale steps reached.', action: 'COOLDOWN' };
+    return { canTrade: true };
+  }
 
-    // ========================================================================
-    // TRADE RESULT HANDLING (ENHANCED WITH REGIME ANALYSIS)
-    // ========================================================================
-    handleTradeResult(contract) {
-        const won = contract.status === "won";
-        const profit = parseFloat(contract.profit);
-        const asset = contract.underlying;
-        const exitDigit = this.getLastDigit(contract.exit_tick_display_value, asset);
+  resetMartingale() {
+    this.martingaleStep      = 0;
+    this.totalMartingaleLoss = 0;
+    this.currentStake        = this.config.base_stake;
+  }
 
-        this.totalTrades++;
-        this.hourly.trades++;
-        this.hourly.pnl += profit;
-        this.netProfit += profit;
+  startCooldown() {
+    this.botState = 'STOPPED'; // temporarily
+    this.resetMartingale();
+    this.resetAllAssetGhosts();
+    this.tradePendingAsset = null;
+    const sec = this.config.cooldown_after_max_loss / 1000;
+    logBot(yellow(`⏸️  Cooldown for ${sec}s...`));
+    this.cooldownTimer = setTimeout(() => {
+      if (this.botState === 'STOPPED') {
+        logBot(green('▶️  Cooldown ended. Resuming analysis...'));
+        this.botState = 'ANALYZING';
+      }
+    }, this.config.cooldown_after_max_loss);
+  }
 
-        // Track for adaptive thresholds
-        this.recentTrades.push({ won, profit, time: Date.now() });
-        if (this.recentTrades.length > this.maxRecentTrades) {
-            this.recentTrades.shift();
-        }
-
-        // Get HMM regime data for this asset
-        const hmm = this.assetHMMs.get(asset);
-        const history = this.histories[asset];
-        let regime = null;
-        if (hmm && history.length >= 50) {
-            regime = hmm.analyze(history, exitDigit, history.length);
-        }
-
-        const resultMessage = won ? '✅ WIN' : '❌ LOSS';
-        console.log(`\n${resultMessage} — ${asset}`);
-        console.log(`   Target: ${this.lastTradeDigit[asset]}`);
-        console.log(`   Safty Score: ${this.asset_safety_score[asset]}`);
-        console.log(`   Exit Digit: ${exitDigit}`);
-        console.log(`   Profit: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`);
-        console.log(`   Net P&L: $${this.netProfit.toFixed(2)}`);
-
-        if (won) {
-            this.totalWins++;
-            this.hourly.wins++;
-            this.consecutiveLosses = 0;
-            this.stake = this.config.baseStake;
-            this.isWinTrade = true;
-        } else {
-            this.isWinTrade = false;
-            this.hourly.losses++;
-            this.consecutiveLosses++;
-
-            if (this.consecutiveLosses === 2) this.x2++;
-            if (this.consecutiveLosses === 3) this.x3++;
-            if (this.consecutiveLosses === 4) this.x4++;
-            if (this.consecutiveLosses === 5) this.x5++;
-
-            // Money management
-            if (this.consecutiveLosses === 1) {
-                this.stake = this.config.baseStake * this.config.firstLossMultiplier;
-            } else {
-                this.stake = this.config.baseStake *
-                    Math.pow(this.config.subsequentMultiplier, this.consecutiveLosses - 1);
-            }
-            this.stake = Math.round(this.stake * 100) / 100;
-        }
-
-        // Enhanced Telegram Alert with regime data
-        let telegramContent = `
-            ${won ? '✅ <b>MULTI-BOT WIN!</b>' : '❌ <b>MULTI-BOT LOSS!</b>'}
-
-            📊 Symbol: ${asset}
-            🎯 Target: ${this.lastTradeDigit[asset]}
-            🔢 Exit: ${exitDigit}
-            📈 Last 10: ${this.histories[asset].slice(-10).join(',')}
-            🛡️ Confidece: ${this.asset_safety_score[asset]}
-            💰 P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}
-            💵 Balance: $${this.netProfit.toFixed(2)}
-            📊 Record: ${this.totalWins}W/${this.totalTrades - this.totalWins}L | Losses: ${this.consecutiveLosses}${this.consecutiveLosses > 1 ? ` (x${this.consecutiveLosses})` : ''}
-            📊 WIN RATE: ${((this.totalWins / this.totalTrades) * 100).toFixed(1)}%
-            💲 Next Stake: $${this.stake.toFixed(2)}
-        `;
-
-        this.sendTelegram(telegramContent.trim());
-
-        // Stop conditions
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses) {
-            console.log('🛑 Max consecutive losses reached');
-            this.sendTelegram(`🛑 <b>MAX LOSSES REACHED!</b>\nFinal P&L: $${this.netProfit.toFixed(2)}`);
-            this.disconnect();
-            return;
-        }
-
-        if (this.netProfit >= this.config.takeProfit) {
-            console.log('🎉 Take profit reached!');
-            this.sendTelegram(`🎉 <b>TAKE PROFIT!</b>\nFinal P&L: $${this.netProfit.toFixed(2)}`);
-            this.disconnect();
-            return;
-        }
-
-        if (this.netProfit <= this.config.stopLoss) {
-            console.log('🛑 Stop loss reached');
-            this.sendTelegram(`🛑 <b>STOP LOSS!</b>\nFinal P&L: $${this.netProfit.toFixed(2)}`);
-            this.disconnect();
-            return;
-        }
-
-        this.tradeInProgress = false;
+  // ── Stop ───────────────────────────────────────────────────────────────────
+  stop(reason = 'User stopped') {
+    this.botState = 'STOPPED';
+    logBot(`🛑 ${bold('Stopping bot...')} Reason: ${reason}`);
+    if (this.cooldownTimer) { clearTimeout(this.cooldownTimer);  this.cooldownTimer = null; }
+    if (this.pingInterval)  { clearInterval(this.pingInterval);  this.pingInterval  = null; }
+    this.tradePendingAsset = null;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ forget_all: 'ticks' }));
+        this.ws.send(JSON.stringify({ forget_all: 'balance' }));
+        this.ws.send(JSON.stringify({ forget_all: 'transaction' }));
+      } catch (_) {}
+      setTimeout(() => { try { this.ws.close(); } catch (_) {} }, 500);
     }
+    this.sendTelegram(`🛑 <b>SESSION STOPPED</b>\n\nReason: ${reason}\n\nFinal P&L: $${this.sessionProfit.toFixed(2)}`);
+    this.printFinalStats();
+    setTimeout(() => process.exit(0), 1200);
+  }
 
-    checkTimeForDisconnectReconnect() {
-        setInterval(() => {
-            const now = new Date();
-            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
-            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
-            const currentHours = gmtPlus1Time.getUTCHours();
-            const currentMinutes = gmtPlus1Time.getUTCMinutes();
-
-            // Weekend logic: Saturday 11pm to Monday 8am GMT+1 -> Disconnect and stay disconnected
-            const isWeekend = (currentDay === 0) || // Sunday
-                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
-                (currentDay === 1 && currentHours < 8);    // Monday before 8am
-
-            if (isWeekend) {
-                if (!this.endOfDay) {
-                    console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
-                    this.disconnect();
-                    this.endOfDay = true;
-                }
-                return; // Prevent any reconnection logic during the weekend
-            }
-
-            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
-                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
-                this.resetDailyStats();
-                this.endOfDay = false;
-                this.connect();
-            }
-
-            if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 17 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
-                    this.disconnect();
-                    this.endOfDay = true;
-                }
-            }
-        }, 20000);
-    }
-
-    resetDailyStats() {
-        this.tradeInProgress = false;
-        this.isWinTrade = false;
-    }
+  printFinalStats() {
+    const dur = Date.now() - this.sessionStartTime;
+    const wr  = this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(1) : '0.0';
+    const avg = this.totalTrades > 0 ? this.sessionProfit / this.totalTrades : 0;
+    const plC = this.sessionProfit >= 0 ? green : red;
+    console.log('');
+    logStats(bold(cyan('═══════════════════════════════════════════════════════════')));
+    logStats(bold(cyan('          MULTI-ASSET SESSION SUMMARY                      ')));
+    logStats(bold(cyan('═══════════════════════════════════════════════════════════')));
+    logStats(`  Duration          : ${bold(formatDuration(dur))}`);
+    logStats(`  Assets Traded     : ${bold(this.config.active_assets.join(', '))}`);
+    logStats(`  Analysis Method   : ${bold('HMM + Bayesian + CUSUM')}`);
+    logStats(`  HMM P(NR) Min     : ${bold((this.config.hmm_nonrep_confidence*100).toFixed(0)+'%')}`);
+    logStats(`  Min Safety Score  : ${bold(this.config.min_safety_score+'/100')}`);
+    logStats(`  Total Trades      : ${bold(this.totalTrades)}`);
+    logStats(`  Wins              : ${green(bold(this.totalWins))}`);
+    logStats(`  Losses            : ${red(bold(this.totalLosses))}`);
+    logStats(`  Win Rate          : ${bold(wr+'%')}`);
+    logStats(`  Session P/L       : ${plC(bold(formatMoney(this.sessionProfit)))}`);
+    logStats(`  Starting Balance  : $${this.startingBalance.toFixed(2)}`);
+    logStats(`  Final Balance     : $${this.accountBalance.toFixed(2)}`);
+    logStats(`  Avg P/L per Trade : ${formatMoney(avg)}`);
+    logStats(`  Largest Win       : ${green('+$' + this.largestWin.toFixed(2))}`);
+    logStats(`  Largest Loss      : ${red('-$' + this.largestLoss.toFixed(2))}`);
+    logStats(`  Max Win Streak    : ${green(bold(this.maxWinStreak))}`);
+    logStats(`  Max Loss Streak   : ${red(bold(this.maxLossStreak))}`);
+    logStats(`  Max Mart. Step    : Step ${this.maxMartingaleReached}`);
+    logStats(bold(cyan('═══════════════════════════════════════════════════════════')));
+    console.log('');
+  }
 }
 
-// START
-console.log('═══════════════════════════════════════════════════');
-console.log('  ROMANIAN GHOST BLACK FIBONACCI 9.2 ULTIMATE');
-console.log('═══════════════════════════════════════════════════');
-console.log(`  Started: ${new Date().toLocaleString()}`);
-console.log('═══════════════════════════════════════════════════\n');
+// ── Entry Point ────────────────────────────────────────────────────────────────
+(function main() {
+  const config = parseArgs();
+  const bot    = new RomanianGhostBot(config);
 
-new RomanianGhostUltimate();
+  process.on('SIGINT',  () => { console.log(''); bot.stop('SIGINT (Ctrl+C)'); });
+  process.on('SIGTERM', () => { bot.stop('SIGTERM'); });
+  process.on('uncaughtException', e => {
+    logError(`Uncaught exception: ${e.message}`);
+    if (e.stack) console.error(e.stack);
+    bot.stop('Uncaught exception');
+  });
+  process.on('unhandledRejection', reason => {
+    logError(`Unhandled rejection: ${reason}`);
+  });
+
+  bot.start();
+})();
