@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF000027-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF000028-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
