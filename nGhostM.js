@@ -14,7 +14,7 @@ const TOKEN = "0P94g4WdSrSrzir";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'ghost92-0003-state.json');
+const STATE_FILE = path.join(__dirname, 'ghost92-0004-state.json');
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  UTILITY FUNCTIONS
@@ -371,7 +371,7 @@ class RomanianGhostUltimate {
 
             // ====== HMM REGIME DETECTION SETTINGS ======
             min_ticks_for_hmm:      50,
-            repeat_threshold:       7,
+            repeat_threshold:       9,
             hmm_nonrep_confidence:  0.93,
             min_safety_score:       90,
             min_regime_persistence: 8,
