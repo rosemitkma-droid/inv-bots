@@ -118,12 +118,12 @@ function parseArgs() {
 
         // History
         tick_history_size: 5000,
-        analysis_window: 3000,
-        min_ticks_for_analysis: 100,
+        analysis_window: 5000,
+        min_ticks_for_analysis: 50,
 
         // ── Regime detection thresholds ───────────────────────────────────────
-        repeat_threshold: 9,           // Hard gate: raw repeat % per digit
-        hmm_nonrep_confidence: 0.75,   // Bayesian P(NON-REP) required from HMM forward
+        repeat_threshold: 11,           // Hard gate: raw repeat % per digit
+        hmm_nonrep_confidence: 0.85,   // Bayesian P(NON-REP) required from HMM forward
         bocpd_nonrep_confidence: 0.82, // BOCPD P(NON-REP) required
         min_regime_persistence: 8,     // Min consecutive ticks in NON-REP (HMM Viterbi)
         acf_lag1_threshold: 0.15,      // Lag-1 ACF gate (< threshold = ok)
@@ -900,7 +900,7 @@ class AdvancedRegimeDetector {
                         `Discrimination: ${(fitResult.discrimination * 100).toFixed(1)}% ✅`
                     );
                 } else {
-                    logHMM(yellow(`⚠️  HMM Baum-Welch rejected: ${fitResult.reason} — using prior params`));
+                    // logHMM(yellow(`⚠️  HMM Baum-Welch rejected: ${fitResult.reason} — using prior params`));
                 }
             }
         }
@@ -1122,7 +1122,7 @@ class AdvancedRegimeDetector {
 const fs = require('fs');
 const path = require('path');
 
-const STATE_FILE = path.join(__dirname, 'romanian-ghost-bot-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'romanian-ghost-bot-v5-state.json');
 const STATE_MAX_AGE_MS = 30 * 60 * 1000;   // 30 minutes
 const STATE_SAVE_INTERVAL = 5_000;             // auto-save every 5 s
 
@@ -1147,12 +1147,12 @@ class StatePersistence {
                     largestWin: bot.largestWin,
                     largestLoss: bot.largestLoss,
                 },
-                // Save last 500 ticks per asset (enough to warm detectors quickly)
-                assets: Object.fromEntries(
-                    Object.entries(bot.channels).map(([sym, ch]) => [sym, {
-                        tickHistory: ch.tickHistory.slice(-500),
-                    }])
-                ),
+                // Save last 1 ticks per asset (enough to warm detectors quickly)
+                // assets: Object.fromEntries(
+                //     Object.entries(bot.channels).map(([sym, ch]) => [sym, {
+                //         tickHistory: ch.tickHistory.slice(-1),
+                //     }])
+                // ),
             };
             fs.writeFileSync(STATE_FILE, JSON.stringify(payload));
         } catch (e) {
@@ -1287,7 +1287,7 @@ function parseArgs() {
         contract_type: 'DIGITDIFF',
 
         // ── Assets to monitor simultaneously ─────────────────────────────────
-        symbols: ['R_10', 'R_25', 'R_50', 'R_75'],
+        symbols: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBEAR', 'RDBULL'],
 
         // ── History ───────────────────────────────────────────────────────────
         tick_history_size: 5000,
@@ -1791,13 +1791,14 @@ class RomanianGhostBotV4 {
         logTrade(`🎯 [${bold(ch.symbol)}] DIFFER from ${bold(cyan(ch.targetDigit))} | Stake:${bold('$' + this.currentStake.toFixed(2))}${step} | Rate:${ch.targetRepeatRate.toFixed(1)}% | Score:${score}/100 | P(NR):${pnr} | BOCPD_RL:${bRL}t`);
 
         this.sendTelegram(
-            `🎯 <b>TRADE — ${ch.symbol}</b>
-
-📊 Digit: ${ch.targetDigit} | Rate: ${ch.targetRepeatRate.toFixed(1)}%
-💰 Stake: $${this.currentStake.toFixed(2)}${step}
-🔬 Score: ${score}/100 | P(NR): ${pnr} | BOCPD_RL: ${bRL}t
-👻 Ghost: ${ch.ghostConsecutiveWins}/${this.config.ghost_wins_required}
-📊 ${this.totalTrades} trades | ${this.totalWins}W/${this.totalLosses}L | P&L: ${formatMoney(this.sessionProfit)}`
+            `🎯 <b>mTRADE — ${ch.symbol}</b>
+            📊 Digit: ${ch.targetDigit} | Rate: ${ch.targetRepeatRate.toFixed(1)}%
+            🔢 Last10: ${ch.tickHistory.slice(-10).join(',')}
+            💰 Stake: $${this.currentStake.toFixed(2)}${step}
+            🔬 Score: ${score}/100 | P(NR): ${pnr} 
+            📊 BOCPD_RL: ${bRL}t
+            👻 Ghost: ${ch.ghostConsecutiveWins}/${this.config.ghost_wins_required}
+         `
         );
 
         this.send({
@@ -1849,11 +1850,23 @@ class RomanianGhostBotV4 {
         if (this.currentWinStreak > this.maxWinStreak) this.maxWinStreak = this.currentWinStreak;
         if (profit > this.largestWin) this.largestWin = profit;
 
+        // Save trade data BEFORE resetting
+        const tradeTargetDigit = ch?.targetDigit;
+        const tradeTickHistory = ch ? [...ch.tickHistory] : [];
+
         if (ch) { ch.detector.resetCUSUM(ch.targetDigit); ch.resetGhost(); ch.state = CHANNEL_STATE.ANALYZING; }
         const plStr = this.sessionProfit >= 0 ? green(formatMoney(this.sessionProfit)) : red(formatMoney(this.sessionProfit));
         logResult(`${green('✅ WIN!')} [${ch?.symbol}] +$${profit.toFixed(2)} | P/L:${plStr} | Bal:$${this.accountBalance.toFixed(2)}`);
-        if (resultDigit !== null) logResult(dim(`  Target:${ch?.targetDigit} Result:${resultDigit}`));
-        this.sendTelegram(`✅ <b>WIN! [${ch?.symbol}]</b>\n\nTarget:${ch?.targetDigit} | Result:${resultDigit}\n💰 +$${profit.toFixed(2)} | P&L: ${formatMoney(this.sessionProfit)}\n📊 ${this.totalWins}W/${this.totalLosses}L\n${new Date().toLocaleString()}`);
+        if (resultDigit !== null) logResult(dim(`  Target:${tradeTargetDigit} Result:${resultDigit}`));
+        
+        this.sendTelegram(`
+            ✅ mWIN! [${ch?.symbol}]
+            🔢 Target:${tradeTargetDigit} | Result:${resultDigit} 
+            📊 Last10: ${tradeTickHistory.slice(-10).join(',')}  
+            💰 $${profit.toFixed(2)} 
+            📊 P&L: ${formatMoney(this.sessionProfit)}
+            📊 ${this.totalWins}W/${this.totalLosses}L
+        `);
         this.resetMartingale();
     }
 
@@ -1865,12 +1878,23 @@ class RomanianGhostBotV4 {
         this.martingaleStep++;
         if (this.martingaleStep > this.maxMartingaleReached) this.maxMartingaleReached = this.martingaleStep;
 
+        // Save trade data BEFORE resetting
+        const tradeTargetDigit = ch?.targetDigit;
+        const tradeTickHistory = ch ? [...ch.tickHistory] : [];
+
         if (ch) { ch.ghostConsecutiveWins = 0; ch.ghostConfirmed = false; ch.ghostRoundsPlayed = 0; ch.ghostAwaitingResult = false; ch.state = CHANNEL_STATE.ANALYZING; }
         const step = this.config.martingale_enabled ? ` | Mart:${this.martingaleStep}/${this.config.max_martingale_steps}` : '';
         const plStr = this.sessionProfit >= 0 ? green(formatMoney(this.sessionProfit)) : red(formatMoney(this.sessionProfit));
         logResult(`${red('❌ LOSS!')} [${ch?.symbol}] -$${lostAmount.toFixed(2)} | P/L:${plStr}${step}`);
-        if (resultDigit !== null) logResult(dim(`  Target:${ch?.targetDigit} Result:${resultDigit} ${resultDigit === ch?.targetDigit ? red('REPEATED') : green('diff — unexpected')}`));
-        this.sendTelegram(`❌ <b>LOSS! [${ch?.symbol}]</b>\n\nTarget:${ch?.targetDigit} | Result:${resultDigit}\n💸 -$${lostAmount.toFixed(2)} | P&L: ${formatMoney(this.sessionProfit)}\n📊 ${this.totalWins}W/${this.totalLosses}L${step}\n${new Date().toLocaleString()}`);
+        if (resultDigit !== null) logResult(dim(`  Target:${tradeTargetDigit} Result:${resultDigit} ${resultDigit === tradeTargetDigit ? red('REPEATED') : green('diff — unexpected')}`));
+        this.sendTelegram(`
+            ❌ <b>mLOSS! [${ch?.symbol}]</b>
+            🔢 Target:${tradeTargetDigit} | Result:${resultDigit}  
+            📊 Last10: ${tradeTickHistory.slice(-10).join(',')} 
+            💸 -$${lostAmount.toFixed(2)} 
+            📊 P&L: ${formatMoney(this.sessionProfit)}
+            📊 ${this.totalWins}W/${this.totalLosses}L${step}
+        `);
     }
 
     decideNextAction(ch, won) {
@@ -1943,20 +1967,20 @@ class RomanianGhostBotV4 {
             if (i === curDigit) return (rp < thr ? green : red)(`${i}:${rp.toFixed(0)}%`);
             return dim(`${i}:${rp.toFixed(0)}%`);
         }).join(' ');
-        logAnalysis(`[${sym}] Rates: [${rateStr}] recent=${r.recentRate.toFixed(1)}%`);
+        // logAnalysis(`[${sym}] Rates: [${rateStr}] recent=${r.recentRate.toFixed(1)}%`);
 
         const stateCol = r.hmmState === 0 ? green : yellow;
         const pnrPct = (r.posteriorNR * 100).toFixed(1);
-        logHMM(`[${sym}] HMM: ${stateCol(bold(r.hmmStateName))} | P(NR):${r.posteriorNR >= this.config.hmm_nonrep_confidence ? green(pnrPct + '%') : red(pnrPct + '%')} | Persist:${r.hmmPersistence >= this.config.min_regime_persistence ? green(r.hmmPersistence + 't') : yellow(r.hmmPersistence + 't')} | B(rep|NR)=${(r.hmmB_repeatNR * 100).toFixed(1)}% B(rep|REP)=${(r.hmmB_repeatREP * 100).toFixed(1)}% Discrim:${(r.hmmDiscrim * 100).toFixed(1)}%`);
+        // logHMM(`[${sym}] HMM: ${stateCol(bold(r.hmmStateName))} | P(NR):${r.posteriorNR >= this.config.hmm_nonrep_confidence ? green(pnrPct + '%') : red(pnrPct + '%')} | Persist:${r.hmmPersistence >= this.config.min_regime_persistence ? green(r.hmmPersistence + 't') : yellow(r.hmmPersistence + 't')} | B(rep|NR)=${(r.hmmB_repeatNR * 100).toFixed(1)}% B(rep|REP)=${(r.hmmB_repeatREP * 100).toFixed(1)}% Discrim:${(r.hmmDiscrim * 100).toFixed(1)}%`);
 
         const bocpdOk = r.bocpdIsNonRep && r.bocpdPNonRep >= this.config.bocpd_nonrep_confidence;
-        logBocpd(`[${sym}] BOCPD: P(NR):${bocpdOk ? green((r.bocpdPNonRep * 100).toFixed(1) + '%') : red((r.bocpdPNonRep * 100).toFixed(1) + '%')} | ModeRL:${r.bocpdModeRL >= this.config.bocpd_min_run_for_signal ? green(r.bocpdModeRL + 't') : yellow(r.bocpdModeRL + 't')} | ExpRL:${r.bocpdExpRL.toFixed(1)}t | θ̂:${(r.bocpdTheta * 100).toFixed(1)}%`);
+        // logBocpd(`[${sym}] BOCPD: P(NR):${bocpdOk ? green((r.bocpdPNonRep * 100).toFixed(1) + '%') : red((r.bocpdPNonRep * 100).toFixed(1) + '%')} | ModeRL:${r.bocpdModeRL >= this.config.bocpd_min_run_for_signal ? green(r.bocpdModeRL + 't') : yellow(r.bocpdModeRL + 't')} | ExpRL:${r.bocpdExpRL.toFixed(1)}t | θ̂:${(r.bocpdTheta * 100).toFixed(1)}%`);
 
-        logAnalysis(`[${sym}] EWMA:${r.ewmaValues.map((v, i) => v < thr ? green(v.toFixed(1) + '%') : red(v.toFixed(1) + '%')).join('|')} Trend:${r.ewmaTrend <= this.config.ewma_trend_threshold ? green(r.ewmaTrend.toFixed(2) + '%') : red(r.ewmaTrend.toFixed(2) + '%')} ACF[1]:${r.acf[0] < this.config.acf_lag1_threshold ? green(r.acf[0].toFixed(3)) : red(r.acf[0].toFixed(3))}`);
-        logAnalysis(`[${sym}] CUSUM:up=${r.cusumUpAlarm ? red('ALARM ' + r.cusumUp.toFixed(2)) : green('ok ' + r.cusumUp.toFixed(2))} down=${r.cusumDownConfirm ? green('confirmed ' + r.cusumDown.toFixed(2)) : dim('pending ' + r.cusumDown.toFixed(2))} | Break:p=${r.structBreak.pBreak.toFixed(3)} ${r.structBreak.pBreak > this.config.structural_break_threshold ? red('BREAK') : green('OK')}`);
+        // logAnalysis(`[${sym}] EWMA:${r.ewmaValues.map((v, i) => v < thr ? green(v.toFixed(1) + '%') : red(v.toFixed(1) + '%')).join('|')} Trend:${r.ewmaTrend <= this.config.ewma_trend_threshold ? green(r.ewmaTrend.toFixed(2) + '%') : red(r.ewmaTrend.toFixed(2) + '%')} ACF[1]:${r.acf[0] < this.config.acf_lag1_threshold ? green(r.acf[0].toFixed(3)) : red(r.acf[0].toFixed(3))}`);
+        // logAnalysis(`[${sym}] CUSUM:up=${r.cusumUpAlarm ? red('ALARM ' + r.cusumUp.toFixed(2)) : green('ok ' + r.cusumUp.toFixed(2))} down=${r.cusumDownConfirm ? green('confirmed ' + r.cusumDown.toFixed(2)) : dim('pending ' + r.cusumDown.toFixed(2))} | Break:p=${r.structBreak.pBreak.toFixed(3)} ${r.structBreak.pBreak > this.config.structural_break_threshold ? red('BREAK') : green('OK')}`);
 
         const cs = r.componentScores;
-        logRegime(`[${sym}] Score:${r.safetyScore >= this.config.repeat_confidence ? green(bold(r.safetyScore + '/100')) : red(r.safetyScore + '/100')} | BOCPD:${cs.bocpdScore.toFixed(1)} HMM:${cs.hmmScore.toFixed(1)} EWMA:${cs.ewmaScore.toFixed(1)} ACF:${cs.acfScore.toFixed(1)} Break:${cs.breakScore.toFixed(1)} CUSUM:${cs.cusumScore.toFixed(1)}`);
+        // logRegime(`[${sym}] Score:${r.safetyScore >= this.config.repeat_confidence ? green(bold(r.safetyScore + '/100')) : red(r.safetyScore + '/100')} | BOCPD:${cs.bocpdScore.toFixed(1)} HMM:${cs.hmmScore.toFixed(1)} EWMA:${cs.ewmaScore.toFixed(1)} ACF:${cs.acfScore.toFixed(1)} Break:${cs.breakScore.toFixed(1)} CUSUM:${cs.cusumScore.toFixed(1)}`);
 
         if (ch.signalActive) {
             logAnalysis(green(bold(`✅ [${sym}] SIGNAL ACTIVE — digit ${curDigit} | Score:${r.safetyScore}/100 | P(NR):${pnrPct}% → DIFFER`)));
@@ -1974,7 +1998,7 @@ class RomanianGhostBotV4 {
             if (r.cusumUpAlarm) reasons.push(`CUSUM_UP_ALARM`);
             if (r.structBreak.pBreak >= this.config.structural_break_threshold) reasons.push(`STRUCT_BREAK(p=${r.structBreak.pBreak.toFixed(2)})`);
             if (r.safetyScore < this.config.repeat_confidence) reasons.push(`score=${r.safetyScore}<${this.config.repeat_confidence}`);
-            logAnalysis(red(`⛔ NO SIGNAL [${sym}] digit ${curDigit}: ${reasons.join(', ')}`));
+            // logAnalysis(red(`⛔ NO SIGNAL [${sym}] digit ${curDigit}: ${reasons.join(', ')}`));
         }
     }
 
