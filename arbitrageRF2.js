@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'abitrageRF00019-state.json');
+const STATE_FILE = path.join(__dirname, 'abitrageRF00027-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -242,7 +242,7 @@ Capital: $${state.capital.toFixed(2)}
 Stake: $${CONFIG.STAKE}
 Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT === 't' ? 'Ticks' : 'Seconds'}
 Assets: ${ACTIVE_ASSETS.join(', ')}
-Min Confidence: ${CONFIG.MIN_TREND_CONFIDENCE}%
+Min Confidence: ${CONFIG.MIN_CONFIDENCE}%
 Session Target: $${CONFIG.SESSION_PROFIT_TARGET}
 Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
         `.trim();
@@ -356,12 +356,12 @@ const CONFIG = {
 
     // Capital Settings
     INITIAL_CAPITAL: 500,
-    STAKE: 0.5,
+    STAKE: 1,
 
     // Session Targets
     totalTradesN: 50000000,
     SESSION_PROFIT_TARGET: 5000,
-    SESSION_STOP_LOSS: -125,
+    SESSION_STOP_LOSS: -200,
     highestPercentageDigit: null,
 
     // Candle Settings
@@ -385,7 +385,6 @@ const CONFIG = {
     // ═══════════════════════════════════════════
     MIN_TREND_STREAK: 2,           // Minimum streak before considering trade
     MAX_TREND_STREAK: 3,           // Maximum streak (don't chase mature trends)
-    MIN_TREND_CONFIDENCE: 20,      // Minimum historical success rate
     MIN_TREND_MATCHES: 5,          // Minimum historical samples needed
 
     OSC_TARGET_RATIO: 1,      // Trigger at 85% of max oscillation length
@@ -394,12 +393,12 @@ const CONFIG = {
     MAX_OSC_MULTIPLIER: 1.5,     // Skip if oscillation > 150% of max (anomaly)
 
     // Martingale Settings
-    MARTINGALE_MULTIPLIER: 4,
-    MARTINGALE_MULTIPLIER2: 5,
-    MARTINGALE_MULTIPLIER3: 5,
-    MARTINGALE_MULTIPLIER4: 5,
-    MARTINGALE_MULTIPLIER5: 5,
-    MAX_MARTINGALE_STEPS: 4,
+    MARTINGALE_MULTIPLIER: 1,
+    MARTINGALE_MULTIPLIER2: 1,
+    MARTINGALE_MULTIPLIER3: 1,
+    MARTINGALE_MULTIPLIER4: 1,
+    MARTINGALE_MULTIPLIER5: 1,
+    MAX_MARTINGALE_STEPS: 50,
 
     // Debug
     DEBUG_MODE: true,
@@ -410,7 +409,7 @@ const CONFIG = {
     TELEGRAM_CHAT_ID: '752497117',
 };
 
-let ACTIVE_ASSETS = ['stpRNG'];
+let ACTIVE_ASSETS = ['stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -870,6 +869,20 @@ class ConnectionManager {
                     assetState.closedCandles = assetState.closedCandles.slice(-CONFIG.MAX_CANDLES_STORED);
                 }
                 assetState.lastProcessedCandleOpenTime = closedCandle.open_time;
+
+                assetState.lastProcessedCandleOpenTime = closedCandle.open_time;
+
+                const closeTime = new Date(closedCandle.epoch * 1000).toISOString();
+                const candleType = CandleAnalyzer.getCandleDirection(closedCandle);
+                const candleEmoji = candleType === 'BULLISH' ? '🟢' : candleType === 'BEARISH' ? '🔴' : '⚪';
+
+                LOGGER.info(`${symbol} ${candleEmoji} CANDLE CLOSED [${closeTime}] ${candleType}: O:${closedCandle.open.toFixed(5)} H:${closedCandle.high.toFixed(5)} L:${closedCandle.low.toFixed(5)} C:${closedCandle.close.toFixed(5)}`);
+
+                // TRIGGER TRADE AFTER CANDLE CLOSE
+                // setTimeout(() => {
+                state.canTrade = true;
+                bot.executeNextTrade(symbol, closedCandle);
+                // }, 500); // Small delay to ensure candle is fully processed
             }
         }
 
@@ -1401,12 +1414,21 @@ class ConnectionManager {
         // ══════════════════════════════════════════
         // STEP 8: EXECUTE TRADE
         // ══════════════════════════════════════════
+        // const direction = predictedDir > 0 ? 'CALLE' : 'PUTE';
+        // const dirName = predictedDir > 0 ? 'RISE' : 'FALL';
+        // const trendEmoji = predictedDir > 0 ? '📈' : '📉';
+
+        // if (dirName === 'RISE') {
+        //     LOGGER.debug(`[${asset}] ⚠️ RISE direction not allowed`);
+        //     return;
+        // }
+
         const direction = predictedDir > 0 ? 'CALLE' : 'PUTE';
         const dirName = predictedDir > 0 ? 'RISE' : 'FALL';
         const trendEmoji = predictedDir > 0 ? '📈' : '📉';
 
-        if (dirName === 'RISE') {
-            LOGGER.debug(`[${asset}] ⚠️ RISE direction not allowed`);
+        if (dirName === 'FALL') {
+            LOGGER.debug(`[${asset}] ⚠️ FALL direction not allowed`);
             return;
         }
 
@@ -1423,14 +1445,14 @@ class ConnectionManager {
         LOGGER.trade(`   Stake: $${state.currentStake.toFixed(2)} | Level: ${state.martingaleLevel}`);
         LOGGER.trade(`═══════════════════════════════════════════════════════════`);
 
-        state.lastSignalTime = now;
-        state.canTrade = true;
+        // state.lastSignalTime = now;
+        // state.canTrade = true;
 
-        bot.executeNextTrade(asset, direction, {
-            reason: `OSC ${currentOscLength}/${targetOscLength} → ${dirName}`,
-            probability: confidence.toFixed(1),
-            oscInfo: `Osc: ${currentOscLength}t, avg=${avgOscLength.toFixed(1)}, max=${maxOscLength}`
-        });
+        // bot.executeNextTrade(asset, direction, {
+        //     reason: `OSC ${currentOscLength}/${targetOscLength} → ${dirName}`,
+        //     probability: confidence.toFixed(1),
+        //     oscInfo: `Osc: ${currentOscLength}t, avg=${avgOscLength.toFixed(1)}, max=${maxOscLength}`
+        // });
     }
 
     getLastDigit(quote, asset) {
@@ -1522,7 +1544,7 @@ class DerivBot {
         console.log(`📊 Assets: ${ACTIVE_ASSETS.join(', ')}`);
         console.log(`💵 Base Stake: $${CONFIG.STAKE}`);
         console.log(`⏱️ Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT === 't' ? 'Ticks' : 'Seconds'}`);
-        console.log(`🎯 Min Confidence: ${CONFIG.MIN_TREND_CONFIDENCE}%`);
+        console.log(`🎯 Min Confidence: ${CONFIG.MIN_CONFIDENCE}%`);
         console.log(`📈 Session Target: +$${CONFIG.SESSION_PROFIT_TARGET} | Stop: -$${Math.abs(CONFIG.SESSION_STOP_LOSS)}`);
         console.log(`📱 Telegram: ${CONFIG.TELEGRAM_ENABLED ? 'ENABLED' : 'DISABLED'}`);
         console.log('═'.repeat(80));
@@ -1590,7 +1612,7 @@ class DerivBot {
             return;
         }
 
-        const dirName = direction === 'CALLE' ? 'RISE' : 'FALL';
+        const dirName = direction === 'CALLE' ? 'FALL' : 'RISE';
         state.canTrade = false;
         state.lastTradeDirection = dirName;
 
@@ -1598,7 +1620,7 @@ class DerivBot {
 
         const position = {
             symbol: tradeSymbol,
-            direction: dirName,
+            direction: dirName || 'PUT',
             stake: stake,
             duration: CONFIG.DURATION,
             durationUnit: CONFIG.DURATION_UNIT,
@@ -1619,7 +1641,7 @@ class DerivBot {
             subscribe: 1,
             price: stake.toFixed(2),
             parameters: {
-                contract_type: direction,
+                contract_type: 'PUT',
                 symbol: tradeSymbol,
                 currency: 'USD',
                 amount: stake.toFixed(2),
@@ -1780,7 +1802,7 @@ if (CONFIG.API_TOKEN === 'YOUR_API_TOKEN_HERE') {
 
 console.log('═'.repeat(80));
 console.log(' 🎯 stpRNG 2025 DEEP OSCILLATION BREAKOUT BOT');
-console.log(` Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} | Stake: $${CONFIG.STAKE} | Confidence: ${CONFIG.MIN_TREND_CONFIDENCE}%`);
+console.log(` Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} | Stake: $${CONFIG.STAKE} | Confidence: ${CONFIG.MIN_CONFIDENCE}%`);
 console.log('═'.repeat(80));
 console.log('\n🚀 Initializing...\n');
 
