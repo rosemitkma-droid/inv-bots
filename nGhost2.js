@@ -69,7 +69,7 @@ const CHAT_ID = "752497117";
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nGhost2-state0009.json');
+const STATE_FILE = path.join(__dirname, 'nGhost2-state00011.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -208,7 +208,7 @@ function parseArgs() {
 
         // History
         tick_history_size: 5000,
-        analysis_window: 5000,
+        analysis_window: 1000,
         min_ticks_for_analysis: 50,
 
         // ── Regime detection thresholds ───────────────────────────────────────
