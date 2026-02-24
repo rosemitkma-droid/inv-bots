@@ -14,7 +14,7 @@ const TOKEN = "DMylfkyce6VyZt7";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'ghost92-00012-state.json');
+const STATE_FILE = path.join(__dirname, 'ghost92-00013-state.json');
 
 class RomanianGhostUltimate {
     constructor() {
@@ -27,7 +27,7 @@ class RomanianGhostUltimate {
             minHistoryForTrading: 2000,
 
             // Z-Score thresholds (CORRECTED - uses AVERAGE not sum)
-            minAvgZScore: 2.5,           // Average Z-score per window
+            minAvgZScore: 3,           // Average Z-score per window
             minParticipation: 8,          // Digit must dominate 8+ windows
 
             // Volatility thresholds (CORRECTED - realistic values)
