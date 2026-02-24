@@ -99,7 +99,7 @@ const CONFIG = {
 
     // Regime detection
     repeat_threshold:          8,
-    hmm_nonrep_confidence:     0.75,
+    hmm_nonrep_confidence:     0.85,
     bocpd_nonrep_confidence:   0.82,
     min_regime_persistence:    8,
     acf_lag1_threshold:        0.15,
