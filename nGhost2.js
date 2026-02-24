@@ -69,7 +69,7 @@ const CHAT_ID = "752497117";
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nGhost2-state0001.json');
+const STATE_FILE = path.join(__dirname, 'nGhost2-state0009.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
