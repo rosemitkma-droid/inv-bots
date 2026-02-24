@@ -10,24 +10,24 @@ const fs = require('fs');
 const path = require('path');
 
 
-const TOKEN = "0P94g4WdSrSrzir";
+const TOKEN = "DMylfkyce6VyZt7";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'ghost92-0003-state.json');
+const STATE_FILE = path.join(__dirname, 'ghost92-00010-state.json');
 
 class RomanianGhostUltimate {
     constructor() {
         // ====== CONFIGURATION ======
         this.config = {
             assets: [
-                'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR',
+                'R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR',
             ],  // Multi-asset support
             requiredHistoryLength: 3000,
             minHistoryForTrading: 2000,
 
             // Z-Score thresholds (CORRECTED - uses AVERAGE not sum)
-            minAvgZScore: 2.0,           // Average Z-score per window
+            minAvgZScore: 2.5,           // Average Z-score per window
             minParticipation: 8,          // Digit must dominate 8+ windows
 
             // Volatility thresholds (CORRECTED - realistic values)
@@ -35,7 +35,7 @@ class RomanianGhostUltimate {
             maxConcentration: 0.25,       // Maximum (avoid extreme anomalies)
 
             // Confirmation layers
-            minStreakLength: 3,           // Minimum current streak
+            minStreakLength: 2,           // Minimum current streak
             maxStreakLength: 8,           // Maximum before exhaustion
 
             // Cooldown (prevents overtrading)
