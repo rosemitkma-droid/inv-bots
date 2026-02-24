@@ -33,7 +33,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ── Credentials ───────────────────────────────────────────────────────────────
-const TOKEN         = '0P94g4WdSrSrzir';
+const TOKEN         = 'rgNedekYXvCaPeP';
 const TELEGRAM_TOKEN = '8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8';
 const CHAT_ID       = '752497117';
 
@@ -116,7 +116,7 @@ function formatDuration(ms) {
 //  STATE PERSISTENCE
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ghost-bot-v300003-state.json');
+const STATE_FILE          = path.join(__dirname, 'ghost-bot-v300004-state00001.json');
 const STATE_SAVE_INTERVAL = 5000;    // every 5 seconds
 const STATE_MAX_AGE_MS    = 30 * 60 * 1000; // 30 minutes
 
@@ -1095,7 +1095,7 @@ class RomanianGhostBotV3 {
         );
 
         this.sendTelegram(`
-          🎯 <b>GHOST TRADE</b>
+          🎯 <b>TRADE OPENED v1 Multi</b>
 
           📊 Asset: <b>${asset}</b>
           🔢 Target Digit: ${as.targetDigit}
@@ -1198,7 +1198,7 @@ class RomanianGhostBotV3 {
         logResult(dim(`  Target:${tradeTargetDigit} | History tail: [${tradeTickHistory.slice(-5).join(',')}]`));
 
         this.sendTelegram(`
-          ✅ <b>WIN!</b> — ${asset}
+          ✅ <b>WIN! v1 Multi</b> — ${asset}
 
           📊 Target Digit: ${tradeTargetDigit}
           📜 Last 10: ${tradeTickHistory.slice(-10).join(', ')}
@@ -1238,7 +1238,7 @@ class RomanianGhostBotV3 {
         logResult(`${red('❌ LOSS!')} [${bold(asset)}] Lost:${red('-$'+lostAmount.toFixed(2))} | P/L:${this.sessionProfit>=0?green(plStr):red(plStr)} | Mart:${this.martingaleStep}/${this.config.max_martingale_steps}`);
 
         this.sendTelegram(`
-          ❌ <b>LOSS!</b> — ${asset}
+          ❌ <b>LOSS! v1 Multi</b> — ${asset}
 
           📊 Target Digit: ${tradeTargetDigit}
           📜 Last 10: ${tradeTickHistory.slice(-10).join(', ')}
