@@ -116,7 +116,7 @@ function formatDuration(ms) {
 //  STATE PERSISTENCE
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ghost-bot-v300001-state.json');
+const STATE_FILE          = path.join(__dirname, 'ghost-bot-v300003-state.json');
 const STATE_SAVE_INTERVAL = 5000;    // every 5 seconds
 const STATE_MAX_AGE_MS    = 30 * 60 * 1000; // 30 minutes
 
