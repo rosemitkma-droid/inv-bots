@@ -62,14 +62,14 @@ const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
-const TOKEN = "0P94g4WdSrSrzir";
+const TOKEN = "hsj0tA0XJoIzJG5";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nGhost2-state.json');
+const STATE_FILE = path.join(__dirname, 'nGhost2-state0001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -1882,7 +1882,7 @@ class RomanianGhostBot {
         );
 
         this.sendTelegram(`
-            🎯 <b>TRADE v2</b>
+            🎯 <b>TRADE OPENED v2</b>
 
             📊 ${this.config.symbol} | Digit: ${this.targetDigit}
             🔢 Last10: ${this.tickHistory.slice(-10).join(',')}
