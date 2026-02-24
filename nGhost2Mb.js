@@ -99,7 +99,7 @@ const CONFIG = {
 
     // Regime detection
     repeat_threshold:          8,
-    hmm_nonrep_confidence:     0.80,
+    hmm_nonrep_confidence:     0.85,
     bocpd_nonrep_confidence:   0.82,
     min_regime_persistence:    8,
     acf_lag1_threshold:        0.15,
@@ -147,7 +147,7 @@ const CONFIG = {
     reconnect_base_delay:      5000,
 
     // Persistence
-    state_file:                path.join(__dirname, 'ghost-bot-v400002-state.json'),
+    state_file:                path.join(__dirname, 'ghost-bot-v400005-state.json'),
     state_save_interval:       5000,
     state_max_age_minutes:     30,
 };
