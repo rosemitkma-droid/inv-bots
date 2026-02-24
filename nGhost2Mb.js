@@ -147,7 +147,7 @@ const CONFIG = {
     reconnect_base_delay:      5000,
 
     // Persistence
-    state_file:                path.join(__dirname, 'ghost-bot-v400001-state.json'),
+    state_file:                path.join(__dirname, 'ghost-bot-v400002-state.json'),
     state_save_interval:       5000,
     state_max_age_minutes:     30,
 };
