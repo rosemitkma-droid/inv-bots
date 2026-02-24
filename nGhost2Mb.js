@@ -32,7 +32,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ── Credentials ────────────────────────────────────────────────────────────────
-const API_TOKEN        = '0P94g4WdSrSrzir';
+const API_TOKEN        = 'DMylfkyce6VyZt7';
 const TELEGRAM_TOKEN   = '8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8';
 const CHAT_ID          = '752497117';
 const APP_ID           = '1089';
@@ -98,14 +98,14 @@ const CONFIG = {
     min_ticks_for_analysis:   100,
 
     // Regime detection
-    repeat_threshold:          8,
-    hmm_nonrep_confidence:     0.85,
-    bocpd_nonrep_confidence:   0.82,
+    repeat_threshold:          9,
+    hmm_nonrep_confidence:     0.93,
+    bocpd_nonrep_confidence:   0.90,
     min_regime_persistence:    8,
     acf_lag1_threshold:        0.15,
     ewma_trend_threshold:      2.0,
-    cusum_up_threshold:        3.5,
-    cusum_down_threshold:      -4.0,
+    cusum_up_threshold:        4.5,
+    cusum_down_threshold:      -4.5,
     cusum_slack:               0.15,
     structural_break_threshold:0.15,
 
@@ -120,7 +120,7 @@ const CONFIG = {
     hmm_min_discrimination:    0.10,
 
     // Ensemble
-    repeat_confidence:         70,
+    repeat_confidence:         73,
 
     // Ghost
     ghost_enabled:             false,
@@ -147,7 +147,7 @@ const CONFIG = {
     reconnect_base_delay:      5000,
 
     // Persistence
-    state_file:                path.join(__dirname, 'ghost-bot-v400005-state.json'),
+    state_file:                path.join(__dirname, 'ghost-bot-v400007-state.json'),
     state_save_interval:       5000,
     state_max_age_minutes:     30,
 };
@@ -892,7 +892,7 @@ class RomanianGhostBotV4 {
         const s = this.hourlyStats;
         const wr = s.trades > 0 ? ((s.wins/s.trades)*100).toFixed(1) : '0.0';
         const msg = `
-                ⏰ <b>Ghost Bot v4 — Hourly Summary</b>
+                ⏰ <b>Ghost Bot v2 Multi — Hourly Summary</b>
 
                 📊 <b>Last Hour</b>
                 ├ Trades: ${s.trades}
@@ -1335,7 +1335,7 @@ class RomanianGhostBotV4 {
         );
 
         this.sendTelegram(`
-            🎯 <b>TRADE PLACED v4</b>
+            🎯 <b>TRADE PLACED v2 Multi</b>
 
             📊 <b>${asset}</b>
             🎯 Differ: <b>${as.targetDigit}</b>
@@ -1439,7 +1439,7 @@ class RomanianGhostBotV4 {
 
             logResult(`[${asset}] ${green('✅ WIN!')} +$${profit.toFixed(2)} | Target:${as.targetDigit} Result:${resultDigit} | P/L:${formatMoney(this.sessionProfit)} | Bal:$${this.accountBalance.toFixed(2)}`);
             this.sendTelegram(`
-                    ✅ <b>WIN! v4</b>
+                    ✅ <b>WIN! v2 Multi</b>
 
                     📊 <b>${asset}</b>
                     🎯 Target: ${as.targetDigit} | Result: ${resultDigit}
@@ -1447,7 +1447,7 @@ class RomanianGhostBotV4 {
                     💰 +$${profit.toFixed(2)}
                     📊 ${this.totalWins}W/${this.totalLosses}L | WStreak:${as.currentWinStreak}
                     📈 Trades: ${this.totalTrades} | ${formatMoney(this.sessionProfit)}
-                `
+                `.trim()
             );
         } else {
             // cost = stake amount lost
@@ -1466,7 +1466,7 @@ class RomanianGhostBotV4 {
 
             logResult(`[${asset}] ${red('❌ LOSS!')} -$${lostAmount.toFixed(2)} | Target:${as.targetDigit} Result:${resultDigit} ${resultDigit === as.targetDigit ? red('REPEATED!') : ''} | Mart:${as.martingaleStep}/${this.config.max_martingale_steps} | P/L:${formatMoney(this.sessionProfit)}`);
             this.sendTelegram(`
-                    ❌ <b>LOSS! v4</b>
+                    ❌ <b>LOSS! v2 Multi</b>
 
                     📊 <b>${asset}</b>
                     🎯 Target: ${as.targetDigit} | Result: ${resultDigit}${resultDigit === as.targetDigit ? ' 🔁 REPEATED' : ''}
@@ -1474,7 +1474,7 @@ class RomanianGhostBotV4 {
                     💸 -$${lostAmount.toFixed(2)}
                     📊 ${this.totalWins}W/${this.totalLosses}L | Mart: ${as.martingaleStep}/${this.config.max_martingale_steps}
                     📈 Trades: ${this.totalTrades} | ${formatMoney(this.sessionProfit)}
-                `
+                `.trim()
             );
             this.decideNextAction(asset);
         }
