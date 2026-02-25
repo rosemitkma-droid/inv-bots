@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'romenianGhost04-state.json');
+const STATE_FILE = path.join(__dirname, 'romenianGhost05-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -51,7 +51,7 @@ class StatePersistence {
             // Save tick histories and last logs for each asset
             bot.assets.forEach(asset => {
                 persistableState.assets[asset] = {
-                    tickHistory: bot.tickHistories[asset].slice(-100), // Keep last 100 ticks
+                    tickHistory: bot.tickHistories[asset].slice(-1), // Keep last 100 ticks
                     lastTickLogTime: bot.lastTickLogTime[asset]
                 };
             });
@@ -107,7 +107,7 @@ class AIWeightedEnsembleBot {
 
         this.assets = [
             // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'
-            'R_10', 'R_25', 'RDBULL', 'RDBEAR'
+            'R_10', 'R_25', 'R_75', 'RDBULL', 'RDBEAR'
         ];
 
         this.config = {
@@ -654,7 +654,7 @@ class AIWeightedEnsembleBot {
 
         // CORRECT THRESHOLD: Average Z >= 2.0 means strong saturation
         if (ultraLowVol &&
-            bestAvgZ >= 2.3 &&
+            bestAvgZ >= 2.5 &&
             inRecent &&
             saturatedDigit !== -1 &&
             saturatedDigit !== this.lastTradeDigit) {
