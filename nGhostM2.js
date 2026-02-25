@@ -364,7 +364,7 @@ class RomanianGhostUltimate {
         // ====== CONFIGURATION ======
         this.config = {
             assets: [
-                'R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR',
+                'R_10', 'R_50', 'R_75', 'RDBULL', 'RDBEAR',
             ],  // Multi-asset support
             requiredHistoryLength: 5000,
             minHistoryForTrading: 1000,
