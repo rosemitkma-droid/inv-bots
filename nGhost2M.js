@@ -905,11 +905,11 @@ class RomanianGhostUltimate {
             repeat_confidence: 73,//70
 
             // Money management
-            baseStake: 5.3,
+            baseStake: 5.2,
             firstLossMultiplier: 11.3,
             subsequentMultiplier: 11.3,
-            maxConsecutiveLosses: 3,
-            takeProfit: 2.5,
+            maxConsecutiveLosses: 1,
+            takeProfit: 0.5,
             stopLoss: -50,
         };
 
