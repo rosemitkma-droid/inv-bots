@@ -654,7 +654,7 @@ class AIWeightedEnsembleBot {
 
         // CORRECT THRESHOLD: Average Z >= 2.0 means strong saturation
         if (ultraLowVol &&
-            bestAvgZ >= 2.5 &&
+            bestAvgZ >= 3.0 &&
             inRecent &&
             saturatedDigit !== -1 &&
             saturatedDigit !== this.lastTradeDigit) {
