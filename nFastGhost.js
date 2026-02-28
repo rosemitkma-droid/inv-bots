@@ -75,7 +75,7 @@ const CONFIG = {
         multiplier: 11.3,
         multiplier2: 11.3,
         multiplier3: 100,
-        max_stake: 150.00,
+        max_stake: 500.00,
     },
 
     // Risk Management
@@ -85,7 +85,7 @@ const CONFIG = {
         max_consecutive_losses: 3,
         take_profit: 3000.00,
         min_balance: 10.00,
-        max_stake: 150.00,
+        max_stake: 500.00,
     },
 
     // Logging
