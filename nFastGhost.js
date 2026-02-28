@@ -32,7 +32,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhost-state0001.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhost-state0002.json');
 
 // ============================================================================
 // CONFIGURATION
@@ -71,7 +71,7 @@ const CONFIG = {
 
     // Multiplier-based Stake Management (from liveMultiAccumNew.js)
     stake: {
-        initial_stake: 2.2,
+        initial_stake: 1.1,
         multiplier: 11.3,
         multiplier2: 11.3,
         multiplier3: 100,
@@ -288,7 +288,7 @@ class RepeatCycleAnalyzer {
         this.exhaustionLookback = 6;
 
         // Hold signal for a few ticks so it doesn't reset immediately
-        this.signalHoldTicks = 2;
+        this.signalHoldTicks = 5;
         this.signalHold = null;
 
         this.lastSnapshot = null;
@@ -1242,8 +1242,8 @@ class RomanianGhostBot {
         // Generate signal — only fires on short-cycle exhaustion
         const signal = this._generateSignal();
 
-        if(signal) console.log(`Confidence: ${(signal.confidence * 100).toFixed(0)}%`);
-        if (signal) {
+        if(signal) console.log(`Confidence: ${(signal.confidence * 100).toFixed(0)}% | 'Trade:', ${signal.tradeSignal}`);
+        if (signal && signal.tradeSignal) {
             Logger.info(`Confidence: ${(signal.confidence * 100).toFixed(0)}%`);
             this._placeTrade(signal);
         }
@@ -1294,7 +1294,7 @@ class RomanianGhostBot {
             cycleDetails: cycleSignal.details,
             shortRepeat: cycleSignal.details ? cycleSignal.details.shortRepeat : 0,
             stake: this.stakeManager.getCurrentStake(),
-            tradae: hotDigitInfo.digit === lastDigit,
+            tradeSignal: hotDigitInfo.digit === lastDigit,
         };
     }
 
