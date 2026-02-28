@@ -36,7 +36,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000002-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000003-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -345,7 +345,7 @@ class RepeatCycleAnalyzer {
         this.learnedSaturation = null;
         this.shortHistory = [];
         this.exhaustionLookback = 6;
-        this.signalHoldTicks = 5;
+        this.signalHoldTicks = 3;
         this.signalHold = null;
         this.lastSnapshot = null;
     }
