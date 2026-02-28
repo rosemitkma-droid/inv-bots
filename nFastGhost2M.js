@@ -36,7 +36,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0001-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000002-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -977,7 +977,7 @@ class MultiAssetGhostBot {
         // Generate signal for this asset
         const signal = this.generateSignal(asset);
         
-        if (signal && signal.tradeSignal && signal.confidence > 0.6) {
+        if (signal && signal.tradeSignal && signal.confidence > 0.75) {
             const sat = this.cycleAnalyzers[asset].learnedSaturation;
             if (sat && sat < 0.5) {
                 this.placeTrade(asset, signal);
@@ -1018,7 +1018,7 @@ class MultiAssetGhostBot {
 
         return {
             asset,
-            digit: hotDigitInfo.digit,
+            digit: lastDigit,
             digitFrequency: hotDigitInfo.frequency,
             digitCount: hotDigitInfo.count,
             confidence,
@@ -1072,7 +1072,7 @@ class MultiAssetGhostBot {
         const sh = (d.shortRepeat != null ? d.shortRepeat * 100 : 0).toFixed(1);
 
         const message = `
-            🔔 <b>Trade Opened (nFastGhost Multi-Asset)</b>
+            🔔 <b>Trade Opened (nFastGhost2 Multi-Asset)</b>
 
             📊 <b>${asset}</b>
             🎯 <b>Differ Digit:</b> ${signal.digit}
@@ -1083,6 +1083,7 @@ class MultiAssetGhostBot {
             🔬 <b>Repeat-Cycle</b>
             ├ Short: ${sh}% | ${th}%
             └ Score: ${signal.cycleScore}
+            
         `.trim();
         this.sendTelegramMessage(message);
 
@@ -1196,7 +1197,7 @@ class MultiAssetGhostBot {
         const last10 = analyzer ? analyzer.getRecentDigits(10).join(',') : '---';
 
         const telegramMsg = `
-            ${resultEmoji} (nFastGhost Multi-Asset)
+            ${resultEmoji} (nFastGhost2 Multi-Asset)
             
             📊 <b>${asset}</b>
             ${won ? '🟢' : '🔴'} <b>P&L:</b> ${pnlStr}
@@ -1271,7 +1272,7 @@ class MultiAssetGhostBot {
         const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
 
         const message = `
-            ⏰ <b>nFastGhost Multi-Asset Hourly Summary</b>
+            ⏰ <b>nFastGhost2 Multi-Asset Hourly Summary</b>
 
             📊 <b>Last Hour</b>
             ├ Trades: ${stats.trades}
