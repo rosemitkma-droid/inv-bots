@@ -32,7 +32,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhost-state000002.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhost-state000003.json');
 
 // ============================================================================
 // CONFIGURATION
@@ -1243,7 +1243,7 @@ class RomanianGhostBot {
         const signal = this._generateSignal();
 
         if(signal) console.log(`Confidence: ${(signal.confidence * 100).toFixed(0)}%`);
-        if (signal && signal.confidence > 0.5) {
+        if (signal && signal.confidence > 0.75) {
             Logger.info(`Confidence: ${(signal.confidence * 100).toFixed(0)}%`);
             this._placeTrade(signal);
         }
