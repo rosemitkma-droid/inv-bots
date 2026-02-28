@@ -71,7 +71,7 @@ const CONFIG = {
 
     // Multiplier-based Stake Management (from liveMultiAccumNew.js)
     stake: {
-        initial_stake: 2.2,
+        initial_stake: 1.1,
         multiplier: 11.3,
         multiplier2: 11.3,
         multiplier3: 100,
