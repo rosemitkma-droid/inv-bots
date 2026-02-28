@@ -36,7 +36,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0001-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -48,7 +48,7 @@ const CONFIG = {
     endpoint: 'wss://ws.derivws.com/websockets/v3',
 
     // Account — use environment variables
-    api_token: 'Dz2V2KvRf4Uukt3',
+    api_token: '0P94g4WdSrSrzir',
 
     // Multi-Asset Configuration
     assets: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'],
