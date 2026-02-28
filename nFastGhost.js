@@ -32,7 +32,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhost-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhost-state0001.json');
 
 // ============================================================================
 // CONFIGURATION
@@ -843,27 +843,27 @@ class RomanianGhostBot {
             const winRate = ((this.hourly.wins / this.hourly.trades) * 100).toFixed(1);
             const lossCounters = this.stakeManager.getLossCounters();
             this.sendTelegram(`
-⏰ <b>HOURLY — nFastGhost Repeat-Cycle Bot</b>
+                ⏰ <b>HOURLY — nFastGhost Repeat-Cycle Bot</b>
 
-📊 <b>This hour</b>
-├ Trades: ${this.hourly.trades}
-├ ✅ Wins: ${this.hourly.wins} | ❌ Losses: ${this.hourly.losses}
-├ Win Rate: ${winRate}%
-└ P&L: ${this.hourly.pnl >= 0 ? '+' : ''}$${this.hourly.pnl.toFixed(2)}
+                📊 <b>This hour</b>
+                ├ Trades: ${this.hourly.trades}
+                ├ ✅ Wins: ${this.hourly.wins} | ❌ Losses: ${this.hourly.losses}
+                ├ Win Rate: ${winRate}%
+                └ P&L: ${this.hourly.pnl >= 0 ? '+' : ''}$${this.hourly.pnl.toFixed(2)}
 
-📊 <b>Session</b>
-├ Symbol: ${CONFIG.symbol}
-├ Total Trades: ${this.tracker.getTradeCount()}
-├ W/L: ${this.tracker.totalWins}/${this.tracker.totalLosses}
-├ Win Rate: ${(this.tracker.getWinRate() * 100).toFixed(1)}%
-├ Total P&L: $${this.tracker.totalProfit.toFixed(2)}
-├ Balance: $${this.tracker.currentBalance.toFixed(2)}
-├ Stake: $${this.stakeManager.getCurrentStake().toFixed(2)}
-├ Consecutive Losses: ${lossCounters.consecutiveLosses}
-├ x2 Losses: ${lossCounters.consecutiveLosses2}
-├ x3 Losses: ${lossCounters.consecutiveLosses3}
-├ x4 Losses: ${lossCounters.consecutiveLosses4}
-└ Runtime: ${((Date.now() - this.sessionStartTime) / 3600000).toFixed(1)}h
+                📊 <b>Session</b>
+                ├ Symbol: ${CONFIG.symbol}
+                ├ Total Trades: ${this.tracker.getTradeCount()}
+                ├ W/L: ${this.tracker.totalWins}/${this.tracker.totalLosses}
+                ├ Win Rate: ${(this.tracker.getWinRate() * 100).toFixed(1)}%
+                ├ Total P&L: $${this.tracker.totalProfit.toFixed(2)}
+                ├ Balance: $${this.tracker.currentBalance.toFixed(2)}
+                ├ Stake: $${this.stakeManager.getCurrentStake().toFixed(2)}
+                ├ Consecutive Losses: ${lossCounters.consecutiveLosses}
+                ├ x2 Losses: ${lossCounters.consecutiveLosses2}
+                ├ x3 Losses: ${lossCounters.consecutiveLosses3}
+                ├ x4 Losses: ${lossCounters.consecutiveLosses4}
+                └ Runtime: ${((Date.now() - this.sessionStartTime) / 3600000).toFixed(1)}h
             `.trim());
             this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
         }, 3600000);
@@ -1243,7 +1243,7 @@ class RomanianGhostBot {
         const signal = this._generateSignal();
 
         if(signal) console.log(`Confidence: ${(signal.confidence * 100).toFixed(0)}%`);
-        if (signal && signal.confidence > 0.5) {
+        if (signal) {
             Logger.info(`Confidence: ${(signal.confidence * 100).toFixed(0)}%`);
             this._placeTrade(signal);
         }
@@ -1294,6 +1294,7 @@ class RomanianGhostBot {
             cycleDetails: cycleSignal.details,
             shortRepeat: cycleSignal.details ? cycleSignal.details.shortRepeat : 0,
             stake: this.stakeManager.getCurrentStake(),
+            tradae: hotDigitInfo.digit === lastDigit,
         };
     }
 
