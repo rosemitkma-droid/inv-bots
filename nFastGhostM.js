@@ -36,7 +36,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0005-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0006-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
