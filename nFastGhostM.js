@@ -36,7 +36,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0001-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0005-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -923,13 +923,17 @@ class MultiAssetGhostBot {
         const digit = this.analyzers[asset].addTick(tick);
         this.cycleAnalyzers[asset].addDigit(digit);
 
+        const analyzer = this.analyzers[asset];
+        const recent = analyzer.getRecentDigits(5);
+        const sat = this.cycleAnalyzers[asset].learnedSaturation;
+        const signal = this.generateSignal(asset);
+
         const now = Date.now();
-        if (now - this.lastTickLogTime[asset] >= 30000) {
-            const analyzer = this.analyzers[asset];
-            const recent = analyzer.getRecentDigits(5);
-            const sat = this.cycleAnalyzers[asset].learnedSaturation;
-            console.log(`[${asset}] ${tick.quote}: ${recent.join(', ')} | Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}`);
+        if (!this.tradeInProgress && now - this.lastTickLogTime[asset] >= 30000) {
+            console.log(`[${asset}] ${tick.quote}: ${recent.join(', ')} |Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}`);
             this.lastTickLogTime[asset] = now;
+        } else if (this.tradeInProgress) {
+            console.log(`[${asset}] ${tick.quote}: ${recent.join(', ')} |Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}`);
         }
 
         // State machine
@@ -977,10 +981,18 @@ class MultiAssetGhostBot {
         // Generate signal for this asset
         const signal = this.generateSignal(asset);
         
-        if (signal && signal.tradeSignal && signal.confidence > 0.6) {
+        if (signal && signal.tradeSignal && signal.confidence > 0.1) {
             const sat = this.cycleAnalyzers[asset].learnedSaturation;
-            if (sat && sat < 0.5) {
+
+            const analyzer = this.analyzers[asset];
+            const recentTicks = analyzer.getRecentTicks(10);
+            const last10 = recentTicks.map(t => t.digit).join(',');
+
+             console.log(`Trade Signal [${asset}]: Digit: ${signal.digit}/${signal.hotDigit}  | Conf: ${(signal.confidence * 100).toFixed(0)}% | ShortR: ${signal.shortRepeat} | Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}`);
+            if (sat && sat > 0.1) {
                 this.placeTrade(asset, signal);
+            } else {
+                console.log(`[${asset}] ${last10}`);
             }
         }
     }
@@ -1026,6 +1038,7 @@ class MultiAssetGhostBot {
             cycleDetails: cycleSignal.details,
             shortRepeat: cycleSignal.details ? cycleSignal.details.shortRepeat : 0,
             tradeSignal: hotDigitInfo.digit === lastDigit,
+            hotDigit: hotDigitInfo.digit,
         };
     }
 
@@ -1061,7 +1074,7 @@ class MultiAssetGhostBot {
         this.currentAsset = asset;
         this.lastTradeTime = Date.now();
 
-        console.log(`Placing Trade: [${asset}] Digit ${signal.digit} | Stake: $${this.currentStake.toFixed(2)}`);
+        console.log(`🔔 Placing Trade: [${asset}] Digit ${signal.digit} | Stake: $${this.currentStake.toFixed(2)}`);
         
         const analyzer = this.analyzers[asset];
         const recentTicks = analyzer.getRecentTicks(10);
