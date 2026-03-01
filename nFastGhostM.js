@@ -36,7 +36,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0006-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0007-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -98,8 +98,8 @@ const CONFIG = {
     show_tick_data: true,
 
     // Telegram (use environment variables)
-    telegram_bot_token: process.env.TELEGRAM_BOT_TOKEN || '8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4',
-    telegram_chat_id: process.env.TELEGRAM_CHAT_ID || '752497117',
+    telegram_bot_token: '8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4',
+    telegram_chat_id: '752497117',
 };
 
 // ============================================================================
