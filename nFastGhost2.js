@@ -32,7 +32,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhost-state000004.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhost-state000005.json');
 
 // ============================================================================
 // CONFIGURATION
