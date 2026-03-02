@@ -1456,6 +1456,53 @@ class MultiAssetGhostBot {
         });
     }
 
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Weekend logic: Saturday 11pm to Monday 2am GMT+1 -> Disconnect and stay disconnected
+            const isWeekend = (currentDay === 0) || // Sunday
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+                (currentDay === 1 && currentHours < 8);    // Monday before 8am
+
+            if (isWeekend) {
+                if (!this.endOfDay) {
+                    console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
+                    this.sendHourlySummary();
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Prevent any reconnection logic during the weekend
+            }
+
+            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
+                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
+                this.resetDailyStats();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.sendHourlySummary();
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+        }, 20000);
+    }
+
+    resetDailyStats() {
+        this.tradeInProgress = false;
+        this.suspendedAssets.clear();
+        this.isWinTrade = false;
+    }
+
     // ============================================================================
     // SUMMARY
     // ============================================================================
@@ -1495,6 +1542,7 @@ class MultiAssetGhostBot {
 
         StatePersistence.startAutoSave(this);
         this.connect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
