@@ -6,15 +6,32 @@
  * Deriv Digit Differ Trading Bot - Multi-Asset Version
  * ============================================================================
  *
- * Strategy: Uses short-cycle (50-tick) repeat-rate saturation learning over
- * 5000 ticks of history. Identifies the most consistent repetition saturation
- * percentage before ticks go to a regime of none/very low repeat. When the
- * short cycle repeat percentage reaches the identified level and observed
- * exhaustion (multi-tick declining trend) occurs, executes a DIGITDIFF trade
- * on the hot digit that drove the repeats.
+ * Strategy: Performs deep saturation learning over 5000 ticks of history
+ * using sliding 50-tick short-cycle windows to analyze digit repeat-rate
+ * patterns. Builds a histogram of all peak repeat-rate percentages observed
+ * immediately before the market transitions into a regime of none or very
+ * low digit repetition (≤6%). From this histogram, identifies the highest
+ * consistently-occurring peak saturation level — the repeat-rate ceiling
+ * that the market reliably hits before exhaustion and regime collapse.
  *
- * Multi-Asset: Tracks multiple volatility indices simultaneously, trading on
- * the best opportunity across R_10, R_25, R_50, R_75, R_100, RDBULL, RDBEAR.
+ * Simultaneously identifies the "saturation hot digit" — the specific
+ * digit most frequently responsible for driving repeat-rates to their
+ * peak across all historical saturation events. This is the digit whose
+ * consecutive appearances inflate the repeat-rate to saturation before
+ * the pattern breaks.
+ *
+ * During live trading, monitors the real-time short-cycle repeat-rate.
+ * When it reaches the learned peak saturation level and a multi-tick
+ * declining exhaustion trend is detected (at least 3 consecutive drops
+ * with ≥15% decline from peak, while not yet fully collapsed), the bot
+ * executes a DIGITDIFF trade using the saturation hot digit as the
+ * barrier — betting that the digit which drove the repeats to exhaustion
+ * will now differ from the next tick's outcome as the regime shifts.
+ *
+ * Multi-Asset: Tracks R_10, R_25, R_50, R_75, RDBULL, and RDBEAR
+ * simultaneously, generating independent saturation models per asset
+ * and trading on whichever asset presents the strongest exhaustion
+ * signal with the highest confidence score.
  *
  * DISCLAIMER: Trading involves substantial risk. This bot is for
  * educational purposes. Use on demo accounts first. Past performance
@@ -36,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000007-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000001-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -331,6 +348,9 @@ class DigitAnalyzer {
 // ============================================================================
 // REPEAT CYCLE ANALYZER
 // ============================================================================
+// ============================================================================
+// REPEAT CYCLE ANALYZER
+// ============================================================================
 class RepeatCycleAnalyzer {
     constructor(config) {
         this.maxHistory = config.history_length || 5000;
@@ -345,9 +365,12 @@ class RepeatCycleAnalyzer {
         this.learnedSaturation = null;
         this.shortHistory = [];
         this.exhaustionLookback = 6;
-        this.signalHoldTicks = 3;
+        this.signalHoldTicks = 5;
         this.signalHold = null;
         this.lastSnapshot = null;
+
+        // New: track the hot digit that drove the saturation peak
+        this.saturationHotDigit = null;
     }
 
     _pushDigit(digit) {
@@ -383,36 +406,193 @@ class RepeatCycleAnalyzer {
         return sum / arr.length;
     }
 
+    /**
+     * _updateLearnedSaturation()
+     *
+     * Scans the full repeat history using sliding short-cycle windows.
+     * For each window position, computes the repeat-rate in the current
+     * window and checks if the NEXT window drops to none/very low repeats.
+     *
+     * NEW BEHAVIOR: Instead of taking the median of all pre-collapse
+     * repeat rates, this now identifies the HIGHEST (peak) repetition
+     * saturation percentage that consistently appears before the regime
+     * transitions to none/very low repeats.
+     *
+     * It builds a histogram of peak repeat-rates observed before collapse
+     * events, then selects the most frequently occurring peak level
+     * (the mode of the top-quartile peaks), giving us the most consistent
+     * HIGH saturation threshold that precedes regime change.
+     *
+     * Also identifies the dominant (hot) digit driving repeats at the
+     * peak saturation windows.
+     */
     _updateLearnedSaturation() {
         const w = this.shortWindow;
         if (this.repeats.length < w * 3) return;
 
-        const samples = [];
+        // Phase 1: Collect all peak repeat-rates that precede a collapse
+        // to none/very-low-repeat regime
+        const peakSamples = [];
         const step = Math.max(1, Math.floor(w / 4));
         const maxStart = this.repeats.length - (2 * w);
 
         for (let i = 0; i <= maxStart; i += step) {
-            let sumCur = 0, sumNext = 0;
+            // Compute repeat-rate in current window [i, i+w)
+            let sumCur = 0;
             for (let j = i; j < i + w; j++) sumCur += this.repeats[j];
-            for (let j = i + w; j < i + 2 * w; j++) sumNext += this.repeats[j];
-
             const rateCur = sumCur / w;
+
+            // Compute repeat-rate in the next window [i+w, i+2w)
+            let sumNext = 0;
+            for (let j = i + w; j < i + 2 * w; j++) sumNext += this.repeats[j];
             const rateNext = sumNext / w;
 
-            if (rateNext <= this.nonRepMaxRepeat) {
-                samples.push(rateCur);
+            // Only consider windows where the next period collapses
+            // to none/very low repeat regime
+            if (rateNext <= this.nonRepMaxRepeat && rateCur > this.nonRepMaxRepeat) {
+                peakSamples.push({ rate: rateCur, windowStart: i });
             }
         }
 
-        if (samples.length < this.minSamplesForLearning) {
+        if (peakSamples.length < this.minSamplesForLearning) {
             return;
         }
 
-        samples.sort((a, b) => a - b);
-        const midIdx = Math.floor(samples.length / 2);
-        this.learnedSaturation = samples.length % 2 === 1
-            ? samples[midIdx]
-            : (samples[midIdx - 1] + samples[midIdx]) / 2;
+        // Phase 2: Find the most consistent HIGH saturation level
+        // We look for the peak repeat-rate that appears most frequently
+        // before collapse events.
+
+        // Sort by rate descending to focus on highest peaks
+        peakSamples.sort((a, b) => b.rate - a.rate);
+
+        // Build a histogram with bins to find the most common peak level
+        // Bin size of 2% (0.02) for repeat-rate granularity
+        const binSize = 0.02;
+        const histogram = new Map();
+
+        for (const sample of peakSamples) {
+            const binKey = Math.round(sample.rate / binSize) * binSize;
+            const binKeyStr = binKey.toFixed(4);
+            if (!histogram.has(binKeyStr)) {
+                histogram.set(binKeyStr, { count: 0, totalRate: 0, samples: [] });
+            }
+            const bin = histogram.get(binKeyStr);
+            bin.count++;
+            bin.totalRate += sample.rate;
+            bin.samples.push(sample);
+        }
+
+        // Find the highest bin that has meaningful frequency
+        // "Meaningful" = at least 15% of total samples or minimum 3 occurrences
+        const minBinCount = Math.max(3, Math.floor(peakSamples.length * 0.10));
+
+        let bestBin = null;
+        let bestBinRate = 0;
+
+        // Sort bins by their rate value (descending) - pick highest that qualifies
+        const sortedBins = Array.from(histogram.entries())
+            .map(([key, val]) => ({
+                binRate: parseFloat(key),
+                count: val.count,
+                avgRate: val.totalRate / val.count,
+                samples: val.samples,
+            }))
+            .sort((a, b) => b.binRate - a.binRate);
+
+        // First pass: find highest bin with sufficient frequency
+        for (const bin of sortedBins) {
+            if (bin.count >= minBinCount) {
+                bestBin = bin;
+                bestBinRate = bin.avgRate;
+                break;
+            }
+        }
+
+        // Fallback: if no single bin qualifies, merge adjacent top bins
+        if (!bestBin) {
+            // Try merging top 2-3 adjacent bins
+            for (let i = 0; i < sortedBins.length - 1; i++) {
+                const merged = sortedBins[i].count + sortedBins[i + 1].count;
+                if (merged >= minBinCount) {
+                    // Use the higher bin's average rate
+                    bestBin = sortedBins[i];
+                    bestBinRate = sortedBins[i].avgRate;
+                    break;
+                }
+            }
+        }
+
+        // Final fallback: use the top 25% percentile (highest peaks)
+        if (!bestBin) {
+            const topQuartileIdx = Math.floor(peakSamples.length * 0.25);
+            const topQuartile = peakSamples.slice(0, Math.max(1, topQuartileIdx));
+            let sum = 0;
+            for (const s of topQuartile) sum += s.rate;
+            bestBinRate = sum / topQuartile.length;
+            bestBin = { samples: topQuartile, avgRate: bestBinRate };
+        }
+
+        // Set the learned saturation to the identified peak level
+        this.learnedSaturation = bestBinRate;
+
+        // Phase 3: Identify the hot digit that drove repeats at peak saturation
+        // Look at the digit windows corresponding to peak saturation moments
+        this._identifyPeakHotDigit(bestBin.samples);
+    }
+
+    /**
+     * Identifies which digit was most responsible for driving the
+     * repeat-rate to saturation level in the peak windows.
+     * This digit will be used for the DIGITDIFF trade.
+     */
+    _identifyPeakHotDigit(peakWindowSamples) {
+        if (!peakWindowSamples || peakWindowSamples.length === 0) return;
+
+        const w = this.shortWindow;
+        const digitFreqTotal = new Array(10).fill(0);
+
+        for (const sample of peakWindowSamples) {
+            const windowStart = sample.windowStart;
+            // Map repeat index back to digit index (repeats[i] corresponds
+            // to transition between digits[i] and digits[i+1])
+            const digitStart = windowStart;
+            const digitEnd = Math.min(digitStart + w + 1, this.digits.length);
+
+            // Count consecutive repeats per digit in this window
+            const digitRepeatCount = new Array(10).fill(0);
+            for (let j = digitStart; j < digitEnd - 1; j++) {
+                if (j < this.repeats.length && this.repeats[j] === 1) {
+                    // The digit that repeated
+                    if (j + 1 < this.digits.length) {
+                        digitRepeatCount[this.digits[j + 1]]++;
+                    }
+                }
+            }
+
+            // Find the digit with most repeats in this peak window
+            let maxRepeats = 0;
+            let hotDigit = 0;
+            for (let d = 0; d < 10; d++) {
+                if (digitRepeatCount[d] > maxRepeats) {
+                    maxRepeats = digitRepeatCount[d];
+                    hotDigit = d;
+                }
+            }
+
+            digitFreqTotal[hotDigit]++;
+        }
+
+        // The digit most frequently identified as "hot" across peak windows
+        let overallHotDigit = 0;
+        let maxFreq = 0;
+        for (let d = 0; d < 10; d++) {
+            if (digitFreqTotal[d] > maxFreq) {
+                maxFreq = digitFreqTotal[d];
+                overallHotDigit = d;
+            }
+        }
+
+        this.saturationHotDigit = overallHotDigit;
     }
 
     forceLearn() {
@@ -438,6 +618,10 @@ class RepeatCycleAnalyzer {
         this.lastSnapshot = { shortRepeat: shortNow, midRepeat, longRepeat };
     }
 
+    /**
+     * getSignal() - Enhanced to use the hot digit from saturation analysis
+     * and execute DIGITDIFF on that specific digit when exhaustion is detected.
+     */
     getSignal(currentDigit) {
         if (!this.lastSnapshot || this.shortHistory.length < this.exhaustionLookback) {
             this.signalHold = null;
@@ -453,6 +637,7 @@ class RepeatCycleAnalyzer {
             midRepeat,
             longRepeat,
             learnedSaturation: sat != null ? sat : 0,
+            saturationHotDigit: this.saturationHotDigit,
         };
 
         if (this.signalHold && this.signalHold.ticksLeft > 0) {
@@ -516,6 +701,7 @@ class RepeatCycleAnalyzer {
                 reason: 'short_cycle_exhaustion',
                 peakInWindow: peakInWindow.toFixed(4),
                 declineFraction: declineFraction.toFixed(3),
+                saturationHotDigit: this.saturationHotDigit,
             },
             ticksLeft: this.signalHoldTicks,
         };
@@ -910,30 +1096,48 @@ class MultiAssetGhostBot {
 
         this.historyLoaded[asset] = true;
         this.cycleAnalyzers[asset].forceLearn();
-        
+
         const sat = this.cycleAnalyzers[asset].learnedSaturation;
-        console.log(`📚 Loaded ${prices.length} ticks for ${asset} | Saturation: ${sat != null ? (sat * 100).toFixed(1) + '%' : 'learning...'}`);
+        const hotD = this.cycleAnalyzers[asset].saturationHotDigit;
+        console.log(
+            `📚 Loaded ${prices.length} ticks for ${asset}` +
+            ` | Peak Saturation: ${sat != null ? (sat * 100).toFixed(1) + '%' : 'learning...'}` +
+            ` | Hot Digit: ${hotD != null ? hotD : '---'}`
+        );
     }
 
     handleTickUpdate(tick) {
         const asset = tick.symbol;
-        
+
         if (!this.analyzers[asset]) return;
 
         const digit = this.analyzers[asset].addTick(tick);
         this.cycleAnalyzers[asset].addDigit(digit);
 
         const analyzer = this.analyzers[asset];
+        const cycleAnalyzer = this.cycleAnalyzers[asset];
         const recent = analyzer.getRecentDigits(5);
-        const sat = this.cycleAnalyzers[asset].learnedSaturation;
-        const signal = this.generateSignal(asset);
+        const sat = cycleAnalyzer.learnedSaturation;
+        const satHotDigit = cycleAnalyzer.saturationHotDigit;
+        const snapshot = cycleAnalyzer.lastSnapshot;
+        const shortRepeat = snapshot ? (snapshot.shortRepeat * 100).toFixed(1) : '---';
 
         const now = Date.now();
-        if (!this.tradeInProgress && now - this.lastTickLogTime[asset] >= 30000) {
-            console.log(`[${asset}] ${tick.quote}: ${recent.join(', ')} | Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}`);
+        if (!this.tradeInProgress && now - (this.lastTickLogTime[asset] || 0) >= 30000) {
+            console.log(
+                `[${asset}] ${tick.quote}: ${recent.join(',')}` +
+                ` | ShortR: ${shortRepeat}%` +
+                ` | PeakSat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}` +
+                ` | SatHot: ${satHotDigit != null ? satHotDigit : '---'}`
+            );
             this.lastTickLogTime[asset] = now;
         } else if (this.tradeInProgress) {
-            console.log(`[${asset}] ${tick.quote}: ${recent.join(', ')} | Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}`);
+            console.log(
+                `[${asset}] ${tick.quote}: ${recent.join(',')}` +
+                ` | ShortR: ${shortRepeat}%` +
+                ` | PeakSat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}` +
+                ` | SatHot: ${satHotDigit != null ? satHotDigit : '---'}`
+            );
         }
 
         // State machine
@@ -966,7 +1170,7 @@ class MultiAssetGhostBot {
     handleTradingState(asset) {
         // Skip if asset is suspended or trade in progress
         if (this.tradeInProgress || this.suspendedAssets.has(asset)) return;
-        
+
         // Check cooldown trigger
         if (this.consecutiveLosses >= CONFIG.strategy.loss_streak_cooldown_trigger) {
             Logger.warn(`❄️  Entering cooldown after ${this.consecutiveLosses} losses`);
@@ -980,19 +1184,35 @@ class MultiAssetGhostBot {
 
         // Generate signal for this asset
         const signal = this.generateSignal(asset);
-        
+
         if (signal && signal.tradeSignal && signal.confidence > 0.1) {
             const sat = this.cycleAnalyzers[asset].learnedSaturation;
+            const satHotDigit = this.cycleAnalyzers[asset].saturationHotDigit;
 
             const analyzer = this.analyzers[asset];
             const recentTicks = analyzer.getRecentTicks(10);
             const last10 = recentTicks.map(t => t.digit).join(',');
-            
-            console.log(`Trade Signal [${asset}]: Digit: ${signal.digit}/${signal.hotDigit} | Conf: ${(signal.confidence * 100).toFixed(0)}% | ShortR: ${signal.shortRepeat} | Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}`);
-            if (sat && sat > 0.1) {
+
+            console.log(
+                `🎯 Trade Signal [${asset}]:` +
+                ` SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'}` +
+                ` | WindowHot: ${signal.windowHotDigit}` +
+                ` | TradeDigit: ${signal.digit}` +
+                ` | Conf: ${(signal.confidence * 100).toFixed(0)}%` +
+                ` | ShortR: ${(signal.shortRepeat * 100).toFixed(1)}%` +
+                ` | PeakSat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}`
+            );
+
+            // Only trade when saturation has been learned and is meaningful
+            if (sat && sat > 0.1 && satHotDigit != null) {
                 this.placeTrade(asset, signal);
             } else {
-                console.log(`[${asset}] ${last10}`);
+                console.log(
+                    `[${asset}] Waiting for saturation learning...` +
+                    ` Last10: ${last10}` +
+                    ` | Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : 'not learned'}` +
+                    ` | SatHot: ${satHotDigit != null ? satHotDigit : 'not identified'}`
+                );
             }
         }
     }
@@ -1025,20 +1245,35 @@ class MultiAssetGhostBot {
 
         if (!cycleSignal.active) return null;
 
+        // Use the saturation hot digit (the digit that drove the peak repeats)
+        // as the primary trade digit for DIGITDIFF
+        const saturationHotDigit = cycleAnalyzer.saturationHotDigit;
         const hotDigitInfo = analyzer.getHotDigitInWindow(CONFIG.strategy.short_window);
+
+        // Determine the trade digit: prefer the saturation-identified hot digit
+        // Fall back to the window hot digit if saturation digit isn't available
+        const tradeDigit = saturationHotDigit != null ? saturationHotDigit : hotDigitInfo.digit;
+
         const confidence = Math.min(cycleSignal.score / 100, 1.0);
+
+        // Signal is active when the current last digit matches the hot digit
+        // that drove the saturation (indicating it's still repeating and
+        // about to exhaust)
+        const tradeSignal = lastDigit === tradeDigit;
 
         return {
             asset,
-            digit: lastDigit,
+            digit: tradeDigit,
             digitFrequency: hotDigitInfo.frequency,
             digitCount: hotDigitInfo.count,
             confidence,
             cycleScore: cycleSignal.score,
             cycleDetails: cycleSignal.details,
             shortRepeat: cycleSignal.details ? cycleSignal.details.shortRepeat : 0,
-            tradeSignal: hotDigitInfo.digit !== lastDigit,
-            hotDigit: hotDigitInfo.digit,
+            tradeSignal,
+            hotDigit: tradeDigit,
+            saturationHotDigit,
+            windowHotDigit: hotDigitInfo.digit,
         };
     }
 
@@ -1058,14 +1293,18 @@ class MultiAssetGhostBot {
         // Check daily limits
         if (this.totalProfitLoss <= -CONFIG.risk.max_daily_loss) {
             Logger.warn(`🛑 Daily loss limit reached! Stopping.`);
-            this.sendTelegramMessage(`🛑 <b>Stop Loss Reached!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`);
+            this.sendTelegramMessage(
+                `🛑 <b>Stop Loss Reached!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`
+            );
             this.disconnect();
             return;
         }
 
         if (this.totalProfitLoss >= CONFIG.risk.take_profit) {
             Logger.info(`🎯 Take profit reached! Stopping.`);
-            this.sendTelegramMessage(`🎉 <b>Take Profit Reached!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`);
+            this.sendTelegramMessage(
+                `🎉 <b>Take Profit Reached!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`
+            );
             this.disconnect();
             return;
         }
@@ -1074,8 +1313,20 @@ class MultiAssetGhostBot {
         this.currentAsset = asset;
         this.lastTradeTime = Date.now();
 
-        console.log(`🔔 Placing Trade: [${asset}] Digit ${signal.digit} | Stake: $${this.currentStake.toFixed(2)}`);
-        
+        // The trade digit comes from the saturation hot digit analysis
+        const tradeDigit = signal.digit;
+        const satHotDigit = signal.saturationHotDigit;
+        const windowHotDigit = signal.windowHotDigit;
+
+        console.log(
+            `🔔 Placing DIGITDIFF Trade:` +
+            ` [${asset}]` +
+            ` Barrier: ${tradeDigit}` +
+            ` (SatHot: ${satHotDigit != null ? satHotDigit : '?'}` +
+            ` | WinHot: ${windowHotDigit != null ? windowHotDigit : '?'})` +
+            ` | Stake: $${this.currentStake.toFixed(2)}`
+        );
+
         const analyzer = this.analyzers[asset];
         const recentTicks = analyzer.getRecentTicks(10);
         const last10 = recentTicks.map(t => t.digit).join(',');
@@ -1083,26 +1334,35 @@ class MultiAssetGhostBot {
         const d = signal.cycleDetails || {};
         const th = (d.learnedSaturation != null ? d.learnedSaturation * 100 : 0).toFixed(1);
         const sh = (d.shortRepeat != null ? d.shortRepeat * 100 : 0).toFixed(1);
+        const peakWindow = d.peakInWindow || '---';
+        const declineFrac = d.declineFraction || '---';
 
         const message = `
-            🔔 <b>Trade Opened (nFastGhost2 Multi-Asset)</b>
+            🔔 <b>Trade Opened (nFastGhostHHF Multi-Asset)</b>
 
             📊 <b>${asset}</b>
-            🎯 <b>Differ Digit:</b> ${signal.digit}
+            🎯 <b>DIGITDIFF Barrier:</b> ${tradeDigit}
+            🔥 <b>Saturation Hot Digit:</b> ${satHotDigit != null ? satHotDigit : '---'}
+            📈 <b>Window Hot Digit:</b> ${windowHotDigit != null ? windowHotDigit : '---'}
             🔢 <b>Last10:</b> ${last10}
             📈 <b>Confidence:</b> ${(signal.confidence * 100).toFixed(0)}%
             💰 <b>Stake:</b> $${this.currentStake.toFixed(2)}
-            
-            🔬 <b>Repeat-Cycle</b>
-            ├ Short: ${sh}% | ${th}%
+
+            🔬 <b>Repeat-Cycle Analysis</b>
+            ├ Short Repeat: ${sh}%
+            ├ Peak Saturation: ${th}%
+            ├ Peak in Window: ${peakWindow}
+            ├ Decline Fraction: ${declineFrac}
             └ Score: ${signal.cycleScore}
-            
         `.trim();
         this.sendTelegramMessage(message);
 
         this.pendingContract = {
             asset,
             signal,
+            tradeDigit,
+            satHotDigit,
+            windowHotDigit,
             sentAt: Date.now(),
         };
 
@@ -1117,13 +1377,14 @@ class MultiAssetGhostBot {
                 duration: CONFIG.duration,
                 duration_unit: CONFIG.duration_unit,
                 symbol: asset,
-                barrier: signal.digit.toString(),
+                barrier: tradeDigit.toString(),
             }
         });
 
         if (!success) {
             console.error('Failed to send trade request');
             this.tradeInProgress = false;
+            this.pendingContract = null;
         }
     }
 
@@ -1147,7 +1408,19 @@ class MultiAssetGhostBot {
         const exitSpot = contract.exit_tick_display_value;
         const exitDigit = exitSpot ? getLastDigitFromQuote(exitSpot, asset) : '—';
 
-        console.log(`[${asset}] ${won ? '✅ WON' : '❌ LOST'} | Profit: $${profit.toFixed(2)}`);
+        // Retrieve pending contract info
+        const pending = this.pendingContract || {};
+        const tradeDigit = pending.tradeDigit != null ? pending.tradeDigit : '?';
+        const satHotDigit = pending.satHotDigit != null ? pending.satHotDigit : '?';
+        const windowHotDigit = pending.windowHotDigit != null ? pending.windowHotDigit : '?';
+
+        console.log(
+            `[${asset}] ${won ? '✅ WON' : '❌ LOST'}` +
+            ` | Profit: $${profit.toFixed(2)}` +
+            ` | Barrier: ${tradeDigit}` +
+            ` | ExitDigit: ${exitDigit}` +
+            ` | SatHot: ${satHotDigit}`
+        );
 
         this.totalTrades++;
         this.hourlyStats.trades++;
@@ -1157,7 +1430,7 @@ class MultiAssetGhostBot {
             this.totalWins++;
             this.hourlyStats.wins++;
             this.consecutiveLosses = 0;
-            
+
             // System progression reset
             if (this.sys === 2) {
                 if (this.sysCount >= 5) {
@@ -1170,7 +1443,7 @@ class MultiAssetGhostBot {
                     this.sysCount = 0;
                 }
             }
-            
+
             this.currentStake = CONFIG.stake.initial_stake;
         } else {
             this.totalLosses++;
@@ -1184,7 +1457,13 @@ class MultiAssetGhostBot {
 
             // Apply multiplier
             this.currentStake = Math.ceil(this.currentStake * CONFIG.stake.multiplier * 100) / 100;
-            
+
+            // Cap stake at maximum
+            if (this.currentStake > CONFIG.stake.max_stake) {
+                this.currentStake = CONFIG.stake.max_stake;
+                console.warn(`⚠️ Stake capped at max: $${CONFIG.stake.max_stake}`);
+            }
+
             // System progression
             if (this.consecutiveLosses >= 2) {
                 if (this.sys === 1) {
@@ -1204,28 +1483,46 @@ class MultiAssetGhostBot {
         // Telegram notification
         const resultEmoji = won ? '✅ WIN' : '❌ LOSS';
         const pnlStr = (profit >= 0 ? '+' : '') + '$' + profit.toFixed(2);
-        const winRate = this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(1) : 0;
-        
+        const winRate = this.totalTrades > 0
+            ? ((this.totalWins / this.totalTrades) * 100).toFixed(1)
+            : 0;
+
         const analyzer = this.analyzers[asset];
-        const last10 = analyzer ? analyzer.getRecentDigits(10).join(',') : '---';
+        const last10 = analyzer
+            ? analyzer.getRecentDigits(10).join(',')
+            : '---';
+
+        const cycleAnalyzer = this.cycleAnalyzers[asset];
+        const currentSat = cycleAnalyzer
+            ? cycleAnalyzer.learnedSaturation
+            : null;
+        const currentSatHot = cycleAnalyzer
+            ? cycleAnalyzer.saturationHotDigit
+            : null;
 
         const telegramMsg = `
-            ${resultEmoji} (nFastGhost2 Multi-Asset)
-            
+            ${resultEmoji} <b>(nFastGhostHF Multi-Asset)</b>
+
             📊 <b>${asset}</b>
             ${won ? '🟢' : '🔴'} <b>P&L:</b> ${pnlStr}
-            🎯 <b>Differs:</b> ${this.pendingContract?.signal?.digit || '?'}
+            🎯 <b>DIGITDIFF Barrier:</b> ${tradeDigit}
+            🔥 <b>Sat Hot Digit:</b> ${satHotDigit}
+            📈 <b>Window Hot Digit:</b> ${windowHotDigit}
             🔢 <b>Exit Digit:</b> ${exitDigit}
             🔢 <b>Last10:</b> ${last10}
-            
-            📊 <b>Trades Today:</b> ${this.totalTrades}
-            📊 <b>Wins/Losses:</b> ${this.totalWins}/${this.totalLosses}
-            📊 <b>x2/x3/x4 Losses:</b> ${this.consecutiveLosses2}/${this.consecutiveLosses3}/${this.consecutiveLosses4}
-            
-            📈 <b>Daily P&L:</b> ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
-            🎯 <b>Win Rate:</b> ${winRate}%
-            
-            💰 <b>Next Stake:</b> $${this.currentStake.toFixed(2)}
+
+            🔬 <b>Current Saturation State</b>
+            ├ Peak Sat: ${currentSat != null ? (currentSat * 100).toFixed(1) + '%' : '---'}
+            └ Current Sat Hot: ${currentSatHot != null ? currentSatHot : '---'}
+
+            📊 <b>Session Stats</b>
+            ├ Trades: ${this.totalTrades}
+            ├ Wins/Losses: ${this.totalWins}/${this.totalLosses}
+            ├ Consec Losses: ${this.consecutiveLosses}
+            ├ x2/x3/x4: ${this.consecutiveLosses2}/${this.consecutiveLosses3}/${this.consecutiveLosses4}
+            ├ Win Rate: ${winRate}%
+            ├ Daily P&L: ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
+            └ Next Stake: $${this.currentStake.toFixed(2)}
         `.trim();
         this.sendTelegramMessage(telegramMsg);
 
@@ -1235,14 +1532,24 @@ class MultiAssetGhostBot {
         if (this.consecutiveLosses >= CONFIG.risk.max_consecutive_losses ||
             this.totalProfitLoss <= -CONFIG.risk.max_daily_loss) {
             console.log('🛑 Stop loss reached');
-            this.sendTelegramMessage(`🛑 <b>Stop Loss Reached!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`);
+            this.sendTelegramMessage(
+                `🛑 <b>Stop Loss Reached!</b>\n` +
+                `Final P&L: $${this.totalProfitLoss.toFixed(2)}\n` +
+                `Total Trades: ${this.totalTrades}\n` +
+                `Win Rate: ${winRate}%`
+            );
             this.disconnect();
             return;
         }
 
         if (this.totalProfitLoss >= CONFIG.risk.take_profit) {
             console.log('🎉 Take profit reached');
-            this.sendTelegramMessage(`🎉 <b>Take Profit Reached!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`);
+            this.sendTelegramMessage(
+                `🎉 <b>Take Profit Reached!</b>\n` +
+                `Final P&L: $${this.totalProfitLoss.toFixed(2)}\n` +
+                `Total Trades: ${this.totalTrades}\n` +
+                `Win Rate: ${winRate}%`
+            );
             this.disconnect();
             return;
         }
@@ -1285,7 +1592,7 @@ class MultiAssetGhostBot {
         const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
 
         const message = `
-            ⏰ <b>nFastGhost2 Multi-Asset Hourly Summary</b>
+            ⏰ <b>nFastGhostHF Multi-Asset Hourly Summary</b>
 
             📊 <b>Last Hour</b>
             ├ Trades: ${stats.trades}
@@ -1457,6 +1764,53 @@ class MultiAssetGhostBot {
         });
     }
 
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Weekend logic: Saturday 11pm to Monday 2am GMT+1 -> Disconnect and stay disconnected
+            const isWeekend = (currentDay === 0) || // Sunday
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+                (currentDay === 1 && currentHours < 8);    // Monday before 8am
+
+            if (isWeekend) {
+                if (!this.endOfDay) {
+                    console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
+                    this.sendHourlySummary();
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+                return; // Prevent any reconnection logic during the weekend
+            }
+
+            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
+                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
+                this.resetDailyStats();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 17 && currentMinutes >= 0) {
+                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.sendHourlySummary();
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+        }, 20000);
+    }
+
+    resetDailyStats() {
+        this.tradeInProgress = false;
+        this.suspendedAssets.clear();
+        this.isWinTrade = false;
+    }
+
     // ============================================================================
     // SUMMARY
     // ============================================================================
@@ -1496,6 +1850,7 @@ class MultiAssetGhostBot {
 
         StatePersistence.startAutoSave(this);
         this.connect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
