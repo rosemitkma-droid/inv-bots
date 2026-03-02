@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFall0001-state.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFall000001-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -47,7 +47,6 @@ class StatePersistence {
                     closedCandles: asset.closedCandles.slice(-100),
                     lastProcessedCandleOpenTime: asset.lastProcessedCandleOpenTime,
                     candlesLoaded: asset.candlesLoaded,
-                    // Fractal State
                     lastFractalHigh: asset.lastFractalHigh,
                     lastFractalLow: asset.lastFractalLow,
                     tradedFractalHigh: asset.tradedFractalHigh,
@@ -137,7 +136,6 @@ class StatePersistence {
                         asset.candlesLoaded =
                             saved.candlesLoaded || false;
 
-                        // Restore Fractal State
                         asset.lastFractalHigh =
                             saved.lastFractalHigh || null;
                         asset.lastFractalLow =
@@ -309,6 +307,8 @@ class TelegramService {
             Assets: ${ACTIVE_ASSETS.join(', ')}
             Session Target: $${CONFIG.SESSION_PROFIT_TARGET}
             Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
+            🕐 London Session: ${CONFIG.LONDON_START}:00 - ${CONFIG.LONDON_END}:00 (GMT+1)
+            🕐 New York Session: ${CONFIG.NEWYORK_START}:00 - ${CONFIG.NEWYORK_END}:00 (GMT+1)
         `.trim();
         await this.sendMessage(message);
     }
@@ -457,36 +457,6 @@ class CandleAnalyzer {
 // TECHNICAL INDICATORS
 // ============================================
 class TechnicalIndicators {
-    /**
-     * MT5 Williams Fractals — exact replica.
-     *
-     * MT5 uses a classic 5-bar (n=2) fractal:
-     *
-     *   Fractal HIGH at bar [i] is confirmed when:
-     *     high[i] > high[i-1]
-     *     high[i] > high[i-2]
-     *     high[i] > high[i+1]
-     *     high[i] > high[i+2]
-     *
-     *   Fractal LOW at bar [i] is confirmed when:
-     *     low[i] < low[i-1]
-     *     low[i] < low[i-2]
-     *     low[i] < low[i+1]
-     *     low[i] < low[i+2]
-     *
-     * IMPORTANT: A fractal at bar [i] is only CONFIRMED once bar [i+2]
-     * has CLOSED. So when we have N closed candles (indices 0..N-1),
-     * the latest bar that CAN be a confirmed fractal pivot is N-3
-     * (because we need bars N-2 and N-1 as the two bars after it).
-     *
-     * We scan from the most recent possible pivot backwards and return
-     * the first (most recent) confirmed fractal high and fractal low.
-     *
-     * @param {Array} closedCandles - Array of CLOSED candle objects
-     *        with { open, high, low, close, epoch, open_time }
-     * @returns {{ fractalHigh: number|null, fractalLow: number|null,
-     *             fractalHighIndex: number|null, fractalLowIndex: number|null }}
-     */
     static findFractals(closedCandles) {
         const result = {
             fractalHigh: null,
@@ -501,17 +471,9 @@ class TechnicalIndicators {
 
         const len = closedCandles.length;
 
-        // The latest possible pivot is at index len-3
-        // (needs 2 bars before: i-2, i-1  and 2 bars after: i+1, i+2)
-        // i-2 >= 0  =>  i >= 2
-        // i+2 <= len-1  =>  i <= len-3
-
         for (let i = len - 3; i >= 2; i--) {
             const c = closedCandles;
 
-            // ---- Fractal HIGH (Resistance) ----
-            // MT5: high[i] must be STRICTLY greater than
-            // the highs of the 2 bars before and 2 bars after.
             if (result.fractalHigh === null) {
                 if (
                     c[i].high > c[i - 1].high &&
@@ -524,9 +486,6 @@ class TechnicalIndicators {
                 }
             }
 
-            // ---- Fractal LOW (Support) ----
-            // MT5: low[i] must be STRICTLY less than
-            // the lows of the 2 bars before and 2 bars after.
             if (result.fractalLow === null) {
                 if (
                     c[i].low < c[i - 1].low &&
@@ -539,7 +498,6 @@ class TechnicalIndicators {
                 }
             }
 
-            // Stop early once both are found
             if (
                 result.fractalHigh !== null &&
                 result.fractalLow !== null
@@ -551,10 +509,6 @@ class TechnicalIndicators {
         return result;
     }
 
-    /**
-     * Find ALL confirmed fractal levels (for debugging/logging).
-     * Returns arrays of all fractal highs and lows with their indices.
-     */
     static findAllFractals(closedCandles) {
         const highs = [];
         const lows = [];
@@ -568,7 +522,6 @@ class TechnicalIndicators {
         for (let i = 2; i <= len - 3; i++) {
             const c = closedCandles;
 
-            // Fractal HIGH
             if (
                 c[i].high > c[i - 1].high &&
                 c[i].high > c[i - 2].high &&
@@ -582,7 +535,6 @@ class TechnicalIndicators {
                 });
             }
 
-            // Fractal LOW
             if (
                 c[i].low < c[i - 1].low &&
                 c[i].low < c[i - 2].low &&
@@ -640,6 +592,16 @@ const CONFIG = {
     System: 1,
     iDirection: 'RISE',
 
+    // ============================================
+    // TRADING SESSION WINDOWS (GMT+1 hours)
+    // ============================================
+    // London Session: 8:00 AM - 10:00 AM GMT+1
+    LONDON_START: 8,
+    LONDON_END: 10,
+    // New York Session: 1:00 PM - 3:00 PM GMT+1
+    NEWYORK_START: 13,
+    NEWYORK_END: 15,
+
     // Debug
     DEBUG_MODE: true,
 
@@ -696,8 +658,98 @@ const state = {
         lastHour: new Date().getHours()
     },
     requestId: 1,
-    canTrade: false
+    canTrade: false,
+    // NEW: Track whether we've logged "outside session" to avoid log spam
+    lastSessionLogTime: 0
 };
+
+// ============================================
+// TRADING SESSION HELPER
+// ============================================
+class TradingSessionManager {
+    /**
+     * Get current time in GMT+1
+     * @returns {Date} Current time adjusted to GMT+1
+     */
+    static getGMTPlus1Time() {
+        const now = new Date();
+        // Create a date in GMT+1 by adding 1 hour offset to UTC
+        const gmtPlus1 = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+        return gmtPlus1;
+    }
+
+    /**
+     * Check if current time is within a trading session window
+     * Uses GMT+1 timezone
+     * @returns {{ inSession: boolean, sessionName: string, nextSession: string, minutesUntilNext: number }}
+     */
+    static isWithinTradingSession() {
+        const gmtPlus1 = this.getGMTPlus1Time();
+        const currentHour = gmtPlus1.getUTCHours();
+        const currentMinute = gmtPlus1.getUTCMinutes();
+        const currentTimeDecimal = currentHour + (currentMinute / 60);
+
+        // Check London Session
+        if (currentTimeDecimal >= CONFIG.LONDON_START && currentTimeDecimal < CONFIG.LONDON_END) {
+            return {
+                inSession: true,
+                sessionName: 'LONDON',
+                nextSession: null,
+                minutesUntilNext: 0
+            };
+        }
+
+        // Check New York Session
+        if (currentTimeDecimal >= CONFIG.NEWYORK_START && currentTimeDecimal < CONFIG.NEWYORK_END) {
+            return {
+                inSession: true,
+                sessionName: 'NEW YORK',
+                nextSession: null,
+                minutesUntilNext: 0
+            };
+        }
+
+        // Not in any session — calculate next session
+        let nextSession = '';
+        let minutesUntilNext = 0;
+
+        if (currentTimeDecimal < CONFIG.LONDON_START) {
+            // Before London session
+            nextSession = 'LONDON';
+            minutesUntilNext = (CONFIG.LONDON_START - currentTimeDecimal) * 60;
+        } else if (currentTimeDecimal >= CONFIG.LONDON_END && currentTimeDecimal < CONFIG.NEWYORK_START) {
+            // Between London and New York
+            nextSession = 'NEW YORK';
+            minutesUntilNext = (CONFIG.NEWYORK_START - currentTimeDecimal) * 60;
+        } else {
+            // After New York session — next is London tomorrow
+            nextSession = 'LONDON (tomorrow)';
+            minutesUntilNext = ((24 - currentTimeDecimal) + CONFIG.LONDON_START) * 60;
+        }
+
+        return {
+            inSession: false,
+            sessionName: null,
+            nextSession: nextSession,
+            minutesUntilNext: Math.round(minutesUntilNext)
+        };
+    }
+
+    /**
+     * Get a formatted string of current session status
+     */
+    static getSessionStatusString() {
+        const sessionInfo = this.isWithinTradingSession();
+        const gmtPlus1 = this.getGMTPlus1Time();
+        const timeStr = `${String(gmtPlus1.getUTCHours()).padStart(2, '0')}:${String(gmtPlus1.getUTCMinutes()).padStart(2, '0')} GMT+1`;
+
+        if (sessionInfo.inSession) {
+            return `🟢 IN SESSION: ${sessionInfo.sessionName} (${timeStr})`;
+        } else {
+            return `🔴 OUTSIDE SESSION (${timeStr}) — Next: ${sessionInfo.nextSession} in ${sessionInfo.minutesUntilNext}min`;
+        }
+    }
+}
 
 // ============================================
 // SESSION MANAGER
@@ -955,11 +1007,10 @@ class ConnectionManager {
                     currentFormingCandle: null,
                     lastProcessedCandleOpenTime: null,
                     candlesLoaded: false,
-                    // Fractal State
                     lastFractalHigh: null,
                     lastFractalLow: null,
-                    tradedFractalHigh: null,  // The resistance level that was already broken & traded
-                    tradedFractalLow: null    // The support level that was already broken & traded
+                    tradedFractalHigh: null,
+                    tradedFractalLow: null
                 };
                 LOGGER.info(`📊 Initialized asset: ${symbol}`);
             } else {
@@ -1257,17 +1308,13 @@ class ConnectionManager {
                     `${symbol} ${candleEmoji} CANDLE CLOSED [${closeTime}] ${candleType}: O:${closedCandle.open.toFixed(5)} H:${closedCandle.high.toFixed(5)} L:${closedCandle.low.toFixed(5)} C:${closedCandle.close.toFixed(5)}`
                 );
 
-                // ===================================================
-                // UPDATE FRACTAL LEVELS after every new closed candle
-                // so breakout levels are always current
-                // ===================================================
+                // Update fractal levels
                 const fractals = TechnicalIndicators.findFractals(assetState.closedCandles);
 
                 const prevHigh = assetState.lastFractalHigh;
                 const prevLow = assetState.lastFractalLow;
 
                 if (fractals.fractalHigh !== null) {
-                    // NEW: If fractal high changed, reset the traded flag for it
                     if (fractals.fractalHigh !== assetState.lastFractalHigh) {
                         assetState.tradedFractalHigh = null;
                         LOGGER.info(
@@ -1278,7 +1325,6 @@ class ConnectionManager {
                 }
 
                 if (fractals.fractalLow !== null) {
-                    // NEW: If fractal low changed, reset the traded flag for it
                     if (fractals.fractalLow !== assetState.lastFractalLow) {
                         assetState.tradedFractalLow = null;
                         LOGGER.info(
@@ -1364,7 +1410,6 @@ class ConnectionManager {
             lastCandle.open_time;
         state.assets[symbol].currentFormingCandle = null;
 
-        // Calculate initial fractal levels from historical data
         const fractals =
             TechnicalIndicators.findFractals(candles);
         state.assets[symbol].lastFractalHigh =
@@ -1382,7 +1427,6 @@ class ConnectionManager {
             `   🔻 Fractal Support    (Low):  ${fractals.fractalLow !== null ? fractals.fractalLow.toFixed(5) : 'N/A'}${fractals.fractalLowIndex !== null ? ` [bar ${fractals.fractalLowIndex}/${candles.length - 1}]` : ''}`
         );
 
-        // Log recent fractals for verification
         if (CONFIG.DEBUG_MODE) {
             const allFractals =
                 TechnicalIndicators.findAllFractals(candles);
@@ -1508,6 +1552,19 @@ class DerivBot {
         console.log(
             `📱 Telegram: ${CONFIG.TELEGRAM_ENABLED ? 'ENABLED' : 'DISABLED'}`
         );
+        console.log('─'.repeat(80));
+        console.log(
+            `🕐 TRADING WINDOWS (GMT+1):`
+        );
+        console.log(
+            `   🇬🇧 London Session:   ${String(CONFIG.LONDON_START).padStart(2, '0')}:00 - ${String(CONFIG.LONDON_END).padStart(2, '0')}:00`
+        );
+        console.log(
+            `   🇺🇸 New York Session: ${String(CONFIG.NEWYORK_START).padStart(2, '0')}:00 - ${String(CONFIG.NEWYORK_END).padStart(2, '0')}:00`
+        );
+        console.log(
+            `   📊 Current Status: ${TradingSessionManager.getSessionStatusString()}`
+        );
         console.log('═'.repeat(80));
         console.log(
             '📋 Strategy: MT5 Fractal Breakout + Recovery System'
@@ -1537,6 +1594,9 @@ class DerivBot {
 
         TelegramService.sendStartupMessage();
         TelegramService.startHourlyTimer();
+
+        // Start the session time checker
+        this.startSessionTimeChecker();
 
         LOGGER.info('✅ Bot started successfully!');
     }
@@ -1573,17 +1633,18 @@ class DerivBot {
      * TRADE EXECUTION — FRACTAL BREAKOUT LOGIC
      * =========================================================
      *
+     * NOW INCLUDES TRADING SESSION TIME CHECK:
+     *   • Only trades during London (CONFIG.LONDON_START - CONFIG.LONDON_END GMT+1)
+     *   • Only trades during New York (CONFIG.NEWYORK_START - CONFIG.NEWYORK_END GMT+1)
+     *   • EXCEPTION: If in martingale recovery (martingaleLevel > 0), trades
+     *     are allowed outside session windows to complete the recovery sequence
+     *
      * NORMAL MODE (no recovery):
-     *   • RISE trade when the just-closed candle's CLOSE > latest Fractal High (Resistance)
-     *   • FALL trade when the just-closed candle's CLOSE < latest Fractal Low  (Support)
-     *   • No trade if close is between Support and Resistance
+     *   • RISE trade when the just-closed candle's CLOSE > latest Fractal High
+     *   • FALL trade when the just-closed candle's CLOSE < latest Fractal Low
      *
      * RECOVERY MODE (last trade was a loss):
      *   • Alternate direction from the previous losing trade
-     *
-     * Fractal levels are recalculated BEFORE this method is called
-     * (in handleOHLC after every candle close), so they are always
-     * up-to-date with the latest confirmed 5-bar fractals.
      */
     executeNextTrade(symbol, lastClosedCandle) {
         if (!state.canTrade) return;
@@ -1593,6 +1654,38 @@ class DerivBot {
             CONFIG.MAX_OPEN_POSITIONS
         )
             return;
+
+        // =============================================
+        // TRADING SESSION TIME CHECK (NEW)
+        // =============================================
+        const sessionCheck = TradingSessionManager.isWithinTradingSession();
+        const isInMartingaleRecovery = state.martingaleLevel > 0;
+
+        if (!sessionCheck.inSession && !isInMartingaleRecovery) {
+            // Outside trading session and NOT in martingale recovery — skip trade
+            const now = Date.now();
+            // Only log this once every 5 minutes to avoid spam
+            if (now - state.lastSessionLogTime > 300000) {
+                LOGGER.info(
+                    `🕐 OUTSIDE TRADING SESSION — ${TradingSessionManager.getSessionStatusString()} | Skipping trade signal`
+                );
+                state.lastSessionLogTime = now;
+            }
+            return;
+        }
+
+        if (!sessionCheck.inSession && isInMartingaleRecovery) {
+            // Outside session BUT in martingale recovery — allow the trade
+            LOGGER.warn(
+                `🕐⚠️ OUTSIDE SESSION but Martingale Level ${state.martingaleLevel} — allowing recovery trade`
+            );
+        }
+
+        if (sessionCheck.inSession) {
+            LOGGER.debug(
+                `🕐 Trading within ${sessionCheck.sessionName} session`
+            );
+        }
 
         const tradeSymbol = symbol || ACTIVE_ASSETS[0];
         const assetState = state.assets[tradeSymbol];
@@ -1613,13 +1706,11 @@ class DerivBot {
 
         // =============================================
         // GET CURRENT FRACTAL LEVELS
-        // (Already updated in handleOHLC before this call)
         // =============================================
-        const resistance = assetState.lastFractalHigh; // Fractal High = Resistance
-        const support = assetState.lastFractalLow; // Fractal Low  = Support
+        const resistance = assetState.lastFractalHigh;
+        const support = assetState.lastFractalLow;
         const closePrice = lastClosedCandle.close;
 
-        // Need both levels to trade
         if (resistance === null || support === null) {
             LOGGER.info(
                 `${tradeSymbol} ⏳ Waiting for fractal levels to form — Resistance: ${resistance !== null ? resistance.toFixed(5) : 'PENDING'} | Support: ${support !== null ? support.toFixed(5) : 'PENDING'}`
@@ -1640,7 +1731,6 @@ class DerivBot {
         const isRecoveryMode = state.lastTradeWasWin === false;
 
         if (isRecoveryMode) {
-            // RECOVERY MODE: Alternate direction from last losing trade
             if (state.lastTradeDirection === 'CALLE') {
                 direction = 'PUTE';
                 signalReason =
@@ -1654,36 +1744,25 @@ class DerivBot {
                 `🔄 RECOVERY MODE: ${signalReason}`
             );
         } else {
-            // NORMAL MODE: Check fractal breakout
-
-            // BREAKOUT UP: Close is ABOVE Fractal Resistance → RISE
-            // BUT only if this resistance level hasn't been traded yet
             if (closePrice > resistance) {
                 if (assetState.tradedFractalHigh === resistance) {
-                    // Already traded this breakout — skip
                     LOGGER.debug(
                         `${tradeSymbol} ⏭️ Breakout UP already traded at Resistance ${resistance.toFixed(5)} — waiting for new fractal level`
                     );
                 } else {
-                    direction = 'CALLE'; // RISE
+                    direction = 'CALLE';
                     signalReason = `BREAKOUT UP — Close ${closePrice.toFixed(5)} > Resistance ${resistance.toFixed(5)} (diff: +${(closePrice - resistance).toFixed(5)})`;
                 }
-            }
-            // BREAKOUT DOWN: Close is BELOW Fractal Support → FALL
-            // BUT only if this support level hasn't been traded yet
-            else if (closePrice < support) {
+            } else if (closePrice < support) {
                 if (assetState.tradedFractalLow === support) {
-                    // Already traded this breakout — skip
                     LOGGER.debug(
                         `${tradeSymbol} ⏭️ Breakout DOWN already traded at Support ${support.toFixed(5)} — waiting for new fractal level`
                     );
                 } else {
-                    direction = 'PUTE'; // FALL
+                    direction = 'PUTE';
                     signalReason = `BREAKOUT DOWN — Close ${closePrice.toFixed(5)} < Support ${support.toFixed(5)} (diff: -${(support - closePrice).toFixed(5)})`;
                 }
-            }
-            // NO BREAKOUT: Price is between Support and Resistance
-            else {
+            } else {
                 LOGGER.info(
                     `${tradeSymbol} ⏸️ No breakout — Close ${closePrice.toFixed(5)} is between Support ${support.toFixed(5)} and Resistance ${resistance.toFixed(5)}`
                 );
@@ -1694,7 +1773,6 @@ class DerivBot {
             }
         }
 
-        // Save fractal state
         StatePersistence.saveState();
 
         if (!direction) {
@@ -1707,8 +1785,12 @@ class DerivBot {
         state.canTrade = false;
         state.lastTradeDirection = direction;
 
+        const sessionLabel = sessionCheck.inSession
+            ? `[${sessionCheck.sessionName}]`
+            : `[RECOVERY - Outside Session]`;
+
         LOGGER.trade(
-            `🎯 Executing ${direction === 'CALLE' ? 'RISE' : 'FALL'} trade on ${tradeSymbol}`
+            `🎯 ${sessionLabel} Executing ${direction === 'CALLE' ? 'RISE' : 'FALL'} trade on ${tradeSymbol}`
         );
         LOGGER.trade(
             `   Stake: $${stake.toFixed(2)} | Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT} | Martingale Level: ${state.martingaleLevel}`
@@ -1751,7 +1833,6 @@ class DerivBot {
         const reqId = this.connection.send(tradeRequest);
         position.reqId = reqId;
 
-        // NEW: Mark this fractal level as traded so we don't trade it again
         if (direction === 'CALLE' && !isRecoveryMode) {
             assetState.tradedFractalHigh = resistance;
             LOGGER.info(
@@ -1775,7 +1856,15 @@ class DerivBot {
         }, 2000);
     }
 
-    checkTimeForDisconnectReconnect() {
+    /**
+     * NEW: Consolidated session time checker
+     * Handles:
+     *  - Weekend suspension
+     *  - Daily reconnection
+     *  - Session window logging
+     *  - End-of-day disconnect (after last session ends and last trade was a win)
+     */
+    startSessionTimeChecker() {
         setInterval(() => {
             const now = new Date();
             const gmtPlus1Time = new Date(
@@ -1783,9 +1872,9 @@ class DerivBot {
             );
             const currentDay = gmtPlus1Time.getUTCDay();
             const currentHours = gmtPlus1Time.getUTCHours();
-            const currentMinutes =
-                gmtPlus1Time.getUTCMinutes();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
 
+            // Weekend check (Saturday 11pm - Monday 2am GMT+1)
             const isWeekend =
                 currentDay === 0 ||
                 (currentDay === 6 && currentHours >= 23) ||
@@ -1804,29 +1893,30 @@ class DerivBot {
                 return;
             }
 
+            // Daily reconnection at 2:00 AM GMT+1 (before London session)
             if (
                 !state.session.isActive &&
                 currentHours === 2 &&
                 currentMinutes >= 0
             ) {
                 LOGGER.info(
-                    "It's 2:00 AM GMT+1, reconnecting the bot."
+                    "It's 2:00 AM GMT+1, reconnecting the bot and resetting daily stats."
                 );
                 this.resetDailyStats();
                 state.session.isActive = true;
                 this.connection.connect();
             }
 
+            // End-of-day disconnect: After New York session ends, if last trade was a win
             if (
                 state.lastTradeWasWin &&
-                state.session.isActive
+                state.session.isActive &&
+                state.martingaleLevel === 0
             ) {
-                if (
-                    currentHours >= 23 &&
-                    currentMinutes >= 0
-                ) {
+                // Disconnect after the last session window + some buffer
+                if (currentHours >= CONFIG.NEWYORK_END && currentMinutes >= 30) {
                     LOGGER.info(
-                        "It's past 23:00 PM GMT+1 after a win trade, disconnecting the bot."
+                        `It's past ${CONFIG.NEWYORK_END}:30 GMT+1 after New York session ended (last trade was a win), disconnecting.`
                     );
                     TelegramService.sendHourlySummary();
                     if (this.connection.ws)
@@ -1835,6 +1925,11 @@ class DerivBot {
                 }
             }
         }, 20000);
+    }
+
+    // Keep the old method name as alias for backward compatibility
+    checkTimeForDisconnectReconnect() {
+        this.startSessionTimeChecker();
     }
 
     resetDailyStats() {
@@ -1854,11 +1949,13 @@ class DerivBot {
         state.currentStake = CONFIG.STAKE;
         state.lastTradeWasWin = null;
         state.canTrade = false;
+        state.lastSessionLogTime = 0;
         LOGGER.info('📊 Daily stats reset');
     }
 
     getStatus() {
         const sessionStats = SessionManager.getSessionStats();
+        const tradingSession = TradingSessionManager.getSessionStatusString();
 
         const nextDirection =
             state.lastTradeWasWin === null
@@ -1875,6 +1972,7 @@ class DerivBot {
             capital: state.capital,
             accountBalance: state.accountBalance,
             session: sessionStats,
+            tradingSession: tradingSession,
             lastDirection: state.lastTradeDirection,
             lastWasWin: state.lastTradeWasWin,
             nextDirection: nextDirection,
@@ -1970,6 +2068,9 @@ console.log(
 console.log(
     ` Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT} | Stake: $${CONFIG.STAKE}`
 );
+console.log(
+    ` 🕐 London: ${CONFIG.LONDON_START}:00-${CONFIG.LONDON_END}:00 | New York: ${CONFIG.NEWYORK_START}:00-${CONFIG.NEWYORK_END}:00 (GMT+1)`
+);
 console.log('═'.repeat(80));
 console.log('\n🚀 Initializing...\n');
 
@@ -1995,6 +2096,9 @@ setInterval(() => {
         );
         console.log(
             `📉 Loss Stats: x2:${s.x2Losses} x3:${s.x3Losses} x4:${s.x4Losses} x5:${s.x5Losses} x6:${s.x6Losses} x7:${s.x7Losses} | Level: ${state.martingaleLevel} | Next: ${status.nextDirection}`
+        );
+        console.log(
+            `🕐 ${status.tradingSession}`
         );
     }
 }, 30000);
