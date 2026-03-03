@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000003-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000004-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -461,7 +461,7 @@ class RepeatCycleAnalyzer {
 
         // Find the highest bin that has meaningful frequency
         // "Meaningful" = at least 15% of total samples or minimum 3 occurrences
-        const minBinCount = Math.max(4, Math.floor(peakSamples.length * 0.10));
+        const minBinCount = Math.max(3, Math.floor(peakSamples.length * 0.10));
 
         let bestBin = null;
         let bestBinRate = 0;
