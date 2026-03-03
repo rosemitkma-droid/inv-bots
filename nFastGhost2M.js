@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000002-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000003-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -1181,7 +1181,7 @@ class MultiAssetGhostBot {
             );
 
             // Only trade when saturation has been learned and is meaningful
-            if (sat && sat > 0.1 && sat > signal.shortRepeat && satHotDigit != null) {
+            if (sat && sat > 0.1 && sat > signal.shortRepeat && satHotDigit != null && satHotDigit !== signal.windowHotDigit) {
                 this.placeTrade(asset, signal);
             } else {
                 console.log(
@@ -1230,7 +1230,7 @@ class MultiAssetGhostBot {
         // Determine the trade digit: prefer the saturation-identified hot digit
         // Fall back to the window hot digit if saturation digit isn't available
         // const tradeDigit = saturationHotDigit != null ? saturationHotDigit : hotDigitInfo.digit;
-        const tradeDigit = (hotDigitInfo.digit && hotDigitInfo.frequency !== saturationHotDigit);
+        const tradeDigit = hotDigitInfo.digit;
 
         const confidence = Math.min(cycleSignal.score / 100, 1.0);
 
