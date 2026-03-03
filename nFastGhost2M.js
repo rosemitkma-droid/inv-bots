@@ -1181,7 +1181,7 @@ class MultiAssetGhostBot {
             );
 
             // Only trade when saturation has been learned and is meaningful
-            if (sat && sat > 0.1 && satHotDigit != null) {
+            if (sat && sat > 0.1 && sat > signal.shortRepeat && satHotDigit != null) {
                 this.placeTrade(asset, signal);
             } else {
                 console.log(
