@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000004-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000004-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000005-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000005-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -772,6 +772,7 @@ Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
 ├ Overall P/L: $${overall.netPL.toFixed(2)}
 └ Period: ${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}
 
+🕐 TOKYO Session: ${CONFIG.TOKYO_START}:00 - ${CONFIG.TOKYO_END}:00 (GMT+1)
 🕐 London Session: ${CONFIG.LONDON_START}:00 - ${CONFIG.LONDON_END}:00 (GMT+1)
 🕐 New York Session: ${CONFIG.NEWYORK_START}:00 - ${CONFIG.NEWYORK_END}:00 (GMT+1)
 `.trim();
@@ -2296,6 +2297,9 @@ class DerivBot {
 
         console.log('─'.repeat(80));
         console.log(`🕐 TRADING WINDOWS (GMT+1):`);
+        console.log(
+            `   TY TOKYO Session:   ${String(CONFIG.TOKYO_START).padStart(2, '0')}:00 - ${String(CONFIG.TOKYO_END).padStart(2, '0')}:00`
+        );
         console.log(
             `   🇬🇧 London Session:   ${String(CONFIG.LONDON_START).padStart(2, '0')}:00 - ${String(CONFIG.LONDON_END).padStart(2, '0')}:00`
         );
