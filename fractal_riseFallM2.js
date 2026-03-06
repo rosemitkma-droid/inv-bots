@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000005-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000005-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000006-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000006-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -588,27 +588,27 @@ class TelegramService {
         const today = TradeHistoryManager.getTodayStats();
 
         const message = `
-${emoji} <b>${type} TRADE ALERT</b>
-Asset: ${symbol}
-Direction: ${direction}
-Stake: $${stake.toFixed(2)}
-Duration: ${duration} (${durationUnit == 't' ? 'Ticks' : durationUnit == 's' ? 'Seconds' : 'Minutes'})
-Martingale Level: ${assetMartingale}
-${details.profit !== undefined
-                ? `Profit: $${details.profit.toFixed(2)}
+                ${emoji} <b>${type} TRADE ALERT</b>
+                Asset: ${symbol}
+                Direction: ${direction}
+                Stake: $${stake.toFixed(2)}
+                Duration: ${duration} (${durationUnit == 't' ? 'Ticks' : durationUnit == 's' ? 'Seconds' : 'Minutes'})
+                Martingale Level: ${assetMartingale}
+                ${details.profit !== undefined
+                                ? `Profit: $${details.profit.toFixed(2)}
 
-📊 <b>Today's Stats:</b>
-${symbol} P&L: $${assetNetPL.toFixed(2)}
-${symbol} W/L: ${assetWins}/${assetLosses}
-Today P&L: $${today.netPL.toFixed(2)}
-Today W/L: ${today.winsCount}/${today.lossesCount}
+                📊 <b>Today's Stats:</b>
+                ${symbol} P&L: $${assetNetPL.toFixed(2)}
+                ${symbol} W/L: ${assetWins}/${assetLosses}
+                Today P&L: $${today.netPL.toFixed(2)}
+                Today W/L: ${today.winsCount}/${today.lossesCount}
 
-📈 <b>Overall Stats:</b>
-Overall P&L: $${overall.netPL.toFixed(2)}
-Overall W/L: ${overall.winsCount}/${overall.lossesCount}
-Total Trades: ${overall.tradesCount}
-Capital: $${state.capital.toFixed(2)}
-`
+                📈 <b>Overall Stats:</b>
+                Overall P&L: $${overall.netPL.toFixed(2)}
+                Overall W/L: ${overall.winsCount}/${overall.lossesCount}
+                Total Trades: ${overall.tradesCount}
+                Capital: $${state.capital.toFixed(2)}
+            `
                 : ''
             }`.trim();
         await this.sendMessage(message);
@@ -659,31 +659,31 @@ Capital: $${state.capital.toFixed(2)}
             : '0.0%';
 
         const message = `
-📊 <b>SESSION SUMMARY</b>
+            📊 <b>SESSION SUMMARY</b>
 
-📅 <b>Today (${TradeHistoryManager.getDateKey()}):</b>
-Duration: ${stats.duration}
-Trades: ${stats.trades}
-Wins: ${stats.wins} | Losses: ${stats.losses}
-Win Rate: ${stats.winRate}
-Loss Stats: x2:${today.x2Losses} | x3:${today.x3Losses} | x4:${today.x4Losses} | x5:${today.x5Losses} | x6:${today.x6Losses} | x7:${today.x7Losses}
-Today P/L: $${today.netPL.toFixed(2)}
+            📅 <b>Today (${TradeHistoryManager.getDateKey()}):</b>
+            Duration: ${stats.duration}
+            Trades: ${stats.trades}
+            Wins: ${stats.wins} | Losses: ${stats.losses}
+            Win Rate: ${stats.winRate}
+            Loss Stats: x2:${today.x2Losses} | x3:${today.x3Losses} | x4:${today.x4Losses} | x5:${today.x5Losses} | x6:${today.x6Losses} | x7:${today.x7Losses}
+            Today P/L: $${today.netPL.toFixed(2)}
 
-📈 <b>Today's Per-Asset:</b>${assetBreakdown || '\n  No trades yet'}
+            📈 <b>Today's Per-Asset:</b>${assetBreakdown || '\n  No trades yet'}
 
-📊 <b>Overall Stats (${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}):</b>
-Total Trades: ${overall.tradesCount}
-Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
-Overall Win Rate: ${overallWinRate}
-Overall P/L: $${overall.netPL.toFixed(2)}
-Loss Stats: x2:${overall.x2Losses} | x3:${overall.x3Losses} | x4:${overall.x4Losses} | x5:${overall.x5Losses} | x6:${overall.x6Losses} | x7:${overall.x7Losses}
+            📊 <b>Overall Stats (${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}):</b>
+            Total Trades: ${overall.tradesCount}
+            Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
+            Overall Win Rate: ${overallWinRate}
+            Overall P/L: $${overall.netPL.toFixed(2)}
+            Loss Stats: x2:${overall.x2Losses} | x3:${overall.x3Losses} | x4:${overall.x4Losses} | x5:${overall.x5Losses} | x6:${overall.x6Losses} | x7:${overall.x7Losses}
 
-📈 <b>Overall Per-Asset:</b>${overallAssetBreakdown || '\n  No trades yet'}
+            📈 <b>Overall Per-Asset:</b>${overallAssetBreakdown || '\n  No trades yet'}
 
-📆 <b>Recent Days:</b>${recentDaysStr || '\n  No history yet'}
+            📆 <b>Recent Days:</b>${recentDaysStr || '\n  No history yet'}
 
-💰 Current Capital: $${state.capital.toFixed(2)}
-`.trim();
+            💰 Current Capital: $${state.capital.toFixed(2)}
+        `.trim();
         await this.sendMessage(message);
     }
 
@@ -715,31 +715,31 @@ Loss Stats: x2:${overall.x2Losses} | x3:${overall.x3Losses} | x4:${overall.x4Los
         const pnlEmoji = dayStats.netPL >= 0 ? '🟢' : '🔴';
 
         const message = `
-🌙 <b>END OF DAY REPORT — ${dateKey}</b>
+            🌙 <b>END OF DAY REPORT — ${dateKey}</b>
 
-${pnlEmoji} <b>Day Results:</b>
-├ Trades: ${dayStats.tradesCount}
-├ Wins: ${dayStats.winsCount} | Losses: ${dayStats.lossesCount}
-├ Win Rate: ${dayWinRate}
-├ Profit: $${dayStats.profit.toFixed(2)} | Loss: $${dayStats.loss.toFixed(2)}
-├ Net P/L: $${dayStats.netPL.toFixed(2)}
-├ Start Capital: $${dayStats.startCapital.toFixed(2)}
-└ End Capital: $${dayStats.endCapital.toFixed(2)}
+            ${pnlEmoji} <b>Day Results:</b>
+            ├ Trades: ${dayStats.tradesCount}
+            ├ Wins: ${dayStats.winsCount} | Losses: ${dayStats.lossesCount}
+            ├ Win Rate: ${dayWinRate}
+            ├ Profit: $${dayStats.profit.toFixed(2)} | Loss: $${dayStats.loss.toFixed(2)}
+            ├ Net P/L: $${dayStats.netPL.toFixed(2)}
+            ├ Start Capital: $${dayStats.startCapital.toFixed(2)}
+            └ End Capital: $${dayStats.endCapital.toFixed(2)}
 
-📊 Loss Stats: x2:${dayStats.x2Losses} x3:${dayStats.x3Losses} x4:${dayStats.x4Losses} x5:${dayStats.x5Losses} x6:${dayStats.x6Losses} x7:${dayStats.x7Losses}
+            📊 Loss Stats: x2:${dayStats.x2Losses} x3:${dayStats.x3Losses} x4:${dayStats.x4Losses} x5:${dayStats.x5Losses} x6:${dayStats.x6Losses} x7:${dayStats.x7Losses}
 
-📈 <b>Per-Asset:</b>${assetBreakdown || '\n  No trades'}
+            📈 <b>Per-Asset:</b>${assetBreakdown || '\n  No trades'}
 
-📊 <b>Overall Stats (All Time):</b>
-├ Total Days: ${TradeHistoryManager.getAllDays().length}
-├ Total Trades: ${overall.tradesCount}
-├ Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
-├ Overall Win Rate: ${overallWinRate}
-├ Overall P/L: $${overall.netPL.toFixed(2)}
-└ Loss Stats: x2:${overall.x2Losses} x3:${overall.x3Losses} x4:${overall.x4Losses} x5:${overall.x5Losses} x6:${overall.x6Losses} x7:${overall.x7Losses}
+            📊 <b>Overall Stats (All Time):</b>
+            ├ Total Days: ${TradeHistoryManager.getAllDays().length}
+            ├ Total Trades: ${overall.tradesCount}
+            ├ Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
+            ├ Overall Win Rate: ${overallWinRate}
+            ├ Overall P/L: $${overall.netPL.toFixed(2)}
+            └ Loss Stats: x2:${overall.x2Losses} x3:${overall.x3Losses} x4:${overall.x4Losses} x5:${overall.x5Losses} x6:${overall.x6Losses} x7:${overall.x7Losses}
 
-💰 Current Capital: $${state.capital.toFixed(2)}
-`.trim();
+            💰 Current Capital: $${state.capital.toFixed(2)}
+        `.trim();
         await this.sendMessage(message);
     }
 
@@ -754,28 +754,28 @@ ${pnlEmoji} <b>Day Results:</b>
         });
 
         const message = `
-🤖 <b>DERIV RISE/FALL BOT STARTED</b>
-Strategy: Fractal Breakout (MT5 Logic)
-Mode: <b>Independent Per-Asset Management</b>
-Capital: $${state.capital.toFixed(2)}
-Stake: $${CONFIG.STAKE}
+            🤖 <b>DERIV RISE/FALL BOT STARTED</b>
+            Strategy: Fractal Breakout (MT5 Logic)
+            Mode: <b>Independent Per-Asset Management</b>
+            Capital: $${state.capital.toFixed(2)}
+            Stake: $${CONFIG.STAKE}
 
-🔧 <b>Asset Configurations:</b>${assetConfigInfo}
+            🔧 <b>Asset Configurations:</b>${assetConfigInfo}
 
-Max Positions Per Asset: ${CONFIG.MAX_OPEN_POSITIONS_PER_ASSET}
-Session Target: $${CONFIG.SESSION_PROFIT_TARGET}
-Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
+            Max Positions Per Asset: ${CONFIG.MAX_OPEN_POSITIONS_PER_ASSET}
+            Session Target: $${CONFIG.SESSION_PROFIT_TARGET}
+            Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
 
-📊 <b>Historical Stats:</b>
-├ Trading Days: ${totalDays}
-├ Total Trades: ${overall.tradesCount}
-├ Overall P/L: $${overall.netPL.toFixed(2)}
-└ Period: ${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}
+            📊 <b>Historical Stats:</b>
+            ├ Trading Days: ${totalDays}
+            ├ Total Trades: ${overall.tradesCount}
+            ├ Overall P/L: $${overall.netPL.toFixed(2)}
+            └ Period: ${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}
 
-🕐 TOKYO Session: ${CONFIG.TOKYO_START}:00 - ${CONFIG.TOKYO_END}:00 (GMT+1)
-🕐 London Session: ${CONFIG.LONDON_START}:00 - ${CONFIG.LONDON_END}:00 (GMT+1)
-🕐 New York Session: ${CONFIG.NEWYORK_START}:00 - ${CONFIG.NEWYORK_END}:00 (GMT+1)
-`.trim();
+            🕐 TOKYO Session: ${CONFIG.TOKYO_START}:00 - ${CONFIG.TOKYO_END}:00 (GMT+1)
+            🕐 London Session: ${CONFIG.LONDON_START}:00 - ${CONFIG.LONDON_END}:00 (GMT+1)
+            🕐 New York Session: ${CONFIG.NEWYORK_START}:00 - ${CONFIG.NEWYORK_END}:00 (GMT+1)
+        `.trim();
         await this.sendMessage(message);
     }
 
@@ -1049,11 +1049,11 @@ const CONFIG = {
 
     // Capital Settings
     INITIAL_CAPITAL: 500,
-    STAKE: 1,
+    STAKE: 0.35,
 
     // Session Targets
     SESSION_PROFIT_TARGET: 5000,
-    SESSION_STOP_LOSS: -650,
+    SESSION_STOP_LOSS: -250,
 
     // Default Candle Settings (used if asset has no specific config)
     GRANULARITY: 60,
@@ -1160,7 +1160,8 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_10', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ50V', '1HZ100V', 'stpRNG', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -2351,7 +2352,7 @@ class DerivBot {
         });
 
         TelegramService.sendStartupMessage();
-        TelegramService.startHourlyTimer();
+        // TelegramService.startHourlyTimer();
 
         this.startSessionTimeChecker();
 
@@ -2659,14 +2660,14 @@ class DerivBot {
                 return;
             }
 
-            // Daily reconnection at 2:00 AM GMT+1
+            // Daily reconnection at 1:00 AM GMT+1 (to catch TOKYO session start)
             if (
                 !state.session.isActive &&
-                currentHours === 2 &&
+                currentHours === 1 &&
                 currentMinutes >= 0
             ) {
                 LOGGER.info(
-                    "It's 2:00 AM GMT+1, reconnecting the bot and resetting daily session stats."
+                    "It's 1:00 AM GMT+1, reconnecting the bot and resetting daily session stats."
                 );
                 // No longer call resetDailyStats — day change is handled by checkDayChange
                 state.session.isActive = true;
