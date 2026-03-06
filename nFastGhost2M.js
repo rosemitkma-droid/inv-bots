@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000004-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000006-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -362,7 +362,7 @@ class RepeatCycleAnalyzer {
         this.learnedSaturation = null;
         this.shortHistory = [];
         this.exhaustionLookback = 6;
-        this.signalHoldTicks = 3;
+        this.signalHoldTicks = 2;
         this.signalHold = null;
         this.lastSnapshot = null;
 
@@ -486,27 +486,27 @@ class RepeatCycleAnalyzer {
         }
 
         // Fallback: if no single bin qualifies, merge adjacent top bins
-        if (!bestBin) {
-            // Try merging top 2-3 adjacent bins
-            for (let i = 0; i < sortedBins.length - 1; i++) {
-                const merged = sortedBins[i].count + sortedBins[i + 1].count;
-                if (merged >= minBinCount) {
-                    // Use the higher bin's average rate
-                    bestBin = sortedBins[i];
-                    bestBinRate = sortedBins[i].avgRate;
-                    break;
-                }
-            }
-        }
+        // if (!bestBin) {
+        //     // Try merging top 2-3 adjacent bins
+        //     for (let i = 0; i < sortedBins.length - 1; i++) {
+        //         const merged = sortedBins[i].count + sortedBins[i + 1].count;
+        //         if (merged >= minBinCount) {
+        //             // Use the higher bin's average rate
+        //             bestBin = sortedBins[i];
+        //             bestBinRate = sortedBins[i].avgRate;
+        //             break;
+        //         }
+        //     }
+        // }
 
         // Final fallback: use the top 25% percentile (highest peaks)
         if (!bestBin) {
-            const topQuartileIdx = Math.floor(peakSamples.length * 0.25);
-            const topQuartile = peakSamples.slice(0, Math.max(1, topQuartileIdx));
-            let sum = 0;
-            for (const s of topQuartile) sum += s.rate;
-            bestBinRate = sum / topQuartile.length;
-            bestBin = { samples: topQuartile, avgRate: bestBinRate };
+            // const topQuartileIdx = Math.floor(peakSamples.length * 0.25);
+            // const topQuartile = peakSamples.slice(0, Math.max(1, topQuartileIdx));
+            // let sum = 0;
+            // for (const s of topQuartile) sum += s.rate;
+            bestBinRate = 0 //sum / topQuartile.length;
+            bestBin = { samples: 0, avgRate: 0 } //{ samples: topQuartile, avgRate: bestBinRate };
         }
 
         // Set the learned saturation to the identified peak level
@@ -648,7 +648,9 @@ class RepeatCycleAnalyzer {
         const last3 = recent.slice(-3);
         const declining = last3.length >= 3
             && last3[0] > last3[1]
-            && last3[1] > last3[2];
+            && last3[1] > last3[2]
+            // && last3[2] > last3[3]
+            // && last3[3] > last3[4];
 
         const exhaustion = peakReachedSat && meaningfulDecline && notCollapsed && declining;
 
