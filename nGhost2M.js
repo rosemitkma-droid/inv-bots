@@ -13,7 +13,7 @@ const TOKEN = "DMylfkyce6VyZt7";
 const TELEGRAM_TOKEN = "8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'nGhost2M-state0000018.json');
+const STATE_FILE = path.join(__dirname, 'nGhost2M-state0000019.json');
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  UTILITY FUNCTIONS
@@ -937,6 +937,7 @@ class RomanianGhostUltimate {
         this.tradeInProgress = false;
         this.endOfDay = false;
         this.isWinTrade = false;
+        this.lastTradeAsset = null;
 
         this.config.assets.forEach(a => {
             this.lastTradeDigit[a] = null;
@@ -1293,7 +1294,7 @@ class RomanianGhostUltimate {
         );
 
         // Execute trade
-        if(safetyScore >= 70 && regime.bocpdModeRL > 50 && (regime.posteriorNR * 100).toFixed(1) >= 98.0) {
+        if(this.lastTradeAsset !== asset && safetyScore >= 70 && regime.bocpdModeRL > 50 && (regime.posteriorNR * 100).toFixed(1) >= 98.0) {
             this.placeTrade(asset, targetDigit, safetyScore, regime);
         }
     }
@@ -1305,6 +1306,7 @@ class RomanianGhostUltimate {
         if (this.tradeInProgress) return;
 
         this.tradeInProgress = true;
+        this.lastTradeAsset = asset;
         this.lastTradeDigit[asset] = digit;
         this.asset_safety_score[asset] = (regime.posteriorNR * 100).toFixed(1);
         this.lastTradeTime[asset] = Date.now();
@@ -1410,13 +1412,13 @@ class RomanianGhostUltimate {
             if (this.consecutiveLosses === 4) this.x4++;
             if (this.consecutiveLosses === 5) this.x5++;
 
-            if (this.consecutiveLosses === 1) {
-                this.stake = this.config.baseStake * this.config.firstLossMultiplier;
-            } else {
-                this.stake = this.config.baseStake *
-                    Math.pow(this.config.subsequentMultiplier, this.consecutiveLosses - 1);
-            }
-            this.stake = Math.round(this.stake * 100) / 100;
+            // if (this.consecutiveLosses === 1) {
+                // this.stake = this.config.baseStake * this.config.firstLossMultiplier;
+            // } else {
+            //     this.stake = this.config.baseStake *
+            //         Math.pow(this.config.subsequentMultiplier, this.consecutiveLosses - 1);
+            // }
+            this.stake = Math.ceil(this.stake * this.config.firstLossMultiplier * 100) / 100;
         }
 
         this.sendTelegram(`
