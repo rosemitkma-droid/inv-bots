@@ -13,7 +13,7 @@ const TOKEN = "DMylfkyce6VyZt7";
 const TELEGRAM_TOKEN = "8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'nGhost2M-state000012.json');
+const STATE_FILE = path.join(__dirname, 'nGhost2M-state0000014.json');
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  UTILITY FUNCTIONS
@@ -882,7 +882,7 @@ class RomanianGhostUltimate {
             hmm_min_discrimination: 0.10,
             hmm_refit_every: 50,
             hmm_nonrep_confidence: 0.88,
-            min_regime_persistence: 15,
+            min_regime_persistence: 8,
 
             // EWMA
             ewma_trend_threshold: 2.0,
@@ -895,22 +895,26 @@ class RomanianGhostUltimate {
 
             // CUSUM
             cusum_slack: 0.005,
-            cusum_up_threshold: 15.5,
-            cusum_down_threshold: -15.5,
+            cusum_up_threshold: 4.5,
+            cusum_down_threshold: -4.5,
 
             // General
-            analysis_window: 100,
+            analysis_window: 1000,
             min_ticks_for_analysis: 50,
             repeat_threshold: 9,
-            repeat_confidence: 73,//70
+            repeat_confidence: 50,//70
 
             // Money management
-            baseStake: 5.2,
+            baseStake: 1.1,
             firstLossMultiplier: 11.3,
             subsequentMultiplier: 11.3,
-            maxConsecutiveLosses: 1,
-            takeProfit: 0.5,
-            stopLoss: -50,
+            maxConsecutiveLosses: 3,
+            takeProfit: 10000,
+            stopLoss: -500,
+
+            // Time filters
+            avoidMinutesAroundHour: 5,
+            tradingHoursUTC: { start: 0, end: 24 },
         };
 
         // ====== TRADING STATE ======
@@ -975,7 +979,7 @@ class RomanianGhostUltimate {
         this.telegramBot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
         // Load state & connect
-        // this.loadState();
+        this.loadState();
         this.connect();
         this.startHourlySummary();
         this.startAutoSave();
