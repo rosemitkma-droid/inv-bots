@@ -1292,7 +1292,7 @@ class RomanianGhostUltimate {
         );
 
         // Execute trade
-        if(safetyScore >= 70 && (regime.posteriorNR * 100).toFixed(1) >= 100) {
+        if(safetyScore >= 70 && regime.bocpdModeRL > 120 && (regime.posteriorNR * 100).toFixed(1) >= 100) {
             this.placeTrade(asset, targetDigit, safetyScore, regime);
         }
     }
