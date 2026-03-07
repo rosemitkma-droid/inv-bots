@@ -13,7 +13,7 @@ const TOKEN = "DMylfkyce6VyZt7";
 const TELEGRAM_TOKEN = "8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'nGhost2M-state0000017.json');
+const STATE_FILE = path.join(__dirname, 'nGhost2M-state0000018.json');
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  UTILITY FUNCTIONS
@@ -1293,7 +1293,7 @@ class RomanianGhostUltimate {
         );
 
         // Execute trade
-        if(safetyScore >= 70 && regime.bocpdModeRL > 120 && (regime.posteriorNR * 100).toFixed(1) >= 100) {
+        if(safetyScore >= 70 && regime.bocpdModeRL > 50 && (regime.posteriorNR * 100).toFixed(1) >= 98.0) {
             this.placeTrade(asset, targetDigit, safetyScore, regime);
         }
     }
