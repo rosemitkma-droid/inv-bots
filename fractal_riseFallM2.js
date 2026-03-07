@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000006-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000006-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000007-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000007-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1069,10 +1069,10 @@ const CONFIG = {
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
     TRADE_DELAY: 1000,
     MARTINGALE_MULTIPLIER: 2,
-    MARTINGALE_MULTIPLIER2: 2.3,
+    MARTINGALE_MULTIPLIER2: 2.2,
     MARTINGALE_MULTIPLIER3: 2.3,
     MARTINGALE_MULTIPLIER4: 2.5,
-    MARTINGALE_MULTIPLIER5: 3,
+    MARTINGALE_MULTIPLIER5: 2.7,
     MAX_MARTINGALE_STEPS: 6,
     System: 1,
     iDirection: 'RISE',
@@ -1082,8 +1082,8 @@ const CONFIG = {
     // ============================================
     TOKYO_START: 1,
     TOKYO_END: 2,
-    LONDON_START: 8,
-    LONDON_END: 9,
+    LONDON_START: 9,
+    LONDON_END: 11,
     NEWYORK_START: 13,
     NEWYORK_END: 14,
 
@@ -1160,7 +1160,7 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_10', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ50V', '1HZ100V', 'stpRNG', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_10', 'R_50', 'R_75', 'R_100', '1HZ50V','stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
