@@ -13,7 +13,7 @@ const TOKEN = "DMylfkyce6VyZt7";
 const TELEGRAM_TOKEN = "8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'nGhost2M-state0000014.json');
+const STATE_FILE = path.join(__dirname, 'nGhost2M-state0000015.json');
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  UTILITY FUNCTIONS
@@ -1292,7 +1292,9 @@ class RomanianGhostUltimate {
         );
 
         // Execute trade
-        this.placeTrade(asset, targetDigit, safetyScore, regime);
+        if(safetyScore >= 70 && (regime.posteriorNR * 100).toFixed(1) >= 100) {
+            this.placeTrade(asset, targetDigit, safetyScore, regime);
+        }
     }
 
     // ========================================================================
@@ -1341,10 +1343,8 @@ class RomanianGhostUltimate {
             ├ Safety: ${safetyScore}/100
             ├ HMM: ${regime.hmmStateName} (P=${(regime.posteriorNR * 100).toFixed(1)}%)
             ├ BOCPD: ${regime.bocpdModeRL}t (P(NR)=${(regime.bocpdPNonRep * 100).toFixed(1)}%)
-            ├ EWMA: ${regime.ewmaTrend.toFixed(2)}([${regime.ewmaValues.map(v => v.toFixed(1)).join(',')}]%)
             ├ ACF[1]: ${regime.acf[0].toFixed(3)}
-            ├ CUSUM Up: ${regime.cusumUp.toFixed(2)}
-            └ Persistence: ${regime.hmmPersistence}t
+            └ CUSUM Up: ${regime.cusumUp.toFixed(2)}
 
             💰 Stake: $${this.stake.toFixed(2)}
             📊 Losses: ${this.consecutiveLosses}
