@@ -13,7 +13,7 @@ const TOKEN = "DMylfkyce6VyZt7";
 const TELEGRAM_TOKEN = "8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'nGhost2M-state0000015.json');
+const STATE_FILE = path.join(__dirname, 'nGhost2M-state0000016.json');
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  UTILITY FUNCTIONS
