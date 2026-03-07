@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000007-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000007-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000009-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000009-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1080,12 +1080,12 @@ const CONFIG = {
     // ============================================
     // TRADING SESSION WINDOWS (GMT+1 hours)
     // ============================================
-    TOKYO_START: 1,
-    TOKYO_END: 2,
-    LONDON_START: 9,
-    LONDON_END: 11,
-    NEWYORK_START: 13,
-    NEWYORK_END: 14,
+    TOKYO_START: 3,
+    TOKYO_END: 5,
+    LONDON_START: 10,
+    LONDON_END: 12,
+    NEWYORK_START: 15,
+    NEWYORK_END: 17,
 
     // Debug
     DEBUG_MODE: true,
@@ -1160,7 +1160,7 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_10', 'R_50', 'R_75', 'R_100', '1HZ50V','stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_25', 'R_50', 'R_75', 'R_100', '1HZ50V', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
@@ -2352,7 +2352,7 @@ class DerivBot {
         });
 
         TelegramService.sendStartupMessage();
-        // TelegramService.startHourlyTimer();
+        TelegramService.startHourlyTimer();
 
         this.startSessionTimeChecker();
 
@@ -2504,7 +2504,7 @@ class DerivBot {
                         `${symbol} ⏭️ Breakout UP already traded at Resistance ${resistance.toFixed(5)} — waiting for new fractal level`
                     );
                 } else {
-                    symbol === 'R_50' ? direction = 'PUTE' : direction = 'CALLE';
+                    symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'PUTE' : direction = 'CALLE';
                     signalReason = `BREAKOUT UP — Close ${closePrice.toFixed(5)} > Resistance ${resistance.toFixed(5)} (diff: +${(closePrice - resistance).toFixed(5)})`;
                 }
             } else if (closePrice < support) {
@@ -2513,7 +2513,7 @@ class DerivBot {
                         `${symbol} ⏭️ Breakout DOWN already traded at Support ${support.toFixed(5)} — waiting for new fractal level`
                     );
                 } else {
-                    symbol === 'R_50' ? direction = 'CALLE' : direction = 'PUTE';
+                    symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'CALLE' : direction = 'PUTE';
                     signalReason = `BREAKOUT DOWN — Close ${closePrice.toFixed(5)} < Support ${support.toFixed(5)} (diff: -${(support - closePrice).toFixed(5)})`;
                 }
             } else {
