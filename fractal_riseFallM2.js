@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000009-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000009-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM0000010-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM0000010-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1068,24 +1068,25 @@ const CONFIG = {
     // Trade Settings — NOW PER ASSET
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
     TRADE_DELAY: 1000,
-    MARTINGALE_MULTIPLIER: 2,
-    MARTINGALE_MULTIPLIER2: 2.2,
-    MARTINGALE_MULTIPLIER3: 2.3,
+    MARTINGALE_MULTIPLIER: 1,
+    MARTINGALE_MULTIPLIER2: 2.3,
+    MARTINGALE_MULTIPLIER3: 2.4,
     MARTINGALE_MULTIPLIER4: 2.5,
     MARTINGALE_MULTIPLIER5: 2.7,
-    MAX_MARTINGALE_STEPS: 6,
+    MARTINGALE_MULTIPLIER6: 3.0,
+    MAX_MARTINGALE_STEPS: 7,
     System: 1,
     iDirection: 'RISE',
 
     // ============================================
     // TRADING SESSION WINDOWS (GMT+1 hours)
     // ============================================
-    TOKYO_START: 3,
-    TOKYO_END: 5,
-    LONDON_START: 10,
+    TOKYO_START: 5,
+    TOKYO_END: 6,
+    LONDON_START: 11,
     LONDON_END: 12,
-    NEWYORK_START: 15,
-    NEWYORK_END: 17,
+    NEWYORK_START: 17,
+    NEWYORK_END: 18,
 
     // Debug
     DEBUG_MODE: true,
@@ -1160,7 +1161,7 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_25', 'R_50', 'R_75', 'R_100', '1HZ50V', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_50', 'R_75', 'R_100', '1HZ50V', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
@@ -1566,39 +1567,46 @@ class SessionManager {
             TradeHistoryManager.recordTrade(symbol, profit, assetState.martingaleLevel);
 
             // Martingale stake calculation (per-asset)
-            if (assetState.martingaleLevel <= 3) {
+            if (assetState.martingaleLevel <= 1) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel <= 10) {
+            } else if (assetState.martingaleLevel === 2) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER2 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel <= 15) {
+            } else if (assetState.martingaleLevel === 3) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER3 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel <= 20) {
+            } else if (assetState.martingaleLevel === 4) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER4 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel <= 25) {
+            } else if (assetState.martingaleLevel === 5) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER5 *
+                        100
+                    ) / 100;
+            } else if (assetState.martingaleLevel === 6) {
+                assetState.currentStake =
+                    Math.ceil(
+                        assetState.currentStake *
+                        CONFIG.MARTINGALE_MULTIPLIER6 *
                         100
                     ) / 100;
             }
