@@ -65,7 +65,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v753-grid-state00003.json');
+const STATE_FILE          = path.join(__dirname, 'v75s3-grid-state0000001.json');
 const STATE_SAVE_INTERVAL = 5000;   // ms
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -159,6 +159,14 @@ class V75GridBot {
     this.pingInterval         = null;
     this.autoSaveStarted      = false;
     this.hasStartedOnce       = false;  // true after first successful start()
+
+    // ── Trade watchdog ────────────────────────────────────────────────────────
+    //   Fires if a contract never delivers its settlement update.
+    //   A 5-tick V75 contract settles in ~10-15s. We allow 90s total before
+    //   treating the trade as stuck and self-healing.
+    this.tradeWatchdogTimer   = null;
+    this.tradeStartTime       = null;   // ms timestamp set when contract opens
+    this.tradeWatchdogMs      = 90000;  // 90 s — generous buffer for slow settlement
 
     // ── Message ID counter (mirrors fractal bot req_id pattern) ──────────────
     this.reqId = 1;
@@ -389,6 +397,7 @@ class V75GridBot {
   // ── Clean up the old WebSocket object ────────────────────────────────────
   _cleanupWs() {
     this._stopPing();
+    this._clearTradeWatchdog();
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     if (this.ws) {
       this.ws.removeAllListeners();
@@ -713,17 +722,29 @@ class V75GridBot {
   //
   // Rules:
   //   • waitingForCandle = true  → trade NOW (candle we were waiting for arrived)
-  //   • waitingForCandle = false → we are mid-streak recovery; trade immediately
-  //     (recovery trades do NOT wait for candle — they fire right after result)
-  //     But we still arrive here on candle close; only the post-result path fires
-  //     recovery trades directly.  The candle close path covers the case where
-  //     a reconnect happened and we need to fire a recovery trade on next candle.
+  //   • waitingForCandle = false → recovery fires immediately after result;
+  //     candle close just does a stuck-trade check here.
   // ══════════════════════════════════════════════════════════════════════════
 
   _onCandleClose(closedCandle) {
     if (!this.running) return;
+
     if (this.tradeInProgress) {
-      LOGGER.info(`Candle closed — trade already in progress, skipping gate`);
+      // Check if this trade has been open suspiciously long (> 2 candles worth)
+      const stuckThresholdMs = this.config.granularity * 2 * 1000;
+      const openMs = this.tradeStartTime ? (Date.now() - this.tradeStartTime) : 0;
+
+      if (openMs >= stuckThresholdMs) {
+        LOGGER.warn(
+          `⚠️ Candle closed with trade open for ${(openMs / 1000).toFixed(0)}s — ` +
+          `suspected stuck trade (contract: ${this.currentContractId})`
+        );
+        this._recoverStuckTrade('candle-timeout');
+      } else {
+        LOGGER.info(
+          `Candle closed — trade in progress for ${(openMs / 1000).toFixed(0)}s, waiting for settlement`
+        );
+      }
       return;
     }
 
@@ -732,10 +753,108 @@ class V75GridBot {
       this.waitingForCandle = false;
       this._placeTrade();
     } else {
-      // Not waiting — this candle close is irrelevant (recovery fires immediately
-      // after trade result via _onContract → _scheduleNextTrade)
-      LOGGER.info(`Candle closed — not waiting for candle (recovery fires immediately after result)`);
+      LOGGER.info(`Candle closed — not waiting (recovery fires immediately after result)`);
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // TRADE WATCHDOG — started when contract opens, cancelled when it settles
+  // ══════════════════════════════════════════════════════════════════════════
+
+  _startTradeWatchdog(contractId) {
+    this._clearTradeWatchdog();
+
+    this.tradeWatchdogTimer = setTimeout(() => {
+      if (!this.tradeInProgress) return;  // already settled — race condition guard
+
+      LOGGER.warn(
+        `⏰ WATCHDOG FIRED — Contract ${contractId} has been open for ` +
+        `${(this.tradeWatchdogMs / 1000)}s with no settlement`
+      );
+
+      // Step 1: try to poll the contract — maybe the subscription was lost
+      if (contractId && this.isConnected && this.isAuthorized) {
+        LOGGER.info(`🔍 Polling contract ${contractId} for current status…`);
+        this._send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 });
+
+        // Step 2: give the poll 30 s to deliver a result; if still stuck, force-release
+        setTimeout(() => {
+          if (!this.tradeInProgress) return;  // poll worked — already resolved
+          LOGGER.error(
+            `🚨 WATCHDOG: Poll timed out — contract ${contractId} still unresolved after ` +
+            `${((this.tradeWatchdogMs + 30000) / 1000)}s — force-releasing lock`
+          );
+          this._recoverStuckTrade('watchdog-force');
+        }, 30000);
+
+      } else {
+        // Not connected — just release the lock; reconnect will re-subscribe
+        this._recoverStuckTrade('watchdog-offline');
+      }
+    }, this.tradeWatchdogMs);
+  }
+
+  _clearTradeWatchdog() {
+    if (this.tradeWatchdogTimer) {
+      clearTimeout(this.tradeWatchdogTimer);
+      this.tradeWatchdogTimer = null;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // RECOVER FROM STUCK TRADE
+  //   We don't know if the contract was a win or loss since the result was
+  //   never delivered. Safest approach:
+  //     • Release the lock so the bot can continue trading
+  //     • Treat as a neutral event (no P&L change, no martingale escalation)
+  //     • Add the stake back to investmentRemaining (stake was debited in _onBuy)
+  //     • Wait for next candle before next trade (same as post-win behaviour)
+  //     • Alert via Telegram so the user can manually verify on Deriv
+  // ══════════════════════════════════════════════════════════════════════════
+
+  _recoverStuckTrade(reason) {
+    this._clearTradeWatchdog();
+
+    const contractId  = this.currentContractId;
+    const stakeInfo   = this.pendingTradeInfo;
+    const openSeconds = this.tradeStartTime ? Math.round((Date.now() - this.tradeStartTime) / 1000) : '?';
+
+    LOGGER.error(
+      `🚨 STUCK TRADE RECOVERY [${reason}] | Contract: ${contractId} | ` +
+      `Open for: ${openSeconds}s | Level: ${this.currentGridLevel}`
+    );
+
+    // Refund the stake to investmentRemaining (it was debited on _onBuy;
+    // we don't know the true outcome so we return the stake to avoid
+    // permanently bleeding the pool on phantom losses)
+    if (stakeInfo && stakeInfo.stake > 0) {
+      this.investmentRemaining = Number((this.investmentRemaining + stakeInfo.stake).toFixed(2));
+      LOGGER.warn(`💰 Stake $${stakeInfo.stake.toFixed(2)} returned to pool (unknown outcome) → pool: $${this.investmentRemaining.toFixed(2)}`);
+    }
+
+    // Release the lock
+    this.tradeInProgress   = false;
+    this.pendingTradeInfo  = null;
+    this.currentContractId = null;
+    this.tradeStartTime    = null;
+
+    // Wait for next candle before retrying (conservative — same as post-win)
+    this.waitingForCandle = true;
+
+    LOGGER.warn(`⏳ Stuck trade cleared — waiting for next candle before retry`);
+
+    this._sendTelegram(
+      `⚠️ <b>STUCK TRADE RECOVERED [${reason}]</b>\n` +
+      `Contract: ${contractId || 'unknown'}\n` +
+      `Open for: ${openSeconds}s\n` +
+      `Grid Level: ${this.currentGridLevel}\n` +
+      `Action: stake returned to pool, waiting for next candle\n` +
+      `⚠️ Please verify outcome on Deriv — P&L not updated\n` +
+      `Investment pool: $${this.investmentRemaining.toFixed(2)}\n` +
+      `Session P&L: $${this.totalProfit.toFixed(2)}`
+    );
+
+    StatePersistence.save(this);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -758,6 +877,7 @@ class V75GridBot {
       LOGGER.error(`Buy error: ${msg.error.message}`);
       this.tradeInProgress  = false;
       this.pendingTradeInfo = null;
+      this._clearTradeWatchdog();
       if (this.running) {
         LOGGER.warn('Buy failed — waiting for next candle to retry');
         this.waitingForCandle = true;
@@ -767,6 +887,7 @@ class V75GridBot {
 
     const b = msg.buy;
     this.currentContractId   = b.contract_id;
+    this.tradeStartTime      = Date.now();
     this.investmentRemaining = Math.max(0, Number((this.investmentRemaining - b.buy_price).toFixed(2)));
 
     LOGGER.trade(
@@ -775,6 +896,9 @@ class V75GridBot {
     );
 
     this._send({ proposal_open_contract: 1, contract_id: b.contract_id, subscribe: 1 });
+
+    // ── Start watchdog — if contract never settles, self-heal ────────────────
+    this._startTradeWatchdog(b.contract_id);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -784,6 +908,9 @@ class V75GridBot {
   _onContract(msg) {
     const c = msg.proposal_open_contract;
     if (!c.is_sold) return;
+
+    // Contract settled — cancel the watchdog immediately
+    this._clearTradeWatchdog();
 
     const profit = parseFloat(c.profit);
     const isWin  = profit > 0;
