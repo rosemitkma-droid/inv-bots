@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000003-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000003-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM0013-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM0013-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -522,12 +522,21 @@ class TelegramService {
     static async sendMessage(message) {
         if (!CONFIG.TELEGRAM_ENABLED) return;
         try {
+            if (!message || message.length === 0) {
+                LOGGER.error('[TELEGRAM] ❌ Message is empty! Not sending.');
+                console.error('[DEBUG] Empty message received in sendMessage()');
+                return;
+            }
+
             const url = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`;
             const data = JSON.stringify({
                 chat_id: CONFIG.TELEGRAM_CHAT_ID,
                 text: message,
                 parse_mode: 'HTML'
             });
+
+            console.log(`[DEBUG] Sending Telegram message (${message.length} chars, ${data.length} bytes)`);
+            console.log(`[DEBUG] Message preview: ${message.substring(0, 100)}...`);
 
             const options = {
                 method: 'POST',
@@ -545,20 +554,23 @@ class TelegramService {
                         if (res.statusCode === 200) {
                             resolve(true);
                         } else {
-                            reject(new Error(body));
+                            reject(new Error(`HTTP ${res.statusCode}: ${body}`));
                         }
                     });
                 });
-                req.on('error', error => {
-                    reject(error);
-                });
+                req.on('error', reject);
                 req.write(data);
                 req.end();
+            }).then(() => {
+                LOGGER.info('[TELEGRAM] ✅ Message sent successfully');
+            }).catch(error => {
+                LOGGER.error(`[TELEGRAM] ❌ Send failed: ${error.message}`);
             });
         } catch (error) {
             LOGGER.error(
-                `Failed to send Telegram message: ${error.message}`
+                `[TELEGRAM] ❌ Failed to send message: ${error.message}`
             );
+            console.error('[DEBUG] Exception in sendMessage:', error);
         }
     }
 
@@ -588,27 +600,27 @@ class TelegramService {
         const today = TradeHistoryManager.getTodayStats();
 
         const message = `
-${emoji} <b>${type} TRADE ALERT</b>
-Asset: ${symbol}
-Direction: ${direction}
-Stake: $${stake.toFixed(2)}
-Duration: ${duration} (${durationUnit == 't' ? 'Ticks' : durationUnit == 's' ? 'Seconds' : 'Minutes'})
-Martingale Level: ${assetMartingale}
-${details.profit !== undefined
-                ? `Profit: $${details.profit.toFixed(2)}
+                ${emoji} <b>${type} TRADE ALERT 1</b>
+                Asset: ${symbol}
+                Direction: ${direction}
+                Stake: $${stake.toFixed(2)}
+                Duration: ${duration} (${durationUnit == 't' ? 'Ticks' : durationUnit == 's' ? 'Seconds' : 'Minutes'})
+                Martingale Level: ${assetMartingale}
+                ${details.profit !== undefined
+                                ? `Profit: $${details.profit.toFixed(2)}
 
-📊 <b>Today's Stats:</b>
-${symbol} P&L: $${assetNetPL.toFixed(2)}
-${symbol} W/L: ${assetWins}/${assetLosses}
-Today P&L: $${today.netPL.toFixed(2)}
-Today W/L: ${today.winsCount}/${today.lossesCount}
+                📊 <b>Today's Stats:</b>
+                ${symbol} P&L: $${assetNetPL.toFixed(2)}
+                ${symbol} W/L: ${assetWins}/${assetLosses}
+                Today P&L: $${today.netPL.toFixed(2)}
+                Today W/L: ${today.winsCount}/${today.lossesCount}
 
-📈 <b>Overall Stats:</b>
-Overall P&L: $${overall.netPL.toFixed(2)}
-Overall W/L: ${overall.winsCount}/${overall.lossesCount}
-Total Trades: ${overall.tradesCount}
-Capital: $${state.capital.toFixed(2)}
-`
+                📈 <b>Overall Stats:</b>
+                Overall P&L: $${overall.netPL.toFixed(2)}
+                Overall W/L: ${overall.winsCount}/${overall.lossesCount}
+                Total Trades: ${overall.tradesCount}
+                Capital: $${state.capital.toFixed(2)}
+            `
                 : ''
             }`.trim();
         await this.sendMessage(message);
@@ -659,31 +671,31 @@ Capital: $${state.capital.toFixed(2)}
             : '0.0%';
 
         const message = `
-📊 <b>SESSION SUMMARY</b>
+            📊 <b>SESSION SUMMARY 1</b>
 
-📅 <b>Today (${TradeHistoryManager.getDateKey()}):</b>
-Duration: ${stats.duration}
-Trades: ${stats.trades}
-Wins: ${stats.wins} | Losses: ${stats.losses}
-Win Rate: ${stats.winRate}
-Loss Stats: x2:${today.x2Losses} | x3:${today.x3Losses} | x4:${today.x4Losses} | x5:${today.x5Losses} | x6:${today.x6Losses} | x7:${today.x7Losses}
-Today P/L: $${today.netPL.toFixed(2)}
+            📅 <b>Today (${TradeHistoryManager.getDateKey()}):</b>
+            Duration: ${stats.duration}
+            Trades: ${stats.trades}
+            Wins: ${stats.wins} | Losses: ${stats.losses}
+            Win Rate: ${stats.winRate}
+            Loss Stats: x2:${today.x2Losses} | x3:${today.x3Losses} | x4:${today.x4Losses} | x5:${today.x5Losses} | x6:${today.x6Losses} | x7:${today.x7Losses}
+            Today P/L: $${today.netPL.toFixed(2)}
 
-📈 <b>Today's Per-Asset:</b>${assetBreakdown || '\n  No trades yet'}
+            📈 <b>Today's Per-Asset:</b>${assetBreakdown || '\n  No trades yet'}
 
-📊 <b>Overall Stats (${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}):</b>
-Total Trades: ${overall.tradesCount}
-Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
-Overall Win Rate: ${overallWinRate}
-Overall P/L: $${overall.netPL.toFixed(2)}
-Loss Stats: x2:${overall.x2Losses} | x3:${overall.x3Losses} | x4:${overall.x4Losses} | x5:${overall.x5Losses} | x6:${overall.x6Losses} | x7:${overall.x7Losses}
+            📊 <b>Overall Stats (${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}):</b>
+            Total Trades: ${overall.tradesCount}
+            Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
+            Overall Win Rate: ${overallWinRate}
+            Overall P/L: $${overall.netPL.toFixed(2)}
+            Loss Stats: x2:${overall.x2Losses} | x3:${overall.x3Losses} | x4:${overall.x4Losses} | x5:${overall.x5Losses} | x6:${overall.x6Losses} | x7:${overall.x7Losses}
 
-📈 <b>Overall Per-Asset:</b>${overallAssetBreakdown || '\n  No trades yet'}
+            📈 <b>Overall Per-Asset:</b>${overallAssetBreakdown || '\n  No trades yet'}
 
-📆 <b>Recent Days:</b>${recentDaysStr || '\n  No history yet'}
+            📆 <b>Recent Days:</b>${recentDaysStr || '\n  No history yet'}
 
-💰 Current Capital: $${state.capital.toFixed(2)}
-`.trim();
+            💰 Current Capital: $${state.capital.toFixed(2)}
+        `.trim();
         await this.sendMessage(message);
     }
 
@@ -715,67 +727,91 @@ Loss Stats: x2:${overall.x2Losses} | x3:${overall.x3Losses} | x4:${overall.x4Los
         const pnlEmoji = dayStats.netPL >= 0 ? '🟢' : '🔴';
 
         const message = `
-🌙 <b>END OF DAY REPORT — ${dateKey}</b>
+            🌙 <b>END OF DAY REPORT — ${dateKey}</b>
 
-${pnlEmoji} <b>Day Results:</b>
-├ Trades: ${dayStats.tradesCount}
-├ Wins: ${dayStats.winsCount} | Losses: ${dayStats.lossesCount}
-├ Win Rate: ${dayWinRate}
-├ Profit: $${dayStats.profit.toFixed(2)} | Loss: $${dayStats.loss.toFixed(2)}
-├ Net P/L: $${dayStats.netPL.toFixed(2)}
-├ Start Capital: $${dayStats.startCapital.toFixed(2)}
-└ End Capital: $${dayStats.endCapital.toFixed(2)}
+            ${pnlEmoji} <b>Day Results 1:</b>
+            ├ Trades: ${dayStats.tradesCount}
+            ├ Wins: ${dayStats.winsCount} | Losses: ${dayStats.lossesCount}
+            ├ Win Rate: ${dayWinRate}
+            ├ Profit: $${dayStats.profit.toFixed(2)} | Loss: $${dayStats.loss.toFixed(2)}
+            ├ Net P/L: $${dayStats.netPL.toFixed(2)}
+            ├ Start Capital: $${dayStats.startCapital.toFixed(2)}
+            └ End Capital: $${dayStats.endCapital.toFixed(2)}
 
-📊 Loss Stats: x2:${dayStats.x2Losses} x3:${dayStats.x3Losses} x4:${dayStats.x4Losses} x5:${dayStats.x5Losses} x6:${dayStats.x6Losses} x7:${dayStats.x7Losses}
+            📊 Loss Stats: x2:${dayStats.x2Losses} x3:${dayStats.x3Losses} x4:${dayStats.x4Losses} x5:${dayStats.x5Losses} x6:${dayStats.x6Losses} x7:${dayStats.x7Losses}
 
-📈 <b>Per-Asset:</b>${assetBreakdown || '\n  No trades'}
+            📈 <b>Per-Asset:</b>${assetBreakdown || '\n  No trades'}
 
-📊 <b>Overall Stats (All Time):</b>
-├ Total Days: ${TradeHistoryManager.getAllDays().length}
-├ Total Trades: ${overall.tradesCount}
-├ Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
-├ Overall Win Rate: ${overallWinRate}
-├ Overall P/L: $${overall.netPL.toFixed(2)}
-└ Loss Stats: x2:${overall.x2Losses} x3:${overall.x3Losses} x4:${overall.x4Losses} x5:${overall.x5Losses} x6:${overall.x6Losses} x7:${overall.x7Losses}
+            📊 <b>Overall Stats (All Time):</b>
+            ├ Total Days: ${TradeHistoryManager.getAllDays().length}
+            ├ Total Trades: ${overall.tradesCount}
+            ├ Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
+            ├ Overall Win Rate: ${overallWinRate}
+            ├ Overall P/L: $${overall.netPL.toFixed(2)}
+            └ Loss Stats: x2:${overall.x2Losses} x3:${overall.x3Losses} x4:${overall.x4Losses} x5:${overall.x5Losses} x6:${overall.x6Losses} x7:${overall.x7Losses}
 
-💰 Current Capital: $${state.capital.toFixed(2)}
-`.trim();
+            💰 Current Capital: $${state.capital.toFixed(2)}
+        `.trim();
         await this.sendMessage(message);
     }
 
     static async sendStartupMessage() {
-        const overall = TradeHistoryManager.getOverallStats();
-        const totalDays = TradeHistoryManager.getAllDays().length;
+        try {
+            const overall = TradeHistoryManager.getOverallStats();
+            const totalDays = TradeHistoryManager.getAllDays().length;
 
-        let assetConfigInfo = '';
-        ACTIVE_ASSETS.forEach(symbol => {
-            const ac = getAssetConfig(symbol);
-            assetConfigInfo += `\n  ${symbol}: ${ac.TIMEFRAME_LABEL} candles, Duration: ${ac.DURATION}${ac.DURATION_UNIT}`;
-        });
+            let assetConfigInfo = '';
+            ACTIVE_ASSETS.forEach(symbol => {
+                const ac = getAssetConfig(symbol);
+                assetConfigInfo += `\n  ${symbol}: ${ac.TIMEFRAME_LABEL} candles, Duration: ${ac.DURATION}${ac.DURATION_UNIT}`;
+            });
 
-        const message = `
-🤖 <b>DERIV RISE/FALL BOT STARTED</b>
-Strategy: Fractal Breakout (MT5 Logic)
-Mode: <b>Independent Per-Asset Management</b>
-Capital: $${state.capital.toFixed(2)}
-Stake: $${CONFIG.STAKE}
+            // Validate CONFIG values before using them
+            console.log('[DEBUG] CONFIG Session Values:');
+            console.log(`  TOKYO_START: ${CONFIG.TOKYO_START}, TOKYO_END: ${CONFIG.TOKYO_END}`);
+            console.log(`  LONDON_START: ${CONFIG.LONDON_START}, LONDON_END: ${CONFIG.LONDON_END}`);
+            console.log(`  NEWYORK_START: ${CONFIG.NEWYORK_START}, NEWYORK_END: ${CONFIG.NEWYORK_END}`);
+            console.log(`  SYDNEY_START: ${CONFIG.SYDNEY_START}, SYDNEY_END: ${CONFIG.SYDNEY_END}`);
 
-🔧 <b>Asset Configurations:</b>${assetConfigInfo}
+            const message = `
+            🤖 <b>DERIV RISE/FALL BOT STARTED 1</b>
+            Strategy: Fractal Breakout (MT5 Logic)
+            Mode: <b>Independent Per-Asset Management</b>
+            Capital: $${state.capital.toFixed(2)}
+            Stake: $${CONFIG.STAKE}
 
-Max Positions Per Asset: ${CONFIG.MAX_OPEN_POSITIONS_PER_ASSET}
-Session Target: $${CONFIG.SESSION_PROFIT_TARGET}
-Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
+            🔧 <b>Asset Configurations:</b>${assetConfigInfo}
 
-📊 <b>Historical Stats:</b>
-├ Trading Days: ${totalDays}
-├ Total Trades: ${overall.tradesCount}
-├ Overall P/L: $${overall.netPL.toFixed(2)}
-└ Period: ${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}
+            Max Positions Per Asset: ${CONFIG.MAX_OPEN_POSITIONS_PER_ASSET}
+            Session Target: $${CONFIG.SESSION_PROFIT_TARGET}
+            Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
 
-🕐 London Session: ${CONFIG.LONDON_START}:00 - ${CONFIG.LONDON_END}:00 (GMT+1)
-🕐 New York Session: ${CONFIG.NEWYORK_START}:00 - ${CONFIG.NEWYORK_END}:00 (GMT+1)
-`.trim();
-        await this.sendMessage(message);
+            📊 <b>Historical Stats 1:</b>
+            ├ Trading Days: ${totalDays}
+            ├ Total Trades: ${overall.tradesCount}
+            ├ Overall P/L: $${overall.netPL.toFixed(2)}
+            └ Period: ${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}
+
+            🕐 TOKYO Session: ${CONFIG.TOKYO_START || 'UNDEFINED'}:00 - ${CONFIG.TOKYO_END || 'UNDEFINED'}:00 (GMT+1)
+            🕐 London Session: ${CONFIG.LONDON_START || 'UNDEFINED'}:00 - ${CONFIG.LONDON_END || 'UNDEFINED'}:00 (GMT+1)
+            🕐 New York Session: ${CONFIG.NEWYORK_START || 'UNDEFINED'}:00 - ${CONFIG.NEWYORK_END || 'UNDEFINED'}:00 (GMT+1)
+            🕐 SYDNEY Session: ${CONFIG.SYDNEY_START || 'UNDEFINED'}:00 - ${CONFIG.SYDNEY_END || 'UNDEFINED'}:00 (GMT+1)
+        `.trim();
+
+            if (!message || message.length === 0) {
+                LOGGER.error('[TELEGRAM] ❌ Message is empty before sending!');
+                return;
+            }
+
+            console.log('[DEBUG] Message preview:');
+            console.log(message.substring(0, 200) + '...');
+            console.log(`[DEBUG] Message length: ${message.length}`);
+
+            await this.sendMessage(message);
+        } catch (error) {
+            LOGGER.error(`[TELEGRAM] Failed to send startup message: ${error.message}`);
+            console.error('[DEBUG] Full error:', error);
+        }
     }
 
     static async sendHourlySummary() {
@@ -813,7 +849,7 @@ Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
         });
 
         const message = `
-            ⏰ <b>Rise/Fall Bot Hourly Summary</b>
+            ⏰ <b>Rise/Fall Bot Hourly Summary 1</b>
 
             📊 <b>Last Hour</b>
             ├ Trades: ${statsSnapshot.trades}
@@ -1042,13 +1078,13 @@ class TechnicalIndicators {
 // ============================================
 const CONFIG = {
     // API Settings
-    API_TOKEN: '0P94g4WdSrSrzir',
+    API_TOKEN: 'DMylfkyce6VyZt7',
     APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // Capital Settings
     INITIAL_CAPITAL: 500,
-    STAKE: 1,
+    STAKE: 0.35,
 
     // Session Targets
     SESSION_PROFIT_TARGET: 5000,
@@ -1067,22 +1103,27 @@ const CONFIG = {
     // Trade Settings — NOW PER ASSET
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
     TRADE_DELAY: 1000,
-    MARTINGALE_MULTIPLIER: 2,
+    MARTINGALE_MULTIPLIER: 1,
     MARTINGALE_MULTIPLIER2: 2.3,
-    MARTINGALE_MULTIPLIER3: 2.3,
+    MARTINGALE_MULTIPLIER3: 2.4,
     MARTINGALE_MULTIPLIER4: 2.5,
-    MARTINGALE_MULTIPLIER5: 3,
-    MAX_MARTINGALE_STEPS: 6,
+    MARTINGALE_MULTIPLIER5: 2.7,
+    MARTINGALE_MULTIPLIER6: 3.0,
+    MAX_MARTINGALE_STEPS: 7,
     System: 1,
     iDirection: 'RISE',
 
     // ============================================
     // TRADING SESSION WINDOWS (GMT+1 hours)
     // ============================================
-    LONDON_START: 8,
-    LONDON_END: 9,
-    NEWYORK_START: 13,
-    NEWYORK_END: 14,
+    TOKYO_START: 4,
+    TOKYO_END: 5,
+    LONDON_START: 10,
+    LONDON_END: 11,
+    NEWYORK_START: 16,
+    NEWYORK_END: 17,
+    SYDNEY_START: 23,
+    SYDNEY_END: 0,
 
     // Debug
     DEBUG_MODE: true,
@@ -1157,7 +1198,8 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_50', 'R_75', 'R_100', '1HZ50V', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -1225,6 +1267,15 @@ class TradingSessionManager {
         const currentMinute = gmtPlus1.getUTCMinutes();
         const currentTimeDecimal = currentHour + (currentMinute / 60);
 
+        if (currentTimeDecimal >= CONFIG.TOKYO_START && currentTimeDecimal < CONFIG.TOKYO_END) {
+            return {
+                inSession: true,
+                sessionName: 'TOKYO',
+                nextSession: null,
+                minutesUntilNext: 0
+            };
+        }
+
         if (currentTimeDecimal >= CONFIG.LONDON_START && currentTimeDecimal < CONFIG.LONDON_END) {
             return {
                 inSession: true,
@@ -1243,18 +1294,48 @@ class TradingSessionManager {
             };
         }
 
+        // SYDNEY is overnight (23:00 - 00:00), so use OR logic for START > END
+        if (CONFIG.SYDNEY_END < CONFIG.SYDNEY_START) {
+            // Overnight session: >= 23 OR < 0
+            if (currentTimeDecimal >= CONFIG.SYDNEY_START || currentTimeDecimal < CONFIG.SYDNEY_END) {
+                return {
+                    inSession: true,
+                    sessionName: 'SYDNEY',
+                    nextSession: null,
+                    minutesUntilNext: 0
+                };
+            }
+        } else {
+            // Normal session: 23 < 24 (not applicable but keep for safety)
+            if (currentTimeDecimal >= CONFIG.SYDNEY_START && currentTimeDecimal < CONFIG.SYDNEY_END) {
+                return {
+                    inSession: true,
+                    sessionName: 'SYDNEY',
+                    nextSession: null,
+                    minutesUntilNext: 0
+                };
+            }
+        }
+
+
         let nextSession = '';
         let minutesUntilNext = 0;
 
-        if (currentTimeDecimal < CONFIG.LONDON_START) {
+        if (currentTimeDecimal < CONFIG.TOKYO_START) {
+            nextSession = 'TOKYO';
+            minutesUntilNext = (CONFIG.TOKYO_START - currentTimeDecimal) * 60;
+        } else if (currentTimeDecimal < CONFIG.LONDON_START) {
             nextSession = 'LONDON';
             minutesUntilNext = (CONFIG.LONDON_START - currentTimeDecimal) * 60;
-        } else if (currentTimeDecimal >= CONFIG.LONDON_END && currentTimeDecimal < CONFIG.NEWYORK_START) {
+        } else if (currentTimeDecimal < CONFIG.NEWYORK_START) {
             nextSession = 'NEW YORK';
             minutesUntilNext = (CONFIG.NEWYORK_START - currentTimeDecimal) * 60;
+        } else if (currentTimeDecimal < CONFIG.SYDNEY_START) {
+            nextSession = 'SYDNEY';
+            minutesUntilNext = (CONFIG.SYDNEY_START - currentTimeDecimal) * 60;
         } else {
-            nextSession = 'LONDON (tomorrow)';
-            minutesUntilNext = ((24 - currentTimeDecimal) + CONFIG.LONDON_START) * 60;
+            nextSession = 'TOKYO';
+            minutesUntilNext = ((24 - currentTimeDecimal) + CONFIG.TOKYO_START) * 60;
         }
 
         return {
@@ -1549,39 +1630,46 @@ class SessionManager {
             TradeHistoryManager.recordTrade(symbol, profit, assetState.martingaleLevel);
 
             // Martingale stake calculation (per-asset)
-            if (assetState.martingaleLevel <= 3) {
+            if (assetState.martingaleLevel <= 1) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel <= 10) {
+            } else if (assetState.martingaleLevel === 2) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER2 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel <= 15) {
+            } else if (assetState.martingaleLevel === 3) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER3 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel <= 20) {
+            } else if (assetState.martingaleLevel === 4) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER4 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel <= 25) {
+            } else if (assetState.martingaleLevel === 5) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER5 *
+                        100
+                    ) / 100;
+            } else if (assetState.martingaleLevel === 6) {
+                assetState.currentStake =
+                    Math.ceil(
+                        assetState.currentStake *
+                        CONFIG.MARTINGALE_MULTIPLIER6 *
                         100
                     ) / 100;
             }
@@ -2282,10 +2370,16 @@ class DerivBot {
         console.log('─'.repeat(80));
         console.log(`🕐 TRADING WINDOWS (GMT+1):`);
         console.log(
+            `   JY TOKYO Session:   ${String(CONFIG.TOKYO_START).padStart(2, '0')}:00 - ${String(CONFIG.TOKYO_END).padStart(2, '0')}:00`
+        );
+        console.log(
             `   🇬🇧 London Session:   ${String(CONFIG.LONDON_START).padStart(2, '0')}:00 - ${String(CONFIG.LONDON_END).padStart(2, '0')}:00`
         );
         console.log(
             `   🇺🇸 New York Session: ${String(CONFIG.NEWYORK_START).padStart(2, '0')}:00 - ${String(CONFIG.NEWYORK_END).padStart(2, '0')}:00`
+        );
+        console.log(
+            `   AU Sedney Session: ${String(CONFIG.SYDNEY_START).padStart(2, '0')}:00 - ${String(CONFIG.SYDNEY_END).padStart(2, '0')}:00`
         );
         console.log(
             `   📊 Current Status: ${TradingSessionManager.getSessionStatusString()}`
@@ -2465,11 +2559,11 @@ class DerivBot {
         if (isRecoveryMode) {
             // Recovery: alternate direction from the previous losing trade ON THIS ASSET
             if (assetState.lastTradeDirection === 'CALLE') {
-                symbol === 'R_50' ? direction = 'CALLE' : direction = 'PUTE';
+                symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'CALLE' : direction = 'PUTE';
                 signalReason =
                     `Recovery (${symbol} Prev LOSS on RISE → now FALL)`;
             } else {
-                symbol === 'R_50' ? direction = 'PUTE' : direction = 'CALLE';
+                symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'PUTE' : direction = 'CALLE';
                 signalReason =
                     `Recovery (${symbol} Prev LOSS on FALL → now RISE)`;
             }
@@ -2484,7 +2578,7 @@ class DerivBot {
                         `${symbol} ⏭️ Breakout UP already traded at Resistance ${resistance.toFixed(5)} — waiting for new fractal level`
                     );
                 } else {
-                    symbol === 'R_50' ? direction = 'PUTE' : direction = 'CALLE';
+                    symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'PUTE' : direction = 'CALLE';
                     signalReason = `BREAKOUT UP — Close ${closePrice.toFixed(5)} > Resistance ${resistance.toFixed(5)} (diff: +${(closePrice - resistance).toFixed(5)})`;
                 }
             } else if (closePrice < support) {
@@ -2493,7 +2587,7 @@ class DerivBot {
                         `${symbol} ⏭️ Breakout DOWN already traded at Support ${support.toFixed(5)} — waiting for new fractal level`
                     );
                 } else {
-                    symbol === 'R_50' ? direction = 'CALLE' : direction = 'PUTE';
+                    symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'CALLE' : direction = 'PUTE';
                     signalReason = `BREAKOUT DOWN — Close ${closePrice.toFixed(5)} < Support ${support.toFixed(5)} (diff: -${(support - closePrice).toFixed(5)})`;
                 }
             } else {
@@ -2622,32 +2716,32 @@ class DerivBot {
             SessionManager.checkDayChange();
 
             // Weekend check
-            const isWeekend =
-                currentDay === 0 ||
-                (currentDay === 6 && currentHours >= 23) ||
-                (currentDay === 1 && currentHours < 2);
+            // const isWeekend =
+            //     currentDay === 0 ||
+            //     (currentDay === 6 && currentHours >= 23) ||
+            //     (currentDay === 1 && currentHours < 2);
 
-            if (isWeekend) {
-                if (state.session.isActive) {
-                    LOGGER.info(
-                        'Weekend trading suspension. Disconnecting...'
-                    );
-                    TelegramService.sendHourlySummary();
-                    if (this.connection.ws)
-                        this.connection.ws.close();
-                    state.session.isActive = false;
-                }
-                return;
-            }
+            // if (isWeekend) {
+            //     if (state.session.isActive) {
+            //         LOGGER.info(
+            //             'Weekend trading suspension. Disconnecting...'
+            //         );
+            //         TelegramService.sendHourlySummary();
+            //         if (this.connection.ws)
+            //             this.connection.ws.close();
+            //         state.session.isActive = false;
+            //     }
+            //     return;
+            // }
 
-            // Daily reconnection at 2:00 AM GMT+1
+            // Daily reconnection at 1:00 AM GMT+1 (to catch TOKYO session start)
             if (
                 !state.session.isActive &&
-                currentHours === 2 &&
+                currentHours === 1 &&
                 currentMinutes >= 0
             ) {
                 LOGGER.info(
-                    "It's 2:00 AM GMT+1, reconnecting the bot and resetting daily session stats."
+                    "It's 1:00 AM GMT+1, reconnecting the bot and resetting daily session stats."
                 );
                 // No longer call resetDailyStats — day change is handled by checkDayChange
                 state.session.isActive = true;
@@ -2670,11 +2764,11 @@ class DerivBot {
                 if (
                     allAssetsRecovered &&
                     anyAssetTradedWin &&
-                    currentHours >= CONFIG.NEWYORK_END &&
+                    currentHours >= CONFIG.SYDNEY_END &&
                     currentMinutes >= 30
                 ) {
                     LOGGER.info(
-                        `It's past ${CONFIG.NEWYORK_END}:30 GMT+1, all assets recovered, disconnecting.`
+                        `It's past ${CONFIG.SYDNEY_END}:30 GMT+1, all assets recovered, disconnecting.`
                     );
                     // Send end-of-day summary
                     TelegramService.sendDayEndSummary(TradeHistoryManager.getDateKey());
@@ -2820,9 +2914,9 @@ console.log(
 console.log(
     ` Base Stake: $${CONFIG.STAKE} | Per-asset candle & duration configs`
 );
-console.log(
-    ` 🕐 London: ${CONFIG.LONDON_START}:00-${CONFIG.LONDON_END}:00 | New York: ${CONFIG.NEWYORK_START}:00-${CONFIG.NEWYORK_END}:00 (GMT+1)`
-);
+// console.log(
+//     ` 🕐 London: ${CONFIG.LONDON_START}:00-${CONFIG.LONDON_END}:00 | New York: ${CONFIG.NEWYORK_START}:00-${CONFIG.NEWYORK_END}:00 (GMT+1)`
+// );
 console.log('═'.repeat(80));
 console.log('\n🚀 Initializing (Per-Asset Independent Mode)...\n');
 
