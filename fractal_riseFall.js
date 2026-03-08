@@ -1711,16 +1711,16 @@ class DerivBot {
         const support = assetState.lastFractalLow;
         const closePrice = lastClosedCandle.close;
 
-        if (resistance === null || support === null) {
-            LOGGER.info(
-                `${tradeSymbol} ⏳ Waiting for fractal levels to form — Resistance: ${resistance !== null ? resistance.toFixed(5) : 'PENDING'} | Support: ${support !== null ? support.toFixed(5) : 'PENDING'}`
-            );
-            return;
-        }
+        // if (resistance === null || support === null) {
+        //     LOGGER.info(
+        //         `${tradeSymbol} ⏳ Waiting for fractal levels to form — Resistance: ${resistance !== null ? resistance.toFixed(5) : 'PENDING'} | Support: ${support !== null ? support.toFixed(5) : 'PENDING'}`
+        //     );
+        //     return;
+        // }
 
-        LOGGER.info(
-            `${tradeSymbol} 📐 Fractal Levels — Resistance: ${resistance.toFixed(5)} | Support: ${support.toFixed(5)} | Close: ${closePrice.toFixed(5)}`
-        );
+        // LOGGER.info(
+        //     `${tradeSymbol} 📐 Fractal Levels — Resistance: ${resistance.toFixed(5)} | Support: ${support.toFixed(5)} | Close: ${closePrice.toFixed(5)}`
+        // );
 
         // =============================================
         // DETERMINE TRADE DIRECTION
