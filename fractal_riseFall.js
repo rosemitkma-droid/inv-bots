@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFall000001-state.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFall00000002-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -583,24 +583,24 @@ const CONFIG = {
     // Trade Settings
     MAX_OPEN_POSITIONS: 1,
     TRADE_DELAY: 1000,
-    MARTINGALE_MULTIPLIER: 2,
-    MARTINGALE_MULTIPLIER2: 2.3,
-    MARTINGALE_MULTIPLIER3: 2.5,
-    MARTINGALE_MULTIPLIER4: 2.3,
+    MARTINGALE_MULTIPLIER: 1.48,
+    MARTINGALE_MULTIPLIER2: 2.2,
+    MARTINGALE_MULTIPLIER3: 2.3,
+    MARTINGALE_MULTIPLIER4: 2.5,
     MARTINGALE_MULTIPLIER5: 3,
-    MAX_MARTINGALE_STEPS: 7,
+    MAX_MARTINGALE_STEPS: 9,
     System: 1,
     iDirection: 'RISE',
 
     // ============================================
     // TRADING SESSION WINDOWS (GMT+1 hours)
     // ============================================
-    // London Session: 8:00 AM - 10:00 AM GMT+1
-    LONDON_START: 8,
-    LONDON_END: 10,
-    // New York Session: 1:00 PM - 3:00 PM GMT+1
-    NEWYORK_START: 13,
-    NEWYORK_END: 15,
+    // London Session: 8:00 AM - 9:00 AM GMT+1
+    LONDON_START: 1,
+    LONDON_END: 12,
+    // New York Session: 1:00 PM - 2:00 PM GMT+1
+    NEWYORK_START: 12,
+    NEWYORK_END: 23,
 
     // Debug
     DEBUG_MODE: true,
@@ -611,7 +611,7 @@ const CONFIG = {
     TELEGRAM_CHAT_ID: '752497117'
 };
 
-let ACTIVE_ASSETS = ['R_100'];
+let ACTIVE_ASSETS = ['1HZ75V'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -1744,29 +1744,29 @@ class DerivBot {
                 `🔄 RECOVERY MODE: ${signalReason}`
             );
         } else {
-            if (closePrice > resistance) {
-                if (assetState.tradedFractalHigh === resistance) {
-                    LOGGER.debug(
-                        `${tradeSymbol} ⏭️ Breakout UP already traded at Resistance ${resistance.toFixed(5)} — waiting for new fractal level`
-                    );
-                } else {
+            // if (closePrice > resistance) {
+                // if (assetState.tradedFractalHigh === resistance) {
+                //     LOGGER.debug(
+                //         `${tradeSymbol} ⏭️ Breakout UP already traded at Resistance ${resistance.toFixed(5)} — waiting for new fractal level`
+                //     );
+                // } else {
                     direction = 'CALLE';
                     signalReason = `BREAKOUT UP — Close ${closePrice.toFixed(5)} > Resistance ${resistance.toFixed(5)} (diff: +${(closePrice - resistance).toFixed(5)})`;
-                }
-            } else if (closePrice < support) {
-                if (assetState.tradedFractalLow === support) {
-                    LOGGER.debug(
-                        `${tradeSymbol} ⏭️ Breakout DOWN already traded at Support ${support.toFixed(5)} — waiting for new fractal level`
-                    );
-                } else {
-                    direction = 'PUTE';
-                    signalReason = `BREAKOUT DOWN — Close ${closePrice.toFixed(5)} < Support ${support.toFixed(5)} (diff: -${(support - closePrice).toFixed(5)})`;
-                }
-            } else {
-                LOGGER.info(
-                    `${tradeSymbol} ⏸️ No breakout — Close ${closePrice.toFixed(5)} is between Support ${support.toFixed(5)} and Resistance ${resistance.toFixed(5)}`
-                );
-            }
+                // }
+            // } else if (closePrice < support) {
+            //     if (assetState.tradedFractalLow === support) {
+            //         LOGGER.debug(
+            //             `${tradeSymbol} ⏭️ Breakout DOWN already traded at Support ${support.toFixed(5)} — waiting for new fractal level`
+            //         );
+            //     } else {
+            //         direction = 'PUTE';
+            //         signalReason = `BREAKOUT DOWN — Close ${closePrice.toFixed(5)} < Support ${support.toFixed(5)} (diff: -${(support - closePrice).toFixed(5)})`;
+            //     }
+            // } else {
+            //     LOGGER.info(
+            //         `${tradeSymbol} ⏸️ No breakout — Close ${closePrice.toFixed(5)} is between Support ${support.toFixed(5)} and Resistance ${resistance.toFixed(5)}`
+            //     );
+            // }
 
             if (direction) {
                 LOGGER.trade(`⚡ FRACTAL SIGNAL: ${signalReason}`);
