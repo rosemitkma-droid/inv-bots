@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM300001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM300001-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM300002-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM300002-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1124,43 +1124,43 @@ const ASSET_CONFIGS = {
     // ── GROUP 3: Step Indices ────────────────────────────────────────────────
 
     stpRNG: {
-        GRANULARITY: 120,
-        TIMEFRAME_LABEL: '2m',
+        GRANULARITY: 60,
+        TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 90,
+        DURATION: 54,
         DURATION_UNIT: 's'
     },
     stpRNG2: {
-        GRANULARITY: 120,
-        TIMEFRAME_LABEL: '2m',
+        GRANULARITY: 60,
+        TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 90,
+        DURATION: 54,
         DURATION_UNIT: 's'
     },
     stpRNG3: {
-        GRANULARITY: 120,
-        TIMEFRAME_LABEL: '2m',
+        GRANULARITY: 60,
+        TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 95,
+        DURATION: 54,
         DURATION_UNIT: 's'
     },
     stpRNG4: {
-        GRANULARITY: 120,
-        TIMEFRAME_LABEL: '2m',
+        GRANULARITY: 60,
+        TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 85,
+        DURATION: 54,
         DURATION_UNIT: 's'
     },
     stpRNG5: {
-        GRANULARITY: 120,
-        TIMEFRAME_LABEL: '2m',
+        GRANULARITY: 60,
+        TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 80,
+        DURATION: 54,
         DURATION_UNIT: 's'
     }
 };
