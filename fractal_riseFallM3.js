@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM300002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM300002-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM300003-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM300003-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1081,43 +1081,43 @@ const ASSET_CONFIGS = {
     // ── GROUP 2: High-Frequency 1s Volatility Indices (1s ticks) ────────────
 
     '1HZ10V': {
-        GRANULARITY: 30,
-        TIMEFRAME_LABEL: '30s',
+        GRANULARITY: 60,
+        TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 30,
+        DURATION: 54,
         DURATION_UNIT: 's'
     },
     '1HZ25V': {
-        GRANULARITY: 30,
-        TIMEFRAME_LABEL: '30s',
+        GRANULARITY: 60,
+        TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 28,
+        DURATION: 54,
         DURATION_UNIT: 's'
     },
     '1HZ50V': {
-        GRANULARITY: 30,
-        TIMEFRAME_LABEL: '30s',
+        GRANULARITY: 60,
+        TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 27,
+        DURATION: 54,
         DURATION_UNIT: 's'
     },
     '1HZ75V': {
-        GRANULARITY: 30,
-        TIMEFRAME_LABEL: '30s',
+        GRANULARITY: 60,
+        TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 25,
+        DURATION: 54,
         DURATION_UNIT: 's'
     },
     '1HZ100V': {
-        GRANULARITY: 30,
-        TIMEFRAME_LABEL: '30s',
+        GRANULARITY: 60,
+        TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 25,
+        DURATION: 54,
         DURATION_UNIT: 's'
     },
 
@@ -1243,8 +1243,8 @@ const ASSET_SESSION_MAP = {
     stpRNG5:   ['NEW YORK']
 };
 
-// let ACTIVE_ASSETS = ['R_50', 'R_75', 'R_100', '1HZ50V', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_50', 'R_75', 'R_100', '1HZ50V', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
