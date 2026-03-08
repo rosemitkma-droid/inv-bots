@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM0000010-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM0000010-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM0000011-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM0000011-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1081,12 +1081,12 @@ const CONFIG = {
     // ============================================
     // TRADING SESSION WINDOWS (GMT+1 hours)
     // ============================================
-    TOKYO_START: 5,
-    TOKYO_END: 6,
-    LONDON_START: 11,
-    LONDON_END: 12,
-    NEWYORK_START: 17,
-    NEWYORK_END: 18,
+    TOKYO_START: 1,
+    TOKYO_END: 2,
+    LONDON_START: 8,
+    LONDON_END: 9,
+    NEWYORK_START: 1,
+    NEWYORK_END: 2,
 
     // Debug
     DEBUG_MODE: true,
