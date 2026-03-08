@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM0000011-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM0000011-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM0000012-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM0000012-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -2493,11 +2493,11 @@ class DerivBot {
         if (isRecoveryMode) {
             // Recovery: alternate direction from the previous losing trade ON THIS ASSET
             if (assetState.lastTradeDirection === 'CALLE') {
-                symbol === 'R_50' ? direction = 'CALLE' : direction = 'PUTE';
+                symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'CALLE' : direction = 'PUTE';
                 signalReason =
                     `Recovery (${symbol} Prev LOSS on RISE → now FALL)`;
             } else {
-                symbol === 'R_50' ? direction = 'PUTE' : direction = 'CALLE';
+                symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'PUTE' : direction = 'CALLE';
                 signalReason =
                     `Recovery (${symbol} Prev LOSS on FALL → now RISE)`;
             }
@@ -2650,23 +2650,23 @@ class DerivBot {
             SessionManager.checkDayChange();
 
             // Weekend check
-            const isWeekend =
-                currentDay === 0 ||
-                (currentDay === 6 && currentHours >= 23) ||
-                (currentDay === 1 && currentHours < 2);
+            // const isWeekend =
+            //     currentDay === 0 ||
+            //     (currentDay === 6 && currentHours >= 23) ||
+            //     (currentDay === 1 && currentHours < 2);
 
-            if (isWeekend) {
-                if (state.session.isActive) {
-                    LOGGER.info(
-                        'Weekend trading suspension. Disconnecting...'
-                    );
-                    TelegramService.sendHourlySummary();
-                    if (this.connection.ws)
-                        this.connection.ws.close();
-                    state.session.isActive = false;
-                }
-                return;
-            }
+            // if (isWeekend) {
+            //     if (state.session.isActive) {
+            //         LOGGER.info(
+            //             'Weekend trading suspension. Disconnecting...'
+            //         );
+            //         TelegramService.sendHourlySummary();
+            //         if (this.connection.ws)
+            //             this.connection.ws.close();
+            //         state.session.isActive = false;
+            //     }
+            //     return;
+            // }
 
             // Daily reconnection at 1:00 AM GMT+1 (to catch TOKYO session start)
             if (
