@@ -35,7 +35,7 @@ const DEFAULT_CONFIG = {
   autoCompounding:    true,
   compoundPercentage: 0.35,
 
-  stopLoss:   84,
+  stopLoss:   100,
   takeProfit: 10000,
 
   telegramToken:   '8343520432:AAGNxzjnljOEhfv_rE-y-F98fUDPmrqZuXc',
@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v75-grid-state0004.json');
+const STATE_FILE          = path.join(__dirname, 'v75-grid-state0005.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
