@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0001.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0003.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1103,7 +1103,7 @@ class V75GridBot {
       const isWeekend =
         day === 0 ||
         (day === 6 && hours >= 23) ||
-        (day === 1 && hours < 8);
+        (day === 1 && hours < 7);
 
       if (isWeekend) {
         if (!this.endOfDay) {
@@ -1116,15 +1116,15 @@ class V75GridBot {
         return;
       }
 
-      if (this.endOfDay && day === 1 && hours === 8 && minutes === 0) {
-        this.log('📅 Monday 08:00 GMT+1 — reconnecting bot', 'success');
+      if (this.endOfDay && day === 1 && hours === 7 && minutes === 0) {
+        this.log('📅 Monday 07:00 GMT+1 — reconnecting bot', 'success');
         this._resetDailyStats();
         this.endOfDay = false;
         this.connect();
       }
 
-      if (this.isWinTrade && !this.endOfDay && hours >= 17) {
-        this.log('📅 Past 17:00 GMT+1 after a win — end-of-day stop', 'info');
+      if (this.isWinTrade && !this.endOfDay && hours >= 19) {
+        this.log('📅 Past 19:00 GMT+1 after a win — end-of-day stop', 'info');
         this._sendHourlySummary();
         this.stop();
         this.disconnect();
@@ -1168,7 +1168,7 @@ function main() {
 
   if (bot.telegramBot) bot.startTelegramTimer();
 
-  // bot.startTimeScheduler();
+  bot.startTimeScheduler();
 
   bot.connect();
 
