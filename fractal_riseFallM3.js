@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM300003-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM300003-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM300004-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM300004-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1243,7 +1243,7 @@ const ASSET_SESSION_MAP = {
     stpRNG5:   ['NEW YORK']
 };
 
-let ACTIVE_ASSETS = ['R_50', 'R_75', 'R_100', '1HZ50V', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
