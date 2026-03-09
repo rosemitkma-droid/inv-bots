@@ -1,11 +1,7 @@
 #!/usr/bin/env node
 // ╔══════════════════════════════════════════════════════════════════════════════════╗
-// ║   V75 GRID MARTINGALE BOT — Headless Terminal Edition                          ║
+// ║   V75 GRID MARTINGALE BOT — Headless Terminal Edition (FIXED)                  ║
 // ║   Volatility 75 Index (1HZ75V) | CALLE/PUTE | Low-Risk Hybrid                 ║
-// ║                                                                                  ║
-// ║   Runs entirely from the terminal — no HTTP server, no web UI, no REST API     ║
-// ║   Full Telegram notifications, state persistence, heartbeat, reconnect,         ║
-// ║   time scheduler, and auto-start from DEFAULT_CONFIG.                           ║
 // ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 'use strict';
@@ -18,36 +14,30 @@ const fs          = require('fs');
 const path        = require('path');
 
 // ══════════════════════════════════════════════════════════════════════════════
-// CONFIGURATION  — edit here or override via .env
+// CONFIGURATION
 // ══════════════════════════════════════════════════════════════════════════════
 
 const DEFAULT_CONFIG = {
-  // Deriv API
   apiToken: 'hsj0tA0XJoIzJG5',
   appId:    '1089',
 
-  // Strategy — core
-  symbol:        '1HZ75V',// 1HZ75V
-  tickDuration:  5,           // 5 ticks per contract
-  initialStake:  0.35,        // base stake ($)
-  investmentAmount: 100,      // investment pool ($)
+  symbol:        '1HZ75V',
+  tickDuration:  5,
+  initialStake:  0.35,
+  investmentAmount: 100,
 
-  // Martingale
   martingaleMultiplier:  1.48,
-  maxMartingaleLevel:    6,
-  afterMaxLoss:          'continue',   // 'stop' | 'continue' | 'reset'
-  continueExtraLevels:   3,
-  extraLevelMultipliers: [2.2, 2.3, 2.5],
+  maxMartingaleLevel:    3,//6
+  afterMaxLoss:          'continue',
+  continueExtraLevels:   6,//3
+  extraLevelMultipliers: [2.0, 2.0, 2.1, 2.1, 2.2, 2.3], //  [2.2, 2.3, 2.5] used only if afterMaxLoss is 'continue'
 
-  // Auto-compounding
   autoCompounding:    true,
-  compoundPercentage: 0.35,   // % of investment pool per base stake
+  compoundPercentage: 0.35,
 
-  // Risk management
-  stopLoss:   84,             // stop if total P&L <= -$stopLoss
-  takeProfit: 10000,          // stop if total P&L >= $takeProfit
+  stopLoss:   84,
+  takeProfit: 10000,
 
-  // Telegram — override via .env for security
   telegramToken:   '8343520432:AAGNxzjnljOEhfv_rE-y-F98fUDPmrqZuXc',
   telegramChatId:  '752497117',
   telegramEnabled: true,
@@ -58,7 +48,7 @@ const DEFAULT_CONFIG = {
 // ══════════════════════════════════════════════════════════════════════════════
 
 const STATE_FILE          = path.join(__dirname, 'v75-grid-state0004.json');
-const STATE_SAVE_INTERVAL = 5000;   // 5 s
+const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE
@@ -83,7 +73,7 @@ class StatePersistence {
           maxWinStreak:        bot.maxWinStreak,
           maxLossStreak:       bot.maxLossStreak,
           currentStreak:       bot.currentStreak,
-          waitingForCandle:    bot.waitingForCandle,
+          // FIX #1: removed waitingForCandle from persistence — it's transient
         },
       };
       fs.writeFileSync(STATE_FILE, JSON.stringify(payload, null, 2), 'utf8');
@@ -110,8 +100,10 @@ class StatePersistence {
     }
   }
 
+  // FIX #5: Accept the interval ID back so we don't double-start
   static startAutoSave(bot) {
-    setInterval(() => {
+    if (bot._autoSaveInterval) return; // already running
+    bot._autoSaveInterval = setInterval(() => {
       if (bot.running || bot.totalTrades > 0) StatePersistence.save(bot);
     }, STATE_SAVE_INTERVAL);
     console.log('[StatePersistence] Auto-save every 5 s ✅');
@@ -143,9 +135,10 @@ class V75GridBot {
     this.pingInterval = null;
 
     // ── Trade Watchdog ───────────────────────────────────────────────────────
-    this.tradeWatchdogTimer = null;
-    this.tradeWatchdogMs    = 60000;   // 60s — time before considering a trade stuck
-    this.tradeStartTime     = null;
+    this.tradeWatchdogTimer    = null;
+    this.tradeWatchdogPollTimer = null;  // FIX #7: track the inner poll timeout
+    this.tradeWatchdogMs       = 60000;
+    this.tradeStartTime        = null;
 
     // ── Message queue ────────────────────────────────────────────────────────
     this.messageQueue = [];
@@ -180,9 +173,12 @@ class V75GridBot {
     // ── Session control ──────────────────────────────────────────────────────
     this.endOfDay         = false;
     this.isWinTrade       = false;
-    this.hasStartedOnce   = false;   // true after first successful authorize
-    this.autoSaveStarted  = false;
-    this.waitingForCandle = false;
+    this.hasStartedOnce   = false;
+    this._autoSaveInterval = null;  // FIX #5: track auto-save interval
+
+    // FIX #6: Track processed contract IDs to prevent double-processing
+    this._processedContracts = new Set();
+    this._maxProcessedCache  = 200;
 
     // ── Hourly Telegram stats ─────────────────────────────────────────────────
     this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
@@ -225,8 +221,8 @@ class V75GridBot {
     this.maxWinStreak        = t.maxWinStreak        || 0;
     this.maxLossStreak       = t.maxLossStreak       || 0;
     this.currentStreak       = t.currentStreak       || 0;
-    this.waitingForCandle    = t.waitingForCandle    || false;
-    this.hasStartedOnce      = true;  // mark that we've restored state from a prior session
+    // FIX #1: Do NOT restore waitingForCandle — always start fresh
+    this.hasStartedOnce      = true;
     this.log(
       `State restored | Trades: ${this.totalTrades} | W/L: ${this.wins}/${this.losses} | ` +
       `P&L: $${this.totalProfit.toFixed(2)} | Level: ${this.currentGridLevel}`,
@@ -235,7 +231,7 @@ class V75GridBot {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // LOGGING  (terminal only — clean, timestamped, coloured)
+  // LOGGING
   // ══════════════════════════════════════════════════════════════════════════
 
   log(message, type = 'info') {
@@ -261,7 +257,6 @@ class V75GridBot {
       return Number((base * Math.pow(cfg.martingaleMultiplier, level)).toFixed(2));
     }
 
-    // Extra levels beyond maxMartingaleLevel
     let stake    = base * Math.pow(cfg.martingaleMultiplier, cfg.maxMartingaleLevel);
     const extraIdx = level - cfg.maxMartingaleLevel - 1;
     const mults  = cfg.extraLevelMultipliers || [];
@@ -294,7 +289,6 @@ class V75GridBot {
     this.ws.on('close',   (code) => this._onClose(code));
   }
 
-  // ── called when TCP connection is established ─────────────────────────────
   _onOpen() {
     this.log('WebSocket connected ✅', 'success');
     this.isConnected       = true;
@@ -303,29 +297,26 @@ class V75GridBot {
 
     this._startPing();
 
-    if (!this.autoSaveStarted) {
-      StatePersistence.startAutoSave(this);
-      this.autoSaveStarted = true;
-    }
+    // FIX #5: use the guarded version
+    StatePersistence.startAutoSave(this);
 
-    // Authenticate immediately
     this._send({ authorize: this.config.apiToken });
   }
 
-  // ── WebSocket error ───────────────────────────────────────────────────────
   _onError(err) {
     this.log(`WebSocket error: ${err.message}`, 'error');
   }
 
-  // ── WebSocket close — drives all reconnect logic ──────────────────────────
   _onClose(code) {
     this.log(`WebSocket closed (code: ${code})`, 'warning');
     this.isConnected  = false;
     this.isAuthorized = false;
 
     this._stopPing();
+    // FIX: clear ALL watchdog timers on disconnect
+    this._clearAllWatchdogTimers();
 
-    // Clear stale trade lock — contract gone with dead connection
+    // Clear stale trade lock
     this.tradeInProgress  = false;
     this.pendingTradeInfo = null;
 
@@ -365,10 +356,9 @@ class V75GridBot {
     }, delay);
   }
 
-  // ── Clean up the old WebSocket object ────────────────────────────────────
   _cleanupWs() {
     this._stopPing();
-    this._clearTradeWatchdog();
+    this._clearAllWatchdogTimers();
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     if (this.ws) {
       this.ws.removeAllListeners();
@@ -383,7 +373,6 @@ class V75GridBot {
     this.isAuthorized = false;
   }
 
-  // ── Intentional disconnect (stop/EOD) ────────────────────────────────────
   disconnect() {
     this.log('Disconnecting…');
     StatePersistence.save(this);
@@ -456,7 +445,7 @@ class V75GridBot {
       case 'proposal':               this._onProposal(msg);   break;
       case 'buy':                    this._onBuy(msg);        break;
       case 'proposal_open_contract': this._onContract(msg);   break;
-      case 'ping':                   /* server-side ping — ignore */ break;
+      case 'ping':                   break;
     }
   }
 
@@ -466,18 +455,26 @@ class V75GridBot {
     const code = msg.error.code;
     if (code === 'AuthorizationRequired' || code === 'InvalidToken') {
       this.isAuthorized = false;
-      this._onClose(4001);   // treat as connection drop → reconnect
+      this._onClose(4001);
       return;
     }
 
-    // Trade errors: release the trade lock and retry on next candle close
     if (msg.msg_type === 'buy' || msg.msg_type === 'proposal') {
+      this.log('Trade error — releasing lock and retrying in 3s', 'warning');
+      this._clearAllWatchdogTimers();
       this.tradeInProgress  = false;
       this.pendingTradeInfo = null;
+      this.currentContractId = null;
+
+      // FIX #1: Instead of setting waitingForCandle (which never clears),
+      // schedule a concrete retry with a delay
       if (this.running) {
-        this.log('Trade error — will retry on next candle close', 'warning');
-        // Force wait-for-candle so we don't spam retries
-        this.waitingForCandle = true;
+        setTimeout(() => {
+          if (this.running && !this.tradeInProgress) {
+            this.log('Retrying trade after API error…');
+            this._placeTrade();
+          }
+        }, 3000);
       }
     }
   }
@@ -500,26 +497,23 @@ class V75GridBot {
       'success'
     );
 
-    // Always subscribe to balance updates
     this._send({ balance: 1, subscribe: 1 });
 
     if (!this.hasStartedOnce) {
-      // ── FIRST EVER connection — fresh start ─────────────────────────────
+      // ── FIRST connection ────────────────────────────────────────────────
       this._sendTelegram(
         `✅ <b>V75 Grid Bot Connected</b>\n` +
         `Account: ${this.accountId}\n` +
         `Balance: ${this.currency} ${this.balance.toFixed(2)}`
       );
-      // start() will set running = true and place first trade
       setTimeout(() => { if (!this.running) this.start(); }, 300);
 
     } else {
-      // ── RECONNECTION — resume from preserved state ───────────────────────
+      // ── RECONNECTION ────────────────────────────────────────────────────
       this.log(
         `🔄 Reconnected — resuming | L${this.currentGridLevel} | ` +
         `${this.currentDirection === 'CALLE' ? 'HIGHER' : 'LOWER'} | ` +
-        `Investment: $${this.investmentRemaining.toFixed(2)} | ` +
-        `WaitingForCandle: ${this.waitingForCandle}`,
+        `Investment: $${this.investmentRemaining.toFixed(2)}`,
         'success'
       );
       this._sendTelegram(
@@ -527,19 +521,26 @@ class V75GridBot {
         `Account: ${this.accountId} | Balance: ${this.currency} ${this.balance.toFixed(2)}\n` +
         `Grid Level: ${this.currentGridLevel} | ` +
         `Next: ${this.currentDirection === 'CALLE' ? 'HIGHER' : 'LOWER'} @ $${this.calculateStake(this.currentGridLevel).toFixed(2)}\n` +
-        `Investment: $${this.investmentRemaining.toFixed(2)}\n` +
-        `WaitingForCandle: ${this.waitingForCandle}`
+        `Investment: $${this.investmentRemaining.toFixed(2)}`
       );
 
-      // Re-subscribe to any open contract (if mid-trade when we dropped)
+      // FIX #3: If we had a contract open when we disconnected, try to
+      // check its status. But also set a fallback to just place a new trade.
       if (this.currentContractId) {
         this.log(`Re-subscribing to open contract ${this.currentContractId}…`);
+        this.tradeInProgress = true; // mark as in-progress while we check
         this._send({ proposal_open_contract: 1, contract_id: this.currentContractId, subscribe: 1 });
-      }
 
-      // If not mid-trade and not waiting for candle → recovery trade fires on next demand
-      if (!this.tradeInProgress && !this.waitingForCandle && this.running) {
-        this.log('Mid-streak recovery — trade will fire when ready ✅');
+        // FIX: If re-subscribe doesn't yield a result in 15s, force-recover
+        this._startTradeWatchdog(this.currentContractId, 15000);
+      } else {
+        // FIX #1: No open contract — just resume trading immediately
+        if (this.running && !this.tradeInProgress) {
+          this.log('No open contract — placing next trade in 2s', 'success');
+          setTimeout(() => {
+            if (this.running && !this.tradeInProgress) this._placeTrade();
+          }, 2000);
+        }
       }
     }
   }
@@ -570,7 +571,6 @@ class V75GridBot {
       `Investment left: $${this.investmentRemaining.toFixed(2)}`
     );
 
-    // Start the trade watchdog to detect stuck trades
     this._startTradeWatchdog(b.contract_id);
 
     this._send({ proposal_open_contract: 1, contract_id: b.contract_id, subscribe: 1 });
@@ -581,15 +581,39 @@ class V75GridBot {
     const c = msg.proposal_open_contract;
     if (!c.is_sold) return;
 
-    // Clear the watchdog — trade has settled
-    this._clearTradeWatchdog();
+    // FIX #4: Verify this contract belongs to the current trade
+    const contractId = String(c.contract_id);
+    if (this.currentContractId && contractId !== String(this.currentContractId)) {
+      this.log(
+        `⚠️ Ignoring stale contract result: ${contractId} (current: ${this.currentContractId})`,
+        'warning'
+      );
+      return;
+    }
+
+    // FIX #6: Deduplicate — don't process the same sold contract twice
+    if (this._processedContracts.has(contractId)) {
+      this.log(`⚠️ Duplicate contract result ignored: ${contractId}`, 'warning');
+      return;
+    }
+    this._processedContracts.add(contractId);
+    // Trim the cache so it doesn't grow forever
+    if (this._processedContracts.size > this._maxProcessedCache) {
+      const first = this._processedContracts.values().next().value;
+      this._processedContracts.delete(first);
+    }
+
+    // Clear ALL watchdog timers — trade has settled
+    this._clearAllWatchdogTimers();
 
     const profit = parseFloat(c.profit);
     const payout = parseFloat(c.payout || 0);
     const isWin  = profit > 0;
 
-    this.tradeInProgress  = false;
-    this.pendingTradeInfo = null;
+    this.tradeInProgress   = false;
+    this.pendingTradeInfo  = null;
+    this.currentContractId = null;  // FIX: clear immediately after processing
+    this.tradeStartTime    = null;
 
     // ── Update counters ───────────────────────────────────────────────────
     this.totalTrades += 1;
@@ -625,7 +649,6 @@ class V75GridBot {
     const cfg          = this.config;
 
     if (isWin) {
-      // ── WIN — reset to Level 0 + CALLE ───────────────────────────────────
       if (this.currentGridLevel > 0) this.totalRecovered += profit;
       this.investmentRemaining = Number((this.investmentRemaining + payout).toFixed(2));
 
@@ -649,7 +672,6 @@ class V75GridBot {
       this._sendTelegramTradeResult(isWin, profit);
 
     } else {
-      // ── LOSS — increase level + switch direction ──────────────────────────
       const nextLevel   = this.currentGridLevel + 1;
       const nextDir     = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
       const absoluteMax = cfg.afterMaxLoss === 'continue'
@@ -722,7 +744,7 @@ class V75GridBot {
     }
 
     if (this.running) {
-      setTimeout(() => { if (this.running) this._placeTrade(); }, 1000);
+      setTimeout(() => { if (this.running && !this.tradeInProgress) this._placeTrade(); }, 1000);
     }
   }
 
@@ -730,61 +752,63 @@ class V75GridBot {
   // TRADE WATCHDOG — DETECT STUCK CONTRACTS
   // ══════════════════════════════════════════════════════════════════════════
 
-  _startTradeWatchdog(contractId) {
-    this._clearTradeWatchdog();
+  // FIX #7: Accept optional custom timeout (used for reconnect re-subscribe)
+  _startTradeWatchdog(contractId, customTimeoutMs) {
+    this._clearAllWatchdogTimers();
+
+    const timeoutMs = customTimeoutMs || this.tradeWatchdogMs;
 
     this.tradeWatchdogTimer = setTimeout(() => {
-      if (!this.tradeInProgress) return;  // already settled — race condition guard
+      if (!this.tradeInProgress) return;
 
       this.log(
         `⏰ WATCHDOG FIRED — Contract ${contractId} has been open for ` +
-        `${(this.tradeWatchdogMs / 1000)}s with no settlement`,
+        `${(timeoutMs / 1000)}s with no settlement`,
         'warning'
       );
 
-      // Step 1: try to poll the contract — maybe the subscription was lost
+      // Step 1: try to poll the contract
       if (contractId && this.isConnected && this.isAuthorized) {
         this.log(`🔍 Polling contract ${contractId} for current status…`);
         this._send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 });
 
-        // Step 2: give the poll 30 s to deliver a result; if still stuck, force-release
-        setTimeout(() => {
-          if (!this.tradeInProgress) return;  // poll worked — already resolved
+        // FIX #7: Store the poll timeout so it can be cancelled
+        this.tradeWatchdogPollTimer = setTimeout(() => {
+          if (!this.tradeInProgress) return;
           this.log(
-            `🚨 WATCHDOG: Poll timed out — contract ${contractId} still unresolved after ` +
-            `${((this.tradeWatchdogMs + 30000) / 1000)}s — force-releasing lock`,
+            `🚨 WATCHDOG: Poll timed out — contract ${contractId} still unresolved ` +
+            `after ${((timeoutMs + 30000) / 1000)}s — force-releasing lock`,
             'error'
           );
           this._recoverStuckTrade('watchdog-force');
         }, 30000);
 
       } else {
-        // Not connected — just release the lock; reconnect will re-subscribe
         this._recoverStuckTrade('watchdog-offline');
       }
-    }, this.tradeWatchdogMs);
+    }, timeoutMs);
   }
 
-  _clearTradeWatchdog() {
+  // FIX #7: Clear BOTH timers
+  _clearAllWatchdogTimers() {
     if (this.tradeWatchdogTimer) {
       clearTimeout(this.tradeWatchdogTimer);
       this.tradeWatchdogTimer = null;
+    }
+    if (this.tradeWatchdogPollTimer) {
+      clearTimeout(this.tradeWatchdogPollTimer);
+      this.tradeWatchdogPollTimer = null;
     }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
   // RECOVER FROM STUCK TRADE
-  //   We don't know if the contract was a win or loss since the result was
-  //   never delivered. Safest approach:
-  //     • Release the lock so the bot can continue trading
-  //     • Treat as a neutral event (no P&L change, no martingale escalation)
-  //     • Add the stake back to investmentRemaining (stake was debited in _onBuy)
-  //     • Wait for next trade opportunity before retrying (conservative)
-  //     • Alert via Telegram so the user can manually verify on Deriv
+  // FIX #1: After recovery, schedule a concrete retry instead of setting
+  //         the dead-end waitingForCandle flag
   // ══════════════════════════════════════════════════════════════════════════
 
   _recoverStuckTrade(reason) {
-    this._clearTradeWatchdog();
+    this._clearAllWatchdogTimers();
 
     const contractId  = this.currentContractId;
     const stakeInfo   = this.pendingTradeInfo;
@@ -796,9 +820,7 @@ class V75GridBot {
       'error'
     );
 
-    // Refund the stake to investmentRemaining (it was debited on _onBuy;
-    // we don't know the true outcome so we return the stake to avoid
-    // permanently bleeding the pool on phantom losses)
+    // Refund the stake to investmentRemaining
     if (stakeInfo && stakeInfo.stake > 0) {
       this.investmentRemaining = Number((this.investmentRemaining + stakeInfo.stake).toFixed(2));
       this.log(
@@ -808,29 +830,45 @@ class V75GridBot {
       );
     }
 
+    // Add to processed set so if the result arrives late, we ignore it
+    if (contractId) {
+      this._processedContracts.add(String(contractId));
+    }
+
     // Release the lock
     this.tradeInProgress   = false;
     this.pendingTradeInfo  = null;
     this.currentContractId = null;
     this.tradeStartTime    = null;
 
-    // Wait for next trade before retrying (conservative — same as post-win)
-    this.waitingForCandle = true;
-
-    this.log(`⏳ Stuck trade cleared — waiting for next trade attempt`, 'warning');
+    // FIX #1 (THE KEY FIX): Schedule a concrete retry instead of
+    // setting waitingForCandle = true (which was never cleared)
+    this.log(`🔄 Will retry trade in 3 seconds…`, 'warning');
 
     this._sendTelegram(
       `⚠️ <b>STUCK TRADE RECOVERED [${reason}]</b>\n` +
       `Contract: ${contractId || 'unknown'}\n` +
       `Open for: ${openSeconds}s\n` +
       `Grid Level: ${this.currentGridLevel}\n` +
-      `Action: stake returned to pool, waiting for next trade\n` +
+      `Action: stake returned, retrying in 3s\n` +
       `⚠️ Please verify outcome on Deriv — P&L not updated\n` +
       `Investment pool: $${this.investmentRemaining.toFixed(2)}\n` +
       `Session P&L: $${this.totalProfit.toFixed(2)}`
     );
 
     StatePersistence.save(this);
+
+    // FIX #1: Actually resume trading after a short delay
+    if (this.running) {
+      setTimeout(() => {
+        if (this.running && !this.tradeInProgress && this.isAuthorized) {
+          this.log('🔄 Resuming trading after stuck trade recovery…', 'success');
+          this._placeTrade();
+        } else if (this.running && !this.isAuthorized) {
+          this.log('⏳ Not authorized yet — trade will resume after reconnect', 'warning');
+        }
+      }, 3000);
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -921,7 +959,8 @@ class V75GridBot {
     this.pendingTradeInfo      = null;
     this.currentContractId     = null;
     this.isWinTrade            = false;
-    this.reconnectAttempts     = 0;   // fresh reconnect budget for this session
+    this.reconnectAttempts     = 0;
+    this.hasStartedOnce        = true;  // Mark so reconnects use resume path
 
     this.log('🚀 V75 Grid Martingale Bot STARTED!', 'success');
     this.log(
@@ -949,6 +988,7 @@ class V75GridBot {
   stop() {
     this.running         = false;
     this.tradeInProgress = false;
+    this._clearAllWatchdogTimers();
     this.log('🛑 Bot stopped', 'warning');
     this._sendTelegram(`🛑 <b>Bot stopped</b>\nP&L: $${this.totalProfit.toFixed(2)} | Trades: ${this.totalTrades}`);
     this._logSummary();
@@ -957,6 +997,7 @@ class V75GridBot {
   emergencyStop() {
     this.running         = false;
     this.tradeInProgress = false;
+    this._clearAllWatchdogTimers();
     this.log('🚨 EMERGENCY STOP — All activity halted!', 'error');
     this._sendTelegram(`🚨 <b>EMERGENCY STOP TRIGGERED</b>\nP&L: $${this.totalProfit.toFixed(2)} | Trades: ${this.totalTrades}`);
     this._logSummary();
@@ -1022,6 +1063,9 @@ class V75GridBot {
       `  W/L: ${this.wins}/${this.losses}\n` +
       `  Session P&L: ${(this.totalProfit >= 0 ? '+' : '')}$${this.totalProfit.toFixed(2)}\n` +
       `  Investment: $${this.investmentRemaining.toFixed(2)} / $${this.investmentStartAmount.toFixed(2)}\n` +
+      `  Total Recovered: $${this.totalRecovered.toFixed(2)}\n` +
+      `  Max Win Streak: ${this.maxWinStreak}\n` +
+      `  Max Loss Streak: ${this.maxLossStreak}\n` +
       `  Grid Level: ${this.currentGridLevel}\n\n` +
       `⏰ ${new Date().toLocaleString()}`
     );
@@ -1045,7 +1089,7 @@ class V75GridBot {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // TIME SCHEDULER — weekend pause + end-of-day logic (GMT+1)
+  // TIME SCHEDULER
   // ══════════════════════════════════════════════════════════════════════════
 
   startTimeScheduler() {
@@ -1056,7 +1100,6 @@ class V75GridBot {
       const hours   = gmt1.getUTCHours();
       const minutes = gmt1.getUTCMinutes();
 
-      // Weekend: Sat 23:00 → Mon 08:00 GMT+1
       const isWeekend =
         day === 0 ||
         (day === 6 && hours >= 23) ||
@@ -1073,7 +1116,6 @@ class V75GridBot {
         return;
       }
 
-      // Resume Monday 08:00
       if (this.endOfDay && day === 1 && hours === 8 && minutes === 0) {
         this.log('📅 Monday 08:00 GMT+1 — reconnecting bot', 'success');
         this._resetDailyStats();
@@ -1081,7 +1123,6 @@ class V75GridBot {
         this.connect();
       }
 
-      // End-of-day: stop after a win past 17:00
       if (this.isWinTrade && !this.endOfDay && hours >= 17) {
         this.log('📅 Past 17:00 GMT+1 after a win — end-of-day stop', 'info');
         this._sendHourlySummary();
@@ -1106,7 +1147,7 @@ class V75GridBot {
 
 function printBanner() {
   console.log('\n╔══════════════════════════════════════════════════════════════════════╗');
-  console.log('║   V75 GRID MARTINGALE BOT — Headless Terminal Edition               ║');
+  console.log('║   V75 GRID MARTINGALE BOT — Headless Terminal Edition (FIXED)       ║');
   console.log('║   Strategy: CALLE/PUTE | 1HZ75V | 5 ticks | 1.48x Martingale       ║');
   console.log('║   No HTTP server | No web UI | Runs entirely from terminal           ║');
   console.log('╚══════════════════════════════════════════════════════════════════════╝\n');
@@ -1122,20 +1163,15 @@ function main() {
 
   const bot = new V75GridBot(DEFAULT_CONFIG);
 
-  // ── State persistence ──────────────────────────────────────────────────────
+  // FIX #5: Only call once — the guarded version prevents duplicates
   StatePersistence.startAutoSave(bot);
 
-  // ── Telegram hourly summaries ──────────────────────────────────────────────
   if (bot.telegramBot) bot.startTelegramTimer();
 
-  // ── Time-based scheduler ──────────────────────────────────────────────────
   // bot.startTimeScheduler();
 
-  // ── Connect & auto-start ───────────────────────────────────────────────────
-  // Trading begins automatically inside _onAuthorize() once the socket is ready.
   bot.connect();
 
-  // ── Graceful shutdown ──────────────────────────────────────────────────────
   const shutdown = (sig) => {
     console.log(`\n[${sig}] Shutting down gracefully…`);
     bot.stop();
@@ -1146,13 +1182,11 @@ function main() {
   process.on('SIGINT',  () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-  // ── Unhandled rejection safety net ────────────────────────────────────────
   process.on('unhandledRejection', (reason) => {
     console.error('[UnhandledRejection]', reason);
   });
   process.on('uncaughtException', (err) => {
     console.error('[UncaughtException]', err);
-    // Don't exit — let the reconnect logic handle it
   });
 }
 
