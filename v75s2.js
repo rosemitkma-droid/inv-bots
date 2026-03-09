@@ -27,7 +27,7 @@ const DEFAULT_CONFIG = {
   appId:    '1089',
 
   // Strategy — core
-  symbol:        'stpRNG',// 1HZ75V
+  symbol:        '1HZ75V',// 1HZ75V
   tickDuration:  5,           // 5 ticks per contract
   initialStake:  0.35,        // base stake ($)
   investmentAmount: 100,      // investment pool ($)
@@ -57,7 +57,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v75-grid-state0002.json');
+const STATE_FILE          = path.join(__dirname, 'v75-grid-state0003.json');
 const STATE_SAVE_INTERVAL = 5000;   // 5 s
 
 // ══════════════════════════════════════════════════════════════════════════════
