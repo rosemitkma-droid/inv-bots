@@ -65,7 +65,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v75s3-grid-state0000001.json');
+const STATE_FILE          = path.join(__dirname, 'v75s3-grid-state0000002.json');
 const STATE_SAVE_INTERVAL = 5000;   // ms
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -649,6 +649,7 @@ class V75GridBot {
     this.candlesLoaded                = true;
 
     LOGGER.success(`Loaded ${candles.length} historical candles for ${symbol} ✅`);
+    this._placeTrade();
   }
 
   // ── Live OHLC tick — NEW CANDLE CLOSE DETECTION ──────────────────────────
@@ -709,7 +710,7 @@ class V75GridBot {
         );
 
         // ── TRADE GATE: new candle closed → check if we should trade ────────
-        this._onCandleClose(closedCandle);
+        // this._onCandleClose(closedCandle);
       }
     }
 
@@ -1062,15 +1063,15 @@ class V75GridBot {
   // ══════════════════════════════════════════════════════════════════════════
 
   _scheduleNextTrade(isWin) {
-    if (isWin) {
-      LOGGER.info(`⏳ Next trade gated — waiting for candle close…`);
-      // _onCandleClose will call _placeTrade when waitingForCandle=true
-    } else {
+    // if (isWin) {
+    //   LOGGER.info(`⏳ Next trade gated — waiting for candle close…`);
+    //   // _onCandleClose will call _placeTrade when waitingForCandle=true
+    // } else {
       LOGGER.info(`⚡ Recovery — placing next trade immediately (1 s delay)…`);
       setTimeout(() => {
         if (this.running && !this.tradeInProgress) this._placeTrade();
       }, 1000);
-    }
+    // }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
