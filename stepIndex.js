@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state00012.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state00013.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -684,7 +684,19 @@ class V75GridBot {
       // this.currentDirection = nextDir;
 
       let nextDir = null;
-      this.currentGridLevel > 3 ? nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE' : nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      if (this.currentGridLevel < 3) {
+        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      } else if (this.currentGridLevel >= 4 && this.currentGridLevel <= 5) {
+        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      } else if (this.currentGridLevel === 6) {
+        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      } else if (this.currentGridLevel === 7) {
+        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      } else if (this.currentGridLevel === 8) {
+        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      } else {
+        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      }
       this.currentDirection = nextDir;
 
       if (nextLevel > absoluteMax) {
