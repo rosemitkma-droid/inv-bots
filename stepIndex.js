@@ -22,7 +22,7 @@ const DEFAULT_CONFIG = {
   appId:    '1089',
 
   symbol:        'stpRNG5',
-  tickDuration:  5,
+  tickDuration:  9,
   initialStake:  0.35,
   investmentAmount: 100,
 
