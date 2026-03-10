@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state00010.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state00011.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -683,12 +683,7 @@ class V75GridBot {
       this.currentGridLevel = nextLevel;
       // this.currentDirection = nextDir;
 
-      if (this.currentGridLevel > 3) {
-        const nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
-      } else {
-        const nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      }
-
+      this.currentGridLevel > 3 ? const nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE' : const nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
       this.currentDirection = nextDir;
 
       if (nextLevel > absoluteMax) {
