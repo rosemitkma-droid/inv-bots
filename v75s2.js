@@ -21,8 +21,8 @@ const DEFAULT_CONFIG = {
   apiToken: 'hsj0tA0XJoIzJG5',
   appId:    '1089',
 
-  symbol:        '1HZ75V',
-  tickDuration:  5,
+  symbol:        'stpRNG3', //1HZ75V
+  tickDuration:  1,
   initialStake:  0.35,
   investmentAmount: 100,
 
