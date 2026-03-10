@@ -1133,7 +1133,7 @@ class V75GridBot {
       }
 
       // Disconnect at or after 17:00 GMT+1 regardless of last trade result
-      if (!this.endOfDay && this.isWinTrade && hours >= 17) {
+      if (!this.endOfDay && this.isWinTrade && hours >= 19) {
         this.log('📅 Past 17:00 GMT+1 — end-of-day stop', 'info');
         this._sendHourlySummary();
         this.stop();
