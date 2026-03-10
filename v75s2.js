@@ -21,7 +21,7 @@ const DEFAULT_CONFIG = {
   apiToken: 'hsj0tA0XJoIzJG5',
   appId:    '1089',
 
-  symbol:        'stpRNG3', //1HZ75V
+  symbol:        'stpRNG4', //1HZ75V
   tickDuration:  1,
   initialStake:  0.35,
   investmentAmount: 100,
@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v75-grid-state0008.json');
+const STATE_FILE          = path.join(__dirname, 'v75-grid-state00009.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -474,7 +474,7 @@ class V75GridBot {
             this.log('Retrying trade after API error…');
             this._placeTrade();
           }
-        }, 3000);
+        }, 3511);
       }
     }
   }
@@ -540,7 +540,7 @@ class V75GridBot {
           this.log('No open contract — placing next trade in 2s', 'success');
           setTimeout(() => {
             if (this.running && !this.tradeInProgress) this._placeTrade();
-          }, 2000);
+          }, 3511);
         }
       }
     }
@@ -669,7 +669,8 @@ class V75GridBot {
       }
 
       this.currentGridLevel = 0;
-      this.currentDirection = 'CALLE';
+      
+      // this.currentDirection = 'CALLE';
       this._sendTelegramTradeResult(isWin, profit);
 
     } else {
@@ -868,7 +869,7 @@ class V75GridBot {
         } else if (this.running && !this.isAuthorized) {
           this.log('⏳ Not authorized yet — trade will resume after reconnect', 'warning');
         }
-      }, 3000);
+      }, 3511);
     }
   }
 
