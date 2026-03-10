@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0000001-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0000002-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -1749,19 +1749,21 @@ class MultiAssetGhostBot {
     checkTimeForDisconnectReconnect() {
         setInterval(() => {
             const now = new Date();
-            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
-            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
-            const currentHours = gmtPlus1Time.getUTCHours();
-            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+            // Calculate GMT+1 reliably regardless of server local TZ
+            const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+            const gmtPlus1 = new Date(utcMs + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1.getDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+            const currentHours = gmtPlus1.getHours();
+            const currentMinutes = gmtPlus1.getMinutes();
 
-            // Weekend logic: Saturday 11pm to Monday 2am GMT+1 -> Disconnect and stay disconnected
+            // Weekend logic: Saturday 23:00 -> Monday 07:00 (GMT+1)
             const isWeekend = (currentDay === 0) || // Sunday
-                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
-                (currentDay === 1 && currentHours < 7);    // Monday before 8am
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 23:00
+                (currentDay === 1 && currentHours < 7);    // Monday before 07:00
 
             if (isWeekend) {
                 if (!this.endOfDay) {
-                    console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
+                    console.log('Weekend trading suspension (Saturday 23:00 - Monday 07:00). Disconnecting...');
                     this.sendHourlySummary();
                     this.disconnect();
                     this.endOfDay = true;
@@ -1769,20 +1771,22 @@ class MultiAssetGhostBot {
                 return; // Prevent any reconnection logic during the weekend
             }
 
+            // Reconnect only at 07:00 GMT+1
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
-                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
+                console.log("It's 07:00 AM GMT+1, reconnecting the bot.");
                 this.resetDailyStats();
                 this.endOfDay = false;
                 this.connect();
+                return;
             }
 
-            if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 19 && currentMinutes >= 0) {
-                    console.log("It's past 7:00 PM GMT+1 after a win trade, disconnecting the bot.");
-                    this.sendHourlySummary();
-                    this.disconnect();
-                    this.endOfDay = true;
-                }
+            // Disconnect at or after 19:00 GMT+1 (stop trading for the night)
+            if (!this.endOfDay && this.isWinTrade && currentHours >= 19) {
+                console.log("It's past 19:00 (07:00 PM) GMT+1, disconnecting the bot.");
+                this.sendHourlySummary();
+                this.disconnect();
+                this.endOfDay = true;
+                return;
             }
         }, 20000);
     }
