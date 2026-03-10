@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v75-grid-state0007.json');
+const STATE_FILE          = path.join(__dirname, 'v75-grid-state0008.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -745,7 +745,7 @@ class V75GridBot {
     }
 
     if (this.running) {
-      setTimeout(() => { if (this.running && !this.tradeInProgress) this._placeTrade(); }, 1000);
+      setTimeout(() => { if (this.running && !this.tradeInProgress) this._placeTrade(); }, 3511);
     }
   }
 
