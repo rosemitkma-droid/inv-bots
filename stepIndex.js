@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0007.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0008.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -670,16 +670,25 @@ class V75GridBot {
 
       this.currentGridLevel = 0;
       // this.currentDirection = 'CALLE';
+      // const nextDir     = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
       this._sendTelegramTradeResult(isWin, profit);
 
     } else {
       const nextLevel   = this.currentGridLevel + 1;
-      const nextDir     = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      // const nextDir     = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
       const absoluteMax = cfg.afterMaxLoss === 'continue'
         ? cfg.maxMartingaleLevel + cfg.continueExtraLevels
         : cfg.maxMartingaleLevel;
 
       this.currentGridLevel = nextLevel;
+      // this.currentDirection = nextDir;
+
+      if (nextLevel > 3) {
+        const nextDir     = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      } else {
+        const nextDir     = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      }
+
       this.currentDirection = nextDir;
 
       if (nextLevel > absoluteMax) {
