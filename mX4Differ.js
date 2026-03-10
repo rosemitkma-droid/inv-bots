@@ -7,7 +7,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'mX4Differ-state000007.json');
+const STATE_FILE = path.join(__dirname, 'mX4Differ-state000008.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -108,7 +108,7 @@ class x4DifferBot {
         this.connected = false;
         this.wsReady = false;
 
-        this.assets = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'];
+        this.assets = ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'];
 
         this.config = {
             initialStake: config.initialStake || 0.61,
@@ -812,7 +812,7 @@ class x4DifferBot {
             if (this.sys2) {
                 this.currentStake = this.config.initialStake2;
                 this.sys2WinCount++;
-                if (this.sys2WinCount === 60) {
+                if (this.sys2WinCount === 30) {
                     this.currentStake = this.config.initialStake;
                     this.sys2WinCount = 0;
                     this.sys2 = false;
@@ -1095,7 +1095,7 @@ class x4DifferBot {
 // Initialize and start bot
 const bot = new x4DifferBot('0P94g4WdSrSrzir', {
     initialStake: 2.2,
-    initialStake2: 5.2,
+    initialStake2: 10.25,
     multiplier: 11.3,
     maxConsecutiveLosses: 4,
     stopLoss: 95,
