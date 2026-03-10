@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0003.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0004.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -509,6 +509,7 @@ class V75GridBot {
       setTimeout(() => { if (!this.running) this.start(); }, 300);
 
     } else {
+      this.tradeInProgress = false; // clear any stale trade lock on reconnect
       // ── RECONNECTION ────────────────────────────────────────────────────
       this.log(
         `🔄 Reconnected — resuming | L${this.currentGridLevel} | ` +
@@ -1094,20 +1095,22 @@ class V75GridBot {
 
   startTimeScheduler() {
     setInterval(() => {
-      const now     = new Date();
-      const gmt1    = new Date(now.getTime() + 60 * 60 * 1000);
-      const day     = gmt1.getUTCDay();
-      const hours   = gmt1.getUTCHours();
-      const minutes = gmt1.getUTCMinutes();
+      const now = new Date();
+      // compute UTC ms then add 1 hour for GMT+1 reliably
+      const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+      const gmt1 = new Date(utcMs + (1 * 60 * 60 * 1000));
+      const day = gmt1.getDay();
+      const hours = gmt1.getHours();
+      const minutes = gmt1.getMinutes();
 
       const isWeekend =
         day === 0 ||
         (day === 6 && hours >= 23) ||
-        (day === 1 && hours < 7);
+        (day === 1 && hours < 8);
 
       if (isWeekend) {
         if (!this.endOfDay) {
-          this.log('📅 Weekend trading pause (Sat 23:00 – Mon 08:00 GMT+1) — disconnecting', 'warning');
+          this.log('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting', 'warning');
           this._sendHourlySummary();
           this.stop();
           this.disconnect();
@@ -1116,21 +1119,25 @@ class V75GridBot {
         return;
       }
 
-      if (this.endOfDay && day === 1 && hours === 7 && minutes === 0) {
-        this.log('📅 Monday 07:00 GMT+1 — reconnecting bot', 'success');
+      // Reconnect at 08:00 GMT+1 when endOfDay is set
+      if (this.endOfDay && hours === 8 && minutes >= 0) {
+        this.log('📅 08:00 GMT+1 — reconnecting bot', 'success');
         this._resetDailyStats();
         this.endOfDay = false;
         this.connect();
+        return;
       }
 
-      if (this.isWinTrade && !this.endOfDay && hours >= 19) {
-        this.log('📅 Past 19:00 GMT+1 after a win — end-of-day stop', 'info');
+      // Disconnect at or after 17:00 GMT+1 regardless of last trade result
+      if (!this.endOfDay && this.isWinTrade && hours >= 17) {
+        this.log('📅 Past 17:00 GMT+1 — end-of-day stop', 'info');
         this._sendHourlySummary();
         this.stop();
         this.disconnect();
         this.endOfDay = true;
+        return;
       }
-    }, 20000);
+    }, 10000);
 
     this.log('📅 Time scheduler started (weekend pause + EOD logic)');
   }
