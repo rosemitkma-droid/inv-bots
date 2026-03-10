@@ -22,7 +22,7 @@ const DEFAULT_CONFIG = {
   appId:    '1089',
 
   symbol:        'stpRNG',
-  tickDuration:  45,
+  tickDuration:  1,
   initialStake:  0.35,
   investmentAmount: 100,
 
@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0006.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0007.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -532,8 +532,8 @@ class V75GridBot {
         this.tradeInProgress = true; // mark as in-progress while we check
         this._send({ proposal_open_contract: 1, contract_id: this.currentContractId, subscribe: 1 });
 
-        // FIX: If re-subscribe doesn't yield a result in 15s, force-recover
-        this._startTradeWatchdog(this.currentContractId, 15000);
+        // FIX: If re-subscribe doesn't yield a result in 150s, force-recover
+        this._startTradeWatchdog(this.currentContractId, 150000);
       } else {
         // FIX #1: No open contract — just resume trading immediately
         if (this.running && !this.tradeInProgress) {
@@ -669,7 +669,7 @@ class V75GridBot {
       }
 
       this.currentGridLevel = 0;
-      this.currentDirection = 'CALLE';
+      // this.currentDirection = 'CALLE';
       this._sendTelegramTradeResult(isWin, profit);
 
     } else {
@@ -915,7 +915,7 @@ class V75GridBot {
       contract_type: direction,
       currency:      this.currency,
       duration:      this.config.tickDuration,
-      duration_unit: 's',
+      duration_unit: 't',
       symbol:        this.config.symbol,
     });
   }
