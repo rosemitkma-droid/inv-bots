@@ -21,8 +21,8 @@ const DEFAULT_CONFIG = {
   apiToken: 'Dz2V2KvRf4Uukt3',
   appId:    '1089',
 
-  symbol:        'stpRNG5',
-  tickDuration:  9,
+  symbol:        'stpRNG',
+  tickDuration:  54,
   initialStake:  0.35,
   investmentAmount: 100,
 
@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0004.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0005.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -915,7 +915,7 @@ class V75GridBot {
       contract_type: direction,
       currency:      this.currency,
       duration:      this.config.tickDuration,
-      duration_unit: 't',
+      duration_unit: 's',
       symbol:        this.config.symbol,
     });
   }
