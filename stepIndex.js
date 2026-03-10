@@ -22,7 +22,7 @@ const DEFAULT_CONFIG = {
   appId:    '1089',
 
   symbol:        'stpRNG',
-  tickDuration:  54,
+  tickDuration:  45,
   initialStake:  0.35,
   investmentAmount: 100,
 
@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0005.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state0006.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
