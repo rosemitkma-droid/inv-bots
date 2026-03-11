@@ -22,7 +22,7 @@ const DEFAULT_CONFIG = {
   appId:    '1089',
 
   symbol:        '1HZ75V', //1HZ75V
-  tickDuration:  5,
+  tickDuration:  9,
   initialStake:  0.35,
   investmentAmount: 100,
 
@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v75-grid-state000005.json');
+const STATE_FILE          = path.join(__dirname, 'v75-grid-state000000001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -528,6 +528,7 @@ class V75GridBot {
       // FIX #3: If we had a contract open when we disconnected, try to
       // check its status. But also set a fallback to just place a new trade.
       if (this.currentContractId) {
+        this.currentGridLevel = 0; // reset grid level on reconnect if no open contract
         this.log(`Re-subscribing to open contract ${this.currentContractId}…`);
         this.tradeInProgress = true; // mark as in-progress while we check
         this._send({ proposal_open_contract: 1, contract_id: this.currentContractId, subscribe: 1 });
@@ -535,6 +536,7 @@ class V75GridBot {
         // FIX: If re-subscribe doesn't yield a result in 15s, force-recover
         this._startTradeWatchdog(this.currentContractId, 15000);
       } else {
+        this.currentGridLevel = 0; // reset grid level on reconnect if no open contract
         // FIX #1: No open contract — just resume trading immediately
         if (this.running && !this.tradeInProgress) {
           this.log('No open contract — placing next trade in 2s', 'success');
