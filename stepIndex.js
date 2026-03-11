@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state00014.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state00015.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -684,17 +684,19 @@ class V75GridBot {
       // this.currentDirection = nextDir;
 
       let nextDir = null;
-      if (this.currentGridLevel < 3) {
+      if (this.currentGridLevel < 2) {
         nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      } else if (this.currentGridLevel >= 4 && this.currentGridLevel <= 5) {
-        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
-      } else if (this.currentGridLevel === 6) {
-        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      } else if (this.currentGridLevel === 7) {
-        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
-      } else if (this.currentGridLevel === 8) {
-        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      } else {
+      } 
+      // else if (this.currentGridLevel >= 4 && this.currentGridLevel <= 5) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      // } else if (this.currentGridLevel === 6) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      // } else if (this.currentGridLevel === 7) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      // } else if (this.currentGridLevel === 8) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      // } 
+      else {
         nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
       }
       this.currentDirection = nextDir;
