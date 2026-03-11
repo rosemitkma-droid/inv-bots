@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ╔══════════════════════════════════════════════════════════════════════════════════╗
-// ║   V75 GRID MARTINGALE BOT — Headless Terminal Edition (FIXED)                  ║
-// ║   Volatility 75 Index (1HZ75V) | CALLE/PUTE | Low-Risk Hybrid                 ║
+// ║   STEP INDEX GRID MARTINGALE BOT — Headless Terminal Edition (FIXED)                  ║
+// ║   Volatility STEP Index | CALLE/PUTE | Low-Risk Hybrid                 ║
 // ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 'use strict';
@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state00016.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state00000001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -528,15 +528,17 @@ class V75GridBot {
       // FIX #3: If we had a contract open when we disconnected, try to
       // check its status. But also set a fallback to just place a new trade.
       if (this.currentContractId) {
+        this.currentGridLevel = 0; // reset grid level on reconnect if no open contract
         this.log(`Re-subscribing to open contract ${this.currentContractId}…`);
         this.tradeInProgress = true; // mark as in-progress while we check
         this._send({ proposal_open_contract: 1, contract_id: this.currentContractId, subscribe: 1 });
 
         // FIX: If re-subscribe doesn't yield a result in 150s, force-recover
-        this._startTradeWatchdog(this.currentContractId, 150000);
+        this._startTradeWatchdog(this.currentContractId, 15000);
       } else {
         // FIX #1: No open contract — just resume trading immediately
         if (this.running && !this.tradeInProgress) {
+          this.currentGridLevel = 0; // reset grid level on reconnect if no open contract
           this.log('No open contract — placing next trade in 2s', 'success');
           setTimeout(() => {
             if (this.running && !this.tradeInProgress) this._placeTrade();
