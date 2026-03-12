@@ -534,7 +534,7 @@ class V75GridBot {
         this._send({ proposal_open_contract: 1, contract_id: this.currentContractId, subscribe: 1 });
 
         // FIX: If re-subscribe doesn't yield a result in 150s, force-recover
-        this._startTradeWatchdog(this.currentContractId, 15000);
+        this._startTradeWatchdog(this.currentContractId, 5000);
       } else {
         // FIX #1: No open contract — just resume trading immediately
         if (this.running && !this.tradeInProgress) {
@@ -803,7 +803,7 @@ class V75GridBot {
             'error'
           );
           this._recoverStuckTrade('watchdog-force');
-        }, 30000);
+        }, 10000);
 
       } else {
         this._recoverStuckTrade('watchdog-offline');
