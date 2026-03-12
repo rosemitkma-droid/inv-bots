@@ -137,7 +137,7 @@ class V75GridBot {
     // ── Trade Watchdog ───────────────────────────────────────────────────────
     this.tradeWatchdogTimer    = null;
     this.tradeWatchdogPollTimer = null;  // FIX #7: track the inner poll timeout
-    this.tradeWatchdogMs       = 5000;
+    this.tradeWatchdogMs       = 3000;
     this.tradeStartTime        = null;
 
     // ── Message queue ────────────────────────────────────────────────────────
