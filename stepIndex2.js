@@ -21,8 +21,8 @@ const DEFAULT_CONFIG = {
   apiToken: 'hsj0tA0XJoIzJG5',
   appId:    '1089',
 
-  symbol:        'stpRNG',
-  tickDuration:  5,
+  symbol:        'stpRNG5',
+  tickDuration:  1,
   initialStake:  0.35,
   investmentAmount: 100,
 
@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'STn-grid-state00000007.json');
+const STATE_FILE          = path.join(__dirname, 'STn-grid-state000000001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -137,7 +137,7 @@ class V75GridBot {
     // ── Trade Watchdog ───────────────────────────────────────────────────────
     this.tradeWatchdogTimer    = null;
     this.tradeWatchdogPollTimer = null;  // FIX #7: track the inner poll timeout
-    this.tradeWatchdogMs       = 60000;
+    this.tradeWatchdogMs       = 5000;
     this.tradeStartTime        = null;
 
     // ── Message queue ────────────────────────────────────────────────────────
@@ -410,7 +410,7 @@ class V75GridBot {
       if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
         this._send({ ping: 1 });
       }
-    }, 30000);
+    }, 5000);
   }
 
   _stopPing() {
@@ -799,7 +799,7 @@ class V75GridBot {
           if (!this.tradeInProgress) return;
           this.log(
             `🚨 WATCHDOG: Poll timed out — contract ${contractId} still unresolved ` +
-            `after ${((timeoutMs + 30000) / 1000)}s — force-releasing lock`,
+            `after ${(timeoutMs / 1000)}s — force-releasing lock`,
             'error'
           );
           this._recoverStuckTrade('watchdog-force');
