@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'risefall-state0001.json');
+const STATE_FILE = path.join(__dirname, 'risefall1-state00001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -15,6 +15,8 @@ class StatePersistence {
             const persistableState = {
                 savedAt: Date.now(),
                 capital: state.capital,
+                investmentRemaining: state.investmentRemaining,
+                baseStake: state.baseStake,
                 session: { ...state.session },
                 portfolio: {
                     dailyProfit: state.portfolio.dailyProfit,
@@ -65,6 +67,8 @@ class StatePersistence {
 
             // Restore capital and session
             state.capital = savedData.capital;
+            state.investmentRemaining = savedData.investmentRemaining || savedData.capital;
+            state.baseStake = savedData.baseStake || CONFIG.STAKE;
             state.session = {
                 ...state.session,
                 ...savedData.session,
@@ -313,7 +317,7 @@ const LOGGER = {
 // ============================================
 const CONFIG = {
     // API Settings
-    API_TOKEN: '0P94g4WdSrSrzir',
+    API_TOKEN: 'rgNedekYXvCaPeP',
     APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
@@ -321,19 +325,26 @@ const CONFIG = {
     INITIAL_CAPITAL: 100,
     STAKE: 0.35,
 
+    // Compounding Settings
+    AUTO_COMPOUNDING: true,
+    COMPOUND_PERCENTAGE: 0.35, // 0.35% of investmentRemaining
+
     // Session Targets
     SESSION_PROFIT_TARGET: 10000,
     SESSION_STOP_LOSS: -85,
 
     // Trade Duration Settings
-    DURATION: 5,
-    DURATION_UNIT: 'm', // t=ticks, s=seconds, m=minutes
+    DURATION: 1,
+    DURATION_UNIT: 't', // t=ticks, s=seconds, m=minutes
 
     // Trade Settings
     MAX_OPEN_POSITIONS: 1, // One at a time for alternating strategy
     TRADE_DELAY: 1000, // 2 seconds delay between trades
-    MARTINGALE_MULTIPLIER: 2,
-    MAX_MARTINGALE_STEPS: 8,
+    MARTINGALE_MULTIPLIER: 1.48,
+    MAX_MARTINGALE_LEVEL: 3,
+    AFTER_MAX_LOSS: 'continue', // 'continue' or 'stop'
+    CONTINUE_EXTRA_LEVELS: 6,
+    EXTRA_LEVEL_MULTIPLIERS: [2.0, 2.0, 2.1, 2.1, 2.2, 2.3],
 
     // Debug
     DEBUG_MODE: true,
@@ -345,7 +356,7 @@ const CONFIG = {
 };
 
 
-let ACTIVE_ASSETS = ['R_100'];
+let ACTIVE_ASSETS = ['stpRNG'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -353,6 +364,8 @@ let ACTIVE_ASSETS = ['R_100'];
 const state = {
     capital: CONFIG.INITIAL_CAPITAL,
     accountBalance: 0,
+    investmentRemaining: CONFIG.INITIAL_CAPITAL,
+    baseStake: CONFIG.STAKE,
     session: {
         profit: 0,
         loss: 0,
@@ -379,7 +392,7 @@ const state = {
         dailyLosses: 0,
         activePositions: []
     },
-    lastTradeDirection: null, // 'CALL' or 'PUT'
+    lastTradeDirection: null, // 'CALLE' or 'PUTE'
     martingaleLevel: 0,
     hourlyStats: {
         trades: 0,
@@ -409,7 +422,10 @@ class SessionManager {
             return true;
         }
 
-        if (netPL <= CONFIG.SESSION_STOP_LOSS || state.martingaleLevel >= CONFIG.MAX_MARTINGALE_STEPS) {
+        // Calculate max allowed martingale level
+        const maxLevel = CONFIG.MAX_MARTINGALE_LEVEL + CONFIG.CONTINUE_EXTRA_LEVELS;
+
+        if (netPL <= CONFIG.SESSION_STOP_LOSS || state.martingaleLevel >= maxLevel) {
             LOGGER.error(`🛑 SESSION STOP LOSS REACHED! Net P/L: $${netPL.toFixed(2)}`);
             this.endSession('STOP_LOSS');
             return true;
@@ -478,7 +494,19 @@ class SessionManager {
             state.martingaleLevel = 0;
             state.hourlyStats.wins++;
 
-            LOGGER.trade(`✅ WIN: +$${profit.toFixed(2)} | Direction: ${direction} | Martingale Reset`);
+            // Update investmentRemaining for compounding
+            state.investmentRemaining = Math.max(0, Number((state.investmentRemaining + profit).toFixed(2)));
+
+            // Recalculate baseStake if auto-compounding is enabled
+            if (CONFIG.AUTO_COMPOUNDING && state.investmentRemaining > 0) {
+                state.baseStake = Math.max(
+                    state.investmentRemaining * (CONFIG.COMPOUND_PERCENTAGE / 100),
+                    0.35
+                );
+                LOGGER.trade(`✅ WIN: +$${profit.toFixed(2)} | Investment: $${state.investmentRemaining.toFixed(2)} | Base Stake: $${state.baseStake.toFixed(2)} (Compounded)`);
+            } else {
+                LOGGER.trade(`✅ WIN: +$${profit.toFixed(2)} | Direction: ${direction} | Martingale Reset`);
+            }
         } else {
             state.session.lossesCount++;
             state.session.loss += Math.abs(profit);
@@ -488,6 +516,11 @@ class SessionManager {
             state.hourlyStats.losses++;
             state.martingaleLevel++;
 
+            // Update investmentRemaining with loss (profit will be negative)
+            if (CONFIG.AUTO_COMPOUNDING) {
+                state.investmentRemaining = Math.max(0, Number((state.investmentRemaining + profit).toFixed(2)));
+            }
+
             if (state.martingaleLevel === 2) state.session.x2Losses++;
             if (state.martingaleLevel === 3) state.session.x3Losses++;
             if (state.martingaleLevel === 4) state.session.x4Losses++;
@@ -495,8 +528,11 @@ class SessionManager {
             if (state.martingaleLevel === 6) state.session.x6Losses++;
             if (state.martingaleLevel === 7) state.session.x7Losses++;
 
-            if (state.martingaleLevel >= CONFIG.MAX_MARTINGALE_STEPS) {
-                LOGGER.warn(`⚠️ Maximum Martingale step reached (${CONFIG.MAX_MARTINGALE_STEPS}), resetting level to 0`);
+            // Calculate max allowed level with extended recovery
+            const maxLevel = CONFIG.MAX_MARTINGALE_LEVEL + CONFIG.CONTINUE_EXTRA_LEVELS;
+
+            if (state.martingaleLevel >= maxLevel) {
+                LOGGER.warn(`⚠️ Maximum Martingale level reached (${maxLevel}), resetting level to 0`);
                 state.martingaleLevel = 0;
             } else {
                 LOGGER.trade(`❌ LOSS: -$${Math.abs(profit).toFixed(2)} | Direction: ${direction} | Next Martingale Level: ${state.martingaleLevel}`);
@@ -538,8 +574,8 @@ class ConnectionManager {
         this.startPing();
 
         if (!this.autoSaveStarted) {
-            // StatePersistence.startAutoSave();
-            // this.autoSaveStarted = true;
+            StatePersistence.startAutoSave();
+            this.autoSaveStarted = true;
         }
 
         this.send({ authorize: CONFIG.API_TOKEN });
@@ -567,9 +603,10 @@ class ConnectionManager {
             state.isAuthorized = true;
             state.accountBalance = response.authorize.balance;
 
-            if (state.capital === CONFIG.INITIAL_CAPITAL) {
-                state.capital = response.authorize.balance;
-            }
+            // Always use INITIAL_CAPITAL for trading, not account balance
+            // This ensures the bot operates within configured limits
+            state.capital = CONFIG.INITIAL_CAPITAL;
+            state.investmentRemaining = CONFIG.INITIAL_CAPITAL;
 
             this.send({ balance: 1, subscribe: 1 });
 
@@ -681,7 +718,7 @@ class ConnectionManager {
             }
 
             SessionManager.checkSessionTargets();
-            // StatePersistence.saveState();
+            StatePersistence.saveState();
 
             // Schedule next trade
             setTimeout(() => {
@@ -701,7 +738,7 @@ class ConnectionManager {
         state.isAuthorized = false;
 
         this.stopPing();
-        // StatePersistence.saveState();
+        StatePersistence.saveState();
 
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
@@ -759,7 +796,10 @@ class DerivBot {
         console.log('═'.repeat(80));
         console.log(`💰 Initial Capital: $${state.capital}`);
         console.log(`📊 Active Assets: ${ACTIVE_ASSETS.join(', ')}`);
-        console.log(`💵 Stake: $${CONFIG.STAKE}`);
+        console.log(`💵 Base Stake: $${CONFIG.STAKE}`);
+        if (CONFIG.AUTO_COMPOUNDING) {
+            console.log(`📈 Auto-Compounding: ENABLED (${CONFIG.COMPOUND_PERCENTAGE}% of remaining investment)`);
+        }
         console.log(`⏱️ Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT}`);
         console.log(`🎯 Session Target: $${CONFIG.SESSION_PROFIT_TARGET} | Stop Loss: $${CONFIG.SESSION_STOP_LOSS}`);
         console.log(`📱 Telegram: ${CONFIG.TELEGRAM_ENABLED ? 'ENABLED' : 'DISABLED'}`);
@@ -779,12 +819,43 @@ class DerivBot {
         LOGGER.info('✅ Bot started successfully!');
     }
 
+    calculateStake(level) {
+        const cfg = CONFIG;
+        let base = state.baseStake;
+
+        // If auto-compounding enabled, recalculate base from remaining investment
+        if (cfg.AUTO_COMPOUNDING && state.investmentRemaining > 0) {
+            base = Math.max(
+                state.investmentRemaining * (cfg.COMPOUND_PERCENTAGE / 100),
+                0.35
+            );
+        }
+
+        base = Math.max(base, 0.35);
+
+        // Standard martingale up to maxMartingaleLevel
+        if (level <= cfg.MAX_MARTINGALE_LEVEL) {
+            return Number((base * Math.pow(cfg.MARTINGALE_MULTIPLIER, level)).toFixed(2));
+        }
+
+        // Extended recovery with custom multipliers beyond maxMartingaleLevel
+        let stake = base * Math.pow(cfg.MARTINGALE_MULTIPLIER, cfg.MAX_MARTINGALE_LEVEL);
+        const extraIdx = level - cfg.MAX_MARTINGALE_LEVEL - 1;
+        const mults = cfg.EXTRA_LEVEL_MULTIPLIERS || [];
+        
+        for (let i = 0; i <= extraIdx; i++) {
+            stake *= (mults[i] > 0 ? mults[i] : cfg.MARTINGALE_MULTIPLIER);
+        }
+        
+        return Number(stake.toFixed(2));
+    }
+
     executeNextTrade() {
         if (!state.canTrade) return;
         if (!SessionManager.isSessionActive()) return;
         if (state.portfolio.activePositions.length >= CONFIG.MAX_OPEN_POSITIONS) return;
 
-        const stake = CONFIG.STAKE * Math.pow(CONFIG.MARTINGALE_MULTIPLIER, state.martingaleLevel);
+        const stake = this.calculateStake(state.martingaleLevel);
         const symbol = ACTIVE_ASSETS[0];
 
         if (state.capital < stake) {
@@ -796,21 +867,34 @@ class DerivBot {
             return;
         }
 
+        // Check investment remaining (for compounding)
+        if (CONFIG.AUTO_COMPOUNDING && state.investmentRemaining < stake) {
+            LOGGER.error(`Insufficient investment for compounding: $${state.investmentRemaining.toFixed(2)} (Needed: $${stake.toFixed(2)})`);
+            state.canTrade = true; // Allow retry
+            state.martingaleLevel = 0;
+            return;
+        }
+
+        // Deduct stake from investmentRemaining (will be returned on win with profit)
+        if (CONFIG.AUTO_COMPOUNDING) {
+            state.investmentRemaining = Math.max(0, Number((state.investmentRemaining - stake).toFixed(2)));
+        }
+
         // Determine next direction (alternate)
         let direction;
         if (state.lastTradeDirection === null) {
-            // First trade - start with CALL (Rise)
-            direction = 'CALL';
-        } else if (state.lastTradeDirection === 'CALL') {
-            direction = 'PUT';
+            // First trade - start with CALLE (Rise)
+            direction = 'CALLE';
+        } else if (state.lastTradeDirection === 'CALLE') {
+            direction = 'PUTE';
         } else {
-            direction = 'CALL';
+            direction = 'CALLE';
         }
 
         state.canTrade = false; // Prevent multiple trades
         state.lastTradeDirection = direction;
 
-        LOGGER.trade(`🎯 Executing ${direction === 'CALL' ? 'RISE' : 'FALL'} trade on ${symbol}`);
+        LOGGER.trade(`🎯 Executing ${direction === 'CALLE' ? 'RISE' : 'FALL'} trade on ${symbol}`);
         LOGGER.trade(` Stake: $${stake.toFixed(2)} | Duration: ${CONFIG.DURATION} ${CONFIG.DURATION_UNIT}`);
 
         const position = {
@@ -831,12 +915,12 @@ class DerivBot {
         const tradeRequest = {
             buy: 1,
             subscribe: 1,
-            price: stake,
+            price: stake.toFixed(2),
             parameters: {
                 contract_type: direction,
                 symbol: symbol,
                 currency: 'USD',
-                amount: stake,
+                amount: stake.toFixed(2),
                 duration: CONFIG.DURATION,
                 duration_unit: CONFIG.DURATION_UNIT,
                 basis: 'stake'
@@ -867,7 +951,7 @@ class DerivBot {
             accountBalance: state.accountBalance,
             session: sessionStats,
             lastDirection: state.lastTradeDirection,
-            nextDirection: state.lastTradeDirection === 'CALL' ? 'PUT' : 'CALL',
+            nextDirection: state.lastTradeDirection === 'CALLE' ? 'PUTE' : 'CALLE',
             activePositionsCount: state.portfolio.activePositions.length,
             activePositions: state.portfolio.activePositions.map(pos => ({
                 symbol: pos.symbol,
@@ -942,6 +1026,9 @@ setInterval(() => {
         const status = bot.getStatus();
         const s = state.session;
         console.log(`\n📊 ${getGMTTime()} | ${status.session.trades} trades | ${status.session.winRate} | $${status.session.netPL.toFixed(2)} | ${status.activePositions.length} active`);
+        if (CONFIG.AUTO_COMPOUNDING) {
+            console.log(`💰 Investment Remaining: $${state.investmentRemaining.toFixed(2)} | Base Stake: $${state.baseStake.toFixed(2)}`);
+        }
         console.log(`📉 Loss Stats: x2:${s.x2Losses} x3:${s.x3Losses} x4:${s.x4Losses} x5:${s.x5Losses} x6:${s.x6Losses} x7:${s.x7Losses} | Level: ${state.martingaleLevel}`);
     }
 }, 30000);
