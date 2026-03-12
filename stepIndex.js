@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state000000001.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state000000002.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -677,18 +677,18 @@ class V75GridBot {
 
     } else {
       const nextLevel   = this.currentGridLevel + 1;
-      // const nextDir     = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      const nextDir     = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
       const absoluteMax = cfg.afterMaxLoss === 'continue'
         ? cfg.maxMartingaleLevel + cfg.continueExtraLevels
         : cfg.maxMartingaleLevel;
 
       this.currentGridLevel = nextLevel;
-      // this.currentDirection = nextDir;
+      this.currentDirection = nextDir;
 
-      let nextDir = null;
-      if (this.currentGridLevel < 3) {
-        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      } 
+      // let nextDir = null;
+      // if (this.currentGridLevel < 3) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      // } 
       // else if (this.currentGridLevel >= 4 && this.currentGridLevel <= 5) {
       //   nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
       // } else if (this.currentGridLevel === 6) {
@@ -698,10 +698,10 @@ class V75GridBot {
       // } else if (this.currentGridLevel === 8) {
       //   nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
       // } 
-      else {
-        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
-      }
-      this.currentDirection = nextDir;
+      // else {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      // }
+      // this.currentDirection = nextDir;
 
       if (nextLevel > absoluteMax) {
         this.log(`🛑 ABSOLUTE CEILING L${absoluteMax} reached — stopping to protect investment`, 'error');
