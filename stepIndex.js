@@ -47,7 +47,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST5-grid-state00000002.json');
+const STATE_FILE          = path.join(__dirname, 'ST5-grid-state000000001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -137,7 +137,7 @@ class V75GridBot {
     // ── Trade Watchdog ───────────────────────────────────────────────────────
     this.tradeWatchdogTimer    = null;
     this.tradeWatchdogPollTimer = null;  // FIX #7: track the inner poll timeout
-    this.tradeWatchdogMs       = 60000;
+    this.tradeWatchdogMs       = 3000;
     this.tradeStartTime        = null;
 
     // ── Message queue ────────────────────────────────────────────────────────
@@ -410,7 +410,7 @@ class V75GridBot {
       if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
         this._send({ ping: 1 });
       }
-    }, 30000);
+    }, 5000);
   }
 
   _stopPing() {
@@ -534,7 +534,7 @@ class V75GridBot {
         this._send({ proposal_open_contract: 1, contract_id: this.currentContractId, subscribe: 1 });
 
         // FIX: If re-subscribe doesn't yield a result in 150s, force-recover
-        this._startTradeWatchdog(this.currentContractId, 15000);
+        this._startTradeWatchdog(this.currentContractId, 5000);
       } else {
         // FIX #1: No open contract — just resume trading immediately
         if (this.running && !this.tradeInProgress) {
@@ -799,11 +799,11 @@ class V75GridBot {
           if (!this.tradeInProgress) return;
           this.log(
             `🚨 WATCHDOG: Poll timed out — contract ${contractId} still unresolved ` +
-            `after ${((timeoutMs + 30000) / 1000)}s — force-releasing lock`,
+            `after ${(timeoutMs / 1000)}s — force-releasing lock`,
             'error'
           );
           this._recoverStuckTrade('watchdog-force');
-        }, 30000);
+        }, 10000);
 
       } else {
         this._recoverStuckTrade('watchdog-offline');
