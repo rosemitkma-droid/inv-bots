@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'risefall1-state00003.json');
+const STATE_FILE = path.join(__dirname, 'risefall1-state000001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -384,7 +384,8 @@ const CONFIG = {
     MAX_MARTINGALE_LEVEL: 3,
     AFTER_MAX_LOSS: 'continue',
     CONTINUE_EXTRA_LEVELS: 6,
-    EXTRA_LEVEL_MULTIPLIERS: [2.0, 2.0, 2.1, 2.1, 2.2, 2.3],
+    MAX_LOSSES: 9,
+    EXTRA_LEVEL_MULTIPLIERS: [2.0, 2.1, 2.1, 2.2, 2.2, 2.3],
 
     DEBUG_MODE: true,
 
@@ -472,9 +473,9 @@ class SessionManager {
             return true;
         }
 
-        const maxLevel = CONFIG.MAX_MARTINGALE_LEVEL + CONFIG.CONTINUE_EXTRA_LEVELS;
+        const maxLevel = CONFIG.MAX_LOSSES;
 
-        if (netPL <= CONFIG.SESSION_STOP_LOSS || state.martingaleLevel >= maxLevel) {
+        if (state.martingaleLevel >= maxLevel) {
             LOGGER.error(`🛑 SESSION STOP LOSS REACHED! Net P/L: $${netPL.toFixed(2)}`);
             this.endSession('STOP_LOSS');
             return true;
@@ -538,7 +539,6 @@ class SessionManager {
             // ===== WIN =====
             state.session.winsCount++;
             state.session.profit += profit;
-            // Mark last trade as a win for scheduler
             state.lastTradeWasWin = true;
             state.session.netPL += profit;
             state.portfolio.dailyProfit += profit;
@@ -548,24 +548,31 @@ class SessionManager {
             // Reset martingale
             state.martingaleLevel = 0;
 
-            // KEY FIX: After a win, exit recovery and wait for new candle
+            // Exit recovery and wait for new candle
             state.inRecovery = false;
             state.waitingForNewCandle = true;
 
+            // Update investment amount (capital available for trading)
             state.investmentRemaining = Math.max(0, Number((state.investmentRemaining + profit).toFixed(2)));
 
+            // Recalculate base stake based on NEW investment amount
             if (CONFIG.AUTO_COMPOUNDING && state.investmentRemaining > 0) {
-                state.baseStake = Math.max(
+                // Base stake is percentage of total investment (initial + profit)
+                const newBaseStake = Math.max(
                     state.investmentRemaining * (CONFIG.COMPOUND_PERCENTAGE / 100),
                     0.35
                 );
-                LOGGER.trade(`✅ WIN: +$${profit.toFixed(2)} | Investment: $${state.investmentRemaining.toFixed(2)} | Base Stake: $${state.baseStake.toFixed(2)} (Compounded)`);
+                
+                state.baseStake = Number(newBaseStake.toFixed(2));
+                
+                LOGGER.trade(`✅ WIN: +$${profit.toFixed(2)} | Direction: ${direction}`);
+                LOGGER.trade(`💰 Investment Pool: $${state.investmentRemaining.toFixed(2)}`);
+                LOGGER.trade(`📊 New Base Stake: $${state.baseStake.toFixed(2)} (${CONFIG.COMPOUND_PERCENTAGE}% of pool)`);
             } else {
                 LOGGER.trade(`✅ WIN: +$${profit.toFixed(2)} | Direction: ${direction} | Martingale Reset`);
             }
 
             LOGGER.trade(`🕒 Recovery complete → Waiting for NEW CANDLE before next trade`);
-
         } else {
             // ===== LOSS =====
             state.session.lossesCount++;
@@ -900,9 +907,13 @@ class ConnectionManager {
         const contract = response.proposal_open_contract;
         const contractId = contract.contract_id;
         
-        // Check if contract already processed (to handle late-arriving results)
+        // Check if contract already processed
         if (bot._processedContracts.has(String(contractId))) {
-            LOGGER.debug(`⚠️ Contract ${contractId} already processed, ignoring duplicate result`);
+            LOGGER.debug(`⚠️ Contract ${contractId} already processed, ignoring duplicate`);
+            // Unsubscribe from this contract
+            if (response.subscription?.id) {
+                this.send({ forget: response.subscription.id });
+            }
             return;
         }
 
@@ -910,17 +921,20 @@ class ConnectionManager {
             p => p.contractId === contractId
         );
 
-        if (posIndex < 0) return;
+        if (posIndex < 0) {
+            LOGGER.debug(`No active position found for contract ${contractId}`);
+            return;
+        }
 
         const position = state.portfolio.activePositions[posIndex];
         position.currentProfit = contract.profit;
 
         // Contract closed
         if (contract.is_sold || contract.is_expired || contract.status === 'sold') {
-            // Clear watchdog immediately
+            // Clear watchdog FIRST
             bot._clearAllWatchdogTimers();
             
-            // Mark contract as processed
+            // Mark as processed BEFORE recording result
             bot._processedContracts.add(String(contractId));
             
             const profit = contract.profit;
@@ -930,6 +944,7 @@ class ConnectionManager {
             // Record result - this sets inRecovery and waitingForNewCandle
             SessionManager.recordTradeResult(profit, position.direction);
 
+            // Send telegram alert
             TelegramService.sendTradeAlert(
                 profit >= 0 ? 'WIN' : 'LOSS',
                 position.symbol,
@@ -940,40 +955,40 @@ class ConnectionManager {
                 { profit }
             );
 
+            // Remove position
             state.portfolio.activePositions.splice(posIndex, 1);
 
-            // Release the watchdog trade lock
+            // Release watchdog lock
             state.tradeInProgress = false;
             state.currentContractId = null;
             state.tradeStartTime = null;
             state.pendingTradeInfo = null;
 
+            // Unsubscribe
             if (response.subscription?.id) {
                 this.send({ forget: response.subscription.id });
             }
 
-            // Check if session should end
+            // Check session targets
             if (SessionManager.checkSessionTargets()) {
                 StatePersistence.saveState();
-                return; // Don't schedule next trade
+                return;
             }
 
             StatePersistence.saveState();
 
-            // KEY FIX: Decide what to do next based on state
+            // Schedule next trade
             setTimeout(() => {
+                if (!state.session.isActive) return;
+                
                 if (state.inRecovery) {
-                    // Lost the trade → recovery mode → trade immediately
                     LOGGER.trade(`🔁 RECOVERY: Executing recovery trade (Level ${state.martingaleLevel})`);
                     state.canTrade = true;
                     bot.executeNextTrade();
                 } else if (state.waitingForNewCandle) {
-                    // Won the trade → wait for new candle
                     LOGGER.trade(`🕒 WIN recorded → Waiting for new candle before next trade`);
                     state.canTrade = false;
-                    // Trade will be triggered by handleOHLC when new candle closes
                 } else {
-                    // Fallback: allow trade
                     state.canTrade = true;
                     bot.executeNextTrade();
                 }
@@ -1175,10 +1190,7 @@ class DerivBot {
         let base = state.baseStake;
 
         if (cfg.AUTO_COMPOUNDING && state.investmentRemaining > 0) {
-            base = Math.max(
-                state.investmentRemaining * (cfg.COMPOUND_PERCENTAGE / 100),
-                0.35
-            );
+            base = Math.max(state.investmentRemaining * cfg.COMPOUND_PERCENTAGE / 100, 0.35);
         }
 
         base = Math.max(base, 0.35);
@@ -1337,12 +1349,13 @@ class DerivBot {
     // ============================================
 
     _startTradeWatchdog(contractId) {
-        this._clearAllWatchdogTimers();
-
         const timeoutMs = this.tradeWatchdogMs;
 
         state.tradeWatchdogTimer = setTimeout(() => {
-            if (!state.tradeInProgress) return;
+            if (!state.tradeInProgress) {
+                LOGGER.debug('Watchdog fired but trade already completed');
+                return;
+            }
 
             LOGGER.warn(
                 `⏰ WATCHDOG FIRED — Contract ${contractId} has been open for ` +
@@ -1352,22 +1365,39 @@ class DerivBot {
             // Step 1: try to poll the contract
             if (contractId && state.isConnected && state.isAuthorized) {
                 LOGGER.info(`🔍 Polling contract ${contractId} for current status…`);
-                this.connection.send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 });
+                
+                // Unsubscribe from old subscription if exists
+                this.connection.send({ 
+                    forget_all: 'proposal_open_contract'
+                });
+                
+                // Subscribe fresh
+                this.connection.send({ 
+                    proposal_open_contract: 1, 
+                    contract_id: contractId, 
+                    subscribe: 1 
+                });
 
-                // Store the poll timeout so it can be cancelled
+                // Give the poll 15 seconds before force recovery
                 state.tradeWatchdogPollTimer = setTimeout(() => {
-                    if (!state.tradeInProgress) return;
+                    if (!state.tradeInProgress) {
+                        LOGGER.debug('Poll timer fired but trade already completed');
+                        return;
+                    }
                     LOGGER.error(
                         `🚨 WATCHDOG: Poll timed out — contract ${contractId} still unresolved ` +
-                        `after ${((timeoutMs + 10000) / 1000)}s — force-releasing lock`
+                        `after ${((timeoutMs + 15000) / 1000)}s — force-releasing lock`
                     );
                     this._recoverStuckTrade('watchdog-force');
-                }, 20000);
+                }, 15000);
 
             } else {
+                LOGGER.error('Cannot poll contract - not connected or authorized');
                 this._recoverStuckTrade('watchdog-offline');
             }
         }, timeoutMs);
+
+        LOGGER.debug(`Watchdog started for contract ${contractId} (${timeoutMs}ms)`);
     }
 
     _clearAllWatchdogTimers() {
@@ -1386,6 +1416,8 @@ class DerivBot {
     // ============================================
 
     _recoverStuckTrade(reason) {
+        LOGGER.warn(`🔄 Entering recovery mode: ${reason}`);
+        
         this._clearAllWatchdogTimers();
 
         const contractId = state.currentContractId;
@@ -1397,6 +1429,20 @@ class DerivBot {
             `Open for: ${openSeconds}s | Level: ${state.martingaleLevel}`
         );
 
+        // Mark contract as processed to prevent duplicate handling
+        if (contractId) {
+            this._processedContracts.add(String(contractId));
+        }
+
+        // Remove the stuck position from activePositions
+        const posIndex = state.portfolio.activePositions.findIndex(
+            p => p.contractId === contractId
+        );
+        if (posIndex >= 0) {
+            state.portfolio.activePositions.splice(posIndex, 1);
+            LOGGER.info(`Removed stuck position from activePositions`);
+        }
+
         // Refund the stake to investmentRemaining
         if (stakeInfo && stakeInfo.stake > 0) {
             state.investmentRemaining = Number((state.investmentRemaining + stakeInfo.stake).toFixed(2));
@@ -1406,43 +1452,53 @@ class DerivBot {
             );
         }
 
-        // Add to processed set so if the result arrives late, we ignore it
-        if (contractId) {
-            this._processedContracts.add(String(contractId));
-        }
-
         // Release the lock
         state.tradeInProgress = false;
         state.pendingTradeInfo = null;
         state.currentContractId = null;
         state.tradeStartTime = null;
 
-        LOGGER.warn(`🔄 Will retry trade in 3 seconds…`);
+        // DON'T modify martingale level or inRecovery state
+        // Let the user manually verify and adjust if needed
+        
+        LOGGER.warn(`🔄 Trade lock released. Will retry in 5 seconds…`);
 
         TelegramService.sendMessage(
             `⚠️ <b>RISE/FALL STUCK TRADE RECOVERED [${reason}]</b>\n` +
             `Contract: ${contractId || 'unknown'}\n` +
             `Open for: ${openSeconds}s\n` +
             `Martingale Level: ${state.martingaleLevel}\n` +
-            `Action: stake returned, retrying in 3s\n` +
-            `⚠️ Please verify outcome on Deriv — P&L not updated\n` +
+            `Action: stake returned, retrying in 5s\n` +
+            `⚠️ IMPORTANT: Manually verify outcome on Deriv\n` +
             `Investment pool: $${state.investmentRemaining.toFixed(2)}\n` +
-            `Session P&L: $${state.session.netPL.toFixed(2)}`
+            `Session P&L: $${state.session.netPL.toFixed(2)}\n` +
+            `Recovery Mode: ${state.inRecovery ? 'YES' : 'NO'}`
         );
 
         StatePersistence.saveState();
 
-        // Resume trading after a short delay
+        // Resume trading after delay
         if (state.session.isActive) {
             setTimeout(() => {
-                if (state.session.isActive && !state.tradeInProgress && state.isAuthorized) {
-                    LOGGER.trade('🔄 Resuming trading after stuck trade recovery…');
-                    state.canTrade = true;
-                    bot.executeNextTrade();
-                } else if (state.session.isActive && !state.isAuthorized) {
-                    LOGGER.warn('⏳ Not authorized yet — trade will resume after reconnect');
+                if (!state.session.isActive) {
+                    LOGGER.warn('Session no longer active, skipping retry');
+                    return;
                 }
-            }, 3000);
+                
+                if (state.tradeInProgress) {
+                    LOGGER.warn('Another trade already in progress, skipping retry');
+                    return;
+                }
+                
+                if (!state.isAuthorized) {
+                    LOGGER.warn('⏳ Not authorized yet — trade will resume after reconnect');
+                    return;
+                }
+
+                LOGGER.trade('🔄 Resuming trading after stuck trade recovery…');
+                state.canTrade = true;
+                bot.executeNextTrade();
+            }, 5000);
         }
     }
 
