@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'risefall2-state000001.json');
+const STATE_FILE = path.join(__dirname, 'risefall2-state000002.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -599,10 +599,12 @@ class SessionManager {
             const maxLevel = CONFIG.MAX_MARTINGALE_LEVEL + CONFIG.CONTINUE_EXTRA_LEVELS;
 
             if (state.martingaleLevel >= maxLevel) {
-                LOGGER.warn(`⚠️ Maximum Martingale level reached (${maxLevel}), resetting`);
-                state.martingaleLevel = 0;
-                state.inRecovery = false;
-                state.waitingForNewCandle = true;
+                LOGGER.warn(`⚠️ Maximum Martingale level reached (${maxLevel}), Bot Stopped!`);
+                // state.martingaleLevel = 0;
+                // state.inRecovery = false;
+                // state.waitingForNewCandle = true;
+                TelegramService.sendSessionSummary();
+                this.stop();
             } else {
                 LOGGER.trade(`❌ LOSS: -$${Math.abs(profit).toFixed(2)} | Direction: ${direction} | Recovery Level: ${state.martingaleLevel}`);
                 LOGGER.trade(`🔁 Entering RECOVERY mode → Will trade immediately`);
@@ -1049,7 +1051,7 @@ class DerivBot {
     constructor() {
         this.connection = new ConnectionManager();
         this._processedContracts = new Set();
-        this.tradeWatchdogMs = 30000; // 30 second watchdog timeout
+        this.tradeWatchdogMs = 10000; // 30 second watchdog timeout
         this.endOfDay = false;
         this.isWinTrade = false;
     }
@@ -1098,24 +1100,24 @@ class DerivBot {
             const isWeekend =
                 day === 0 ||
                 (day === 6 && hours >= 23) ||
-                (day === 1 && hours < 8);
+                (day === 1 && hours < 7);
 
-            if (isWeekend) {
-                if (!this.endOfDay) {
-                    LOGGER.warn('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting');
-                    TelegramService.sendHourlySummary();
-                    this.stop();
-                    if (this.connection && this.connection.ws) {
-                        try { this.connection.ws.close(); } catch (e) {/*ignore*/}
-                    }
-                    this.endOfDay = true;
-                }
-                return;
-            }
+            // if (isWeekend) {
+            //     if (!this.endOfDay) {
+            //         LOGGER.warn('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting');
+            //         TelegramService.sendHourlySummary();
+            //         this.stop();
+            //         if (this.connection && this.connection.ws) {
+            //             try { this.connection.ws.close(); } catch (e) {/*ignore*/}
+            //         }
+            //         this.endOfDay = true;
+            //     }
+            //     return;
+            // }
 
             // Reconnect at 08:00 GMT+1 when endOfDay is set
-            if (this.endOfDay && hours === 8 && minutes >= 0) {
-                LOGGER.info('📅 08:00 GMT+1 — reconnecting bot');
+            if (this.endOfDay && hours === 7 && minutes >= 0) {
+                LOGGER.info('📅 07:00 GMT+1 — reconnecting bot');
                 this._resetDailyStats();
                 this.endOfDay = false;
                 this.connection.connect();
@@ -1220,10 +1222,6 @@ class DerivBot {
             return;
         }
 
-        // REMOVED: The old lastTradeWasWin check
-        // The flow is now controlled by inRecovery and waitingForNewCandle
-        // in handleOpenContract and handleOHLC
-
         const stake = this.calculateStake(state.martingaleLevel);
 
         if (state.capital < stake) {
@@ -1260,12 +1258,22 @@ class DerivBot {
             LOGGER.trade('📊 No previous candle - starting with RISE (CALLE)');
         } else if (state.inRecovery) {
             // During recovery: alternate direction from last trade
-            if (state.lastTradeDirection === 'CALLE') {
-                direction = 'PUTE';
-                LOGGER.trade(`🔁 RECOVERY: Last was RISE → Trying FALL`);
+            if (state.martingaleLevel < 3) {
+                if (state.lastTradeDirection === 'CALLE') {
+                    direction = 'PUTE';
+                    LOGGER.trade(`🔁 RECOVERY: Last was RISE → Trying FALL`);
+                } else {
+                    direction = 'CALLE';
+                    LOGGER.trade(`🔁 RECOVERY: Last was FALL → Trying RISE`);
+                }
             } else {
-                direction = 'CALLE';
-                LOGGER.trade(`🔁 RECOVERY: Last was FALL → Trying RISE`);
+                if (state.lastTradeDirection === 'CALLE') {
+                    direction = 'CALLE';
+                    LOGGER.trade(`🔁 RECOVERY: Last was FALL → Trying RISE`);                 
+                } else {
+                    direction = 'PUTE';
+                    LOGGER.trade(`🔁 RECOVERY: Last was RISE → Trying FALL`);
+                }
             }
         } else {
             // Fresh trade: use candle direction
@@ -1328,10 +1336,10 @@ class DerivBot {
     // TRADE WATCHDOG MANAGER
     // ============================================
 
-    _startTradeWatchdog(contractId, customTimeoutMs) {
+    _startTradeWatchdog(contractId) {
         this._clearAllWatchdogTimers();
 
-        const timeoutMs = customTimeoutMs || this.tradeWatchdogMs;
+        const timeoutMs = this.tradeWatchdogMs;
 
         state.tradeWatchdogTimer = setTimeout(() => {
             if (!state.tradeInProgress) return;
@@ -1351,10 +1359,10 @@ class DerivBot {
                     if (!state.tradeInProgress) return;
                     LOGGER.error(
                         `🚨 WATCHDOG: Poll timed out — contract ${contractId} still unresolved ` +
-                        `after ${((timeoutMs + 30000) / 1000)}s — force-releasing lock`
+                        `after ${((timeoutMs + 10000) / 1000)}s — force-releasing lock`
                     );
                     this._recoverStuckTrade('watchdog-force');
-                }, 30000);
+                }, 20000);
 
             } else {
                 this._recoverStuckTrade('watchdog-offline');
@@ -1516,7 +1524,7 @@ console.log('═'.repeat(80));
 console.log('\n🚀 Initializing...\n');
 
 // Start time scheduler (weekend pause and EOD rules)
-// bot.startTimeScheduler();
+bot.startTimeScheduler();
 
 bot.connection.connect();
 
