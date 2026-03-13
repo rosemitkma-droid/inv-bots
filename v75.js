@@ -22,7 +22,7 @@ const DEFAULT_CONFIG = {
   apiToken: 'rgNedekYXvCaPeP',
   appId:    '1089',
 
-  symbol:        '1HZ50V',
+  symbol:        'R_10', //1HZ50V
   tickDuration:  1,
   initialStake:  0.35,
   investmentAmount: 100,
