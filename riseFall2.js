@@ -6,7 +6,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'risefall2-state000001.json');
+const STATE_FILE = path.join(__dirname, 'risefall2-state00000001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -473,13 +473,13 @@ class SessionManager {
             return true;
         }
 
-        const maxLevel = CONFIG.MAX_LOSSES;
+        // const maxLevel = CONFIG.MAX_LOSSES;
 
-        if (state.martingaleLevel >= maxLevel) {
-            LOGGER.error(`🛑 SESSION STOP LOSS REACHED! Net P/L: $${netPL.toFixed(2)}`);
-            this.endSession('STOP_LOSS');
-            return true;
-        }
+        // if (state.martingaleLevel >= maxLevel) {
+        //     LOGGER.error(`🛑 SESSION STOP LOSS REACHED! Net P/L: $${netPL.toFixed(2)}`);
+        //     this.endSession('STOP_LOSS');
+        //     return true;
+        // }
 
         return false;
     }
@@ -603,7 +603,7 @@ class SessionManager {
             if (state.martingaleLevel === 8) state.session.x8Losses++;
             if (state.martingaleLevel === 9) state.session.x9Losses++;
 
-            const maxLevel = CONFIG.MAX_MARTINGALE_LEVEL + CONFIG.CONTINUE_EXTRA_LEVELS;
+            const maxLevel = CONFIG.MAX_LOSSES;
 
             if (state.martingaleLevel >= maxLevel) {
                 LOGGER.warn(`⚠️ Maximum Martingale level reached (${maxLevel}), Bot Stopped!`);
@@ -1066,7 +1066,7 @@ class DerivBot {
     constructor() {
         this.connection = new ConnectionManager();
         this._processedContracts = new Set();
-        this.tradeWatchdogMs = 10000; // 30 second watchdog timeout
+        this.tradeWatchdogMs = 3000; // 30 second watchdog timeout
         this.endOfDay = false;
         this.isWinTrade = false;
     }
@@ -1131,8 +1131,8 @@ class DerivBot {
             // }
 
             // Reconnect at 08:00 GMT+1 when endOfDay is set
-            if (this.endOfDay && hours === 7 && minutes >= 0) {
-                LOGGER.info('📅 07:00 GMT+1 — reconnecting bot');
+            if (this.endOfDay && hours === 2 && minutes >= 0) {
+                LOGGER.info('📅 02:00 GMT+1 — reconnecting bot');
                 this._resetDailyStats();
                 this.endOfDay = false;
                 this.connection.connect();
@@ -1140,8 +1140,8 @@ class DerivBot {
             }
 
             // Disconnect (end of day) if last trade was a win and it's late in the day
-            if (!this.endOfDay && state.lastTradeWasWin && hours >= 19) {
-                LOGGER.info('📅 Past 19:00 GMT+1 — end-of-day stop due to winning trade');
+            if (!this.endOfDay && state.lastTradeWasWin && hours >= 18) {
+                LOGGER.info('📅 Past 18:00 GMT+1 — end-of-day stop due to winning trade');
                 TelegramService.sendHourlySummary();
                 this.stop();
                 if (this.connection && this.connection.ws) {
@@ -1386,10 +1386,10 @@ class DerivBot {
                     }
                     LOGGER.error(
                         `🚨 WATCHDOG: Poll timed out — contract ${contractId} still unresolved ` +
-                        `after ${((timeoutMs + 15000) / 1000)}s — force-releasing lock`
+                        `after ${(timeoutMs / 1000)}s — force-releasing lock`
                     );
                     this._recoverStuckTrade('watchdog-force');
-                }, 15000);
+                }, timeoutMs);
 
             } else {
                 LOGGER.error('Cannot poll contract - not connected or authorized');
@@ -1498,7 +1498,7 @@ class DerivBot {
                 LOGGER.trade('🔄 Resuming trading after stuck trade recovery…');
                 state.canTrade = true;
                 bot.executeNextTrade();
-            }, 5000);
+            }, 2000);
         }
     }
 
