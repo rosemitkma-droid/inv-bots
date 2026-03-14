@@ -22,7 +22,7 @@ const DEFAULT_CONFIG = {
   apiToken: 'hsj0tA0XJoIzJG5',
   appId:    '1089',
 
-  symbol:        'R_100',
+  symbol:        'stpRNG5',
   tickDuration:  1,
   initialStake:  0.35,
   investmentAmount: 100,
@@ -48,7 +48,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v100-grid-state00000000001.json');
+const STATE_FILE          = path.join(__dirname, 'v100-grid-state00000000002.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -889,21 +889,21 @@ class V100GridBot {
         : cfg.maxMartingaleLevel;
 
       let nextDir = null;
-      if (this.currentGridLevel < 3) {
-        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      } 
-      else if (this.currentGridLevel >= 4 && this.currentGridLevel <= 5) {
+      // if (this.currentGridLevel < 3) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      // } 
+      // else if (this.currentGridLevel >= 4 && this.currentGridLevel <= 5) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      // } else if (this.currentGridLevel === 6) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      // } else if (this.currentGridLevel === 7) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      // } else if (this.currentGridLevel === 8) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      // } 
+      // else {
         nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
-      } else if (this.currentGridLevel === 6) {
-        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      } else if (this.currentGridLevel === 7) {
-        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
-      } else if (this.currentGridLevel === 8) {
-        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      } 
-      else {
-        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
-      }
+      // }
       
       this.currentDirection = nextDir;
 
