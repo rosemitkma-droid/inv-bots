@@ -23,7 +23,7 @@ const DEFAULT_CONFIG = {
   appId:    '1089',
 
   symbol:        'R_100',
-  tickDuration:  1,
+  tickDuration:  3,
   initialStake:  0.35,
   investmentAmount: 100,
 
@@ -48,7 +48,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v100-grid-state00000000003.json');
+const STATE_FILE          = path.join(__dirname, 'v100-grid-state00000000004.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
