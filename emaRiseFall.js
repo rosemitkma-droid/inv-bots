@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'ema_riseFallM000000001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'ema_riseFallM000000001-history.json');
+const STATE_FILE = path.join(__dirname, 'ema_riseFallM0000000001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'ema_riseFallM0000000001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1137,13 +1137,13 @@ const CONFIG = {
     // Trade Settings — NOW PER ASSET
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
     TRADE_DELAY: 1000,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MARTINGALE_MULTIPLIER2: 2.0,
-    MARTINGALE_MULTIPLIER3: 2.1,
-    MARTINGALE_MULTIPLIER4: 2.2,
-    MARTINGALE_MULTIPLIER5: 2.3,
+    MARTINGALE_MULTIPLIER: 2.0,
+    MARTINGALE_MULTIPLIER2: 2.1,
+    MARTINGALE_MULTIPLIER3: 2.2,
+    MARTINGALE_MULTIPLIER4: 2.3,
+    MARTINGALE_MULTIPLIER5: 2.4,
     // MARTINGALE_MULTIPLIER6: 3.0,
-    MAX_MARTINGALE_STEPS: 9,
+    MAX_MARTINGALE_STEPS: 8,
     System: 1,
     iDirection: 'RISE',
 
@@ -1245,8 +1245,8 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_10', 'R_75', 'R_100', '1HZ50V', 'stpRNG', 'stpRNG2'];
-// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['R_10', 'R_75', 'R_100', '1HZ50V', 'stpRNG', 'stpRNG2'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -3008,4 +3008,4 @@ setInterval(() => {
         console.log(`🔧 Per-Asset Status:${assetLines}`);
         console.log(`🕐 ${status.tradingSession}`);
     }
-}, 30000);
+}, 60000);
