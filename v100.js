@@ -48,7 +48,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v100-grid-state00000000004.json');
+const STATE_FILE          = path.join(__dirname, 'v100-grid-state00000000005.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -137,7 +137,7 @@ class V100GridBot {
     // ── Trade Watchdog ───────────────────────────────────────────────────────
     this.tradeWatchdogTimer    = null;
     this.tradeWatchdogPollTimer = null;
-    this.tradeWatchdogMs       = 5000;
+    this.tradeWatchdogMs       = 8000;
     this.tradeStartTime        = null;
 
     // ── Message queue ────────────────────────────────────────────────────────
