@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM00000001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM00000001-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000000001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000000001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1330,7 +1330,7 @@ class TradingSessionManager {
         // If END < START, it's an overnight session (e.g., 23:00-00:00)
         if (CONFIG.SYDNEY_END < CONFIG.SYDNEY_START) {
             // Overnight session: >= START OR < END
-            if (currentTimeDecimal >= CONFIG.SYDNEY_START || currentTimeDecimal < CONFIG.SYDNEY_END) {
+            if (currentTimeDecimal >= CONFIG.SYDNEY_START || currentTimeDecimal < CONFIG.SYDNEY_END && currentMinute <= CONFIG.SYDNEY_MINUTE) {
                 return {
                     inSession: true,
                     sessionName: 'SYDNEY',
@@ -1340,7 +1340,7 @@ class TradingSessionManager {
             }
         } else {
             // Normal session: START <= time < END
-            if (currentTimeDecimal >= CONFIG.SYDNEY_START && currentTimeDecimal < CONFIG.SYDNEY_END) {
+            if (currentTimeDecimal >= CONFIG.SYDNEY_START && currentTimeDecimal < CONFIG.SYDNEY_END && currentMinute <= CONFIG.SYDNEY_MINUTE) {
                 return {
                     inSession: true,
                     sessionName: 'SYDNEY',
