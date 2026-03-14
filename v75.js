@@ -48,7 +48,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v75-grid-state0000000002.json');
+const STATE_FILE          = path.join(__dirname, 'v75-grid-state00000000001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1450,7 +1450,6 @@ class V75GridBot {
       if (!this.endOfDay && this.isWinTrade && hours >= 18) {
         this.log('📅 Past 18:00 GMT+1 — end-of-day stop', 'info');
         this._sendHourlySummary();
-        this.stop();
         this.disconnect();
         this.endOfDay = true;
         return;
