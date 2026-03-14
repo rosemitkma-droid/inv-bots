@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM0000013-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM0000013-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM0000001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM0000001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -37,6 +37,8 @@ class TradeHistoryManager {
                         x5Losses: 0,
                         x6Losses: 0,
                         x7Losses: 0,
+                        x8Losses: 0,
+                        x9Losses: 0,
                         firstTradeDate: null,
                         lastTradeDate: null
                     },
@@ -65,6 +67,8 @@ class TradeHistoryManager {
                     x5Losses: 0,
                     x6Losses: 0,
                     x7Losses: 0,
+                    x8Losses: 0,
+                    x9Losses: 0,
                     firstTradeDate: null,
                     lastTradeDate: null
                 },
@@ -99,6 +103,8 @@ class TradeHistoryManager {
                 x5Losses: 0,
                 x6Losses: 0,
                 x7Losses: 0,
+                x8Losses: 0,
+                x9Losses: 0,
                 assets: {},
                 startCapital: state.capital,
                 endCapital: state.capital
@@ -121,7 +127,9 @@ class TradeHistoryManager {
                 x4Losses: 0,
                 x5Losses: 0,
                 x6Losses: 0,
-                x7Losses: 0
+                x7Losses: 0,
+                x8Losses: 0,
+                x9Losses: 0
             };
         }
     }
@@ -140,7 +148,9 @@ class TradeHistoryManager {
                 x4Losses: 0,
                 x5Losses: 0,
                 x6Losses: 0,
-                x7Losses: 0
+                x7Losses: 0,
+                x8Losses: 0,
+                x9Losses: 0,
             };
         }
     }
@@ -240,6 +250,18 @@ class TradeHistoryManager {
                 dayAssetStats.x7Losses++;
                 overall.x7Losses++;
                 overallAsset.x7Losses++;
+            }
+            if (martingaleLevel === 8) {
+                dayStats.x8Losses++;
+                dayAssetStats.x8Losses++;
+                overall.x8Losses++;
+                overallAsset.x8Losses++;
+            }
+            if (martingaleLevel === 9) {
+                dayStats.x9Losses++;
+                dayAssetStats.x9Losses++;
+                overall.x9Losses++;
+                overallAsset.x9Losses++;
             }
         }
 
@@ -341,6 +363,8 @@ class StatePersistence {
                     x5Losses: asset.x5Losses,
                     x6Losses: asset.x6Losses,
                     x7Losses: asset.x7Losses,
+                    x8Losses: asset.x8Losses,
+                    x9Losses: asset.x9Losses,
                     // Per-asset active positions
                     activePositions: asset.activePositions.map(pos => ({
                         symbol: pos.symbol,
@@ -451,6 +475,8 @@ class StatePersistence {
                         asset.x5Losses = saved.x5Losses || 0;
                         asset.x6Losses = saved.x6Losses || 0;
                         asset.x7Losses = saved.x7Losses || 0;
+                        asset.x8Losses = saved.x8Losses || 0;
+                        asset.x9Losses = saved.x9Losses || 0;
 
                         // Per-asset active positions
                         asset.activePositions = (saved.activePositions || []).map(
@@ -474,7 +500,7 @@ class StatePersistence {
                 `   🎯 Trades: ${state.session.tradesCount} (W:${state.session.winsCount} L:${state.session.lossesCount})`
             );
             LOGGER.info(
-                `   📉 Loss Stats: x2:${state.session.x2Losses} x3:${state.session.x3Losses} x4:${state.session.x4Losses} x5:${state.session.x5Losses} x6:${state.session.x6Losses} x7:${state.session.x7Losses}`
+                `   📉 Loss Stats: x2:${state.session.x2Losses} x3:${state.session.x3Losses} x4:${state.session.x4Losses} x5:${state.session.x5Losses} x6:${state.session.x6Losses} x7:${state.session.x7Losses} x8:${state.session.x8Losses} x9:${state.session.x9Losses}`
             );
 
             // Count total active positions across all assets
@@ -678,7 +704,7 @@ class TelegramService {
             Trades: ${stats.trades}
             Wins: ${stats.wins} | Losses: ${stats.losses}
             Win Rate: ${stats.winRate}
-            Loss Stats: x2:${today.x2Losses} | x3:${today.x3Losses} | x4:${today.x4Losses} | x5:${today.x5Losses} | x6:${today.x6Losses} | x7:${today.x7Losses}
+            Loss Stats: x2:${today.x2Losses} | x3:${today.x3Losses} | x4:${today.x4Losses} | x5:${today.x5Losses} | x6:${today.x6Losses} | x7:${today.x7Losses} | x8:${today.x8Losses} | x9:${today.x9Losses}
             Today P/L: $${today.netPL.toFixed(2)}
 
             📈 <b>Today's Per-Asset:</b>${assetBreakdown || '\n  No trades yet'}
@@ -688,7 +714,7 @@ class TelegramService {
             Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
             Overall Win Rate: ${overallWinRate}
             Overall P/L: $${overall.netPL.toFixed(2)}
-            Loss Stats: x2:${overall.x2Losses} | x3:${overall.x3Losses} | x4:${overall.x4Losses} | x5:${overall.x5Losses} | x6:${overall.x6Losses} | x7:${overall.x7Losses}
+            Loss Stats: x2:${overall.x2Losses} | x3:${overall.x3Losses} | x4:${overall.x4Losses} | x5:${overall.x5Losses} | x6:${overall.x6Losses} | x7:${overall.x7Losses} | x8:${overall.x8Losses} | x9:${overall.x9Losses}
 
             📈 <b>Overall Per-Asset:</b>${overallAssetBreakdown || '\n  No trades yet'}
 
@@ -738,7 +764,7 @@ class TelegramService {
             ├ Start Capital: $${dayStats.startCapital.toFixed(2)}
             └ End Capital: $${dayStats.endCapital.toFixed(2)}
 
-            📊 Loss Stats: x2:${dayStats.x2Losses} x3:${dayStats.x3Losses} x4:${dayStats.x4Losses} x5:${dayStats.x5Losses} x6:${dayStats.x6Losses} x7:${dayStats.x7Losses}
+            📊 Loss Stats: x2:${dayStats.x2Losses} x3:${dayStats.x3Losses} x4:${dayStats.x4Losses} x5:${dayStats.x5Losses} x6:${dayStats.x6Losses} x7:${dayStats.x7Losses} x8:${dayStats.x8Losses} x9:${dayStats.x9Losses}
 
             📈 <b>Per-Asset:</b>${assetBreakdown || '\n  No trades'}
 
@@ -748,7 +774,7 @@ class TelegramService {
             ├ Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
             ├ Overall Win Rate: ${overallWinRate}
             ├ Overall P/L: $${overall.netPL.toFixed(2)}
-            └ Loss Stats: x2:${overall.x2Losses} x3:${overall.x3Losses} x4:${overall.x4Losses} x5:${overall.x5Losses} x6:${overall.x6Losses} x7:${overall.x7Losses}
+            └ Loss Stats: x2:${overall.x2Losses} x3:${overall.x3Losses} x4:${overall.x4Losses} x5:${overall.x5Losses} x6:${overall.x6Losses} x7:${overall.x7Losses} x8:${overall.x8Losses} x9:${overall.x9Losses}
 
             💰 Current Capital: $${state.capital.toFixed(2)}
         `.trim();
@@ -1087,7 +1113,7 @@ const CONFIG = {
     STAKE: 0.35,
 
     // Session Targets
-    SESSION_PROFIT_TARGET: 5000,
+    SESSION_PROFIT_TARGET: 50000,
     SESSION_STOP_LOSS: -250,
 
     // Default Candle Settings (used if asset has no specific config)
@@ -1103,27 +1129,31 @@ const CONFIG = {
     // Trade Settings — NOW PER ASSET
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
     TRADE_DELAY: 1000,
-    MARTINGALE_MULTIPLIER: 1,
-    MARTINGALE_MULTIPLIER2: 2.3,
-    MARTINGALE_MULTIPLIER3: 2.4,
-    MARTINGALE_MULTIPLIER4: 2.5,
-    MARTINGALE_MULTIPLIER5: 2.7,
-    MARTINGALE_MULTIPLIER6: 3.0,
-    MAX_MARTINGALE_STEPS: 7,
+    MARTINGALE_MULTIPLIER: 1.48,
+    MARTINGALE_MULTIPLIER2: 2.0,
+    MARTINGALE_MULTIPLIER3: 2.1,
+    MARTINGALE_MULTIPLIER4: 2.2,
+    MARTINGALE_MULTIPLIER5: 2.3,
+    // MARTINGALE_MULTIPLIER6: 3.0,
+    MAX_MARTINGALE_STEPS: 9,
     System: 1,
     iDirection: 'RISE',
 
     // ============================================
     // TRADING SESSION WINDOWS (GMT+1 hours)
     // ============================================
-    TOKYO_START: 1,
-    TOKYO_END: 2,
+    TOKYO_START: 2,
+    TOKYO_END: 3,
+    TOKYO_MINUTE: 10,
     LONDON_START: 8,
     LONDON_END: 9,
+    LONDON_MINUTE: 10,
     NEWYORK_START: 14,
     NEWYORK_END: 15,
+    NEWYORK_MINUTE: 10,
     SYDNEY_START: 22,
     SYDNEY_END: 23,
+    SYDNEY_MINUTE: 10,
 
     // Debug
     DEBUG_MODE: true,
@@ -1157,11 +1187,11 @@ const ASSET_CONFIGS = {
         DURATION_UNIT: 's'
     },
     R_50: {
-        GRANULARITY: 60,        // 2-minute candles
+        GRANULARITY: 60,        
         TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 54,           // 110 seconds
+        DURATION: 54,           
         DURATION_UNIT: 's'
     },
     R_75: {
@@ -1173,12 +1203,12 @@ const ASSET_CONFIGS = {
         DURATION_UNIT: 's'
     },
     R_100: {
-        GRANULARITY: 60,        // 5-minute candles
+        GRANULARITY: 60,        
         TIMEFRAME_LABEL: '1m',
         MAX_CANDLES_STORED: 100,
         CANDLES_TO_LOAD: 100,
-        DURATION: 54,             // 4 minutes
-        DURATION_UNIT: 's'      // 'm' for minutes
+        DURATION: 54,             
+        DURATION_UNIT: 's'      
     }
 };
 
@@ -1198,8 +1228,8 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_50', 'R_75', 'R_100', '1HZ50V', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
-// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['R_10', 'R_75', 'R_100', '1HZ50V', 'stpRNG', 'stpRNG2'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -1222,6 +1252,8 @@ const state = {
         x5Losses: 0,
         x6Losses: 0,
         x7Losses: 0,
+        x8Losses: 0,
+        x9Losses: 0,
         isActive: true,
         startTime: Date.now(),
         startCapital: CONFIG.INITIAL_CAPITAL
@@ -1267,7 +1299,7 @@ class TradingSessionManager {
         const currentMinute = gmtPlus1.getUTCMinutes();
         const currentTimeDecimal = currentHour + (currentMinute / 60);
 
-        if (currentTimeDecimal >= CONFIG.TOKYO_START && currentTimeDecimal < CONFIG.TOKYO_END) {
+        if (currentTimeDecimal >= CONFIG.TOKYO_START && currentTimeDecimal < CONFIG.TOKYO_END && currentMinute <= CONFIG.TOKYO_MINUTE) {
             return {
                 inSession: true,
                 sessionName: 'TOKYO',
@@ -1276,7 +1308,7 @@ class TradingSessionManager {
             };
         }
 
-        if (currentTimeDecimal >= CONFIG.LONDON_START && currentTimeDecimal < CONFIG.LONDON_END) {
+        if (currentTimeDecimal >= CONFIG.LONDON_START && currentTimeDecimal < CONFIG.LONDON_END && currentMinute <= CONFIG.LONDON_MINUTE) {
             return {
                 inSession: true,
                 sessionName: 'LONDON',
@@ -1285,7 +1317,7 @@ class TradingSessionManager {
             };
         }
 
-        if (currentTimeDecimal >= CONFIG.NEWYORK_START && currentTimeDecimal < CONFIG.NEWYORK_END) {
+        if (currentTimeDecimal >= CONFIG.NEWYORK_START && currentTimeDecimal < CONFIG.NEWYORK_END && currentMinute <= CONFIG.NEWYORK_MINUTE) {
             return {
                 inSession: true,
                 sessionName: 'NEW YORK',
@@ -1438,6 +1470,8 @@ class SessionManager {
             x5Losses: state.session.x5Losses,
             x6Losses: state.session.x6Losses,
             x7Losses: state.session.x7Losses,
+            x8Losses: state.session.x8Losses,
+            x9Losses: state.session.x9Losses,
             netPL: state.session.netPL
         };
     }
@@ -1478,6 +1512,8 @@ class SessionManager {
         state.session.x5Losses = 0;
         state.session.x6Losses = 0;
         state.session.x7Losses = 0;
+        state.session.x8Losses = 0;
+        state.session.x9Losses = 0;
         state.session.startTime = Date.now();
         state.session.startCapital = state.capital;
         state.lastSessionLogTime = 0;
@@ -1499,6 +1535,8 @@ class SessionManager {
                 asset.x5Losses = 0;
                 asset.x6Losses = 0;
                 asset.x7Losses = 0;
+                asset.x8Losses = 0;
+                asset.x9Losses = 0;
                 asset.tradedFractalHigh = null;
                 asset.tradedFractalLow = null;
 
@@ -1618,6 +1656,8 @@ class SessionManager {
             if (assetState.martingaleLevel === 5) assetState.x5Losses++;
             if (assetState.martingaleLevel === 6) assetState.x6Losses++;
             if (assetState.martingaleLevel === 7) assetState.x7Losses++;
+            if (assetState.martingaleLevel === 8) assetState.x8Losses++;
+            if (assetState.martingaleLevel === 9) assetState.x9Losses++;
 
             // Also track in global session
             if (assetState.martingaleLevel === 2) state.session.x2Losses++;
@@ -1626,54 +1666,57 @@ class SessionManager {
             if (assetState.martingaleLevel === 5) state.session.x5Losses++;
             if (assetState.martingaleLevel === 6) state.session.x6Losses++;
             if (assetState.martingaleLevel === 7) state.session.x7Losses++;
+            if (assetState.martingaleLevel === 8) state.session.x8Losses++;
+            if (assetState.martingaleLevel === 9) state.session.x9Losses++;
 
             // Record in persistent history (pass martingale level for loss tracking)
             TradeHistoryManager.recordTrade(symbol, profit, assetState.martingaleLevel);
 
             // Martingale stake calculation (per-asset)
-            if (assetState.martingaleLevel <= 1) {
+            if (assetState.martingaleLevel <= 3) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel === 2) {
+            } else if (assetState.martingaleLevel >= 4 && assetState.martingaleLevel <= 5) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER2 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel === 3) {
+            } else if (assetState.martingaleLevel >= 6 && assetState.martingaleLevel <= 7) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER3 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel === 4) {
+            } else if (assetState.martingaleLevel === 8) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER4 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel === 5) {
+            } else if (assetState.martingaleLevel === 9) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER5 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel === 6) {
-                assetState.currentStake =
-                    Math.ceil(
-                        assetState.currentStake *
-                        CONFIG.MARTINGALE_MULTIPLIER6 *
-                        100
-                    ) / 100;
-            }
+            } 
+            // else if (assetState.martingaleLevel === 6) {
+            //     assetState.currentStake =
+            //         Math.ceil(
+            //             assetState.currentStake *
+            //             CONFIG.MARTINGALE_MULTIPLIER6 *
+            //             100
+            //         ) / 100;
+            // }
 
             if (assetState.martingaleLevel >= CONFIG.MAX_MARTINGALE_STEPS) {
                 LOGGER.warn(
@@ -1777,7 +1820,9 @@ class ConnectionManager {
                     x4Losses: 0,
                     x5Losses: 0,
                     x6Losses: 0,
-                    x7Losses: 0
+                    x7Losses: 0,
+                    x8Losses: 0,
+                    x9Losses: 0
                 };
                 const ac = getAssetConfig(symbol);
                 LOGGER.info(`📊 Initialized asset: ${symbol} (${ac.TIMEFRAME_LABEL} candles, Duration: ${ac.DURATION}${ac.DURATION_UNIT})`);
@@ -2560,11 +2605,11 @@ class DerivBot {
         if (isRecoveryMode) {
             // Recovery: alternate direction from the previous losing trade ON THIS ASSET
             if (assetState.lastTradeDirection === 'CALLE') {
-                symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'CALLE' : direction = 'PUTE';
+                direction = 'PUTE';
                 signalReason =
                     `Recovery (${symbol} Prev LOSS on RISE → now FALL)`;
             } else {
-                symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'PUTE' : direction = 'CALLE';
+                direction = 'CALLE';
                 signalReason =
                     `Recovery (${symbol} Prev LOSS on FALL → now RISE)`;
             }
@@ -2579,7 +2624,7 @@ class DerivBot {
                         `${symbol} ⏭️ Breakout UP already traded at Resistance ${resistance.toFixed(5)} — waiting for new fractal level`
                     );
                 } else {
-                    symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'PUTE' : direction = 'CALLE';
+                    direction = 'CALLE';
                     signalReason = `BREAKOUT UP — Close ${closePrice.toFixed(5)} > Resistance ${resistance.toFixed(5)} (diff: +${(closePrice - resistance).toFixed(5)})`;
                 }
             } else if (closePrice < support) {
@@ -2588,7 +2633,7 @@ class DerivBot {
                         `${symbol} ⏭️ Breakout DOWN already traded at Support ${support.toFixed(5)} — waiting for new fractal level`
                     );
                 } else {
-                    symbol === ('R_25' || 'R_50' || 'stpRNG2' || 'stpRNG3') ? direction = 'CALLE' : direction = 'PUTE';
+                    direction = 'PUTE';
                     signalReason = `BREAKOUT DOWN — Close ${closePrice.toFixed(5)} < Support ${support.toFixed(5)} (diff: -${(support - closePrice).toFixed(5)})`;
                 }
             } else {
@@ -2952,7 +2997,7 @@ setInterval(() => {
             `📈 Overall: ${overall.tradesCount} trades | ${overall.winsCount}W/${overall.lossesCount}L | P/L: $${overall.netPL.toFixed(2)} | Days: ${TradeHistoryManager.getAllDays().length}`
         );
         console.log(
-            `📉 Today Loss Stats: x2:${s.x2Losses} x3:${s.x3Losses} x4:${s.x4Losses} x5:${s.x5Losses} x6:${s.x6Losses} x7:${s.x7Losses}`
+            `📉 Today Loss Stats: x2:${s.x2Losses} x3:${s.x3Losses} x4:${s.x4Losses} x5:${s.x5Losses} x6:${s.x6Losses} x7:${s.x7Losses} x8:${s.x8Losses} x9:${s.x9Losses}`
         );
         console.log(`🔧 Per-Asset Status:${assetLines}`);
         console.log(`🕐 ${status.tradingSession}`);
