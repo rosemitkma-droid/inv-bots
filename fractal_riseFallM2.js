@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM0000001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM0000001-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM00000001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM00000001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1129,13 +1129,13 @@ const CONFIG = {
     // Trade Settings — NOW PER ASSET
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
     TRADE_DELAY: 1000,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MARTINGALE_MULTIPLIER2: 2.0,
-    MARTINGALE_MULTIPLIER3: 2.1,
-    MARTINGALE_MULTIPLIER4: 2.2,
-    MARTINGALE_MULTIPLIER5: 2.3,
+    MARTINGALE_MULTIPLIER: 2.0,
+    MARTINGALE_MULTIPLIER2: 2.1,
+    MARTINGALE_MULTIPLIER3: 2.2,
+    MARTINGALE_MULTIPLIER4: 2.3,
+    MARTINGALE_MULTIPLIER5: 2.4,
     // MARTINGALE_MULTIPLIER6: 3.0,
-    MAX_MARTINGALE_STEPS: 9,
+    MAX_MARTINGALE_STEPS: 8,
     System: 1,
     iDirection: 'RISE',
 
@@ -3002,4 +3002,4 @@ setInterval(() => {
         console.log(`🔧 Per-Asset Status:${assetLines}`);
         console.log(`🕐 ${status.tradingSession}`);
     }
-}, 30000);
+}, 60000);
