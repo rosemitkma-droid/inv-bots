@@ -1047,13 +1047,13 @@ class TechnicalIndicators {
         const period = CONFIG.WPR_PERIOD;
         const emptyResult = { wprCurrent: null, wprPrev: null, signal: null };
 
-        if (!closedCandles || closedCandles.length < period + 2) {
+        if (!closedCandles || closedCandles.length < period + 1) {
             return emptyResult; // need at least period+1 bars to detect a cross
         }
 
         const len        = closedCandles.length;
         const wprCurrent = this.calculateWPR(closedCandles, period, len - 1);
-        const wprPrev    = this.calculateWPR(closedCandles, period, len - 2);
+        const wprPrev    = this.calculateWPR(closedCandles, period, len - 3); // look 2 bars back for previous WPR to confirm cross
 
         if (wprCurrent === null || wprPrev === null) return emptyResult;
 
