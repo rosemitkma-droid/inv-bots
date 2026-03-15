@@ -48,7 +48,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST-grid-state00000000003.json');
+const STATE_FILE          = path.join(__dirname, 'ST-grid-state00000000004.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1430,24 +1430,24 @@ class STEPINDEXGridBot {
         (day === 6 && hours >= 23) ||
         (day === 1 && hours < 2);
 
-      if (isWeekend) {
-        if (!this.endOfDay) {
-          this.log('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting', 'warning');
-          this._sendHourlySummary();
-          this.stop();
-          this.disconnect();
-          this.endOfDay = true;
-        }
-        return;
-      }
-
-      // if (this.endOfDay && hours === 2 && minutes >= 0) {
-      //   this.log('📅 08:00 GMT+1 — reconnecting bot', 'success');
-      //   this._resetDailyStats();
-      //   this.endOfDay = false;
-      //   this.connect();
+      // if (isWeekend) {
+      //   if (!this.endOfDay) {
+      //     this.log('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting', 'warning');
+      //     this._sendHourlySummary();
+      //     this.stop();
+      //     this.disconnect();
+      //     this.endOfDay = true;
+      //   }
       //   return;
       // }
+
+      if (this.endOfDay && hours === 2 && minutes >= 0) {
+        this.log('📅 08:00 GMT+1 — reconnecting bot', 'success');
+        this._resetDailyStats();
+        this.endOfDay = false;
+        this.connect();
+        return;
+      }
 
       if (!this.endOfDay && this.isWinTrade && hours >= 18) {
         this.log('📅 Past 18:00 GMT+1 — end-of-day stop', 'info');
