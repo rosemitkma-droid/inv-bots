@@ -48,7 +48,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v100-grid-state00000000005.json');
+const STATE_FILE          = path.join(__dirname, 'v100-grid-state00000000006.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
