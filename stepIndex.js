@@ -48,7 +48,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST-grid-state00000000001.json');
+const STATE_FILE          = path.join(__dirname, 'ST-grid-state00000000002.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -889,18 +889,20 @@ class STEPINDEXGridBot {
         : cfg.maxMartingaleLevel;
 
       let nextDir = null;
-      if (this.currentGridLevel < 3) {
+      if (this.currentGridLevel < 4) {
+        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      } 
+      else if (this.currentGridLevel >= 4 && this.currentGridLevel <= 6) {
         nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
       } 
-      else if (this.currentGridLevel >= 4 && this.currentGridLevel <= 5) {
-        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
-      } else if (this.currentGridLevel === 6) {
-        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      } else if (this.currentGridLevel === 7) {
-        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
-      } else if (this.currentGridLevel === 8) {
-        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      } 
+      // else if (this.currentGridLevel >= 6 && this.currentGridLevel <= 7) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      // } 
+      // else if (this.currentGridLevel === 7) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      // } else if (this.currentGridLevel === 8) {
+      //   nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      // } 
       else {
         nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
       }
