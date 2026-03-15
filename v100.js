@@ -48,7 +48,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v100-grid-state00000000006.json');
+const STATE_FILE          = path.join(__dirname, 'v100-grid-state00000000007.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1429,16 +1429,16 @@ class V100GridBot {
         (day === 6 && hours >= 23) ||
         (day === 1 && hours < 2);
 
-      if (isWeekend) {
-        if (!this.endOfDay) {
-          this.log('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting', 'warning');
-          this._sendHourlySummary();
-          this.stop();
-          this.disconnect();
-          this.endOfDay = true;
-        }
-        return;
-      }
+      // if (isWeekend) {
+      //   if (!this.endOfDay) {
+      //     this.log('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting', 'warning');
+      //     this._sendHourlySummary();
+      //     this.stop();
+      //     this.disconnect();
+      //     this.endOfDay = true;
+      //   }
+      //   return;
+      // }
 
       if (this.endOfDay && hours === 2 && minutes >= 0) {
         this.log('📅 08:00 GMT+1 — reconnecting bot', 'success');
