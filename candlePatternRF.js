@@ -1075,7 +1075,7 @@ class STEPINDEXGridBot {
 
             this.log(
               `${modeLabel} | Pattern says ` +
-              `${analysis.direction === 'PUTE' ? 'HIGHER 🟢' : 'LOWER 🔴'} ` +
+              `${analysis.direction === 'CALLE' ? 'HIGHER 🟢' : 'LOWER 🔴'} ` +
               `@ ${(analysis.confidence * 100).toFixed(1)}% confidence | ` +
               `Stake: $${this.calculateStake(this.currentGridLevel).toFixed(2)}`,
               'success'
@@ -1092,7 +1092,7 @@ class STEPINDEXGridBot {
 
             this._sendTelegram(
               `${DEFAULT_CONFIG.symbol} Trade Open\n` +
-              `Pattern signal: ${analysis.direction === 'PUTE' ? 'HIGHER 🟢' : 'LOWER 🔴'}\n` +
+              `Pattern signal: ${analysis.direction === 'CALLE' ? 'HIGHER 🟢' : 'LOWER 🔴'}\n` +
                 `Confidence: ${(analysis.confidence * 100).toFixed(1)}%\n` +
                 `Stake: $${this.calculateStake(this.currentGridLevel).toFixed(2)}\n` +
                 `Duration: ${DEFAULT_CONFIG.tickDuration}\n` +
@@ -1808,7 +1808,7 @@ class STEPINDEXGridBot {
     const stake     = this.calculateStake(this.currentGridLevel);
 
     // const direction = this.currentDirection;
-    const direction = directions === 'CALLE' ? 'PUTE' : 'CALLE';
+    const direction = directions === 'CALLE' ? 'CALLE' : 'PUTE';
     const label     = direction === 'CALLE' ? 'HIGHER' : 'LOWER';
     const tradeType = this.inRecoveryMode
       ? `⚡ RECOVERY L${this.currentGridLevel}`
