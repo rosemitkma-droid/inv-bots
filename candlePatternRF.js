@@ -428,7 +428,7 @@ const DEFAULT_CONFIG = {
     // 0.60 = 60% — the bot will only trade when it's at least 60% sure
     // Increase for fewer but higher-quality trades
     // Decrease for more frequent trading with lower accuracy
-    minConfidence: 0.6,
+    minConfidence: 0.65,
 
     // Pattern lengths to analyze
     // Shorter (3-4): more matches, less specific
@@ -470,7 +470,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST-grid-state-pattern-v20001.json');
+const STATE_FILE          = path.join(__dirname, 'ST-grid-state-pattern-v200001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1075,23 +1075,32 @@ class STEPINDEXGridBot {
 
             this.log(
               `${modeLabel} | Pattern says ` +
-              `${analysis.direction === 'CALLE' ? 'HIGHER 🟢' : 'LOWER 🔴'} ` +
+              `${analysis.direction === 'PUTE' ? 'HIGHER 🟢' : 'LOWER 🔴'} ` +
               `@ ${(analysis.confidence * 100).toFixed(1)}% confidence | ` +
               `Stake: $${this.calculateStake(this.currentGridLevel).toFixed(2)}`,
               'success'
             );
 
+            if (analysis.details.consensus.agreementRatio < 0.99) {
+              this.log(
+                `   ⚠️ Consensus agreement at ${analysis.details.consensus.agreementRatio}` +
+                `${(analysis.details.consensus.agreementRatio * 100).toFixed(0)}% — ` +
+                `trade signal is less certain`
+              );
+              return;
+            }
+
             this._sendTelegram(
               `${DEFAULT_CONFIG.symbol} Trade Open\n` +
-              `Pattern signal: ${analysis.direction === 'CALLE' ? 'HIGHER 🟢' : 'LOWER 🔴'}\n` +
+              `Pattern signal: ${analysis.direction === 'PUTE' ? 'HIGHER 🟢' : 'LOWER 🔴'}\n` +
                 `Confidence: ${(analysis.confidence * 100).toFixed(1)}%\n` +
                 `Stake: $${this.calculateStake(this.currentGridLevel).toFixed(2)}\n` +
-                `Duration: ${DEFAULT_CONFIG.tickDuration}` + '\n' +
-                `Investment: $${this.investmentRemaining.toFixed(2)}`,
+                `Duration: ${DEFAULT_CONFIG.tickDuration}\n` +
+                `Investment: $${this.investmentRemaining.toFixed(2)}`
             );
 
             // Place trade
-            this._placeTrade();
+            this._placeTrade(analysis.direction);
 
           } else {
             // Confidence too low — skip this candle
@@ -1776,7 +1785,7 @@ class STEPINDEXGridBot {
   // PLACE TRADE
   // ══════════════════════════════════════════════════════════════════════════
 
-  _placeTrade() {
+  _placeTrade(directions) {
     if (!this.isAuthorized) {
       this.log('Not authorized — cannot trade', 'error');
       return;
@@ -1797,7 +1806,9 @@ class STEPINDEXGridBot {
     }
 
     const stake     = this.calculateStake(this.currentGridLevel);
-    const direction = this.currentDirection;
+
+    // const direction = this.currentDirection;
+    const direction = directions === 'CALLE' ? 'PUTE' : 'CALLE';
     const label     = direction === 'CALLE' ? 'HIGHER' : 'LOWER';
     const tradeType = this.inRecoveryMode
       ? `⚡ RECOVERY L${this.currentGridLevel}`
@@ -2207,7 +2218,7 @@ function main() {
 
   if (bot.telegramBot) bot.startTelegramTimer();
 
-  bot.startTimeScheduler();
+  // bot.startTimeScheduler();
 
   bot.connect();
 
