@@ -467,7 +467,7 @@ const ASSET_CONFIGS = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'multi-asset-bot-state01.json');
+const STATE_FILE          = path.join(__dirname, 'multi-asset-bot-state001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -591,7 +591,7 @@ class AssetEngine {
     // ── Watchdog ──────────────────────────────────────────────────────────
     this.tradeWatchdogTimer     = null;
     this.tradeWatchdogPollTimer = null;
-    this.tradeWatchdogMs        = 60000;
+    this.tradeWatchdogMs        = 900000;
 
     // ── Dedup ──────────────────────────────────────────────────────────────
     this._processedContracts = new Set();
