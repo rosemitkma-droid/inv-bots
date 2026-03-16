@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'ema_riseFallM0000000001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'ema_riseFallM0000000001-history.json');
+const STATE_FILE = path.join(__dirname, 'ema_riseFallM0000000002-state.json');
+const HISTORY_FILE = path.join(__dirname, 'ema_riseFallM0000000002-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1158,19 +1158,19 @@ const CONFIG = {
     // true  = only trade during defined session windows below (recovery allowed anytime)
     // false = trade 24/7 (ignore session windows entirely)
     // ============================================
-    USE_TRADING_SESSIONS: false,
+    USE_TRADING_SESSIONS: true,
 
     // ============================================
     // TRADING SESSION WINDOWS (GMT+1 hours)
     // ============================================
     TOKYO_START: 1,
-    TOKYO_END: 2,
+    TOKYO_END: 1,
     LONDON_START: 8,
-    LONDON_END: 9,
+    LONDON_END: 13,
     NEWYORK_START: 14,
-    NEWYORK_END: 15,
+    NEWYORK_END: 17,
     SYDNEY_START: 22,
-    SYDNEY_END: 23,
+    SYDNEY_END: 22,
 
     // Debug
     DEBUG_MODE: true,
