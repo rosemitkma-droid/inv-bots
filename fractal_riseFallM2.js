@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM0000000001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM0000000001-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM00000000001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM00000000001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1117,13 +1117,13 @@ const CONFIG = {
     SESSION_STOP_LOSS: -250,
 
     // Default Candle Settings (used if asset has no specific config)
-    GRANULARITY: 60,
-    TIMEFRAME_LABEL: '1m',
+    GRANULARITY: 300,
+    TIMEFRAME_LABEL: '5m',
     MAX_CANDLES_STORED: 100,
     CANDLES_TO_LOAD: 100,
 
     // Default Trade Duration Settings (used if asset has no specific config)
-    DURATION: 54,
+    DURATION: 294,
     DURATION_UNIT: 's',
 
     // Trade Settings — NOW PER ASSET
@@ -1170,46 +1170,46 @@ const CONFIG = {
 // Override default candle/duration settings per asset.
 // Any setting not specified here will fall back to CONFIG defaults.
 const ASSET_CONFIGS = {
-    R_10: {
-        GRANULARITY: 60,
-        TIMEFRAME_LABEL: '1m',
-        MAX_CANDLES_STORED: 100,
-        CANDLES_TO_LOAD: 100,
-        DURATION: 54,
-        DURATION_UNIT: 's'
-    },
-    R_25: {
-        GRANULARITY: 60,
-        TIMEFRAME_LABEL: '1m',
-        MAX_CANDLES_STORED: 100,
-        CANDLES_TO_LOAD: 100,
-        DURATION: 54,
-        DURATION_UNIT: 's'
-    },
-    R_50: {
-        GRANULARITY: 60,        
-        TIMEFRAME_LABEL: '1m',
-        MAX_CANDLES_STORED: 100,
-        CANDLES_TO_LOAD: 100,
-        DURATION: 54,           
-        DURATION_UNIT: 's'
-    },
-    R_75: {
-        GRANULARITY: 60,
-        TIMEFRAME_LABEL: '1m',
-        MAX_CANDLES_STORED: 100,
-        CANDLES_TO_LOAD: 100,
-        DURATION: 54,
-        DURATION_UNIT: 's'
-    },
-    R_100: {
-        GRANULARITY: 60,        
-        TIMEFRAME_LABEL: '1m',
-        MAX_CANDLES_STORED: 100,
-        CANDLES_TO_LOAD: 100,
-        DURATION: 54,             
-        DURATION_UNIT: 's'      
-    }
+    // R_10: {
+    //     GRANULARITY: 60,
+    //     TIMEFRAME_LABEL: '1m',
+    //     MAX_CANDLES_STORED: 100,
+    //     CANDLES_TO_LOAD: 100,
+    //     DURATION: 54,
+    //     DURATION_UNIT: 's'
+    // },
+    // R_25: {
+    //     GRANULARITY: 60,
+    //     TIMEFRAME_LABEL: '1m',
+    //     MAX_CANDLES_STORED: 100,
+    //     CANDLES_TO_LOAD: 100,
+    //     DURATION: 54,
+    //     DURATION_UNIT: 's'
+    // },
+    // R_50: {
+    //     GRANULARITY: 60,        
+    //     TIMEFRAME_LABEL: '1m',
+    //     MAX_CANDLES_STORED: 100,
+    //     CANDLES_TO_LOAD: 100,
+    //     DURATION: 54,           
+    //     DURATION_UNIT: 's'
+    // },
+    // R_75: {
+    //     GRANULARITY: 60,
+    //     TIMEFRAME_LABEL: '1m',
+    //     MAX_CANDLES_STORED: 100,
+    //     CANDLES_TO_LOAD: 100,
+    //     DURATION: 54,
+    //     DURATION_UNIT: 's'
+    // },
+    // R_100: {
+    //     GRANULARITY: 60,        
+    //     TIMEFRAME_LABEL: '1m',
+    //     MAX_CANDLES_STORED: 100,
+    //     CANDLES_TO_LOAD: 100,
+    //     DURATION: 54,             
+    //     DURATION_UNIT: 's'      
+    // }
 };
 
 /**
