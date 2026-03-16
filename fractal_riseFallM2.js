@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM000000001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM000000001-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM0000000001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM0000000001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -2511,6 +2511,21 @@ class DerivBot {
      * =========================================================
      * TRADE EXECUTION — PER-ASSET FRACTAL BREAKOUT LOGIC
      * =========================================================
+     * 
+     * BREAKOUT LEVELS LOGIC:
+     * - Resistance (Fractal High): The most recent bearish fractal - price level where sellers previously pushed price down
+     * - Support (Fractal Low): The most recent bullish fractal - price level where buyers previously pushed price up
+     * 
+     * FIRST BREAKOUT CANDLE LOGIC (Regular Mode - NOT isRecoveryMode):
+     * - We only trade the FIRST candle that closes beyond the breakout level
+     * - Once traded, we mark the level as "tradedFractalHigh" or "tradedFractalLow"
+     * - We will NOT trade again until a NEW fractal forms (different price level)
+     * - This prevents over-trading and ensures we only catch the initial breakout
+     * 
+     * RECOVERY MODE (isRecoveryMode):
+     * - After a loss, we use martingale to recover
+     * - Recovery trades follow the SAME direction as the losing trade (continuation)
+     * - Recovery trades are NOT subject to the first breakout candle rule
      */
     executeNextTrade(symbol, lastClosedCandle) {
         const assetState = state.assets[symbol];
@@ -2537,16 +2552,16 @@ class DerivBot {
         const sessionCheck = TradingSessionManager.isWithinTradingSession();
         const isInMartingaleRecovery = assetState.martingaleLevel > 0;
 
-        if (!sessionCheck.inSession && !isInMartingaleRecovery) {
-            const now = Date.now();
-            if (now - state.lastSessionLogTime > 300000) {
-                LOGGER.info(
-                    `🕐 OUTSIDE TRADING SESSION — ${TradingSessionManager.getSessionStatusString()} | Skipping trade signals`
-                );
-                state.lastSessionLogTime = now;
-            }
-            return;
-        }
+        // if (!sessionCheck.inSession && !isInMartingaleRecovery) {
+        //     const now = Date.now();
+        //     if (now - state.lastSessionLogTime > 300000) {
+        //         LOGGER.info(
+        //             `🕐 OUTSIDE TRADING SESSION — ${TradingSessionManager.getSessionStatusString()} | Skipping trade signals`
+        //         );
+        //         state.lastSessionLogTime = now;
+        //     }
+        //     return;
+        // }
 
         if (!sessionCheck.inSession && isInMartingaleRecovery) {
             LOGGER.warn(
@@ -2582,6 +2597,10 @@ class DerivBot {
         const resistance = assetState.lastFractalHigh;
         const support = assetState.lastFractalLow;
         const closePrice = lastClosedCandle.close;
+        
+        // Track breakout status for logging
+        const resistanceBreakout = resistance !== null ? closePrice > resistance : false;
+        const supportBreakout = support !== null ? closePrice < support : false;
 
         if (resistance === null || support === null) {
             LOGGER.info(
@@ -2590,8 +2609,12 @@ class DerivBot {
             return;
         }
 
+        // Detailed breakout level logging
+        const resistanceStatus = assetState.tradedFractalHigh === resistance ? '🟡 TRADED' : (resistanceBreakout ? '🔴 BREAKOUT!' : '🟢 ACTIVE');
+        const supportStatus = assetState.tradedFractalLow === support ? '🟡 TRADED' : (supportBreakout ? '🔴 BREAKOUT!' : '🟢 ACTIVE');
+        
         LOGGER.info(
-            `${symbol} 📐 Fractal Levels — Resistance: ${resistance.toFixed(5)} | Support: ${support.toFixed(5)} | Close: ${closePrice.toFixed(5)} | Mart: ${assetState.martingaleLevel} | Stake: $${stake.toFixed(2)}`
+            `${symbol} 📊 BREAKOUT LEVELS — Resistance: ${resistance.toFixed(5)} [${resistanceStatus}] | Support: ${support.toFixed(5)} [${supportStatus}] | Close: ${closePrice.toFixed(5)} | Mart: ${assetState.martingaleLevel} | Stake: $${stake.toFixed(2)}`
         );
 
         // =============================================
@@ -2600,50 +2623,62 @@ class DerivBot {
         let direction = null;
         let signalReason = '';
 
+        // isRecoveryMode: true when the last trade was a loss (martingale level > 0)
         const isRecoveryMode = assetState.lastTradeWasWin === false;
 
         if (isRecoveryMode) {
-            // Recovery: alternate direction from the previous losing trade ON THIS ASSET
+            // RECOVERY MODE: After a loss, continue in the SAME direction
+            // This is a martingale continuation strategy - not a new breakout signal
             if (assetState.lastTradeDirection === 'CALLE') {
-                direction = 'PUTE';
-                signalReason =
-                    `Recovery (${symbol} Prev LOSS on RISE → now FALL)`;
-            } else {
                 direction = 'CALLE';
-                signalReason =
-                    `Recovery (${symbol} Prev LOSS on FALL → now RISE)`;
+                signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
+            } else {
+                direction = 'PUTE';
+                signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
             }
             LOGGER.trade(
-                `🔄 [${symbol}] RECOVERY MODE: ${signalReason}`
+                `🔄 [${symbol}] 🔄 RECOVERY MODE: ${signalReason} (Martingale Level: ${assetState.martingaleLevel})`
             );
         } else {
-            // Normal fractal breakout analysis for THIS asset
+            // REGULAR MODE: Check for FRACTAL BREAKOUT signals
+            // We only trade the FIRST candle to close beyond the breakout level
+            
+            // Check for UPWARD BREAKOUT (RISE/CALL)
             if (closePrice > resistance) {
+                // Has this breakout level already been traded?
                 if (assetState.tradedFractalHigh === resistance) {
+                    // Already traded this breakout level - skip
                     LOGGER.debug(
                         `${symbol} ⏭️ Breakout UP already traded at Resistance ${resistance.toFixed(5)} — waiting for new fractal level`
                     );
                 } else {
+                    // FIRST BREAKOUT CANDLE - Execute trade!
                     direction = 'CALLE';
-                    signalReason = `BREAKOUT UP — Close ${closePrice.toFixed(5)} > Resistance ${resistance.toFixed(5)} (diff: +${(closePrice - resistance).toFixed(5)})`;
+                    signalReason = `🔺 FIRST BREAKOUT UP — Close ${closePrice.toFixed(5)} > Resistance ${resistance.toFixed(5)} (diff: +${(closePrice - resistance).toFixed(5)})`;
                 }
-            } else if (closePrice < support) {
+            } 
+            // Check for DOWNWARD BREAKOUT (FALL/PUT)
+            else if (closePrice < support) {
+                // Has this breakout level already been traded?
                 if (assetState.tradedFractalLow === support) {
+                    // Already traded this breakout level - skip
                     LOGGER.debug(
                         `${symbol} ⏭️ Breakout DOWN already traded at Support ${support.toFixed(5)} — waiting for new fractal level`
                     );
                 } else {
+                    // FIRST BREAKOUT CANDLE - Execute trade!
                     direction = 'PUTE';
-                    signalReason = `BREAKOUT DOWN — Close ${closePrice.toFixed(5)} < Support ${support.toFixed(5)} (diff: -${(support - closePrice).toFixed(5)})`;
+                    signalReason = `🔻 FIRST BREAKOUT DOWN — Close ${closePrice.toFixed(5)} < Support ${support.toFixed(5)} (diff: -${(support - closePrice).toFixed(5)})`;
                 }
             } else {
+                // Price is between support and resistance - no breakout
                 LOGGER.info(
                     `${symbol} ⏸️ No breakout — Close ${closePrice.toFixed(5)} is between Support ${support.toFixed(5)} and Resistance ${resistance.toFixed(5)}`
                 );
             }
 
             if (direction) {
-                LOGGER.trade(`⚡ [${symbol}] FRACTAL SIGNAL: ${signalReason}`);
+                LOGGER.trade(`⚡ [${symbol}] 🏆 FRACTAL BREAKOUT SIGNAL: ${signalReason}`);
             }
         }
 
@@ -2662,19 +2697,21 @@ class DerivBot {
         const sessionLabel = sessionCheck.inSession
             ? `[${sessionCheck.sessionName}]`
             : `[RECOVERY - Outside Session]`;
+        
+        const modeLabel = isRecoveryMode ? '🔄 RECOVERY TRADE' : '🏆 FIRST BREAKOUT TRADE';
 
         LOGGER.trade(
-            `🎯 ${sessionLabel} [${symbol}] Executing ${direction === 'CALLE' ? 'RISE' : 'FALL'} trade`
+            `🎯 ${sessionLabel} [${symbol}] ${modeLabel}: Executing ${direction === 'CALLE' ? 'RISE' : 'FALL'} trade`
         );
         LOGGER.trade(
-            `   [${symbol}] Stake: $${stake.toFixed(2)} | Duration: ${assetConfig.DURATION} ${assetConfig.DURATION_UNIT} | Martingale Level: ${assetState.martingaleLevel}`
+            `   [${symbol}] 💰 Stake: $${stake.toFixed(2)} | Duration: ${assetConfig.DURATION} ${assetConfig.DURATION_UNIT} | Martingale Level: ${assetState.martingaleLevel}`
         );
-        LOGGER.trade(`   [${symbol}] Reason: ${signalReason}`);
+        LOGGER.trade(`   [${symbol}] 📝 Reason: ${signalReason}`);
         LOGGER.trade(
-            `   [${symbol}] Fractal R: ${resistance.toFixed(5)} | S: ${support.toFixed(5)} | Close: ${closePrice.toFixed(5)}`
+            `   [${symbol}] 📐 Fractal Levels — Resistance: ${resistance.toFixed(5)} | Support: ${support.toFixed(5)} | Close: ${closePrice.toFixed(5)}`
         );
         LOGGER.trade(
-            `   [${symbol}] Asset Stats: ${assetState.tradesCount} trades, ${assetState.winsCount}W/${assetState.lossesCount}L, P/L: $${assetState.netPL.toFixed(2)}`
+            `   [${symbol}] 📊 Asset Stats: ${assetState.tradesCount} trades, ${assetState.winsCount}W/${assetState.lossesCount}L, P/L: $${assetState.netPL.toFixed(2)}`
         );
 
         const position = {
@@ -2712,15 +2749,23 @@ class DerivBot {
         position.reqId = reqId;
 
         // Mark fractals as traded (per-asset)
-        if (direction === 'CALLE' && !isRecoveryMode) {
-            assetState.tradedFractalHigh = resistance;
+        // In REGULAR mode (not recovery), we mark the level as traded to prevent re-trading
+        // In RECOVERY mode, we don't mark levels as traded since recovery is about martingale, not breakout signals
+        if (!isRecoveryMode) {
+            if (direction === 'CALLE') {
+                assetState.tradedFractalHigh = resistance;
+                LOGGER.info(
+                    `${symbol} ✅ ✅ Marked Resistance ${resistance.toFixed(5)} as TRADED — will not re-trade until NEW fractal forms`
+                );
+            } else if (direction === 'PUTE') {
+                assetState.tradedFractalLow = support;
+                LOGGER.info(
+                    `${symbol} ✅ ✅ Marked Support ${support.toFixed(5)} as TRADED — will not re-trade until NEW fractal forms`
+                );
+            }
+        } else {
             LOGGER.info(
-                `${symbol} ✅ Marked Resistance ${resistance.toFixed(5)} as TRADED — will not re-trade until new fractal forms`
-            );
-        } else if (direction === 'PUTE' && !isRecoveryMode) {
-            assetState.tradedFractalLow = support;
-            LOGGER.info(
-                `${symbol} ✅ Marked Support ${support.toFixed(5)} as TRADED — will not re-trade until new fractal forms`
+                `${symbol} 🔄 Recovery trade executed — breakout levels remain active for next breakout signal`
             );
         }
     }
