@@ -467,7 +467,7 @@ const ASSET_CONFIGS = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'multi-asset-bot-state.json');
+const STATE_FILE          = path.join(__dirname, 'multi-asset-bot-state01.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1006,7 +1006,7 @@ class MultiAssetOrchestrator {
         if (engine.currentContractId) {
           engine.tradeInProgress = true;
           this._send({ proposal_open_contract: 1, contract_id: engine.currentContractId, subscribe: 1 });
-          this._startTradeWatchdog(engine, engine.currentContractId, 5000);
+          this._startTradeWatchdog(engine, engine.currentContractId);
         }
       }
       this._sendTelegram(
@@ -1504,9 +1504,9 @@ class MultiAssetOrchestrator {
   // TRADE WATCHDOG (per engine)
   // ══════════════════════════════════════════════════════════════════════════
 
-  _startTradeWatchdog(engine, contractId, customTimeoutMs) {
+  _startTradeWatchdog(engine, contractId) {
     engine.clearWatchdog();
-    const timeoutMs = customTimeoutMs || engine.tradeWatchdogMs;
+    const timeoutMs = engine.tradeWatchdogMs;
 
     engine.tradeWatchdogTimer = setTimeout(() => {
       if (!engine.tradeInProgress) return;
