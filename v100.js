@@ -20,7 +20,7 @@ const path        = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 
 const DEFAULT_CONFIG = {
-  apiToken: 'Dz2V2KvRf4Uukt3',
+  apiToken: 'hsj0tA0XJoIzJG5',
   appId:    '1089',
 
   symbol:        'R_100',
@@ -56,7 +56,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'V100-grid-stateV01.json');
+const STATE_FILE          = path.join(__dirname, 'V100-grid-stateV001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -145,7 +145,7 @@ class V100GridBot {
     // ── Trade Watchdog ───────────────────────────────────────────────────────
     this.tradeWatchdogTimer    = null;
     this.tradeWatchdogPollTimer = null;
-    this.tradeWatchdogMs       = 5000;
+    this.tradeWatchdogMs       = 8000;
     this.tradeStartTime        = null;
 
     // ── Stuck Trade Pause State ──────────────────────────────────────────────
@@ -1139,11 +1139,11 @@ class V100GridBot {
   // ══════════════════════════════════════════════════════════════════════════════
 
   _resumeTradingAfterStuckTradePause() {
-    if (!this.running) {
-      this.log('Bot stopped during stuck trade pause — not resuming', 'info');
-      this.isPausedDueToStuckTrade = false;
-      return;
-    }
+    // if (!this.running) {
+    //   this.log('Bot stopped during stuck trade pause — not resuming', 'info');
+    //   this.isPausedDueToStuckTrade = false;
+    //   return;
+    // }
 
     this.isPausedDueToStuckTrade = false;
     this.canTrade = true;
@@ -1221,6 +1221,15 @@ class V100GridBot {
     this.log(
       `📊 ${tradeType} TRADE | ${label} | L${this.currentGridLevel} | Stake: $${stake} | ` +
       `Investment left: $${this.investmentRemaining.toFixed(2)}`
+    );
+
+    this._sendTelegram(
+      `🚀 <b>${DEFAULT_CONFIG.symbol}: TRADE OPEN</b>\n` +
+      `📊 Type: ${tradeType}\n` +
+      `📊 Direction: ${label}\n` +
+      `📊 Stake: $${stake}\n` +
+      `📊 <b>Grid Level:</b> ${this.currentGridLevel}\n` +
+      `📊 <b>Investment left:</b> $${this.investmentRemaining.toFixed(2)}\n`
     );
 
     if (!this.inRecoveryMode) {
@@ -1453,19 +1462,19 @@ class V100GridBot {
         (day === 6 && hours >= 23) ||
         (day === 1 && hours < 2);
 
-      if (isWeekend) {
-        if (!this.endOfDay) {
-          this.log('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting', 'warning');
-          this._sendHourlySummary();
-          this.stop();
-          this.disconnect();
-          this.endOfDay = true;
-        }
-        return;
-      }
+      // if (isWeekend) {
+      //   if (!this.endOfDay) {
+      //     this.log('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting', 'warning');
+      //     this._sendHourlySummary();
+      //     this.stop();
+      //     this.disconnect();
+      //     this.endOfDay = true;
+      //   }
+      //   return;
+      // }
 
       if (this.endOfDay && hours === 2 && minutes >= 0) {
-        this.log('📅 08:00 GMT+1 — reconnecting bot', 'success');
+        this.log('📅 02:00 GMT+1 — reconnecting bot', 'success');
         this._resetDailyStats();
         this.endOfDay = false;
         this.connect();
