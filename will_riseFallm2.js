@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'wpr_riseFallM000000002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'wpr_riseFallM000000002-history.json');
+const STATE_FILE = path.join(__dirname, 'wpr_riseFallM201-state.json');
+const HISTORY_FILE = path.join(__dirname, 'wpr_riseFallM201-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1152,7 +1152,7 @@ const CONFIG = {
     // true  = only trade during defined session windows below (recovery allowed anytime)
     // false = trade 24/7 (ignore session windows entirely)
     // ============================================
-    USE_TRADING_SESSIONS: true,
+    USE_TRADING_SESSIONS: false,
 
     // ============================================
     // TRADING SESSION WINDOWS (GMT+1 hours)
