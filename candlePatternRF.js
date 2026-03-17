@@ -38,7 +38,7 @@ const CONFIG = {
   // Recovery Strategy Settings
   // When enabled: After a loss, trade immediately on next candle in SAME direction (no analysis)
   // When disabled: After a loss, wait for pattern analysis signal
-  USE_RECOVERY_STRATEGY: false,
+  USE_RECOVERY_STRATEGY: true,
 
   // State
   STATE_SAVE_INTERVAL: 5000
@@ -87,7 +87,7 @@ const DEFAULT_ASSET_CONFIG = {
 
   // Pattern Analysis Settings
   PATTERN_MIN_CONFIDENCE: 0.60,
-  MIN_AGREEMENT_RATIO_CONFIDENCE: 0.98,
+  MIN_AGREEMENT_RATIO_CONFIDENCE: 0.80,
   MIN_PATTERN_CONFIDENCE: 0.98,
   PATTERN_LENGTHS: [3, 4, 5, 6, 7, 8],
   PATTERN_MIN_OCCURRENCES: 5,
@@ -413,7 +413,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRF-multi-history0001.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRF-multi-history000001.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
