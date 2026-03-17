@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // ╔══════════════════════════════════════════════════════════════════════════════════╗
-// ║   GRID MARTINGALE BOT — Headless Terminal Edition (FIXED)           ║
-// ║   Volatility | CALLE/PUTE | Low-Risk Hybrid                        ║
+// ║   V100 GRID MARTINGALE BOT — Headless Terminal Edition (FIXED)           ║
+// ║   Volatility V100 | CALLE/PUTE | Low-Risk Hybrid                        ║
 // ║   NEW: Trade on new candle, recovery trades until win, then wait for candle    ║
+// ║   ENHANCED: Stuck trade recovery with pause and reset                          ║
 // ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 'use strict';
@@ -19,7 +20,7 @@ const path        = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 
 const DEFAULT_CONFIG = {
-  apiToken: 'hsj0tA0XJoIzJG5',
+  apiToken: 'Dz2V2KvRf4Uukt3',
   appId:    '1089',
 
   symbol:        'R_100',
@@ -39,6 +40,13 @@ const DEFAULT_CONFIG = {
   stopLoss:   100,
   takeProfit: 10000,
 
+  // Stuck trade recovery settings - USER ADJUSTABLE
+  // Default: 5 minutes (5 * 60 * 1000 = 300000ms)
+  // To change: set stuckTradePauseDuration to desired milliseconds
+  // Example: 3 minutes = 3 * 60 * 1000 = 180000
+  //          10 minutes = 10 * 60 * 1000 = 600000
+  stuckTradePauseDuration: 5 * 60 * 1000,
+
   telegramToken:   '8343520432:AAGNxzjnljOEhfv_rE-y-F98fUDPmrqZuXc',
   telegramChatId:  '752497117',
   telegramEnabled: true,
@@ -48,7 +56,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'v100-grid-state00000000007.json');
+const STATE_FILE          = path.join(__dirname, 'V100-grid-stateV01.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -137,8 +145,13 @@ class V100GridBot {
     // ── Trade Watchdog ───────────────────────────────────────────────────────
     this.tradeWatchdogTimer    = null;
     this.tradeWatchdogPollTimer = null;
-    this.tradeWatchdogMs       = 8000;
+    this.tradeWatchdogMs       = 5000;
     this.tradeStartTime        = null;
+
+    // ── Stuck Trade Pause State ──────────────────────────────────────────────
+    this.isPausedDueToStuckTrade = false;
+    this.stuckTradePauseTimer    = null;
+    this.stuckTradeCount         = 0;
 
     // ── Message queue ────────────────────────────────────────────────────────
     this.messageQueue = [];
@@ -187,16 +200,6 @@ class V100GridBot {
     // ══════════════════════════════════════════════════════════════════════
     // NEW CANDLE-GATED TRADING + RECOVERY LOGIC
     // ══════════════════════════════════════════════════════════════════════
-    // canTrade:        true = bot is allowed to place a trade right now
-    // inRecoveryMode:  true = we're in a loss recovery chain (martingale)
-    //
-    // Flow:
-    //   1. New candle detected → canTrade = true (if not in recovery)
-    //   2. Trade placed → canTrade = false (for fresh trades)
-    //   3. WIN  → inRecoveryMode = false, canTrade = false → wait for new candle
-    //   4. LOSS → inRecoveryMode = true,  canTrade = true  → immediate recovery
-    //   5. Recovery WIN → same as step 3: reset and wait for new candle
-    // ══════════════════════════════════════════════════════════════════════
     this.canTrade       = false;
     this.inRecoveryMode = false;
 
@@ -229,9 +232,9 @@ class V100GridBot {
     this._restoreState();
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // STATE RESTORE
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _restoreState() {
     const saved = StatePersistence.load();
@@ -250,10 +253,7 @@ class V100GridBot {
     this.maxWinStreak        = t.maxWinStreak        || 0;
     this.maxLossStreak       = t.maxLossStreak       || 0;
     this.currentStreak       = t.currentStreak       || 0;
-    // Restore recovery mode — if we were mid-recovery, resume recovery
     this.inRecoveryMode      = t.inRecoveryMode      || false;
-    // If restoring in recovery mode, allow immediate trading
-    // Otherwise wait for new candle
     this.canTrade            = this.inRecoveryMode;
     this.hasStartedOnce      = true;
     this.log(
@@ -264,9 +264,9 @@ class V100GridBot {
     );
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // LOGGING
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   log(message, type = 'info') {
     const ts    = new Date().toISOString();
@@ -274,9 +274,9 @@ class V100GridBot {
     console.log(`[${ts}] ${emoji} ${message}`);
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // STAKE CALCULATOR
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   calculateStake(level) {
     const cfg = this.config;
@@ -300,9 +300,9 @@ class V100GridBot {
     return Number(stake.toFixed(2));
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // WEBSOCKET — CONNECT
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   connect() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -412,9 +412,9 @@ class V100GridBot {
     this.log('Disconnected ✅', 'success');
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // WEBSOCKET — SEND
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _send(request) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -431,9 +431,9 @@ class V100GridBot {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // PING / KEEPALIVE
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _startPing() {
     this._stopPing();
@@ -448,9 +448,9 @@ class V100GridBot {
     if (this.pingInterval) { clearInterval(this.pingInterval); this.pingInterval = null; }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // MESSAGE ROUTER
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _onRawMessage(data) {
     try {
@@ -460,9 +460,9 @@ class V100GridBot {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // MESSAGE HANDLER
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _handleMessage(msg) {
     if (msg.error) {
@@ -482,17 +482,9 @@ class V100GridBot {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // CANDLE HANDLER — NEW CANDLE DETECTION
-  // ══════════════════════════════════════════════════════════════════════════
-  //
-  // KEY CHANGE: New candle only triggers a trade if we are NOT in recovery.
-  // During recovery, trades are triggered immediately after each loss result
-  // (in _onContract), so the candle signal is irrelevant.
-  //
-  // After a recovery WIN, inRecoveryMode is set to false and canTrade is
-  // set to false, so the bot waits here for the next new candle.
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _handleOHLC(ohlc) {
     const symbol = ohlc.symbol;
@@ -533,27 +525,17 @@ class V100GridBot {
           `${symbol} ${candleEmoji} NEW CANDLE [${closeTime}] ${candleType}: O:${closedCandle.open.toFixed(5)} H:${closedCandle.high.toFixed(5)} L:${closedCandle.low.toFixed(5)} C:${closedCandle.close.toFixed(5)}`
         );
 
-        // ════════════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════════════════
         // CANDLE-GATED TRADE TRIGGER
-        // ════════════════════════════════════════════════════════════════
-        // Only signal a new trade if we are NOT currently in a recovery
-        // chain. Recovery trades are triggered directly from _onContract
-        // after each loss, so they don't need candle signals.
-        // ════════════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════════════════
         if (this.inRecoveryMode) {
           this.log(`📊 NEW CANDLE — but in RECOVERY mode (L${this.currentGridLevel}), recovery trades continue independently`, 'info');
-          // Don't change canTrade — recovery handles its own flow
         } else {
           this.log(`📊 NEW CANDLE — Ready for fresh trade 🚀`, 'success');
           this.canTrade = true;
 
-          // Auto-trigger trade if bot is running and not busy
-          if (this.running && !this.tradeInProgress) {
-            // setTimeout(() => {
-              if (this.running && !this.tradeInProgress && this.canTrade) {
-                this._placeTrade();
-              }
-            // }, 500);
+          if (this.running && !this.tradeInProgress && this.canTrade) {
+            this._placeTrade();
           }
         }
       }
@@ -609,7 +591,6 @@ class V100GridBot {
 
     this.log(`📊 Loaded ${candles.length} historical candles for ${symbol}`);
 
-    // If we're in recovery mode (restored from state), allow immediate trading
     if (this.inRecoveryMode) {
       this.log(`📊 In recovery mode — canTrade stays true for recovery trades`, 'warning');
       this.canTrade = true;
@@ -639,12 +620,10 @@ class V100GridBot {
       this.currentContractId = null;
 
       if (this.running) {
-        // setTimeout(() => {
-          if (this.running && !this.tradeInProgress) {
-            this.log('Retrying trade after API error…');
-            this._placeTrade();
-          }
-        // }, 2000);
+        if (this.running && !this.tradeInProgress) {
+          this.log('Retrying trade after API error…');
+          this._placeTrade();
+        }
       }
     }
   }
@@ -669,11 +648,9 @@ class V100GridBot {
 
     this._send({ balance: 1, subscribe: 1 });
 
-    // Subscribe to candles for new candle detection
     this._subscribeToCandles(this.config.symbol);
 
     if (!this.hasStartedOnce) {
-      // ── FIRST connection ────────────────────────────────────────────────
       this._sendTelegram(
         `✅ <b>${DEFAULT_CONFIG.symbol} Grid Bot Connected</b>\n` +
         `Account: ${this.accountId}\n` +
@@ -683,7 +660,6 @@ class V100GridBot {
 
     } else {
       this.tradeInProgress = false;
-      // ── RECONNECTION ────────────────────────────────────────────────────
       this.log(
         `🔄 Reconnected — resuming | L${this.currentGridLevel} | ` +
         `${this.currentDirection === 'CALLE' ? 'HIGHER' : 'LOWER'} | ` +
@@ -708,7 +684,6 @@ class V100GridBot {
         this._startTradeWatchdog(this.currentContractId, 5000);
       } else {
         this.currentGridLevel = 0;
-        // If in recovery mode, allow immediate trade; otherwise wait for candle
         if (this.inRecoveryMode) {
           this.canTrade = true;
           this.log('In recovery mode — will trade immediately after candle data loads', 'warning');
@@ -754,24 +729,9 @@ class V100GridBot {
     this._send({ proposal_open_contract: 1, contract_id: b.contract_id, subscribe: 1 });
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // CONTRACT RESULT — WIN/LOSS HANDLER
-  // ══════════════════════════════════════════════════════════════════════════
-  //
-  // KEY CHANGES FOR CANDLE-GATED + RECOVERY LOGIC:
-  //
-  // ON WIN:
-  //   - Reset grid level to 0
-  //   - Set inRecoveryMode = false
-  //   - Set canTrade = false → bot waits for next new candle
-  //   - Do NOT schedule setTimeout to place trade
-  //
-  // ON LOSS:
-  //   - Increment grid level (martingale)
-  //   - Set inRecoveryMode = true
-  //   - Set canTrade = true → bot places recovery trade immediately
-  //   - Schedule setTimeout to place next recovery trade
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _onContract(msg) {
     const c = msg.proposal_open_contract;
@@ -869,10 +829,9 @@ class V100GridBot {
         );
       }
 
-      // ── RESET after win ─────────────────────────────────────────────
       this.currentGridLevel = 0;
-      this.inRecoveryMode   = false;  // EXIT recovery mode
-      this.canTrade         = false;  // WAIT for next new candle
+      this.inRecoveryMode   = false;
+      this.canTrade         = false;
 
       this.log(`⏳ Waiting for next new candle before placing new trade…`, 'info');
 
@@ -883,36 +842,31 @@ class V100GridBot {
     // ══════════════════════════════════════════════════════════════════════
     } else {
       const nextLevel   = this.currentGridLevel + 1;
-      // const nextDir     = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
       const absoluteMax = cfg.afterMaxLoss === 'continue'
         ? cfg.maxMartingaleLevel + cfg.continueExtraLevels
         : cfg.maxMartingaleLevel;
 
       let nextDir = null;
-      if (this.currentGridLevel < 4) {
-        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
-      } 
-      else if (this.currentGridLevel >= 4 && this.currentGridLevel <= 6) {
+      if (this.currentGridLevel < 3) {
         nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
       } 
-      // else if (this.currentGridLevel === 6) {
-      //   nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      // } else if (this.currentGridLevel === 7) {
-      //   nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
-      // } else if (this.currentGridLevel === 8) {
-      //   nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-      // } 
+      else if (this.currentGridLevel >= 4 && this.currentGridLevel <= 5) {
+        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      } else if (this.currentGridLevel === 6) {
+        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      } else if (this.currentGridLevel === 7) {
+        nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+      } else if (this.currentGridLevel === 8) {
+        nextDir = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      } 
       else {
         nextDir = this.currentDirection === 'CALLE' ? 'CALLE' : 'PUTE';
       }
       
       this.currentDirection = nextDir;
-
       this.currentGridLevel = nextLevel;
-
-      // ── ENTER recovery mode ─────────────────────────────────────────
       this.inRecoveryMode = true;
-      this.canTrade       = true;  // Allow immediate recovery trade
+      this.canTrade       = true;
 
       if (nextLevel > absoluteMax) {
         this.log(`🛑 ABSOLUTE CEILING L${absoluteMax} reached — stopping to protect investment`, 'error');
@@ -989,10 +943,6 @@ class V100GridBot {
     // ══════════════════════════════════════════════════════════════════════
     // NEXT TRADE SCHEDULING
     // ══════════════════════════════════════════════════════════════════════
-    // Only schedule next trade if in recovery mode (loss).
-    // If win, canTrade is false — next trade will be triggered by
-    // _handleOHLC when a new candle is detected.
-    // ══════════════════════════════════════════════════════════════════════
     if (this.running && this.inRecoveryMode && this.canTrade) {
       this.log(`⚡ Recovery trade scheduled in 1s (L${this.currentGridLevel})…`, 'warning');
       setTimeout(() => {
@@ -1005,9 +955,9 @@ class V100GridBot {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // TRADE WATCHDOG — DETECT STUCK CONTRACTS
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _startTradeWatchdog(contractId, customTimeoutMs) {
     this._clearAllWatchdogTimers();
@@ -1054,9 +1004,9 @@ class V100GridBot {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // SUBSCRIBE TO CANDLES
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _subscribeToCandles(symbol) {
     this.log(`📊 Subscribing to ${this.candleConfig.GRANULARITY}s candles for ${symbol}...`);
@@ -1083,13 +1033,11 @@ class V100GridBot {
     });
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // RECOVER FROM STUCK TRADE
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
+  // RECOVER FROM STUCK TRADE - ENHANCED WITH PAUSE AND RESET
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _recoverStuckTrade(reason) {
-    this._clearAllWatchdogTimers();
-
     const contractId  = this.currentContractId;
     const stakeInfo   = this.pendingTradeInfo;
     const openSeconds = this.tradeStartTime ? Math.round((Date.now() - this.tradeStartTime) / 1000) : '?';
@@ -1099,6 +1047,9 @@ class V100GridBot {
       `Open for: ${openSeconds}s | Level: ${this.currentGridLevel}`,
       'error'
     );
+
+    // Increment stuck trade count
+    this.stuckTradeCount++;
 
     if (stakeInfo && stakeInfo.stake > 0) {
       this.investmentRemaining = Number((this.investmentRemaining + stakeInfo.stake).toFixed(2));
@@ -1118,49 +1069,123 @@ class V100GridBot {
     this.currentContractId = null;
     this.tradeStartTime    = null;
 
-    this.log(`🔄 Will retry trade in 3 seconds…`, 'warning');
+    this._clearAllWatchdogTimers();
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // NEW: Pause trading, reset values, then resume after configured duration
+    // ─────────────────────────────────────────────────────────────────────────
+    
+    const pauseDurationMs = this.config.stuckTradePauseDuration || (5 * 60 * 1000);
+    const pauseDurationMin = Math.round(pauseDurationMs / 60000);
+
+    // Set pause state
+    this.isPausedDueToStuckTrade = true;
+    this.canTrade = false;
+    this.inRecoveryMode = false;
+
+    // Reset Stake, Multiplier (grid level), and Martingale step count to default
+    const previousGridLevel = this.currentGridLevel;
+    const previousBaseStake = this.baseStake;
+    this.currentGridLevel = 0;
+    this.currentDirection = 'CALLE';
+    this.baseStake = this.config.initialStake;
+    
+    this.log(
+      `⏸️ PAUSING TRADING for ${pauseDurationMin} minute(s) due to stuck trade | ` +
+      `Grid Level: L${previousGridLevel} → L0 | ` +
+      `Base Stake: $${previousBaseStake.toFixed(2)} → $${this.baseStake.toFixed(2)}`,
+      'warning'
+    );
 
     this._sendTelegram(
-      `⚠️ <b>${DEFAULT_CONFIG.symbol} STUCK TRADE RECOVERED [${reason}]</b>\n` +
-      `Contract: ${contractId || 'unknown'}\n` +
-      `Open for: ${openSeconds}s\n` +
-      `Grid Level: ${this.currentGridLevel}\n` +
-      `Recovery Mode: ${this.inRecoveryMode ? 'YES' : 'NO'}\n` +
-      `Action: stake returned, retrying in 3s\n` +
-      `⚠️ Please verify outcome on Deriv — P&L not updated\n` +
-      `Investment pool: $${this.investmentRemaining.toFixed(2)}\n` +
-      `Session P&L: $${this.totalProfit.toFixed(2)}`
+      `🛑 <b>${DEFAULT_CONFIG.symbol} STUCK TRADE DETECTED — PAUSING TRADING</b>\n\n` +
+      `⚠️ <b>Reason:</b> ${reason}\n` +
+      `⏱️ <b>Contract was open for:</b> ${openSeconds}s\n` +
+      `📊 <b>Stuck trade count:</b> ${this.stuckTradeCount}\n\n` +
+      `🔄 <b>Actions Taken:</b>\n` +
+      `  • Stake $${stakeInfo?.stake?.toFixed(2) || '0.00'} returned to pool\n` +
+      `  • Trading paused for ${pauseDurationMin} minute(s)\n` +
+      `  • Grid Level reset: L${previousGridLevel} → L0\n` +
+      `  • Base Stake reset: $${previousBaseStake.toFixed(2)} → $${this.baseStake.toFixed(2)}\n` +
+      `  • Direction reset to HIGHER (CALLE)\n\n` +
+      `⏰ <b>Trading will resume at:</b> ${new Date(Date.now() + pauseDurationMs).toLocaleTimeString()}\n\n` +
+      `⚠️ Please verify the trade outcome on Deriv manually!\n\n` +
+      `📊 <b>Current State:</b>\n` +
+      `  Investment pool: $${this.investmentRemaining.toFixed(2)}\n` +
+      `  Session P&L: $${this.totalProfit.toFixed(2)}`
     );
 
     StatePersistence.save(this);
 
-    if (this.running) {
-      // If in recovery mode, allow immediate retry
-      // If not in recovery, the next candle will trigger a trade
-      if (this.inRecoveryMode) {
-        this.canTrade = true;
-      }
-      setTimeout(() => {
-        if (this.running && !this.tradeInProgress && this.isAuthorized && this.canTrade) {
-          this.log('🔄 Resuming trading after stuck trade recovery…', 'success');
-          this._placeTrade();
-        } else if (this.running && !this.canTrade) {
-          this.log('⏳ Not in recovery — waiting for next new candle to trade', 'info');
-        } else if (this.running && !this.isAuthorized) {
-          this.log('⏳ Not authorized yet — trade will resume after reconnect', 'warning');
-        }
-      }, 1000);
+    // Clear any existing pause timer
+    if (this.stuckTradePauseTimer) {
+      clearTimeout(this.stuckTradePauseTimer);
+      this.stuckTradePauseTimer = null;
     }
+
+    // Set timer to resume trading after the configured pause duration
+    this.stuckTradePauseTimer = setTimeout(() => {
+      this._resumeTradingAfterStuckTradePause();
+    }, pauseDurationMs);
+
+    this.log(
+      `⏳ Stuck trade pause active — trading will resume in ${pauseDurationMin} minute(s) at ${new Date(Date.now() + pauseDurationMs).toLocaleTimeString()}`,
+      'info'
+    );
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
+  // RESUME TRADING AFTER STUCK TRADE PAUSE
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _resumeTradingAfterStuckTradePause() {
+    if (!this.running) {
+      this.log('Bot stopped during stuck trade pause — not resuming', 'info');
+      this.isPausedDueToStuckTrade = false;
+      return;
+    }
+
+    this.isPausedDueToStuckTrade = false;
+    this.canTrade = true;
+
+    this.log(
+      `✅ STUCK TRADE PAUSE COMPLETE | Trading resumed | ` +
+      `Grid Level: L${this.currentGridLevel} | Base Stake: $${this.baseStake.toFixed(2)}`,
+      'success'
+    );
+
+    this._sendTelegram(
+      `✅ <b>${DEFAULT_CONFIG.symbol} TRADING RESUMED</b>\n\n` +
+      `⏰ <b>Pause duration completed:</b> ${(this.config.stuckTradePauseDuration || 300000) / 60000} minute(s)\n\n` +
+      `📊 <b>Current State:</b>\n` +
+      `  Grid Level: L${this.currentGridLevel}\n` +
+      `  Base Stake: $${this.baseStake.toFixed(2)}\n` +
+      `  Direction: ${this.currentDirection === 'CALLE' ? 'HIGHER' : 'LOWER'}\n` +
+      `  Investment pool: $${this.investmentRemaining.toFixed(2)}\n` +
+      `  Session P&L: $${this.totalProfit.toFixed(2)}\n\n` +
+      `🚀 Ready for new trade on next candle signal!`
+    );
+
+    this.log('⏳ Waiting for next new candle to place trade…', 'info');
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
   // PLACE TRADE
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _placeTrade() {
     if (!this.isAuthorized)   { this.log('Not authorized — cannot trade', 'error');  return; }
     if (!this.running)        { return; }
     if (this.tradeInProgress) { this.log('Trade already in progress…', 'warning');  return; }
+
+    // ── CHECK IF PAUSED DUE TO STUCK TRADE ─────────────────────────────────
+    if (this.isPausedDueToStuckTrade) {
+      const remainingMs = this.stuckTradePauseTimer ? 
+        Math.max(0, this.stuckTradePauseTimer._idleTimeout - Date.now()) : 0;
+      const remainingMin = Math.ceil(remainingMs / 60000);
+      this.log(`⏸️ Cannot place trade - paused due to stuck trade. Will resume in ${remainingMin} minute(s)`, 'warning');
+      return;
+    }
 
     // ── CANDLE GATE CHECK ─────────────────────────────────────────────────
     if (!this.canTrade) {
@@ -1198,9 +1223,6 @@ class V100GridBot {
       `Investment left: $${this.investmentRemaining.toFixed(2)}`
     );
 
-    // For fresh candle trades (not recovery), set canTrade=false after placing
-    // so that if for some reason another candle fires before result, we don't double-trade.
-    // For recovery trades, canTrade stays true until a WIN resets it.
     if (!this.inRecoveryMode) {
       this.canTrade = false;
     }
@@ -1226,9 +1248,9 @@ class V100GridBot {
     });
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // START / STOP
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   start() {
     if (!this.isAuthorized)    { this.log('Not authorized — connect first', 'error');     return false; }
@@ -1271,9 +1293,10 @@ class V100GridBot {
 
     // ── Initialize candle-gated trading ──────────────────────────────────
     this.inRecoveryMode        = false;
-    this.canTrade              = false;  // Wait for first new candle
+    this.canTrade              = false;
+    this.isPausedDueToStuckTrade = false;
 
-    this.log('🚀 ${DEFAULT_CONFIG.symbol} Grid Martingale Bot STARTED!', 'success');
+    this.log(`🚀 ${DEFAULT_CONFIG.symbol} Grid Martingale Bot STARTED!`, 'success');
     this.log(
       `💵 Investment: $${cfg.investmentAmount} | Base: $${this.baseStake.toFixed(2)} | ` +
       `Mult: ${cfg.martingaleMultiplier}x | Max: L${cfg.maxMartingaleLevel} | ${cfg.tickDuration}t`
@@ -1283,6 +1306,10 @@ class V100GridBot {
     }
     this.log(`📈 Trading mode: NEW CANDLE → trade | LOSS → recovery until WIN → wait for new candle`);
     this.log(`⏳ Waiting for first new candle to start trading…`);
+    
+    // Log stuck trade pause settings
+    const pauseMin = Math.round((cfg.stuckTradePauseDuration || 300000) / 60000);
+    this.log(`🛡️ Stuck trade pause duration: ${pauseMin} minute(s)`);
 
     this._sendTelegram(
       `🚀 <b>${DEFAULT_CONFIG.symbol} Grid Bot STARTED</b>\n` +
@@ -1291,12 +1318,9 @@ class V100GridBot {
       `🔢 Multiplier: ${cfg.martingaleMultiplier}x | Max Level: ${cfg.maxMartingaleLevel}\n` +
       `⏱ Duration: ${cfg.tickDuration} ticks\n` +
       `💰 Balance: ${this.currency} ${this.balance.toFixed(2)}\n` +
-      `🕯️ Mode: Trade on new candle | Recovery until win`
+      `🕯️ Mode: Trade on new candle | Recovery until win\n` +
+      `⏸️ Stuck trade pause: ${pauseMin} minute(s)`
     );
-
-    // NOTE: Do NOT call _placeTrade() here.
-    // The first trade will be triggered by _handleOHLC when a new candle is detected.
-    // This ensures we always start on a fresh candle.
 
     return true;
   }
@@ -1323,9 +1347,9 @@ class V100GridBot {
     this._logSummary();
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // SUMMARY LOG
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   _logSummary() {
     const wr = this.totalTrades > 0 ? ((this.wins / this.totalTrades) * 100).toFixed(1) : '0.0';
@@ -1335,9 +1359,9 @@ class V100GridBot {
     );
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // TELEGRAM
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   async _sendTelegram(message) {
     if (!this.telegramBot || !this.config.telegramEnabled) return;
@@ -1411,9 +1435,9 @@ class V100GridBot {
     this.log(`📱 Hourly Telegram summaries scheduled (first in ${Math.ceil(msUntilNext / 60000)} min)`);
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
   // TIME SCHEDULER
-  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════════
 
   startTimeScheduler() {
     setInterval(() => {
@@ -1429,16 +1453,16 @@ class V100GridBot {
         (day === 6 && hours >= 23) ||
         (day === 1 && hours < 2);
 
-      // if (isWeekend) {
-      //   if (!this.endOfDay) {
-      //     this.log('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting', 'warning');
-      //     this._sendHourlySummary();
-      //     this.stop();
-      //     this.disconnect();
-      //     this.endOfDay = true;
-      //   }
-      //   return;
-      // }
+      if (isWeekend) {
+        if (!this.endOfDay) {
+          this.log('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting', 'warning');
+          this._sendHourlySummary();
+          this.stop();
+          this.disconnect();
+          this.endOfDay = true;
+        }
+        return;
+      }
 
       if (this.endOfDay && hours === 2 && minutes >= 0) {
         this.log('📅 08:00 GMT+1 — reconnecting bot', 'success');
@@ -1477,9 +1501,13 @@ function printBanner() {
   console.log('║   GRID MARTINGALE BOT — Candle-Gated + Recovery Edition        ║');
   console.log('║   Strategy: Trade on NEW CANDLE | Recovery until WIN               ║');
   console.log('║   CALLE/PUTE | Martingale Recovery                    ║');
+  console.log('║   ENHANCED: Stuck trade recovery with pause and reset            ║');
   console.log('╚══════════════════════════════════════════════════════════════════════╝\n');
   console.log('Flow: New Candle → Trade → WIN → Wait for Candle');
-  console.log('      New Candle → Trade → LOSS → Recovery → Recovery → WIN → Wait for Candle\n');
+  console.log('      New Candle → Trade → LOSS → Recovery → Recovery → WIN → Wait for Candle');
+  console.log('      STUCK TRADE → Pause 5min → Reset → Wait for Candle → Resume\n');
+  console.log('To adjust stuck trade pause duration, edit:');
+  console.log('  stuckTradePauseDuration: 5 * 60 * 1000  // milliseconds\n');
   console.log('Signals: SIGINT / SIGTERM for graceful shutdown\n');
 }
 
