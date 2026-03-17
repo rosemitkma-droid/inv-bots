@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'fractal_riseFallM00000000001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM00000000001-history.json');
+const STATE_FILE = path.join(__dirname, 'fractal_riseFallM201-state.json');
+const HISTORY_FILE = path.join(__dirname, 'fractal_riseFallM201-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1117,13 +1117,13 @@ const CONFIG = {
     SESSION_STOP_LOSS: -250,
 
     // Default Candle Settings (used if asset has no specific config)
-    GRANULARITY: 300,
-    TIMEFRAME_LABEL: '5m',
+    GRANULARITY: 60,
+    TIMEFRAME_LABEL: '1m',
     MAX_CANDLES_STORED: 100,
     CANDLES_TO_LOAD: 100,
 
     // Default Trade Duration Settings (used if asset has no specific config)
-    DURATION: 294,
+    DURATION: 54,
     DURATION_UNIT: 's',
 
     // Trade Settings — NOW PER ASSET
@@ -1144,16 +1144,16 @@ const CONFIG = {
     // ============================================
     TOKYO_START: 2,
     TOKYO_END: 3,
-    TOKYO_MINUTE: 10,
+    TOKYO_MINUTE: 5,
     LONDON_START: 8,
     LONDON_END: 9,
-    LONDON_MINUTE: 10,
+    LONDON_MINUTE: 5,
     NEWYORK_START: 14,
     NEWYORK_END: 15,
-    NEWYORK_MINUTE: 10,
+    NEWYORK_MINUTE: 5,
     SYDNEY_START: 22,
     SYDNEY_END: 23,
-    SYDNEY_MINUTE: 10,
+    SYDNEY_MINUTE: 5,
 
     // Debug
     DEBUG_MODE: true,
@@ -2552,16 +2552,16 @@ class DerivBot {
         const sessionCheck = TradingSessionManager.isWithinTradingSession();
         const isInMartingaleRecovery = assetState.martingaleLevel > 0;
 
-        // if (!sessionCheck.inSession && !isInMartingaleRecovery) {
-        //     const now = Date.now();
-        //     if (now - state.lastSessionLogTime > 300000) {
-        //         LOGGER.info(
-        //             `🕐 OUTSIDE TRADING SESSION — ${TradingSessionManager.getSessionStatusString()} | Skipping trade signals`
-        //         );
-        //         state.lastSessionLogTime = now;
-        //     }
-        //     return;
-        // }
+        if (!sessionCheck.inSession && !isInMartingaleRecovery) {
+            const now = Date.now();
+            if (now - state.lastSessionLogTime > 300000) {
+                LOGGER.info(
+                    `🕐 OUTSIDE TRADING SESSION — ${TradingSessionManager.getSessionStatusString()} | Skipping trade signals`
+                );
+                state.lastSessionLogTime = now;
+            }
+            return;
+        }
 
         if (!sessionCheck.inSession && isInMartingaleRecovery) {
             LOGGER.warn(
