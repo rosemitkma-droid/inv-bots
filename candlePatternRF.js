@@ -87,7 +87,8 @@ const DEFAULT_ASSET_CONFIG = {
 
   // Pattern Analysis Settings
   PATTERN_MIN_CONFIDENCE: 0.60,
-  MIN_AGREEMENT_RATIO_CONFIDENCE: 98,
+  MIN_AGREEMENT_RATIO_CONFIDENCE: 0.98,
+  MIN_PATTERN_CONFIDENCE: 0.98,
   PATTERN_LENGTHS: [3, 4, 5, 6, 7, 8],
   PATTERN_MIN_OCCURRENCES: 5,
   PATTERN_RECENCY_DECAY: 0.9990,
@@ -1446,10 +1447,10 @@ class DerivPatternBot {
       analysis = assetState.patternAnalyzer.analyze(assetState.closedCandles);
       assetState.lastAnalysis = analysis;
 
-      const agreementRatios = analysis?.details?.consensus?.agreementRatio ? (analysis.details.consensus.agreementRatio * 100).toFixed(0) : 'N/A';
+      const bestPattern = analysis.details?.bestPattern.confidence;
 
-      if (!analysis.shouldTrade && agreementRatios < DEFAULT_ASSET_CONFIG.MIN_AGREEMENT_RATIO_CONFIDENCE) {
-        LOGGER.info(`[${symbol}] No trade signal - Confidence too low`);
+      if (!analysis.shouldTrade || bestPattern < DEFAULT_ASSET_CONFIG.MIN_PATTERN_CONFIDENCE) {
+        LOGGER.info(`[${symbol}] No trade signal - Confidence too low or Low Pattern Confidence (Confidence: ${bestPattern ? (bestPattern * 100).toFixed(0) + '%' : 'N/A'})`);
         assetState.canTrade = false;
         return;
       }
