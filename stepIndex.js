@@ -1139,11 +1139,11 @@ class STEPINDEXGridBot {
   // ══════════════════════════════════════════════════════════════════════════════
 
   _resumeTradingAfterStuckTradePause() {
-    if (!this.running) {
-      this.log('Bot stopped during stuck trade pause — not resuming', 'info');
-      this.isPausedDueToStuckTrade = false;
-      return;
-    }
+    // if (!this.running) {
+    //   this.log('Bot stopped during stuck trade pause — not resuming', 'info');
+    //   this.isPausedDueToStuckTrade = false;
+    //   return;
+    // }
 
     this.isPausedDueToStuckTrade = false;
     this.canTrade = true;
@@ -1221,6 +1221,15 @@ class STEPINDEXGridBot {
     this.log(
       `📊 ${tradeType} TRADE | ${label} | L${this.currentGridLevel} | Stake: $${stake} | ` +
       `Investment left: $${this.investmentRemaining.toFixed(2)}`
+    );
+
+    this._sendTelegram(
+      `🚀 <b>${DEFAULT_CONFIG.symbol}: TRADE OPEN</b>\n` +
+      `📊 Type: ${tradeType}\n` +
+      `📊 Direction: ${label}\n` +
+      `📊 Stake: $${stake}\n` +
+      `📊 <b>Grid Level:</b> ${this.currentGridLevel}\n` +
+      `📊 <b>Investment left:</b> $${this.investmentRemaining.toFixed(2)}\n`
     );
 
     if (!this.inRecoveryMode) {
@@ -1453,19 +1462,19 @@ class STEPINDEXGridBot {
         (day === 6 && hours >= 23) ||
         (day === 1 && hours < 2);
 
-      if (isWeekend) {
-        if (!this.endOfDay) {
-          this.log('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting', 'warning');
-          this._sendHourlySummary();
-          this.stop();
-          this.disconnect();
-          this.endOfDay = true;
-        }
-        return;
-      }
+      // if (isWeekend) {
+      //   if (!this.endOfDay) {
+      //     this.log('📅 Weekend trading pause (Sat 23:00 – Mon 07:00 GMT+1) — disconnecting', 'warning');
+      //     this._sendHourlySummary();
+      //     this.stop();
+      //     this.disconnect();
+      //     this.endOfDay = true;
+      //   }
+      //   return;
+      // }
 
       if (this.endOfDay && hours === 2 && minutes >= 0) {
-        this.log('📅 08:00 GMT+1 — reconnecting bot', 'success');
+        this.log('📅 02:00 GMT+1 — reconnecting bot', 'success');
         this._resetDailyStats();
         this.endOfDay = false;
         this.connect();
