@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'wpr_riseFallM201-state.json');
-const HISTORY_FILE = path.join(__dirname, 'wpr_riseFallM201-history.json');
+const STATE_FILE = path.join(__dirname, 'wpr_riseFallM2001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'wpr_riseFallM2001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1013,7 +1013,7 @@ class CandleAnalyzer {
 }
 
 // ============================================
-// TECHNICAL INDICATORS — WILLIAMS %R (WPR)
+// TECHNICAL INDICATORS — WILLIAMS %R (WPR) & EMA
 // ============================================
 class TechnicalIndicators {
     /**
@@ -1096,6 +1096,86 @@ class TechnicalIndicators {
 
         return { wprCurrent, wprPrev, signal };
     }
+
+    /**
+     * Calculate Exponential Moving Average (EMA) for an array of close prices.
+     * Uses the standard EMA formula: EMA = price * k + prevEMA * (1 - k)
+     * where k = 2 / (period + 1)
+     * Returns array of EMA values aligned to the end of the candles array.
+     * Returns null values for indices where not enough data exists.
+     * @param {Array} closedCandles - Array of candle objects with .close property
+     * @param {number} period - EMA period (e.g. 20 or 50)
+     * @returns {Array} Array of EMA values (same length as closedCandles)
+     */
+    static calculateEMA(closedCandles, period) {
+        const result = new Array(closedCandles.length).fill(null);
+        if (!closedCandles || closedCandles.length < period) {
+            return result; // Not enough data
+        }
+
+        const k = 2 / (period + 1);
+
+        // Seed EMA with SMA of first `period` candles
+        let sum = 0;
+        for (let i = 0; i < period; i++) {
+            sum += closedCandles[i].close;
+        }
+        let ema = sum / period;
+        result[period - 1] = ema;
+
+        // Walk forward and compute EMA for each subsequent candle
+        for (let i = period; i < closedCandles.length; i++) {
+            ema = closedCandles[i].close * k + ema * (1 - k);
+            result[i] = ema;
+        }
+
+        return result;
+    }
+
+    /**
+     * Compute EMA crossover values from closed candles.
+     * Returns an object with:
+     *   - emaFast      {number|null}  Current fast EMA value
+     *   - emaSlow      {number|null}  Current slow EMA value
+     *   - prevEmaFast  {number|null}  Previous bar fast EMA value
+     *   - prevEmaSlow  {number|null}  Previous bar slow EMA value
+     *   - isAbove      {boolean|null} Whether fast EMA is currently above slow EMA
+     * @param {Array} closedCandles
+     * @returns {Object}
+     */
+    static getEMACrossoverSignal(closedCandles) {
+        const fastPeriod = CONFIG.EMA_FAST_PERIOD;
+        const slowPeriod = CONFIG.EMA_SLOW_PERIOD;
+
+        const emptyResult = {
+            emaFast: null,
+            emaSlow: null,
+            prevEmaFast: null,
+            prevEmaSlow: null,
+            isAbove: null
+        };
+
+        if (!closedCandles || closedCandles.length < slowPeriod + 1) {
+            return emptyResult; // Need at least slowPeriod+1 bars
+        }
+
+        const emaFastArr = this.calculateEMA(closedCandles, fastPeriod);
+        const emaSlowArr = this.calculateEMA(closedCandles, slowPeriod);
+
+        const len = closedCandles.length;
+        const curFast = emaFastArr[len - 1];
+        const curSlow = emaSlowArr[len - 1];
+        const prevFast = emaFastArr[len - 2];
+        const prevSlow = emaSlowArr[len - 2];
+
+        if (curFast === null || curSlow === null || prevFast === null || prevSlow === null) {
+            return emptyResult;
+        }
+
+        const isAbove = curFast > curSlow;
+
+        return { emaFast: curFast, emaSlow: curSlow, prevEmaFast: prevFast, prevEmaSlow: prevSlow, isAbove };
+    }
 }
 
 // ============================================
@@ -1146,6 +1226,13 @@ const CONFIG = {
     WPR_OVERBOUGHT: -20,    // Overbought level  (WPR > -20  = overbought zone)
     WPR_OVERSOLD:   -80,    // Oversold level    (WPR < -80  = oversold zone)
     WPR_MIDLINE:    -50,    // Mid-line cross trigger level
+
+    // ============================================
+    // EMA CROSSOVER FILTER SETTINGS
+    // ============================================
+    EMA_FAST_PERIOD: 20,   // Fast EMA period for filter
+    EMA_SLOW_PERIOD: 50,   // Slow EMA period for filter
+    USE_EMA_FILTER: true,  // Enable EMA cross-over filter
 
     // ============================================
     // TRADING SESSION TOGGLE
@@ -1823,6 +1910,10 @@ class ConnectionManager {
                     firstCandleAboveMid: null,  // First candle close above -50 after oversold → bull cross
                     firstCandleBelowMid: null,  // First candle close below -50 after overbought → bear cross
                     lastMidCrossOpenTime: null,  // Track when last mid-level cross occurred
+                    // EMA filter data
+                    lastEmaFast: null,          // Fast EMA value (period 20)
+                    lastEmaSlow: null,          // Slow EMA value (period 50)
+                    lastEmaIsAbove: null,       // Whether fast EMA is above slow EMA
                     // === PER-ASSET TRADE MANAGEMENT ===
                     lastTradeDirection: null,
                     lastTradeWasWin: null,
@@ -2213,6 +2304,20 @@ class ConnectionManager {
                     LOGGER.debug(
                         `${symbol} ⏳ WPR not ready — ${assetState.closedCandles.length}/${needed} candles`
                     );
+                }
+
+                // ── Update EMA values on every closed candle (for EMA filter) ─────────────────
+                if (CONFIG.USE_EMA_FILTER) {
+                    const emaResult = TechnicalIndicators.getEMACrossoverSignal(assetState.closedCandles);
+                    assetState.lastEmaFast = emaResult.emaFast;
+                    assetState.lastEmaSlow = emaResult.emaSlow;
+                    assetState.lastEmaIsAbove = emaResult.isAbove;
+
+                    if (emaResult.emaFast !== null && emaResult.emaSlow !== null) {
+                        LOGGER.info(
+                            `${symbol} 📈 EMA(${CONFIG.EMA_FAST_PERIOD}): ${emaResult.emaFast.toFixed(5)} | EMA(${CONFIG.EMA_SLOW_PERIOD}): ${emaResult.emaSlow.toFixed(5)} | Fast ${emaResult.isAbove ? 'ABOVE ▲' : 'BELOW ▼'} Slow`
+                        );
+                    }
                 }
 
                 // TRIGGER TRADE ANALYSIS FOR THIS SPECIFIC ASSET
@@ -2663,11 +2768,24 @@ class DerivBot {
                     if (wprCurrent > MID) {
                         // Check if we already tracked a first candle above mid for this cross
                         if (assetState.firstCandleAboveMid === null) {
-                            // This is the first candle above -50 after the cross
-                            assetState.firstCandleAboveMid = lastClosedCandle.open_time;
-                            direction = 'CALLE';
-                            signalReason = `WPR BULL CROSS - FIRST CANDLE ABOVE MID — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed ABOVE ${CONFIG.WPR_MIDLINE} (after oversold ≤ ${CONFIG.WPR_OVERSOLD}) | First candle above mid: ${lastClosedCandle.open_time}`;
-                            LOGGER.trade(`⚡ [${symbol}] FIRST CANDLE ABOVE MID DETECTED: ${signalReason}`);
+                            // Check EMA filter condition: EMA 20 should be Above EMA 50 for BUY
+                            let emaFilterPassed = true;
+                            if (CONFIG.USE_EMA_FILTER && assetState.lastEmaFast !== null && assetState.lastEmaSlow !== null) {
+                                emaFilterPassed = assetState.lastEmaIsAbove === true;
+                                if (!emaFilterPassed) {
+                                    LOGGER.info(
+                                        `${symbol} 🔽 EMA FILTER BLOCKED BUY — EMA(${CONFIG.EMA_FAST_PERIOD}) ${assetState.lastEmaFast.toFixed(5)} is BELOW EMA(${CONFIG.EMA_SLOW_PERIOD}) ${assetState.lastEmaSlow.toFixed(5)}`
+                                    );
+                                }
+                            }
+                            
+                            if (emaFilterPassed) {
+                                // This is the first candle above -50 after the cross
+                                assetState.firstCandleAboveMid = lastClosedCandle.open_time;
+                                direction = 'CALLE';
+                                signalReason = `WPR BULL CROSS - FIRST CANDLE ABOVE MID — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed ABOVE ${CONFIG.WPR_MIDLINE} (after oversold ≤ ${CONFIG.WPR_OVERSOLD}) | First candle above mid: ${lastClosedCandle.open_time}`;
+                                LOGGER.trade(`⚡ [${symbol}] FIRST CANDLE ABOVE MID DETECTED: ${signalReason}`);
+                            }
                         } else {
                             // We've already had a candle above mid, wait for next cross
                             LOGGER.debug(
@@ -2698,11 +2816,24 @@ class DerivBot {
                     if (wprCurrent < MID) {
                         // Check if we already tracked a first candle below mid for this cross
                         if (assetState.firstCandleBelowMid === null) {
-                            // This is the first candle below -50 after the cross
-                            assetState.firstCandleBelowMid = lastClosedCandle.open_time;
-                            direction = 'PUTE';
-                            signalReason = `WPR BEAR CROSS - FIRST CANDLE BELOW MID — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed BELOW ${CONFIG.WPR_MIDLINE} (after overbought ≥ ${CONFIG.WPR_OVERBOUGHT}) | First candle below mid: ${lastClosedCandle.open_time}`;
-                            LOGGER.trade(`⚡ [${symbol}] FIRST CANDLE BELOW MID DETECTED: ${signalReason}`);
+                            // Check EMA filter condition: EMA 20 should be Below EMA 50 for SELL
+                            let emaFilterPassed = true;
+                            if (CONFIG.USE_EMA_FILTER && assetState.lastEmaFast !== null && assetState.lastEmaSlow !== null) {
+                                emaFilterPassed = assetState.lastEmaIsAbove === false;
+                                if (!emaFilterPassed) {
+                                    LOGGER.info(
+                                        `${symbol} 🔽 EMA FILTER BLOCKED SELL — EMA(${CONFIG.EMA_FAST_PERIOD}) ${assetState.lastEmaFast.toFixed(5)} is ABOVE EMA(${CONFIG.EMA_SLOW_PERIOD}) ${assetState.lastEmaSlow.toFixed(5)}`
+                                    );
+                                }
+                            }
+                            
+                            if (emaFilterPassed) {
+                                // This is the first candle below -50 after the cross
+                                assetState.firstCandleBelowMid = lastClosedCandle.open_time;
+                                direction = 'PUTE';
+                                signalReason = `WPR BEAR CROSS - FIRST CANDLE BELOW MID — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed BELOW ${CONFIG.WPR_MIDLINE} (after overbought ≥ ${CONFIG.WPR_OVERBOUGHT}) | First candle below mid: ${lastClosedCandle.open_time}`;
+                                LOGGER.trade(`⚡ [${symbol}] FIRST CANDLE BELOW MID DETECTED: ${signalReason}`);
+                            }
                         } else {
                             // We've already had a candle below mid, wait for next cross
                             LOGGER.debug(
