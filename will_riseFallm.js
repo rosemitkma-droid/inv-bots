@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'wpr_riseFallM000000001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'wpr_riseFallM000000001-history.json');
+const STATE_FILE = path.join(__dirname, 'wpr_riseFallM001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'wpr_riseFallM001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -346,6 +346,10 @@ class StatePersistence {
                     lastCrossSignalDirection: asset.lastCrossSignalDirection,
                     wprWasOversold: asset.wprWasOversold,
                     wprWasOverbought: asset.wprWasOverbought,
+                    // Track first candle above middle level
+                    firstCandleAboveMid: asset.firstCandleAboveMid,
+                    firstCandleBelowMid: asset.firstCandleBelowMid,
+                    lastMidCrossOpenTime: asset.lastMidCrossOpenTime,
                     // Per-asset trade management
                     lastTradeDirection: asset.lastTradeDirection,
                     lastTradeWasWin: asset.lastTradeWasWin,
@@ -457,6 +461,10 @@ class StatePersistence {
                         asset.lastCrossSignalDirection = saved.lastCrossSignalDirection || null;
                         asset.wprWasOversold   = saved.wprWasOversold   !== undefined ? saved.wprWasOversold   : false;
                         asset.wprWasOverbought = saved.wprWasOverbought !== undefined ? saved.wprWasOverbought : false;
+                        // NEW: First candle above/below middle level tracking
+                        asset.firstCandleAboveMid = saved.firstCandleAboveMid !== undefined ? saved.firstCandleAboveMid : null;
+                        asset.firstCandleBelowMid = saved.firstCandleBelowMid !== undefined ? saved.firstCandleBelowMid : null;
+                        asset.lastMidCrossOpenTime = saved.lastMidCrossOpenTime !== undefined ? saved.lastMidCrossOpenTime : null;
 
                         // Per-asset trade management
                         asset.lastTradeDirection = saved.lastTradeDirection || null;
@@ -1144,7 +1152,7 @@ const CONFIG = {
     // true  = only trade during defined session windows below (recovery allowed anytime)
     // false = trade 24/7 (ignore session windows entirely)
     // ============================================
-    USE_TRADING_SESSIONS: true,
+    USE_TRADING_SESSIONS: false,
 
     // ============================================
     // TRADING SESSION WINDOWS (GMT+1 hours)
@@ -1542,6 +1550,10 @@ class SessionManager {
                 asset.x9Losses = 0;
                 // Reset last-traded cross signal so WPR signal can re-fire on new day
                 asset.lastCrossSignalDirection = null;
+                // Reset first candle above/below mid flags for new day
+                asset.firstCandleAboveMid = null;
+                asset.firstCandleBelowMid = null;
+                asset.lastMidCrossOpenTime = null;
 
                 // NOTE: We do NOT reset martingaleLevel, currentStake,
                 // lastTradeWasWin, lastTradeDirection, wprWasOversold, wprWasOverbought here
@@ -1807,6 +1819,10 @@ class ConnectionManager {
                     lastCrossSignalDirection: null, // Direction of last crossover that was traded ('CALLE'|'PUTE')
                     wprWasOversold: false,      // WPR visited oversold (≤ -80) since last BUY cross
                     wprWasOverbought: false,    // WPR visited overbought (≥ -20) since last SELL cross
+                    // NEW: Track first candle above/below middle level after WPR cross
+                    firstCandleAboveMid: null,  // First candle close above -50 after oversold → bull cross
+                    firstCandleBelowMid: null,  // First candle close below -50 after overbought → bear cross
+                    lastMidCrossOpenTime: null,  // Track when last mid-level cross occurred
                     // === PER-ASSET TRADE MANAGEMENT ===
                     lastTradeDirection: null,
                     lastTradeWasWin: null,
@@ -2616,6 +2632,7 @@ class DerivBot {
             // ── NORMAL MODE: WPR crossover signal ─────────────────────────────
             const wprCurrent = assetState.lastWprCurrent;
             const wprSignal  = assetState.lastWprSignal;
+            const MID = CONFIG.WPR_MIDLINE;
 
             // Guard: wait until we have enough candles for WPR calculation
             if (wprCurrent === null) {
@@ -2628,23 +2645,77 @@ class DerivBot {
 
             if (wprSignal === 'BULL_CROSS') {
                 // WPR crossed ABOVE -50 after coming from oversold → RISE signal
+                // NEW LOGIC: Only trade the FIRST candle that closes ABOVE the middle level
+                
+                // Check if we already have a pending first candle above mid tracked
                 if (assetState.lastCrossSignalDirection === 'CALLE') {
+                    // We've already traded this cross, wait for next valid cross
                     LOGGER.debug(
                         `${symbol} ⏭️ WPR BULL CROSS already traded — waiting for next valid cross`
                     );
                 } else {
-                    direction = 'CALLE';
-                    signalReason = `WPR BULL CROSS — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed ABOVE ${CONFIG.WPR_MIDLINE} (after oversold ≤ ${CONFIG.WPR_OVERSOLD})`;
+                    // Check if this is the first candle to close above -50 after the cross
+                    // We need to get the last closed candle and check if WPR is still above mid
+                    const lastClosedCandle = assetState.closedCandles[assetState.closedCandles.length - 1];
+                    
+                    // NEW: Only trade if WPR is currently above MID (the cross is still valid)
+                    // AND this is the first candle closing above MID after the cross
+                    if (wprCurrent > MID) {
+                        // Check if we already tracked a first candle above mid for this cross
+                        if (assetState.firstCandleAboveMid === null) {
+                            // This is the first candle above -50 after the cross
+                            assetState.firstCandleAboveMid = lastClosedCandle.open_time;
+                            direction = 'CALLE';
+                            signalReason = `WPR BULL CROSS - FIRST CANDLE ABOVE MID — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed ABOVE ${CONFIG.WPR_MIDLINE} (after oversold ≤ ${CONFIG.WPR_OVERSOLD}) | First candle above mid: ${lastClosedCandle.open_time}`;
+                            LOGGER.trade(`⚡ [${symbol}] FIRST CANDLE ABOVE MID DETECTED: ${signalReason}`);
+                        } else {
+                            // We've already had a candle above mid, wait for next cross
+                            LOGGER.debug(
+                                `${symbol} ⏭️ Already had first candle above mid (${assetState.firstCandleAboveMid}) — waiting for next WPR cross`
+                            );
+                        }
+                    } else {
+                        // WPR is back below mid, reset the tracking
+                        assetState.firstCandleAboveMid = null;
+                        LOGGER.debug(
+                            `${symbol} 🔄 WPR BULL CROSS invalidated — WPR moved back below ${MID}`
+                        );
+                    }
                 }
             } else if (wprSignal === 'BEAR_CROSS') {
                 // WPR crossed BELOW -50 after coming from overbought → FALL signal
+                // NEW LOGIC: Only trade the FIRST candle that closes BELOW the middle level
+                
                 if (assetState.lastCrossSignalDirection === 'PUTE') {
                     LOGGER.debug(
                         `${symbol} ⏭️ WPR BEAR CROSS already traded — waiting for next valid cross`
                     );
                 } else {
-                    direction = 'PUTE';
-                    signalReason = `WPR BEAR CROSS — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed BELOW ${CONFIG.WPR_MIDLINE} (after overbought ≥ ${CONFIG.WPR_OVERBOUGHT})`;
+                    // Check if this is the first candle to close below -50 after the cross
+                    const lastClosedCandle = assetState.closedCandles[assetState.closedCandles.length - 1];
+                    
+                    // NEW: Only trade if WPR is currently below MID (the cross is still valid)
+                    if (wprCurrent < MID) {
+                        // Check if we already tracked a first candle below mid for this cross
+                        if (assetState.firstCandleBelowMid === null) {
+                            // This is the first candle below -50 after the cross
+                            assetState.firstCandleBelowMid = lastClosedCandle.open_time;
+                            direction = 'PUTE';
+                            signalReason = `WPR BEAR CROSS - FIRST CANDLE BELOW MID — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed BELOW ${CONFIG.WPR_MIDLINE} (after overbought ≥ ${CONFIG.WPR_OVERBOUGHT}) | First candle below mid: ${lastClosedCandle.open_time}`;
+                            LOGGER.trade(`⚡ [${symbol}] FIRST CANDLE BELOW MID DETECTED: ${signalReason}`);
+                        } else {
+                            // We've already had a candle below mid, wait for next cross
+                            LOGGER.debug(
+                                `${symbol} ⏭️ Already had first candle below mid (${assetState.firstCandleBelowMid}) — waiting for next WPR cross`
+                            );
+                        }
+                    } else {
+                        // WPR is back above mid, reset the tracking
+                        assetState.firstCandleBelowMid = null;
+                        LOGGER.debug(
+                            `${symbol} 🔄 WPR BEAR CROSS invalidated — WPR moved back above ${MID}`
+                        );
+                    }
                 }
             } else {
                 const zone = wprCurrent >= CONFIG.WPR_OVERBOUGHT
