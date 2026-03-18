@@ -56,7 +56,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST1-grid-state000002.json');
+const STATE_FILE          = path.join(__dirname, 'ST1-grid-state000003.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -964,7 +964,7 @@ class STEPINDEXGridBot {
 
     const duration = this.getTickDuration(this.currentGridLevel);
 
-    const timeoutMs = duration > 3 ? (customTimeoutMs + 5000) : this.tradeWatchdogMs;
+    const timeoutMs = duration > 3 ? (this.tradeWatchdogMs + 5000) : this.tradeWatchdogMs;
 
     this.tradeWatchdogTimer = setTimeout(() => {
       if (!this.tradeInProgress) return;
