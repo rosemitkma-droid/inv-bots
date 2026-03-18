@@ -26,18 +26,18 @@ const DEFAULT_CONFIG = {
   symbol:        'R_100',
   tickDuration:  3,
   initialStake:  0.35,
-  investmentAmount: 100,
+  investmentAmount: 150,
 
   martingaleMultiplier:  1.48,
-  maxMartingaleLevel:    3,
+  maxMartingaleLevel:    1,
   afterMaxLoss:          'continue',
-  continueExtraLevels:   6,
-  extraLevelMultipliers: [2.0, 2.0, 2.1, 2.1, 2.2, 2.3],
+  continueExtraLevels:   8,
+  extraLevelMultipliers: [1.8, 2.0, 2.0, 2.1, 2.1, 2.2, 2.2],
 
   autoCompounding:    true,
-  compoundPercentage: 0.35,
+  compoundPercentage: 0.24,
 
-  stopLoss:   100,
+  stopLoss:   150,
   takeProfit: 10000,
 
   // Stuck trade recovery settings - USER ADJUSTABLE
@@ -56,7 +56,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'V100-grid-stateV001.json');
+const STATE_FILE          = path.join(__dirname, 'V100-grid-stateV0001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1533,7 +1533,7 @@ function main() {
 
   if (bot.telegramBot) bot.startTelegramTimer();
 
-  bot.startTimeScheduler();
+  // bot.startTimeScheduler();
 
   bot.connect();
 
