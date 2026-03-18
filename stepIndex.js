@@ -56,7 +56,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST1-grid-state00001.json');
+const STATE_FILE          = path.join(__dirname, 'ST1-grid-state000001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1235,12 +1235,12 @@ class STEPINDEXGridBot {
 
     this._sendTelegram(
       `🚀 <b>${DEFAULT_CONFIG.symbol}: TRADE OPEN</b>\n` +
-      `📊 Type: ${tradeType}\n` +
+      `🕯️ Type: ${tradeType}\n` +
       `📊 Direction: ${label}\n` +
-      `📊 Stake: $${stake}\n` +
-      `📊 Durati0n: $${duration}\n` +
+      `💰 Stake: $${stake}\n` +
+      `⏱ Duration: ${duration} ticks\n` +
       `📊 <b>Grid Level:</b> ${this.currentGridLevel}\n` +
-      `📊 <b>Investment left:</b> $${this.investmentRemaining.toFixed(2)}\n`
+      `💵 <b>Investment left:</b> $${this.investmentRemaining.toFixed(2)}\n`
     );
 
     if (!this.inRecoveryMode) {
@@ -1336,7 +1336,7 @@ class STEPINDEXGridBot {
       `💵 Investment: $${cfg.investmentAmount}\n` +
       `📊 Base Stake: $${this.baseStake.toFixed(2)}\n` +
       `🔢 Multiplier: ${cfg.martingaleMultiplier}x | Max Level: ${cfg.maxMartingaleLevel}\n` +
-      `⏱ Duration: ${cfg.tickDuration} ticks\n` +
+      `⏱ Duration: {cfg.tickDuration} ticks\n` +
       `💰 Balance: ${this.currency} ${this.balance.toFixed(2)}\n` +
       `🕯️ Mode: Trade on new candle | Recovery until win\n` +
       `⏸️ Stuck trade pause: ${pauseMin} minute(s)`
