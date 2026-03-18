@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'wpr_riseFallM20001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'wpr_riseFallM20001-history.json');
+const STATE_FILE = path.join(__dirname, 'wpr_riseFallM2000001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'wpr_riseFallM2000001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1209,13 +1209,13 @@ const CONFIG = {
     // Trade Settings — NOW PER ASSET
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
     TRADE_DELAY: 1000,
-    MARTINGALE_MULTIPLIER: 2.0,
-    MARTINGALE_MULTIPLIER2: 2.1,
-    MARTINGALE_MULTIPLIER3: 2.2,
-    MARTINGALE_MULTIPLIER4: 2.3,
-    MARTINGALE_MULTIPLIER5: 2.4,
+    MARTINGALE_MULTIPLIER: 1.48,
+    MARTINGALE_MULTIPLIER2: 1.8,
+    MARTINGALE_MULTIPLIER3: 2.0,
+    MARTINGALE_MULTIPLIER4: 2.1,
+    MARTINGALE_MULTIPLIER5: 2.2,
     // MARTINGALE_MULTIPLIER6: 3.0,
-    MAX_MARTINGALE_STEPS: 8,
+    MAX_MARTINGALE_STEPS: 9,
     System: 1,
     iDirection: 'RISE',
 
@@ -1232,7 +1232,7 @@ const CONFIG = {
     // ============================================
     EMA_FAST_PERIOD: 20,   // Fast EMA period for filter
     EMA_SLOW_PERIOD: 50,   // Slow EMA period for filter
-    // USE_EMA_FILTER: true,  // Enable EMA cross-over filter
+    USE_EMA_FILTER: true,  // Enable EMA cross-over filter
 
     // ============================================
     // TRADING SESSION TOGGLE
@@ -1777,35 +1777,35 @@ class SessionManager {
             TradeHistoryManager.recordTrade(symbol, profit, assetState.martingaleLevel);
 
             // Martingale stake calculation (per-asset)
-            if (assetState.martingaleLevel <= 3) {
+            if (assetState.martingaleLevel === 1) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel >= 4 && assetState.martingaleLevel <= 5) {
+            } else if (assetState.martingaleLevel === 2) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER2 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel >= 6 && assetState.martingaleLevel <= 7) {
+            } else if (assetState.martingaleLevel >= 3 && assetState.martingaleLevel <= 4) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER3 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel === 8) {
+            } else if (assetState.martingaleLevel >= 5 && assetState.martingaleLevel <= 6) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
                         CONFIG.MARTINGALE_MULTIPLIER4 *
                         100
                     ) / 100;
-            } else if (assetState.martingaleLevel === 9) {
+            } else if (assetState.martingaleLevel >= 7) {
                 assetState.currentStake =
                     Math.ceil(
                         assetState.currentStake *
@@ -2759,35 +2759,27 @@ class DerivBot {
                         `${symbol} ⏭️ WPR BULL CROSS already traded — waiting for next valid cross`
                     );
                 } else {
-                    // Check if this is the first candle to close above -50 after the cross
-                    // We need to get the last closed candle and check if WPR is still above mid
-                    const lastClosedCandle = assetState.closedCandles[assetState.closedCandles.length - 1];
-                    
-                    // NEW: Only trade if WPR is currently above MID (the cross is still valid)
-                    // AND this is the first candle closing above MID after the cross
-                    //And Check EMA filter condition: EMA 20 should be Above EMA 50 for BUY
-                    if (wprCurrent > MID && assetState.lastEmaIsAbove === true) {
-                        // Check if we already tracked a first candle above mid for this cross
-                        if (assetState.firstCandleAboveMid === null) {
-                            // Check if we already tracked a first candle above mid for this cross
-                            if (assetState.firstCandleAboveMid === null) {
-                                // This is the first candle above -50 after the cross
-                                assetState.firstCandleAboveMid = lastClosedCandle.open_time;
-                                direction = 'CALLE';
-                                signalReason = `WPR BULL CROSS - FIRST CANDLE ABOVE MID — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed ABOVE ${CONFIG.WPR_MIDLINE} (after oversold ≤ ${CONFIG.WPR_OVERSOLD}) | First candle above mid: ${lastClosedCandle.open_time}`;
-                                LOGGER.trade(`⚡ [${symbol}] FIRST CANDLE ABOVE MID DETECTED: ${signalReason}`);
-                            } else {
-                                // We've already had a candle above mid, wait for next cross
-                                LOGGER.debug(
-                                    `${symbol} ⏭️ Already had first candle above mid (${assetState.firstCandleAboveMid}) — waiting for next WPR cross`
+                    // Check if we already tracked a first candle above mid for this cross
+                    if (assetState.firstCandleBelowMid === null) {
+                        // Check EMA filter condition: EMA 20 should be Above EMA 50 for SELL
+                        let emaFilterPassed = true;
+                        if (CONFIG.USE_EMA_FILTER && assetState.lastEmaFast !== null && assetState.lastEmaSlow !== null) {
+                            emaFilterPassed = assetState.lastEmaIsAbove === true;
+                            if (!emaFilterPassed) {
+                                LOGGER.info(
+                                    `${symbol} 🔽 EMA FILTER BLOCKED BUY — EMA(${CONFIG.EMA_FAST_PERIOD}) ${assetState.lastEmaFast.toFixed(5)} is ABOVE EMA(${CONFIG.EMA_SLOW_PERIOD}) ${assetState.lastEmaSlow.toFixed(5)}`
                                 );
                             }
-                        } else {
-                            // We've already had a candle above mid, wait for next cross
-                            LOGGER.debug(
-                                `${symbol} ⏭️ Already had first candle above mid (${assetState.firstCandleAboveMid}) — waiting for next WPR cross`
-                            );
                         }
+                        
+                        if (emaFilterPassed) {
+                            // This is the first candle above -50 after the cross
+                            assetState.firstCandleBelowMid = lastClosedCandle.open_time;
+                            direction = 'CALLE';
+                            signalReason = `WPR BULL CROSS - FIRST CANDLE ABOVE MID — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed ABOVE ${CONFIG.WPR_MIDLINE} (after oversold ≤ ${CONFIG.WPR_OVERBOUGHT}) | First candle Above mid: ${lastClosedCandle.open_time}`;
+                            LOGGER.trade(`⚡ [${symbol}] FIRST CANDLE ABOVE MID DETECTED: ${signalReason}`);
+                        }
+                        
                     } else {
                         // WPR is back below mid, reset the tracking
                         assetState.firstCandleAboveMid = null;
@@ -2809,41 +2801,27 @@ class DerivBot {
                     const lastClosedCandle = assetState.closedCandles[assetState.closedCandles.length - 1];
                     
                     // NEW: Only trade if WPR is currently below MID (the cross is still valid)
-                    if (wprCurrent < MID && assetState.lastEmaIsAbove === false) {
-                        // Check if we already tracked a first candle below mid for this cross
-                        // if (assetState.firstCandleBelowMid === null) {
-                        //     // Check EMA filter condition: EMA 20 should be Below EMA 50 for SELL
-                        //     let emaFilterPassed = true;
-                        //     if (CONFIG.USE_EMA_FILTER && assetState.lastEmaFast !== null && assetState.lastEmaSlow !== null) {
-                        //         emaFilterPassed = assetState.lastEmaIsAbove === false;
-                        //         if (!emaFilterPassed) {
-                        //             LOGGER.info(
-                        //                 `${symbol} 🔽 EMA FILTER BLOCKED SELL — EMA(${CONFIG.EMA_FAST_PERIOD}) ${assetState.lastEmaFast.toFixed(5)} is ABOVE EMA(${CONFIG.EMA_SLOW_PERIOD}) ${assetState.lastEmaSlow.toFixed(5)}`
-                        //             );
-                        //         }
-                        //     }
-                            
-                        //     if (emaFilterPassed) {
-                        //         // This is the first candle below -50 after the cross
-                        //         assetState.firstCandleBelowMid = lastClosedCandle.open_time;
-                        //         direction = 'PUTE';
-                        //         signalReason = `WPR BEAR CROSS - FIRST CANDLE BELOW MID — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed BELOW ${CONFIG.WPR_MIDLINE} (after overbought ≥ ${CONFIG.WPR_OVERBOUGHT}) | First candle below mid: ${lastClosedCandle.open_time}`;
-                        //         LOGGER.trade(`⚡ [${symbol}] FIRST CANDLE BELOW MID DETECTED: ${signalReason}`);
-                        //     }
-                        // } else {
-                        //     // We've already had a candle below mid, wait for next cross
-                        //     LOGGER.debug(
-                        //         `${symbol} ⏭️ Already had first candle below mid (${assetState.firstCandleBelowMid}) — waiting for next WPR cross`
-                        //     );
-                        // }
-
+                    if (wprCurrent < MID) {
                         // Check if we already tracked a first candle below mid for this cross
                         if (assetState.firstCandleBelowMid === null) {
-                            // This is the first candle below -50 after the cross
-                            assetState.firstCandleBelowMid = lastClosedCandle.open_time;
-                            direction = 'PUTE';
-                            signalReason = `WPR BEAR CROSS - FIRST CANDLE BELOW MID — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed BELOW ${CONFIG.WPR_MIDLINE} (after overbought ≥ ${CONFIG.WPR_OVERBOUGHT}) | First candle below mid: ${lastClosedCandle.open_time}`;
-                            LOGGER.trade(`⚡ [${symbol}] FIRST CANDLE BELOW MID DETECTED: ${signalReason}`);
+                            // Check EMA filter condition: EMA 20 should be Below EMA 50 for SELL
+                            let emaFilterPassed = true;
+                            if (CONFIG.USE_EMA_FILTER && assetState.lastEmaFast !== null && assetState.lastEmaSlow !== null) {
+                                emaFilterPassed = assetState.lastEmaIsAbove === false;
+                                if (!emaFilterPassed) {
+                                    LOGGER.info(
+                                        `${symbol} 🔽 EMA FILTER BLOCKED SELL — EMA(${CONFIG.EMA_FAST_PERIOD}) ${assetState.lastEmaFast.toFixed(5)} is ABOVE EMA(${CONFIG.EMA_SLOW_PERIOD}) ${assetState.lastEmaSlow.toFixed(5)}`
+                                    );
+                                }
+                            }
+                            
+                            if (emaFilterPassed) {
+                                // This is the first candle below -50 after the cross
+                                assetState.firstCandleBelowMid = lastClosedCandle.open_time;
+                                direction = 'PUTE';
+                                signalReason = `WPR BEAR CROSS - FIRST CANDLE BELOW MID — WPR(${CONFIG.WPR_PERIOD}) ${wprCurrent.toFixed(2)} crossed BELOW ${CONFIG.WPR_MIDLINE} (after overbought ≥ ${CONFIG.WPR_OVERBOUGHT}) | First candle below mid: ${lastClosedCandle.open_time}`;
+                                LOGGER.trade(`⚡ [${symbol}] FIRST CANDLE BELOW MID DETECTED: ${signalReason}`);
+                            }
                         } else {
                             // We've already had a candle below mid, wait for next cross
                             LOGGER.debug(
