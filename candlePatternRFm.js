@@ -38,7 +38,7 @@ const CONFIG = {
   // Recovery Strategy Settings
   // When enabled: After a loss, trade immediately on next candle in SAME direction (no analysis)
   // When disabled: After a loss, wait for pattern analysis signal
-  USE_RECOVERY_STRATEGY: false,
+  USE_RECOVERY_STRATEGY: true,
 
   // State
   STATE_SAVE_INTERVAL: 5000
@@ -68,25 +68,27 @@ const DEFAULT_ASSET_CONFIG = {
 
   // Stake Settings
   INITIAL_STAKE: 0.35,
-  INVESTMENT_AMOUNT: 100,
+  INVESTMENT_AMOUNT: 153,
 
   // Martingale Settings
   MARTINGALE_MULTIPLIER: 1.48,
-  MAX_MARTINGALE_LEVEL: 3,
+  MAX_MARTINGALE_LEVEL: 1,
   AFTER_MAX_LOSS: 'continue',
-  CONTINUE_EXTRA_LEVELS: 6,
-  EXTRA_LEVEL_MULTIPLIERS: [2.0, 2.0, 2.1, 2.1, 2.2, 2.3],
+  CONTINUE_EXTRA_LEVELS: 8,
+  EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.1, 2.1, 2.2, 2.2],
 
   // Auto-Compounding
   AUTO_COMPOUNDING: true,
-  COMPOUND_PERCENTAGE: 0.35,
+  COMPOUND_PERCENTAGE: 0.24,
 
   // Risk Management
-  STOP_LOSS: 100,
+  STOP_LOSS: 153,
   TAKE_PROFIT: 10000,
 
   // Pattern Analysis Settings
   PATTERN_MIN_CONFIDENCE: 0.60,
+  MIN_AGREEMENT_RATIO_CONFIDENCE: 0.80,
+  MIN_PATTERN_CONFIDENCE: 0.98,
   PATTERN_LENGTHS: [3, 4, 5, 6, 7, 8],
   PATTERN_MIN_OCCURRENCES: 5,
   PATTERN_RECENCY_DECAY: 0.9990,
@@ -95,95 +97,95 @@ const DEFAULT_ASSET_CONFIG = {
 
 // Per-asset overrides (individual settings per asset)
 const ASSET_CONFIGS = {
-  R_10: {
+  'R_10': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
-  R_25: {
+  'R_25': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 150,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
-  R_50: {
+  'R_50': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
-  R_75: {
+  'R_75': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
-  R_100: {
+  'R_100': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
   '1HZ10V': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
   '1HZ25V': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
   '1HZ50V': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
   '1HZ75V': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
   '1HZ100V': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
-  stpRNG: {
+  'stpRNG': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
-  stpRNG2: {
+  'stpRNG2': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
-  stpRNG3: {
+  'stpRNG3': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
-  stpRNG4: {
+  'stpRNG4': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   },
-  stpRNG5: {
+  'stpRNG5': {
     INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 100,
+    INVESTMENT_AMOUNT: 153,
     MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 3
+    MAX_MARTINGALE_LEVEL: 1
   }
 };
 
@@ -411,7 +413,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRF-multi-history001.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history01.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -530,7 +532,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRF-multi-state001.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state01.json');
 
 const state = {
   assets: {},
@@ -1445,8 +1447,10 @@ class DerivPatternBot {
       analysis = assetState.patternAnalyzer.analyze(assetState.closedCandles);
       assetState.lastAnalysis = analysis;
 
-      if (!analysis.shouldTrade) {
-        LOGGER.info(`[${symbol}] No trade signal - Confidence too low`);
+      const bestPattern = analysis.details?.bestPattern.confidence;
+
+      if (!analysis.shouldTrade || bestPattern < DEFAULT_ASSET_CONFIG.MIN_PATTERN_CONFIDENCE) {
+        LOGGER.info(`[${symbol}] No trade signal - Confidence too low or Low Pattern Confidence (Confidence: ${bestPattern ? (bestPattern * 100).toFixed(0) + '%' : 'N/A'})`);
         assetState.canTrade = false;
         return;
       }
