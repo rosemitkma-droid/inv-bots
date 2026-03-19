@@ -24,7 +24,7 @@ const DEFAULT_CONFIG = {
   appId:    '1089',
 
   symbol:        'R_100',
-  tickDuration:  3,
+  tickDuration:  5,
   initialStake:  0.35,
   investmentAmount: 150,
 
@@ -56,7 +56,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'V100-grid-stateV0001.json');
+const STATE_FILE          = path.join(__dirname, 'V100-grid-stateV0002.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -145,7 +145,7 @@ class V100GridBot {
     // ── Trade Watchdog ───────────────────────────────────────────────────────
     this.tradeWatchdogTimer    = null;
     this.tradeWatchdogPollTimer = null;
-    this.tradeWatchdogMs       = 8000;
+    this.tradeWatchdogMs       = 20000;
     this.tradeStartTime        = null;
 
     // ── Stuck Trade Pause State ──────────────────────────────────────────────
@@ -535,7 +535,7 @@ class V100GridBot {
           this.canTrade = true;
 
           if (this.running && !this.tradeInProgress && this.canTrade) {
-            this._placeTrade();
+            this._placeTrade(candleType, candleEmoji);
           }
         }
       }
@@ -681,7 +681,7 @@ class V100GridBot {
         this.log(`Re-subscribing to open contract ${this.currentContractId}…`);
         this.tradeInProgress = true;
         this._send({ proposal_open_contract: 1, contract_id: this.currentContractId, subscribe: 1 });
-        this._startTradeWatchdog(this.currentContractId, 5000);
+        this._startTradeWatchdog(this.currentContractId);
       } else {
         this.currentGridLevel = 0;
         if (this.inRecoveryMode) {
@@ -959,10 +959,12 @@ class V100GridBot {
   // TRADE WATCHDOG — DETECT STUCK CONTRACTS
   // ══════════════════════════════════════════════════════════════════════════════
 
-  _startTradeWatchdog(contractId, customTimeoutMs) {
+  _startTradeWatchdog(contractId) {
     this._clearAllWatchdogTimers();
 
-    const timeoutMs = this.tradeWatchdogMs;
+    const duration = DEFAULT_CONFIG.tickDuration;
+
+    const timeoutMs = duration > 3 ? (this.tradeWatchdogMs + 5000) : this.tradeWatchdogMs;
 
     this.tradeWatchdogTimer = setTimeout(() => {
       if (!this.tradeInProgress) return;
@@ -1173,10 +1175,11 @@ class V100GridBot {
   // PLACE TRADE
   // ══════════════════════════════════════════════════════════════════════════════
 
-  _placeTrade() {
+  _placeTrade(candleType, candleEmoji) {
     if (!this.isAuthorized)   { this.log('Not authorized — cannot trade', 'error');  return; }
     if (!this.running)        { return; }
     if (this.tradeInProgress) { this.log('Trade already in progress…', 'warning');  return; }
+        
 
     // ── CHECK IF PAUSED DUE TO STUCK TRADE ─────────────────────────────────
     if (this.isPausedDueToStuckTrade) {
@@ -1195,6 +1198,15 @@ class V100GridBot {
       } else {
         this.log('⏳ Waiting for new candle before trading… (canTrade=false)', 'info');
         return;
+      }
+    }
+
+    // Doji candles to allowed
+    if (!this.inRecoveryMode) {
+      this.currentDirection = candleType === 'BULLISH' ? 'CALLE' : 'PUTE';
+      if (candleType === 'DOJI') { 
+        this.log('Last Candle was a Doji', 'warning');  
+        return; 
       }
     }
 
@@ -1226,10 +1238,12 @@ class V100GridBot {
     this._sendTelegram(
       `🚀 <b>${DEFAULT_CONFIG.symbol}: TRADE OPEN</b>\n` +
       `📊 Type: ${tradeType}\n` +
+      `${candleEmoji ? `📊 Last Candle: ${candleEmoji} ${candleType}\n` : ''}` +
       `📊 Direction: ${label}\n` +
-      `📊 Stake: $${stake}\n` +
+      `💰 Stake: $${stake}\n` +
+      `⏱ Duration: ${DEFAULT_CONFIG.tickDuration} ticks\n` +
       `📊 <b>Grid Level:</b> ${this.currentGridLevel}\n` +
-      `📊 <b>Investment left:</b> $${this.investmentRemaining.toFixed(2)}\n`
+      `💵 <b>Investment left:</b> $${this.investmentRemaining.toFixed(2)}\n`
     );
 
     if (!this.inRecoveryMode) {
@@ -1473,16 +1487,16 @@ class V100GridBot {
       //   return;
       // }
 
-      if (this.endOfDay && hours === 2 && minutes >= 0) {
-        this.log('📅 02:00 GMT+1 — reconnecting bot', 'success');
+      if (this.endOfDay && hours === 3 && minutes >= 0) {
+        this.log('📅 03:00 GMT+1 — reconnecting bot', 'success');
         this._resetDailyStats();
         this.endOfDay = false;
         this.connect();
         return;
       }
 
-      if (!this.endOfDay && this.isWinTrade && hours >= 18) {
-        this.log('📅 Past 18:00 GMT+1 — end-of-day stop', 'info');
+      if (!this.endOfDay && this.isWinTrade && hours >= 23) {
+        this.log('📅 Past 23:00 GMT+1 — end-of-day stop', 'info');
         this._sendHourlySummary();
         this.disconnect();
         this.endOfDay = true;
@@ -1533,7 +1547,7 @@ function main() {
 
   if (bot.telegramBot) bot.startTelegramTimer();
 
-  // bot.startTimeScheduler();
+  bot.startTimeScheduler();
 
   bot.connect();
 
