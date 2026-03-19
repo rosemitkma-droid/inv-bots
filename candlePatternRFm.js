@@ -89,6 +89,7 @@ const DEFAULT_ASSET_CONFIG = {
   PATTERN_MIN_CONFIDENCE: 0.60,
   MIN_AGREEMENT_RATIO_CONFIDENCE: 0.80,
   MIN_PATTERN_CONFIDENCE: 0.98,
+  MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.90,
   PATTERN_LENGTHS: [3, 4, 5, 6, 7, 8],
   PATTERN_MIN_OCCURRENCES: 5,
   PATTERN_RECENCY_DECAY: 0.9990,
@@ -413,7 +414,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history01.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history001.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -532,7 +533,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state01.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state001.json');
 
 const state = {
   assets: {},
@@ -1447,12 +1448,26 @@ class DerivPatternBot {
       analysis = assetState.patternAnalyzer.analyze(assetState.closedCandles);
       assetState.lastAnalysis = analysis;
 
-      const bestPattern = analysis.details?.bestPattern.confidence;
+      const bestPatternConfidence = analysis.details?.bestPattern.confidence;
 
-      if (!analysis.shouldTrade || bestPattern < DEFAULT_ASSET_CONFIG.MIN_PATTERN_CONFIDENCE) {
-        LOGGER.info(`[${symbol}] No trade signal - Confidence too low or Low Pattern Confidence (Confidence: ${bestPattern ? (bestPattern * 100).toFixed(0) + '%' : 'N/A'})`);
+      if (!analysis.shouldTrade) {
+        LOGGER.info(`[${symbol}] No trade signal - Confidence too low)`);
         assetState.canTrade = false;
         return;
+      }
+
+      if ((symbol === 'stpRNG' || symbol === 'stpRNG2' || symbol === 'stpRNG3' || symbol === 'stpRNG4' || symbol === 'stpRNG5')) {
+        if (bestPatternConfidence < DEFAULT_ASSET_CONFIG.MIN_PATTERN_CONFIDENCE_STEP_RNG) {
+          LOGGER.info(`[${symbol}] Low Pattern Confidence (Confidence: ${bestPatternConfidence ? (bestPatternConfidence * 100).toFixed(0) + '%' : 'N/A'})`);
+          assetState.canTrade = false;
+          return;
+        }
+      } else {
+        if (bestPatternConfidence < DEFAULT_ASSET_CONFIG.MIN_PATTERN_CONFIDENCE) {
+          LOGGER.info(`[${symbol}] Low Pattern Confidence (Confidence: ${bestPatternConfidence ? (bestPatternConfidence * 100).toFixed(0) + '%' : 'N/A'})`);
+          assetState.canTrade = false;
+          return;
+        }
       }
 
       direction = analysis.direction;
