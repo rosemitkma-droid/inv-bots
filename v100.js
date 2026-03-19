@@ -23,7 +23,7 @@ const DEFAULT_CONFIG = {
   apiToken: 'hsj0tA0XJoIzJG5',
   appId:    '1089',
 
-  symbol:        'R_50',
+  symbol:        'R_10',
   tickDuration:  5,
   initialStake:  0.35,
   investmentAmount: 150,
@@ -56,7 +56,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'V50-grid-stateV01.json');
+const STATE_FILE          = path.join(__dirname, 'V10-grid-stateV01.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
