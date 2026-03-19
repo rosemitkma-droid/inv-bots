@@ -24,7 +24,7 @@ const DEFAULT_CONFIG = {
   appId:    '1089',
 
   symbol:        'stpRNG',
-  tickDuration:  3,
+  tickDuration:  5,
   initialStake:  0.35,
   investmentAmount: 153,
 
@@ -56,7 +56,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE          = path.join(__dirname, 'ST1-grid-state000003.json');
+const STATE_FILE          = path.join(__dirname, 'ST1-grid-state000005.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -145,7 +145,7 @@ class STEPINDEXGridBot {
     // ── Trade Watchdog ───────────────────────────────────────────────────────
     this.tradeWatchdogTimer    = null;
     this.tradeWatchdogPollTimer = null;
-    this.tradeWatchdogMs       = 5000;
+    this.tradeWatchdogMs       = 10000;
     this.tradeStartTime        = null;
 
     // ── Stuck Trade Pause State ──────────────────────────────────────────────
@@ -535,7 +535,7 @@ class STEPINDEXGridBot {
           this.canTrade = true;
 
           if (this.running && !this.tradeInProgress && this.canTrade) {
-            this._placeTrade();
+            this._placeTrade(candleType, candleEmoji);
           }
         }
       }
@@ -681,7 +681,7 @@ class STEPINDEXGridBot {
         this.log(`Re-subscribing to open contract ${this.currentContractId}…`);
         this.tradeInProgress = true;
         this._send({ proposal_open_contract: 1, contract_id: this.currentContractId, subscribe: 1 });
-        this._startTradeWatchdog(this.currentContractId, 5000);
+        this._startTradeWatchdog(this.currentContractId);
       } else {
         this.currentGridLevel = 0;
         if (this.inRecoveryMode) {
@@ -959,7 +959,7 @@ class STEPINDEXGridBot {
   // TRADE WATCHDOG — DETECT STUCK CONTRACTS
   // ══════════════════════════════════════════════════════════════════════════════
 
-  _startTradeWatchdog(contractId, customTimeoutMs) {
+  _startTradeWatchdog(contractId) {
     this._clearAllWatchdogTimers();
 
     const duration = this.getTickDuration(this.currentGridLevel);
@@ -1173,9 +1173,9 @@ class STEPINDEXGridBot {
 
   // Replace this.config.tickDuration with this method
   getTickDuration(level) {
-      if (level === 0) return 3;           // Fresh trade
-      if (level <= 2) return 3;            // Early recovery
-      if (level <= 5) return 5;
+      if (level === 0) return DEFAULT_CONFIG.tickDuration;           // Fresh trade
+      if (level <= 2) return DEFAULT_CONFIG.tickDuration;            // Early recovery
+      if (level <= 5) return DEFAULT_CONFIG.tickDuration + 2; // Mid recovery - add 1 tick for more breathing room
       return 5;                            // Deep recovery - more breathing room
   }
 
@@ -1183,7 +1183,7 @@ class STEPINDEXGridBot {
   // PLACE TRADE
   // ══════════════════════════════════════════════════════════════════════════════
 
-  _placeTrade() {
+  _placeTrade(candleType, candleEmoji) {
     if (!this.isAuthorized)   { this.log('Not authorized — cannot trade', 'error');  return; }
     if (!this.running)        { return; }
     if (this.tradeInProgress) { this.log('Trade already in progress…', 'warning');  return; }
@@ -1205,6 +1205,15 @@ class STEPINDEXGridBot {
       } else {
         this.log('⏳ Waiting for new candle before trading… (canTrade=false)', 'info');
         return;
+      }
+    }
+
+    // Doji candles to allowed
+    if (!this.inRecoveryMode) {
+      this.currentDirection = candleType === 'BULLISH' ? 'CALLE' : 'PUTE';
+      if (candleType === 'DOJI') { 
+        this.log('Last Candle was a Doji', 'warning');  
+        return; 
       }
     }
 
@@ -1237,7 +1246,8 @@ class STEPINDEXGridBot {
 
     this._sendTelegram(
       `🚀 <b>${DEFAULT_CONFIG.symbol}: TRADE OPEN</b>\n` +
-      `🕯️ Type: ${tradeType}\n` +
+      `Type: ${tradeType}\n` +
+      `${candleEmoji ? `📊 Last Candle: ${candleEmoji} ${candleType}\n` : ''}` +
       `📊 Direction: ${label}\n` +
       `💰 Stake: $${stake}\n` +
       `⏱ Duration: ${duration} ticks\n` +
@@ -1486,16 +1496,16 @@ class STEPINDEXGridBot {
       //   return;
       // }
 
-      if (this.endOfDay && hours === 2 && minutes >= 0) {
-        this.log('📅 02:00 GMT+1 — reconnecting bot', 'success');
+      if (this.endOfDay && hours === 3 && minutes >= 0) {
+        this.log('📅 03:00 GMT+1 — reconnecting bot', 'success');
         this._resetDailyStats();
         this.endOfDay = false;
         this.connect();
         return;
       }
 
-      if (!this.endOfDay && this.isWinTrade && hours >= 18) {
-        this.log('📅 Past 18:00 GMT+1 — end-of-day stop', 'info');
+      if (!this.endOfDay && this.isWinTrade && hours >= 23) {
+        this.log('📅 Past 23:00 GMT+1 — end-of-day stop', 'info');
         this._sendHourlySummary();
         this.disconnect();
         this.endOfDay = true;
@@ -1546,7 +1556,7 @@ function main() {
 
   if (bot.telegramBot) bot.startTelegramTimer();
 
-  // bot.startTimeScheduler();
+  bot.startTimeScheduler();
 
   bot.connect();
 
