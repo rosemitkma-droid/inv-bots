@@ -46,7 +46,7 @@ const CONFIG = {
 
 // Active Assets List
 const ACTIVE_ASSETS = [
-  'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
+  'R_10', 'R_25', 'R_50', 'R_75',
   '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
   'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'
 ];
