@@ -89,8 +89,8 @@ const DEFAULT_ASSET_CONFIG = {
   PATTERN_MIN_CONFIDENCE: 0.60,
   MIN_AGREEMENT_RATIO_CONFIDENCE: 0.80,
   MIN_PATTERN_CONFIDENCE: 0.98,
-  MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.90,
-  PATTERN_LENGTHS: [3, 4, 5, 6, 7, 8],
+  MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.97,
+  PATTERN_LENGTHS: [7, 8, 9, 10, 11, 12],
   PATTERN_MIN_OCCURRENCES: 5,
   PATTERN_RECENCY_DECAY: 0.9990,
   PATTERN_DOJI_THRESHOLD: 0.00001
@@ -98,96 +98,96 @@ const DEFAULT_ASSET_CONFIG = {
 
 // Per-asset overrides (individual settings per asset)
 const ASSET_CONFIGS = {
-  'R_10': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  'R_25': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 150,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  'R_50': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  'R_75': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  'R_100': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  '1HZ10V': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  '1HZ25V': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  '1HZ50V': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  '1HZ75V': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  '1HZ100V': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  'stpRNG': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  'stpRNG2': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  'stpRNG3': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  'stpRNG4': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  },
-  'stpRNG5': {
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 153,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1
-  }
+  // 'R_10': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // 'R_25': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 150,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // 'R_50': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // 'R_75': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // 'R_100': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // '1HZ10V': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // '1HZ25V': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // '1HZ50V': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // '1HZ75V': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // '1HZ100V': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // 'stpRNG': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // 'stpRNG2': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // 'stpRNG3': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // 'stpRNG4': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // },
+  // 'stpRNG5': {
+  //   INITIAL_STAKE: 0.35,
+  //   INVESTMENT_AMOUNT: 153,
+  //   MARTINGALE_MULTIPLIER: 1.48,
+  //   MAX_MARTINGALE_LEVEL: 1
+  // }
 };
 
 function getAssetConfig(symbol) {
@@ -414,7 +414,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history001.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0001.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -533,7 +533,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state001.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0001.json');
 
 const state = {
   assets: {},
