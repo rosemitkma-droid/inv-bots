@@ -21,11 +21,11 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 
 const DEFAULT_CONFIG = {
-  apiToken: 'DMylfkyce6VyZt7',
+  apiToken: 'Dz2V2KvRf4Uukt3',
   appId: '1089',
 
   symbol: 'stpRNG',
-  tickDuration: 5,
+  tickDuration: 3,
   initialStake: 0.35,
   investmentAmount: 153,
 
@@ -52,6 +52,19 @@ const DEFAULT_CONFIG = {
   //Tick History
   tickHistorySize: 5000,
 
+  // ── Strategy selection ────────────────────────────────────────────────────
+  // useCandleStrategy: trade when a new candle closes, direction = candle colour
+  //   true  → bot waits for each candle close before placing a fresh trade
+  //   false → fresh trades are triggered immediately after a win (no candle wait)
+  useCandleStrategy: false,
+
+  // usePatternStrategy: use the Smart Pattern Predictor (patLen [5]) for direction
+  //   true  → direction is data-driven via tick-history pattern analysis
+  //   false → direction falls back to simple alternating (CALLE ↔ PUTE)
+  //   Applies to BOTH recovery trades and fresh trades when useCandleStrategy=false
+  //   Use 1 tick if you're using the Pattern strategy only.
+  usePatternStrategy: true,
+
   telegramToken: '8343520432:AAGNxzjnljOEhfv_rE-y-F98fUDPmrqZuXc',
   telegramChatId: '752497117',
   telegramEnabled: true,
@@ -61,8 +74,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n2-grid-state01.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n2-daily-stats01.json');
+const STATE_FILE = path.join(__dirname, 'ST1n2-grid-state001.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n2-daily-stats001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -243,6 +256,7 @@ class STEPINDEXGridBot {
     this.maxLossStreak = 0;
     this.totalRecovered = 0;
     this.tickDuration = this.config.tickDuration;
+    this.awaitRiseConfidence = false;
 
     // ── Candle tracking ─────────────────────────────────────────────────────
     this.assetState = {
@@ -899,12 +913,23 @@ class STEPINDEXGridBot {
             `recovery trades continue independently`,
             'info'
           );
+          if (this.running && !this.tradeInProgress) {
+            // this.canTrade = true;
+            // this._placeTrade();
+          }
         } else {
-          this.log(`📊 NEW CANDLE — Ready for fresh trade 🚀`, 'success');
-          this.canTrade = true;
-
-          if (this.running && !this.tradeInProgress && this.canTrade) {
-            this._placeTrade(candleType, candleEmoji);
+          // ── Candle strategy: trade on candle close ─────────────────────
+          if (DEFAULT_CONFIG.useCandleStrategy) {
+            this.log(`📊 NEW CANDLE — Ready for fresh trade 🚀`, 'success');
+            this.canTrade = true;
+            if (this.running && !this.tradeInProgress && this.canTrade) {
+              this._placeTrade(candleType, candleEmoji);
+            }
+          } else {
+            this.log(`📊 NEW CANDLE — candle strategy OFF, fresh trades driven by pattern`, 'info');
+            // this.canTrade = true;
+            // this._placeTrade();
+            // Candle strategy is OFF — fresh trades are triggered on win, not candle
           }
         }
       }
@@ -1000,8 +1025,9 @@ class STEPINDEXGridBot {
       if (this._retryTimer) clearTimeout(this._retryTimer);
       this._retryTimer = setTimeout(() => {
         this._retryTimer = null;
-        if (this.running && !this.tradeInProgress && this.canTrade) {
-          this._placeTrade();
+        if (this.running && !this.tradeInProgress) {
+          this.canTrade = true;
+          // this._placeTrade();
         }
       }, 10000);
       return;
@@ -1019,9 +1045,10 @@ class STEPINDEXGridBot {
         if (this._retryTimer) clearTimeout(this._retryTimer);
         this._retryTimer = setTimeout(() => {
           this._retryTimer = null;
-          if (this.running && !this.tradeInProgress && this.canTrade) {
+          if (this.running && !this.tradeInProgress) {
+            this.canTrade = true;
             this.log('Retrying trade after API error…');
-            this._placeTrade();
+            // this._placeTrade();
           }
         }, 3000);
       }
@@ -1132,7 +1159,8 @@ class STEPINDEXGridBot {
         clearInterval(checker);
         if (this.running && !this.tradeInProgress && this.canTrade) {
           this.log('📊 Candles loaded — placing recovery trade', 'success');
-          this._placeTrade();
+          this.canTrade = true;
+          // this._placeTrade();
         }
         return;
       }
@@ -1141,10 +1169,11 @@ class STEPINDEXGridBot {
         // Candles still not loaded — trade anyway if in recovery
         if (this.running && !this.tradeInProgress && this.canTrade) {
           this.log('📊 Candles not loaded within timeout — placing recovery trade anyway', 'warning');
-          this._placeTrade();
+          this.canTrade = true;
+          // this._placeTrade();
         }
       }
-    }, 500);
+    }, 200);
   }
 
   // ── balance ───────────────────────────────────────────────────────────────
@@ -1295,9 +1324,23 @@ class STEPINDEXGridBot {
 
       this.currentGridLevel = 0;
       this.inRecoveryMode = false;
-      this.canTrade = false;
 
-      this.log(`⏳ Waiting for next new candle before placing new trade…`, 'info');
+      if (DEFAULT_CONFIG.useCandleStrategy) {
+        // Candle strategy ON — wait for next candle close before next fresh trade
+        this.canTrade = false;
+        this.log(`⏳ Waiting for next new candle before placing new trade…`, 'info');
+      } else {
+        // Candle strategy OFF — immediately schedule next pattern-driven fresh trade
+        // this.canTrade = true;
+        // this.log(`⚡ Pattern-only mode — scheduling next fresh trade in 1s…`, 'info');
+        // if (this._retryTimer) clearTimeout(this._retryTimer);
+        // this._retryTimer = setTimeout(() => {
+        //   this._retryTimer = null;
+        //   if (this.running && !this.tradeInProgress && this.canTrade) {
+        //     this._placeTrade(); // no candleType/candleEmoji — predictor sets direction
+        //   }
+        // }, 1000);
+      }
 
       this._sendTelegramTradeResult(isWin, profit);
 
@@ -1310,12 +1353,14 @@ class STEPINDEXGridBot {
         ? cfg.maxMartingaleLevel + cfg.continueExtraLevels
         : cfg.maxMartingaleLevel;
 
-      // === RECOVERY STRATEGY — Smart Pattern Direction Predictor ===
-      // Analyses the last 50 ticks (lastDigit rolling window) to predict
-      // Rise (CALLE) or Fall (PUTE) using patterns of length 5 & 6.
-      const nextDir = this.currentDirection;
+      // Direction for next recovery trade
+      // usePatternStrategy → Smart Pattern Predictor
+      // otherwise          → keep current direction (simple, no alternating churn)
+      const nextDir = this.currentDirection
+      // ? this._predictRecoveryDirection()
+      // : (this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE'); // classic alternating fallback
 
-      this.currentDirection = nextDir;
+      // this.currentDirection = nextDir;
       this.currentGridLevel = nextLevel;
       this.inRecoveryMode = true;
       this.canTrade = true;
@@ -1404,6 +1449,8 @@ class STEPINDEXGridBot {
       }
     }
 
+    this.awaitRiseConfidence = false;
+
     // Save state after every trade result
     StatePersistence.save(this);
 
@@ -1419,18 +1466,18 @@ class STEPINDEXGridBot {
     // ══════════════════════════════════════════════════════════════════════
     // NEXT TRADE SCHEDULING
     // ══════════════════════════════════════════════════════════════════════
-    if (this.running && this.inRecoveryMode && this.canTrade) {
-      this.log(`⚡ Recovery trade scheduled in 1s (L${this.currentGridLevel})…`, 'warning');
-      if (this._retryTimer) clearTimeout(this._retryTimer);
-      this._retryTimer = setTimeout(() => {
-        this._retryTimer = null;
-        if (this.running && !this.tradeInProgress && this.canTrade) {
-          this._placeTrade();
-        }
-      }, 1000);
-    } else if (this.running && !this.inRecoveryMode) {
-      this.log(`⏳ WIN — Next trade will be placed on next new candle`, 'success');
-    }
+    // if (this.running && this.inRecoveryMode && this.canTrade) {
+    //   this.log(`⚡ Recovery trade scheduled in 1s (L${this.currentGridLevel})…`, 'warning');
+    //   if (this._retryTimer) clearTimeout(this._retryTimer);
+    //   this._retryTimer = setTimeout(() => {
+    //     this._retryTimer = null;
+    //     if (this.running && !this.tradeInProgress && this.canTrade) {
+    //       this._placeTrade();
+    //     }
+    //   }, 1000);
+    // } else if (this.running && !this.inRecoveryMode) {
+    //   this.log(`⏳ WIN — Next trade will be placed on next new candle`, 'success');
+    // }
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -1440,7 +1487,7 @@ class STEPINDEXGridBot {
   _startTradeWatchdog(contractId) {
     this._clearAllWatchdogTimers();
 
-    const duration = this.getTickDuration(this.currentGridLevel);
+    const duration = DEFAULT_CONFIG.tickDuration;//this.getTickDuration(this.currentGridLevel);
     const timeoutMs = duration > 3 ? (this.tradeWatchdogMs + 5000) : this.tradeWatchdogMs;
 
     this.tradeWatchdogTimer = setTimeout(() => {
@@ -1549,6 +1596,40 @@ class STEPINDEXGridBot {
 
     // console.log('Total Tick History', this.tickHistory.length)
     // console.log(this.config.symbol, 'Last10Ticks', this.tickHistory.slice(-10).join(', '), 'Current Digit', lastDigit);
+
+
+    if (DEFAULT_CONFIG.usePatternStrategy && !this.tradeInProgress) {
+      let currentCandle = { ...this.assetState.currentFormingCandle };
+      let currentCandleType = currentCandle.close > currentCandle.open
+        ? 'BULLISH'
+        : currentCandle.close < currentCandle.open
+          ? 'BEARISH'
+          : 'DOJI';
+
+      // ── Pattern strategy (candle OFF): predictor sets direction ──────
+      this._predictRecoveryDirection();
+      this.currentDirection = this._predictRecoveryDirection();
+      let lastPred = this._lastPrediction || { confidence: 0, totalPatterns: 0, prediction: 'CALLE' };
+      let { confidence, totalPatterns, prediction, info, riseNum, fallNum, neutral } = lastPred;
+      console.log('Confidence: (', confidence.toFixed(2), '%) |', 'Total Patterns:', totalPatterns, '| Direction:', prediction, '| CandleType:', currentCandleType)
+      console.log('PatterInfo', info)
+
+      if (this.currentGridLevel < 1) {
+        if (confidence > 0.51 && totalPatterns > 30 && ((currentCandleType === 'BULLISH' && prediction === 'CALLE' && riseNum > 11) || (currentCandleType === 'BEARISH' && prediction === 'PUTE' && fallNum > 11))) {
+          this.canTrade = true;
+          this._placeTrade()
+        }
+      } else {
+        if (confidence > 0.51 && totalPatterns > 30 && ((currentCandleType === 'BULLISH' && prediction === 'CALLE' && riseNum > 11) || (currentCandleType === 'BEARISH' && prediction === 'PUTE' && fallNum > 11))) {
+          if (this.awaitRiseConfidence) {
+            this.canTrade = true;
+            this._placeTrade()
+          }
+        } else {
+          this.awaitRiseConfidence = true;
+        }
+      }
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -1582,12 +1663,18 @@ class STEPINDEXGridBot {
       dirs.push(getStep(h[i - 1], h[i]));
     }
 
-    // ── Step 2: Pattern scan — lengths n ──────────────────────────────
+
+
+    // ── Step 2: Pattern scan — lengths 5 ──────────────────────────────
     let bestDir = 0;
     let bestConf = 0;
     let bestInfo = '';
+    let bestDir2 = 0;
+    let bestConf2 = 0;
+    let bestInfo2 = '';
+    let totalPatterns = 0;
 
-    for (const patLen of [3, 4, 5, 6, 7, 8]) {
+    for (const patLen of [5]) {  // Best signal-to-noise with 5000-tick history
       if (dirs.length < patLen + 1) continue;
 
       const currentPattern = dirs.slice(-patLen);
@@ -1603,7 +1690,9 @@ class STEPINDEXGridBot {
       }
 
       const total = rises + falls;
+      totalPatterns = total;
       if (total === 0) continue;
+      if (total < 30) continue;  // Minimum sample guard — prevents false confidence on sparse patterns
 
       const conf = Math.max(rises, falls) / total;
       if (conf > bestConf) {
@@ -1613,23 +1702,24 @@ class STEPINDEXGridBot {
       }
     }
 
-    // ── Step 3: Fallback — overall recent direction bias ───────────────────
-    // if (bestConf === 0) {
-    //   const recent = dirs.slice(-100).filter(d => d !== 0);
-    //   const riseNum = recent.filter(d => d === 1).length;
-    //   const fallNum = recent.filter(d => d === -1).length;
-    //   bestDir = riseNum >= fallNum ? 1 : -1;
-    //   bestConf = recent.length > 0
-    //     ? Math.max(riseNum, fallNum) / recent.length
-    //     : 0.5;
-    //   bestInfo = `bias: ${riseNum}R/${fallNum}F/20T`;
-    // }
+    // ── Trend direction bias ───────────────────
+    const recent = dirs.slice(-20).filter(d => d);
+    const riseNum = recent.filter(d => d === 1).length;
+    const fallNum = recent.filter(d => d === -1).length;
+    const neutral = recent.filter(d => d === 0).length;
+    bestDir2 = riseNum >= fallNum ? 1 : -1;
+    // bestConf2 = recent.length > 0
+    //   ? Math.max(riseNum, fallNum) / recent.length
+    //   : 0.5;
+    bestInfo2 = `TrendBias (${recent.length}): R: ${riseNum}/ N: ${neutral}/ F:${fallNum}`;
 
+    // Determine final prediction based on best pattern or trend bias if no strong pattern
     const prediction = bestDir >= 0 ? 'CALLE' : 'PUTE';
 
     this.log(
       `🔮 Pattern Predictor (${bestInfo}) | confidence: ${(bestConf * 100).toFixed(1)}% | ` +
       `prediction: ${prediction === 'CALLE' ? 'RISE ↑ (CALLE)' : 'FALL ↓ (PUTE)'} | ` +
+      `${bestInfo2} | ` +
       `digits analysed: ${h.length}`,
       'info'
     );
@@ -1640,6 +1730,10 @@ class STEPINDEXGridBot {
       confidence: bestConf,
       prediction,
       digits: h.length,
+      totalPatterns: totalPatterns,
+      riseNum,
+      fallNum,
+      neutral
     };
 
     return prediction;
@@ -1827,11 +1921,15 @@ class STEPINDEXGridBot {
     this.log('⏳ Waiting for next new candle to place trade…', 'info');
   }
 
-  // Replace this.config.tickDuration with this method
-  getTickDuration(level) {
-    if (level <= 1) return DEFAULT_CONFIG.tickDuration;
-    return 1;
-  }
+  // Tick duration: candle trades use config value, recovery trades use 3 ticks
+  // (3 ticks aligns closely with the tick-level predictor while giving safe
+  // WebSocket round-trip margin vs. 1-tick execution timing risk)
+  // getTickDuration(level) {
+  //   if (level < 1) return DEFAULT_CONFIG.tickDuration; // fresh candle trade
+  //   if (level <= 5) return 1; // 1 tick — optimal predictor alignment but might have execution safety issues because Deriv WebSocket 
+  //   // round-trip (proposal → buy confirmation) takes 300–500ms and ticks arrive every 1–2 seconds, you may miss the intended tick.
+  //   return 1;  // recovery: 3 ticks — optimal predictor alignment + execution safety
+  // }
 
   // ══════════════════════════════════════════════════════════════════════════════
   // PLACE TRADE
@@ -1871,29 +1969,54 @@ class STEPINDEXGridBot {
       }
     }
 
-    // Determine direction for fresh trades
+    // Determine direction for fresh trades (non-recovery)
     if (!this.inRecoveryMode) {
-      if (!candleType) {
-        this.log('⏳ No candle type info — waiting for next candle');
-        this.canTrade = false;
-        return;
-      }
-      this.currentDirection = candleType === 'BULLISH' ? 'CALLE' : 'PUTE';
-      if (candleType === 'DOJI') {
-        this.log('Last Candle was a Doji — skipping', 'warning');
-        this.canTrade = false;
-        return;
+      if (DEFAULT_CONFIG.useCandleStrategy) {
+        // ── Candle strategy: direction from closed candle colour ─────────
+        if (!candleType) {
+          this.log('⏳ No candle type info — waiting for next candle');
+          this.canTrade = false;
+          return;
+        }
+        if (candleType === 'DOJI') {
+          this.log('Last Candle was a Doji — skipping', 'warning');
+          this.canTrade = false;
+          return;
+        }
+        this.currentDirection = candleType === 'BULLISH' ? 'CALLE' : 'PUTE';
+      } else if (DEFAULT_CONFIG.usePatternStrategy) {
+        // ── Pattern strategy (candle OFF): predictor sets direction ──────
+        // this.currentDirection = this._predictRecoveryDirection();
+        // const { confidence, totalPatterns } = this._lastPrediction;
+        // if ((confidence || 0) < 0.54 || (totalPatterns || 0) < 30) {
+        //   this.canTrade = true;
+        //   this.log(
+        //     `⚡ Pattern fresh trade: low confidence (${((confidence || 0) * 100).toFixed(2)}%) ` +
+        //     `or insufficient samples (${totalPatterns || 0}) — waiting for better signal`,
+        //     'info'
+        //   );
+        //   return;
+        // }
+      } else {
+        // Both strategies OFF — simple alternating direction
+        // this.currentDirection = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
       }
     } else {
-      // Recovery mode — use smart pattern direction predictor
-      this.currentDirection = this._predictRecoveryDirection();
+      // ── Recovery mode direction ──────────────────────────────────────────
+      if (DEFAULT_CONFIG.usePatternStrategy) {
+        // this.currentDirection = this._predictRecoveryDirection();
 
-      // Only trade if confidence is above 50%
-      const smartPercentage = this._lastPrediction.confidence;
-      if (smartPercentage < 0.1) {
-        this.canTrade = true;
-        this.log(`⚡ Recovery mode: low confidence (${(smartPercentage * 100).toFixed(2)}%) — waiting for better signal`, 'info');
-        return;
+        // // Confidence gate
+        // const { confidence, totalPatterns } = this._lastPrediction || {};
+        // if ((confidence || 0) < 0.54 || (totalPatterns || 0) < 30) {
+        //   this.canTrade = true;
+        //   this.log(
+        //     `⚡ Recovery mode: low confidence (${((confidence || 0) * 100).toFixed(2)}%) ` +
+        //     `or total patterns (${totalPatterns || 0}) < 30 — waiting for better signal`,
+        //     'info'
+        //   );
+        //   return;
+        // }
       }
     }
 
@@ -1912,6 +2035,7 @@ class STEPINDEXGridBot {
       this.canTrade = false;
       return;
     }
+
     if (stake > this.balance) {
       this.log(
         `Insufficient balance: stake $${stake} > balance $${this.balance.toFixed(2)}`,
@@ -1923,7 +2047,7 @@ class STEPINDEXGridBot {
       return;
     }
 
-    const duration = this.getTickDuration(this.currentGridLevel);
+    const duration = DEFAULT_CONFIG.tickDuration;//this.getTickDuration(this.currentGridLevel);
     this.tickDuration = duration;
 
     // Log compounding info
@@ -1933,7 +2057,7 @@ class STEPINDEXGridBot {
       : '';
 
     this.log(
-      `📊 ${tradeType} TRADE | ${label} | L${this.currentGridLevel} | Stake: $${stake} | ` +
+      `🚀 ${tradeType} TRADE Executed | ${label} | L${this.currentGridLevel} | Stake: $${stake} | ` +
       `Investment left: $${this.investmentRemaining.toFixed(2)} ${compoundInfo}`
     );
 
@@ -1947,7 +2071,7 @@ class STEPINDEXGridBot {
       `📊 <b>Grid Level:</b> ${this.currentGridLevel}\n` +
       `💵 <b>Investment left:</b> $${this.investmentRemaining.toFixed(2)}\n` +
       `📈 <b>Base Stake:</b> $${this.baseStake.toFixed(2)}\n` +
-      (this.inRecoveryMode && this._lastPrediction
+      (DEFAULT_CONFIG.usePatternStrategy && this._lastPrediction
         ? `\n🔮 <b>Pattern Analysis:</b>\n` +
         `  Pattern: ${this._lastPrediction.info}\n` +
         `  Confidence: ${(this._lastPrediction.confidence * 100).toFixed(1)}%\n` +
