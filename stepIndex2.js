@@ -21,7 +21,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 
 const DEFAULT_CONFIG = {
-  apiToken: 'Dz2V2KvRf4Uukt3',
+  apiToken: 'hsj0tA0XJoIzJG5',
   appId: '1089',
 
   symbol: 'stpRNG',
