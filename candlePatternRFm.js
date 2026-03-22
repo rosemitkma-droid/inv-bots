@@ -10,10 +10,10 @@
 
 require('dotenv').config();
 
-const WebSocket   = require('ws');
+const WebSocket = require('ws');
 const TelegramBot = require('node-telegram-bot-api');
-const fs          = require('fs');
-const path        = require('path');
+const fs = require('fs');
+const path = require('path');
 
 // ══════════════════════════════════════════════════════════════════════════════
 // GLOBAL CONFIGURATION
@@ -22,8 +22,8 @@ const path        = require('path');
 const CONFIG = {
   // API Settings
   API_TOKEN: 'Dz2V2KvRf4Uukt3',
-  APP_ID:    '1089',
-  WS_URL:    'wss://ws.derivws.com/websockets/v3',
+  APP_ID: '1089',
+  WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
   // Capital Settings
   INITIAL_CAPITAL: 500,
@@ -38,7 +38,7 @@ const CONFIG = {
   // Recovery Strategy Settings
   // When enabled: After a loss, trade immediately on next candle in SAME direction (no analysis)
   // When disabled: After a loss, wait for pattern analysis signal
-  USE_RECOVERY_STRATEGY: true,
+  USE_RECOVERY_STRATEGY: false,
 
   // State
   STATE_SAVE_INTERVAL: 5000
@@ -63,7 +63,7 @@ const DEFAULT_ASSET_CONFIG = {
   CANDLES_TO_LOAD: 5000,
 
   // Trade Duration
-  DURATION: 54,
+  DURATION: 58,
   DURATION_UNIT: 's',
 
   // Stake Settings
@@ -414,7 +414,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history00001.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history000001.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -533,7 +533,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state00001.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state000001.json');
 
 const state = {
   assets: {},
@@ -700,13 +700,13 @@ class TelegramService {
         analysisDetails = `
         🔄 <b>RECOVERY MODE: YES</b>
         ⚡ Same direction as loss trade (NO pattern analysis)`;
-              } else if (details.analysis) {
-                const analysis = details.analysis;
-                const agreementRatio = analysis.details?.consensus?.agreementRatio 
-                  ? (analysis.details.consensus.agreementRatio * 100).toFixed(0) 
-                  : 'N/A';
-                const bestPattern = analysis.details?.bestPattern;
-                analysisDetails = `
+      } else if (details.analysis) {
+        const analysis = details.analysis;
+        const agreementRatio = analysis.details?.consensus?.agreementRatio
+          ? (analysis.details.consensus.agreementRatio * 100).toFixed(0)
+          : 'N/A';
+        const bestPattern = analysis.details?.bestPattern;
+        analysisDetails = `
         🧠 <b>PATTERN ANALYSIS:</b>
         📊 Confidence: ${(analysis.confidence * 100).toFixed(1)}%
         🤝 Agreement: ${agreementRatio}%
@@ -976,7 +976,7 @@ class ConnectionManager {
     if (this.ws) {
       this.ws.removeAllListeners();
       if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
-        try { this.ws.close(); } catch (e) {}
+        try { this.ws.close(); } catch (e) { }
       }
       this.ws = null;
     }
