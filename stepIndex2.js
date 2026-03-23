@@ -27,20 +27,20 @@ const DEFAULT_CONFIG = {
   symbol: 'stpRNG',
   tickDuration: 1,
   initialStake: 0.35,
-  investmentAmount: 153,
+  investmentAmount: 530,
 
-  martingaleMultiplier: 1.48,
+  martingaleMultiplier: 1,
   maxMartingaleLevel: 1,
   afterMaxLoss: 'continue',
-  continueExtraLevels: 8,
-  extraLevelMultipliers: [1.8, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
+  continueExtraLevels: 12,
+  extraLevelMultipliers: [1, 1, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
 
   autoCompounding: true,
   compoundPercentage: 0.20,
 
   // Auto-compounding step config:
   // baseStake increases by compoundStakeStep for every compoundInvestmentStep increase in investmentAmount
-  compoundInvestmentStep: 153,  // every 153 increase in investment
+  compoundInvestmentStep: 530,  // every 153 increase in investment
   compoundStakeStep: 0.35,  // increases baseStake by 0.5
 
   stopLoss: 5000,
@@ -74,8 +74,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n2-grid-state00001.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n2-daily-stats00001.json');
+const STATE_FILE = path.join(__dirname, 'ST1n2-grid-state000001.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n2-daily-stats000001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
