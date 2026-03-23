@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM201-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM201-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM2001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM2001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -622,7 +622,7 @@ class TelegramService {
                 Duration: ${duration} (${durationUnit == 't' ? 'Ticks' : durationUnit == 's' ? 'Seconds' : 'Minutes'})
                 Martingale Level: ${assetMartingale}
                 ${details.profit !== undefined
-                                ? `Profit: $${details.profit.toFixed(2)}
+                ? `Profit: $${details.profit.toFixed(2)}
 
                 📊 <b>Today's Stats:</b>
                 ${symbol} P&L: $${assetNetPL.toFixed(2)}
@@ -919,12 +919,36 @@ class TelegramService {
 
         const timeUntilNextHour = nextHour.getTime() - now.getTime();
 
+        LOGGER.info(`📱 Hourly Telegram timer started (first summary in ${Math.ceil(timeUntilNextHour / 60000)} min)`);
+
         setTimeout(() => {
-            this.sendSessionSummary();
+            this.sendHourlySummary();
             setInterval(() => {
-                this.sendSessionSummary();
+                this.sendHourlySummary();
             }, 60 * 60 * 1000);
         }, timeUntilNextHour);
+    }
+
+    static startDailyTimer() {
+        const now = new Date();
+        const nextDay = new Date(now);
+        nextDay.setDate(nextDay.getDate() + 1);
+        nextDay.setHours(0, 0, 0, 0);
+
+        const timeUntilNextDay = nextDay.getTime() - now.getTime();
+
+        LOGGER.info(`📱 Daily Telegram timer started (first summary in ${Math.ceil(timeUntilNextDay / 60000 / 60)} hours)`);
+
+        setTimeout(() => {
+            if (typeof SessionManager !== 'undefined') {
+                SessionManager.checkDayChange();
+            }
+            setInterval(() => {
+                if (typeof SessionManager !== 'undefined') {
+                    SessionManager.checkDayChange();
+                }
+            }, 24 * 60 * 60 * 1000);
+        }, timeUntilNextDay);
     }
 }
 
@@ -1599,7 +1623,7 @@ class SessionManager {
                         CONFIG.MARTINGALE_MULTIPLIER5 *
                         100
                     ) / 100;
-            } 
+            }
             // else if (assetState.martingaleLevel === 6) {
             //     assetState.currentStake =
             //         Math.ceil(
@@ -2322,6 +2346,7 @@ class DerivBot {
 
         TelegramService.sendStartupMessage();
         TelegramService.startHourlyTimer();
+        TelegramService.startDailyTimer();
 
         this.startSessionTimeChecker();
 
@@ -2687,7 +2712,7 @@ class DerivBot {
                                 ? 'PUTE (Recovery)'
                                 : 'CALLE (Recovery)';
 
-                const lastClosed = a.closedCandles && a.closedCandles.length ? a.closedCandles[a.closedCandles.length-1] : null;
+                const lastClosed = a.closedCandles && a.closedCandles.length ? a.closedCandles[a.closedCandles.length - 1] : null;
                 const lastCandleDirection = lastClosed ? CandleAnalyzer.getCandleDirection(lastClosed) : null;
 
                 assetStatuses[symbol] = {
