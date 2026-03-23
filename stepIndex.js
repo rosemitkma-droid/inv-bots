@@ -58,8 +58,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n-grid-state0000000001.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n-daily-stats00001.json');
+const STATE_FILE = path.join(__dirname, 'ST1n-grid-state00000001.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n-daily-stats001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2102,6 +2102,7 @@ class STEPINDEXGridBot {
         this.dailyStats.startInvestment = this.investmentRemaining;
       }
 
+      //New Day Trade Resumption
       if (this.endOfDay && hours === 3 && minutes >= 0) {
         this.log('📅 03:00 GMT+1 — reconnecting bot', 'success');
         this._resetDailyState();
@@ -2110,8 +2111,28 @@ class STEPINDEXGridBot {
         return;
       }
 
+      //Mid Day Trade Resumption
+      if (this.endOfDay && hours === 15 && minutes >= 0) {
+        this.log('📅 15:00 GMT+1 — reconnecting bot', 'success');
+        this._resetDailyState();
+        this.endOfDay = false;
+        this.connect();
+        return;
+      }
+
+      //New York Open Trade Pause
+      if (!this.endOfDay && this.isWinTrade && hours >= 12 && minutes >= 50) {
+        this.log('📅 Past 13:50 GMT+1 — end-of-day stop', 'info');
+        this._sendHourlySummary();
+        this._sendDailySummary();
+        this.disconnect();
+        this.endOfDay = true;
+        return;
+      }
+
+      //END of Day Trade Pause
       if (!this.endOfDay && this.isWinTrade && hours >= 23 && minutes >= 50) {
-        this.log('📅 Past 23:00 GMT+1 — end-of-day stop', 'info');
+        this.log('📅 Past 23:50 GMT+1 — end-of-day stop', 'info');
         this._sendHourlySummary();
         this._sendDailySummary();
         this.disconnect();
@@ -2168,7 +2189,7 @@ function main() {
 
   if (bot.telegramBot) bot.startTelegramTimer();
 
-  // bot.startTimeScheduler();
+  bot.startTimeScheduler();
 
   bot.connect();
 
