@@ -74,8 +74,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n2-grid-state0001.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n2-daily-stats0001.json');
+const STATE_FILE = path.join(__dirname, 'ST1n2-grid-state00001.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n2-daily-stats00001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1597,6 +1597,7 @@ class STEPINDEXGridBot {
     // console.log('Total Tick History', this.tickHistory.length)
     // console.log(this.config.symbol, 'Last10Ticks', this.tickHistory.slice(-10).join(', '), 'Current Digit', lastDigit);
 
+    this._predictRecoveryDirection();
 
     if (DEFAULT_CONFIG.usePatternStrategy && !this.tradeInProgress) {
       let currentCandle = { ...this.assetState.currentFormingCandle };
@@ -1607,28 +1608,28 @@ class STEPINDEXGridBot {
           : 'DOJI';
 
       // ── Pattern strategy (candle OFF): predictor sets direction ──────
-      this._predictRecoveryDirection();
       this.currentDirection = this._predictRecoveryDirection();
       let lastPred = this._lastPrediction || { confidence: 0, totalPatterns: 0, prediction: 'CALLE' };
       let { confidence, totalPatterns, prediction, info, riseNum, fallNum, neutral } = lastPred;
       console.log('Confidence: (', confidence.toFixed(2), '%) |', 'Total Patterns:', totalPatterns, '| Direction:', prediction, '| CandleType:', currentCandleType)
       console.log('PatterInfo', info)
 
-      if (this.currentGridLevel < 1) {
-        if (confidence > 0.51 && totalPatterns > 30 && ((currentCandleType === 'BULLISH' && prediction === 'CALLE' && riseNum < 2) || (currentCandleType === 'BEARISH' && prediction === 'PUTE' && fallNum < 2))) {
-          this.canTrade = true;
-          this._placeTrade()
-        }
-      } else {
-        if (confidence > 0.51 && totalPatterns > 30 && ((currentCandleType === 'BULLISH' && prediction === 'CALLE' && riseNum < 2) || (currentCandleType === 'BEARISH' && prediction === 'PUTE' && fallNum < 2))) {
-          if (this.awaitRiseConfidence) {
-            this.canTrade = true;
-            this._placeTrade()
-          }
-        } else {
-          this.awaitRiseConfidence = true;
-        }
+      // if (this.currentGridLevel < 1) {
+      if (confidence >= 0.56 && ((currentCandleType === 'BULLISH' && prediction === 'CALLE') || (currentCandleType === 'BEARISH' && prediction === 'PUTE'))) {
+        this.canTrade = true;
+        this._placeTrade();
       }
+      // } 
+      // else {
+      //   if (confidence > 0.54 && totalPatterns > 30 && ((currentCandleType === 'BULLISH' && prediction === 'CALLE' && riseNum < 4) || (currentCandleType === 'BEARISH' && prediction === 'PUTE' && fallNum < 4))) {
+      //     if (this.awaitRiseConfidence) {
+      //       this.canTrade = true;
+      //       this._placeTrade()
+      //     }
+      //   } else {
+      //     this.awaitRiseConfidence = true;
+      //   }
+      // }
     }
   }
 
@@ -1703,15 +1704,15 @@ class STEPINDEXGridBot {
     }
 
     // ── Trend direction bias ───────────────────
-    const recent = dirs.slice(-5).filter(d => d);
+    const recent = dirs.slice(-10).filter(d => d);
     const riseNum = recent.filter(d => d === 1).length;
     const fallNum = recent.filter(d => d === -1).length;
     const neutral = recent.filter(d => d === 0).length;
     bestDir2 = riseNum >= fallNum ? 1 : -1;
-    // bestConf2 = recent.length > 0
-    //   ? Math.max(riseNum, fallNum) / recent.length
-    //   : 0.5;
-    bestInfo2 = `TrendBias (${recent.length}): R: ${riseNum}/ N: ${neutral}/ F:${fallNum}`;
+    bestConf2 = recent.length > 0
+      ? Math.max(riseNum, fallNum) / recent.length
+      : 0.5;
+    bestInfo2 = `TrendBias (${recent.length}): R: ${riseNum}/ N: ${neutral}/ F:${fallNum} (${recent.map(d => d === 1 ? '↑' : d === -1 ? '↓' : '·')})`;
 
     // Determine final prediction based on best pattern or trend bias if no strong pattern
     const prediction = bestDir >= 0 ? 'CALLE' : 'PUTE';
@@ -1719,9 +1720,7 @@ class STEPINDEXGridBot {
     this.log(
       `🔮 Pattern Predictor (${bestInfo}) | confidence: ${(bestConf * 100).toFixed(1)}% | ` +
       `prediction: ${prediction === 'CALLE' ? 'RISE ↑ (CALLE)' : 'FALL ↓ (PUTE)'} | ` +
-      `${bestInfo2} | ` +
-      `digits analysed: ${h.length}`,
-      'info'
+      `${bestInfo2}`,
     );
 
     // Store result so Telegram notification can reference it
@@ -2477,7 +2476,7 @@ function main() {
 
   if (bot.telegramBot) bot.startTelegramTimer();
 
-  bot.startTimeScheduler();
+  // bot.startTimeScheduler();
 
   bot.connect();
 
