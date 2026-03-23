@@ -2410,6 +2410,7 @@ class STEPINDEXGridBot {
         this.dailyStats.startInvestment = this.investmentRemaining;
       }
 
+      //New Day Trade Resumption
       if (this.endOfDay && hours === 3 && minutes >= 0) {
         this.log('📅 03:00 GMT+1 — reconnecting bot', 'success');
         this._resetDailyState();
@@ -2418,8 +2419,28 @@ class STEPINDEXGridBot {
         return;
       }
 
-      if (!this.endOfDay && this.isWinTrade && hours >= 23) {
-        this.log('📅 Past 23:00 GMT+1 — end-of-day stop', 'info');
+      //Mid Day Trade Resumption
+      if (this.endOfDay && hours === 15 && minutes >= 0) {
+        this.log('📅 15:00 GMT+1 — reconnecting bot', 'success');
+        this._resetDailyState();
+        this.endOfDay = false;
+        this.connect();
+        return;
+      }
+
+      //New York Open Trade Pause
+      if (!this.endOfDay && this.isWinTrade && hours >= 12 && minutes >= 50) {
+        this.log('📅 Past 13:50 GMT+1 — end-of-day stop', 'info');
+        this._sendHourlySummary();
+        this._sendDailySummary();
+        this.disconnect();
+        this.endOfDay = true;
+        return;
+      }
+
+      //END of Day Trade Pause
+      if (!this.endOfDay && this.isWinTrade && hours >= 23 && minutes >= 50) {
+        this.log('📅 Past 23:50 GMT+1 — end-of-day stop', 'info');
         this._sendHourlySummary();
         this._sendDailySummary();
         this.disconnect();
@@ -2476,7 +2497,7 @@ function main() {
 
   if (bot.telegramBot) bot.startTelegramTimer();
 
-  // bot.startTimeScheduler();
+  bot.startTimeScheduler();
 
   bot.connect();
 
