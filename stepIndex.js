@@ -58,8 +58,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n-grid-state0000001.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n-daily-stats01.json');
+const STATE_FILE = path.join(__dirname, 'ST1n-grid-state00000001.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n-daily-stats001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2168,7 +2168,7 @@ function main() {
 
   if (bot.telegramBot) bot.startTelegramTimer();
 
-  bot.startTimeScheduler();
+  // bot.startTimeScheduler();
 
   bot.connect();
 
