@@ -74,8 +74,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n4-grid-state001.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n4-daily-stats001.json');
+const STATE_FILE = path.join(__dirname, 'ST1n4-grid-state0001.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n4-daily-stats0001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1655,25 +1655,25 @@ class STEPINDEXGridBot {
       //   minAlignedCount   — alternative: require at least N steps to agree
       //                       (only used when requireAlignment is false)
 
-      const minConfidence = 0.51;
+      const minConfidence = 0.5;
       const requireAlignment = false;     // strongest filter
       const minAlignedCount = 2;         // used only if requireAlignment = false
 
-      const confOk = confidence < minConfidence;
+      const confOk = confidence >= minConfidence;
       const alignOk = requireAlignment
         ? aligned                         // 3+ of 5 agree
         : alignedCount <= minAlignedCount; // custom threshold
 
-      if (confOk && alignOk) { // && currentCandleType === 'BULLISH' && prediction === 'CALLE'
+      if (confOk && alignOk && this.currentGridLevel < 1) { // && currentCandleType === 'BULLISH' && prediction === 'CALLE'
         this.canTrade = true;
-        this.currentDirection = prediction; //=== "CALLE" ? "PUTE": "CALLE";
+        this.currentDirection = prediction; // === "CALLE" ? "PUTE" : "CALLE";
         this._placeTrade();
       }
-      // else if (confOk && alignOk) {// && currentCandleType === 'BEARISH' && prediction === 'PUTE'
-      //   this.canTrade = true;
-      //   this.currentDirection = 'PUTE';
-      //   this._placeTrade();
-      // }
+      else if (confOk && alignOk && this.currentGridLevel >= 1) {// && currentCandleType === 'BEARISH' && prediction === 'PUTE'
+        this.canTrade = true;
+        this.currentDirection = this.currentDirection === "CALLE" ? "PUTE" : "CALLE";
+        this._placeTrade();
+      }
     }
   }
 
