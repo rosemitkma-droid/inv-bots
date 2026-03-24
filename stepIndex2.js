@@ -74,8 +74,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n2-grid-state00000001.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n2-daily-stats00000001.json');
+const STATE_FILE = path.join(__dirname, 'ST1n2-grid-state000000001.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n2-daily-stats000000001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1608,15 +1608,20 @@ class STEPINDEXGridBot {
           : 'DOJI';
 
       // ── Pattern strategy (candle OFF): predictor sets direction ──────
-      this.currentDirection = this._predictRecoveryDirection();
+      // this.currentDirection = this._predictRecoveryDirection();
       let lastPred = this._lastPrediction || { confidence: 0, totalPatterns: 0, prediction: 'CALLE' };
       let { confidence, totalPatterns, prediction, info, riseNum, fallNum, neutral } = lastPred;
       console.log('Confidence: (', confidence.toFixed(2), '%) |', 'Total Patterns:', totalPatterns, '| Direction:', prediction, '| CandleType:', currentCandleType)
       console.log('PatterInfo', info)
 
       // if (this.currentGridLevel < 1) {
-      if (confidence >= 0.56 && ((currentCandleType === 'BULLISH' && prediction === 'CALLE') || (currentCandleType === 'BEARISH' && prediction === 'PUTE'))) {
+      if (confidence >= 0.56 && (currentCandleType === 'BULLISH' && prediction === 'CALLE')) {
         this.canTrade = true;
+        this.currentDirection = 'CALLE';
+        this._placeTrade();
+      } else if (confidence >= 0.56 && (currentCandleType === 'BEARISH' && prediction === 'PUTE')) {
+        this.canTrade = true;
+        this.currentDirection = 'PUTE';
         this._placeTrade();
       }
       // } 
