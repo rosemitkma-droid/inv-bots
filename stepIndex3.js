@@ -74,8 +74,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n3-grid-state001.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n3-daily-stats001.json');
+const STATE_FILE = path.join(__dirname, 'ST1n3-grid-state0001.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n3-daily-stats0001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1608,7 +1608,7 @@ class STEPINDEXGridBot {
           : 'DOJI';
 
       // ── Pattern strategy (candle OFF): predictor sets direction ──────
-      this.currentDirection = this._predictRecoveryDirection();
+      // this.currentDirection = this._predictRecoveryDirection();
       let lastPred = this._lastPrediction;
       let { confidence, totalPatterns, prediction, info, riseNum, fallNum, neutral } = lastPred;
       console.log('Confidence: (', confidence.toFixed(2), '%) |', 'Total Patterns:', totalPatterns, '| Direction:', prediction, '| CandleType:', currentCandleType)
@@ -1616,8 +1616,13 @@ class STEPINDEXGridBot {
 
       // if (this.currentGridLevel < 1) {
       // if (confidence >= 0.56 && ((currentCandleType === 'BULLISH' && prediction === 'CALLE') || (currentCandleType === 'BEARISH' && prediction === 'PUTE'))) {
-      if ((riseNum < 3 && prediction === 'CALLE') || (fallNum < 3 && prediction === 'PUTE')) {
+      if (confidence >= 0.51 && riseNum < 1 && prediction === 'CALLE') {
         this.canTrade = true;
+        this.currentDirection = 'CALLE';
+        this._placeTrade();
+      } else if (confidence >= 0.51 && fallNum < 1 && prediction === 'PUTE') {
+        this.canTrade = true;
+        this.currentDirection = 'PUTE';
         this._placeTrade();
       }
       // } 
@@ -1705,7 +1710,7 @@ class STEPINDEXGridBot {
     }
 
     // ── Trend direction bias ───────────────────
-    const recent = dirs.slice(-10).filter(d => d);
+    const recent = dirs.slice(-8).filter(d => d);
     const riseNum = recent.filter(d => d === 1).length;
     const fallNum = recent.filter(d => d === -1).length;
     const neutral = recent.filter(d => d === 0).length;
