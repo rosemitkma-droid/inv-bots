@@ -74,8 +74,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n3-grid-state00001.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n3-daily-stats00001.json');
+const STATE_FILE = path.join(__dirname, 'ST1n4-grid-state01.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n4-daily-stats01.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
