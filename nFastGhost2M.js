@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0000002-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti00000002-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -93,7 +93,8 @@ const CONFIG = {
 
     // Multiplier-based Stake Management
     stake: {
-        initial_stake: 1.1,
+        initial_stake: 2.2,
+        initial_stake2: 10.3,
         multiplier: 11.3,
         multiplier2: 11.3,
         multiplier3: 100,
@@ -190,6 +191,13 @@ class StatePersistence {
                     totalProfitLoss: bot.totalProfitLoss,
                     sys: bot.sys,
                     sysCount: bot.sysCount,
+                    sys2: bot.sys2,
+                    sys2WinCount: bot.sys2WinCount,
+                    isWinTrade: bot.isWinTrade,
+                    x2Losses: bot.x2Losses,
+                    x3Losses: bot.x3Losses,
+                    x4Losses: bot.x4Losses,
+                    x5Losses: bot.x5Losses,
                 },
                 subscriptions: {
                     tickSubscriptionIds: { ...bot.tickSubscriptionIds },
@@ -649,8 +657,8 @@ class RepeatCycleAnalyzer {
         const declining = last3.length >= 3
             && last3[0] > last3[1]
             && last3[1] > last3[2]
-            // && last3[2] > last3[3]
-            // && last3[3] > last3[4];
+        // && last3[2] > last3[3]
+        // && last3[3] > last3[4];
 
         const exhaustion = peakReachedSat && meaningfulDecline && notCollapsed && declining;
 
@@ -734,6 +742,8 @@ class MultiAssetGhostBot {
         this.tradeInProgress = false;
         this.suspendedAssets = new Set();
         this.sys = 1;
+        this.sys2 = false;
+        this.sys2WinCount = 0;
         this.sysCount = 0;
 
         // Contract tracking
@@ -816,6 +826,13 @@ class MultiAssetGhostBot {
             this.totalProfitLoss = trading.totalProfitLoss || 0;
             this.sys = trading.sys || 1;
             this.sysCount = trading.sysCount || 0;
+            this.sys2 = trading.sys2 || false;
+            this.sys2WinCount = trading.sys2WinCount || 0;
+            this.isWinTrade = trading.isWinTrade || false;
+            this.x2Losses = trading.x2Losses || 0;
+            this.x3Losses = trading.x3Losses || 0;
+            this.x4Losses = trading.x4Losses || 0;
+            this.x5Losses = trading.x5Losses || 0;
 
             // Restore asset histories
             if (savedState.assets) {
@@ -990,11 +1007,11 @@ class MultiAssetGhostBot {
             console.log('✅ Authenticated successfully');
             const auth = message.authorize;
             console.log(`   Account: ${auth.fullname || auth.loginid} | Balance: $${auth.balance} ${auth.currency}`);
-            
+
             if (!auth.is_virtual) {
                 console.warn('⚠️  WARNING: You are using a REAL account! Be cautious!');
             }
-            
+
             this.wsReady = true;
             this.processMessageQueue();
             this.initializeSubscriptions();
@@ -1049,7 +1066,7 @@ class MultiAssetGhostBot {
                 subscribe: 1
             });
         });
-        
+
         this.state = 'COLLECTING';
         console.log(`📊 State: COLLECTING (need ${CONFIG.strategy.min_ticks_before_start} ticks per asset)`);
     }
@@ -1136,10 +1153,10 @@ class MultiAssetGhostBot {
     }
 
     handleCollectingState() {
-        const allReady = this.assets.every(asset => 
+        const allReady = this.assets.every(asset =>
             this.analyzers[asset].hasEnoughData()
         );
-        
+
         if (allReady) {
             console.log('✅ All assets have enough data. Moving to TRADING...');
             this.state = 'TRADING';
@@ -1425,7 +1442,19 @@ class MultiAssetGhostBot {
                 }
             }
 
-            this.currentStake = CONFIG.stake.initial_stake;
+            if (this.sys2) {
+                this.currentStake = CONFIG.stake.initial_stake2;
+                this.sys2WinCount++;
+                if (this.sys2WinCount === 30) {
+                    this.currentStake = CONFIG.stake.initial_stake;
+                    this.sys2WinCount = 0;
+                    this.sys2 = false;
+                }
+            } else {
+                this.currentStake = CONFIG.stake.initial_stake;
+            }
+
+            // this.currentStake = CONFIG.stake.initial_stake;
         } else {
             this.totalLosses++;
             this.hourlyStats.losses++;
@@ -1438,13 +1467,23 @@ class MultiAssetGhostBot {
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
 
             // Apply multiplier
-            this.currentStake = Math.ceil(this.currentStake * CONFIG.stake.multiplier * 100) / 100;
+            // this.currentStake = Math.ceil(this.currentStake * CONFIG.stake.multiplier * 100) / 100;
+
+            if (this.consecutiveLosses === 2) {
+                if (this.sys2) {
+                    this.consecutiveLosses = 4
+                };
+                this.sys2 = true
+                this.currentStake = CONFIG.stake.initial_stake2;
+            } else {
+                this.currentStake = Math.ceil(this.currentStake * CONFIG.stake.multiplier * 100) / 100;
+            }
 
             // Cap stake at maximum
-            if (this.currentStake > CONFIG.stake.max_stake) {
-                this.currentStake = CONFIG.stake.max_stake;
-                console.warn(`⚠️ Stake capped at max: $${CONFIG.stake.max_stake}`);
-            }
+            // if (this.currentStake > CONFIG.stake.max_stake) {
+            //     this.currentStake = CONFIG.stake.max_stake;
+            //     console.warn(`⚠️ Stake capped at max: $${CONFIG.stake.max_stake}`);
+            // }
 
             // System progression
             if (this.consecutiveLosses >= 2) {
