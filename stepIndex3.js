@@ -74,8 +74,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n3-grid-state0001.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n3-daily-stats0001.json');
+const STATE_FILE = path.join(__dirname, 'ST1n3-grid-state00001.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n3-daily-stats00001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1595,7 +1595,7 @@ class STEPINDEXGridBot {
     }
 
     // console.log('Total Tick History', this.tickHistory.length)
-    // console.log(this.config.symbol, 'Last10Ticks', this.tickHistory.slice(-10).join(', '), 'Current Digit', lastDigit);
+    console.log(this.config.symbol, 'Last10Ticks:', this.tickHistory.slice(-10).join(', '), 'Tick:', tick.quote);
 
     this._predictRecoveryDirection();
 
@@ -1616,11 +1616,11 @@ class STEPINDEXGridBot {
 
       // if (this.currentGridLevel < 1) {
       // if (confidence >= 0.56 && ((currentCandleType === 'BULLISH' && prediction === 'CALLE') || (currentCandleType === 'BEARISH' && prediction === 'PUTE'))) {
-      if (confidence >= 0.51 && riseNum < 1 && prediction === 'CALLE') {
+      if (riseNum < 1) {// && confidence >= 0.51 && prediction === 'CALLE'
         this.canTrade = true;
         this.currentDirection = 'CALLE';
         this._placeTrade();
-      } else if (confidence >= 0.51 && fallNum < 1 && prediction === 'PUTE') {
+      } else if (fallNum < 1) {// && confidence >= 0.51 && prediction === 'PUTE'
         this.canTrade = true;
         this.currentDirection = 'PUTE';
         this._placeTrade();
@@ -1710,7 +1710,7 @@ class STEPINDEXGridBot {
     }
 
     // ── Trend direction bias ───────────────────
-    const recent = dirs.slice(-8).filter(d => d);
+    const recent = dirs.slice(-6).filter(d => d); // Filter Tick History
     const riseNum = recent.filter(d => d === 1).length;
     const fallNum = recent.filter(d => d === -1).length;
     const neutral = recent.filter(d => d === 0).length;
