@@ -1,2883 +1,2672 @@
+#!/usr/bin/env node
+// ╔══════════════════════════════════════════════════════════════════════════════════╗
+// ║   STEP INDEX GRID MARTINGALE BOT — Headless Terminal Edition (FIXED v2)       ║
+// ║   Volatility STEP Index | CALLE/PUTE | Low-Risk Hybrid                        ║
+// ║   NEW: Trade on new candle, recovery trades until win, then wait for candle    ║
+// ║   ENHANCED: Stuck trade recovery with pause and reset                          ║
+// ║   FIXED: Network recovery, daily stats, auto-compounding                      ║
+// ╚══════════════════════════════════════════════════════════════════════════════════╝
+
+'use strict';
+
+require('dotenv').config();
+
 const WebSocket = require('ws');
-const https = require('https');
+const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
-// ============================================
-// STATE PERSISTENCE MANAGER
-// ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM20001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM20001-history.json');
+// ══════════════════════════════════════════════════════════════════════════════
+// CONFIGURATION
+// ══════════════════════════════════════════════════════════════════════════════
+
+const DEFAULT_CONFIG = {
+  apiToken: 'rgNedekYXvCaPeP',
+  appId: '1089',
+
+  symbol: 'stpRNG',
+  tickDuration: 1,
+  initialStake: 0.35,
+  investmentAmount: 153,
+
+  martingaleMultiplier: 1.48,
+  maxMartingaleLevel: 1,
+  afterMaxLoss: 'continue',
+  continueExtraLevels: 8,
+  extraLevelMultipliers: [1.8, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
+
+  autoCompounding: true,
+  compoundPercentage: 0.20,
+
+  // Auto-compounding step config:
+  // baseStake increases by compoundStakeStep for every compoundInvestmentStep increase in investmentAmount
+  compoundInvestmentStep: 153,  // every 153 increase in investment
+  compoundStakeStep: 0.35,  // increases baseStake by 0.5
+
+  stopLoss: 5000,
+  takeProfit: 10000,
+
+  // Stuck trade recovery settings
+  stuckTradePauseDuration: 5 * 60 * 1000,
+
+  //Tick History
+  tickHistorySize: 5000,
+
+  // ── Strategy selection ────────────────────────────────────────────────────
+  // useCandleStrategy: trade when a new candle closes, direction = candle colour
+  //   true  → bot waits for each candle close before placing a fresh trade
+  //   false → fresh trades are triggered immediately after a win (no candle wait)
+  useCandleStrategy: false,
+
+  // usePatternStrategy: use the Smart Pattern Predictor (patLen [5]) for direction
+  //   true  → direction is data-driven via tick-history pattern analysis
+  //   false → direction falls back to simple alternating (CALLE ↔ PUTE)
+  //   Applies to BOTH recovery trades and fresh trades when useCandleStrategy=false
+  //   Use 1 tick if you're using the Pattern strategy only.
+  usePatternStrategy: true,
+
+  telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
+  telegramChatId: '752497117',
+  telegramEnabled: true,
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FILE PATHS
+// ══════════════════════════════════════════════════════════════════════════════
+
+const STATE_FILE = path.join(__dirname, 'ST1n4-grid-state00001.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n4-daily-stats00001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
-// ============================================
-// TRADE HISTORY MANAGER
-// ============================================
-class TradeHistoryManager {
-    static getDateKey() {
-        const now = new Date();
-        return now.toISOString().split('T')[0]; // e.g. "2025-01-15"
-    }
-
-    static loadHistory() {
-        try {
-            if (!fs.existsSync(HISTORY_FILE)) {
-                LOGGER.info('📂 No trade history file found, starting fresh history');
-                return {
-                    overall: {
-                        tradesCount: 0,
-                        winsCount: 0,
-                        lossesCount: 0,
-                        profit: 0,
-                        loss: 0,
-                        netPL: 0,
-                        x2Losses: 0,
-                        x3Losses: 0,
-                        x4Losses: 0,
-                        x5Losses: 0,
-                        x6Losses: 0,
-                        x7Losses: 0,
-                        x8Losses: 0,
-                        x9Losses: 0,
-                        firstTradeDate: null,
-                        lastTradeDate: null
-                    },
-                    overallAssets: {},
-                    dailyHistory: {},
-                    lastUpdated: Date.now()
-                };
-            }
-
-            const data = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
-            if (!data.dailyHistory) data.dailyHistory = {};
-            if (!data.overallAssets) data.overallAssets = {};
-            if (!data.overall) data.overall = {
-                tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0,
-                x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0, x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0
-            };
-            LOGGER.info(`📂 Trade history loaded — ${Object.keys(data.dailyHistory).length} days of history`);
-            return data;
-        } catch (error) {
-            LOGGER.error(`Failed to load trade history: ${error.message}`);
-            return {
-                overall: {
-                    tradesCount: 0,
-                    winsCount: 0,
-                    lossesCount: 0,
-                    profit: 0,
-                    loss: 0,
-                    netPL: 0,
-                    x2Losses: 0,
-                    x3Losses: 0,
-                    x4Losses: 0,
-                    x5Losses: 0,
-                    x6Losses: 0,
-                    x7Losses: 0,
-                    x8Losses: 0,
-                    x9Losses: 0,
-                    firstTradeDate: null,
-                    lastTradeDate: null
-                },
-                overallAssets: {},
-                dailyHistory: {},
-                lastUpdated: Date.now()
-            };
-        }
-    }
-
-    static saveHistory() {
-        try {
-            fs.writeFileSync(HISTORY_FILE, JSON.stringify(tradeHistory, null, 2));
-        } catch (error) {
-            LOGGER.error(`Failed to save trade history: ${error.message}`);
-        }
-    }
-
-    static ensureDayEntry(dateKey) {
-        if (!tradeHistory.dailyHistory[dateKey]) {
-            tradeHistory.dailyHistory[dateKey] = {
-                date: dateKey,
-                tradesCount: 0,
-                winsCount: 0,
-                lossesCount: 0,
-                profit: 0,
-                loss: 0,
-                netPL: 0,
-                x2Losses: 0,
-                x3Losses: 0,
-                x4Losses: 0,
-                x5Losses: 0,
-                x6Losses: 0,
-                x7Losses: 0,
-                x8Losses: 0,
-                x9Losses: 0,
-                assets: {},
-                startCapital: state.capital,
-                endCapital: state.capital
-            };
-        }
-    }
-
-    static ensureAssetDayEntry(dateKey, symbol) {
-        this.ensureDayEntry(dateKey);
-        if (!tradeHistory.dailyHistory[dateKey].assets[symbol]) {
-            tradeHistory.dailyHistory[dateKey].assets[symbol] = {
-                tradesCount: 0,
-                winsCount: 0,
-                lossesCount: 0,
-                profit: 0,
-                loss: 0,
-                netPL: 0,
-                x2Losses: 0,
-                x3Losses: 0,
-                x4Losses: 0,
-                x5Losses: 0,
-                x6Losses: 0,
-                x7Losses: 0,
-                x8Losses: 0,
-                x9Losses: 0
-            };
-        }
-    }
-
-    static ensureOverallAssetEntry(symbol) {
-        if (!tradeHistory.overallAssets[symbol]) {
-            tradeHistory.overallAssets[symbol] = {
-                tradesCount: 0,
-                winsCount: 0,
-                lossesCount: 0,
-                profit: 0,
-                loss: 0,
-                netPL: 0,
-                x2Losses: 0,
-                x3Losses: 0,
-                x4Losses: 0,
-                x5Losses: 0,
-                x6Losses: 0,
-                x7Losses: 0,
-                x8Losses: 0,
-                x9Losses: 0,
-            };
-        }
-    }
-
-    /**
-     * Record a trade result into daily + overall history
-     */
-    static recordTrade(symbol, profit, martingaleLevel) {
-        const dateKey = this.getDateKey();
-        this.ensureAssetDayEntry(dateKey, symbol);
-        this.ensureOverallAssetEntry(symbol);
-
-        const dayStats = tradeHistory.dailyHistory[dateKey];
-        const dayAssetStats = dayStats.assets[symbol];
-        const overall = tradeHistory.overall;
-        const overallAsset = tradeHistory.overallAssets[symbol];
-
-        // Update trade counts
-        dayStats.tradesCount++;
-        dayAssetStats.tradesCount++;
-        overall.tradesCount++;
-        overallAsset.tradesCount++;
-
-        if (!overall.firstTradeDate) {
-            overall.firstTradeDate = dateKey;
-        }
-        overall.lastTradeDate = dateKey;
-
-        if (profit > 0) {
-            // WIN
-            dayStats.winsCount++;
-            dayStats.profit += profit;
-            dayStats.netPL += profit;
-
-            dayAssetStats.winsCount++;
-            dayAssetStats.profit += profit;
-            dayAssetStats.netPL += profit;
-
-            overall.winsCount++;
-            overall.profit += profit;
-            overall.netPL += profit;
-
-            overallAsset.winsCount++;
-            overallAsset.profit += profit;
-            overallAsset.netPL += profit;
-        } else {
-            // LOSS
-            dayStats.lossesCount++;
-            dayStats.loss += Math.abs(profit);
-            dayStats.netPL += profit;
-
-            dayAssetStats.lossesCount++;
-            dayAssetStats.loss += Math.abs(profit);
-            dayAssetStats.netPL += profit;
-
-            overall.lossesCount++;
-            overall.loss += Math.abs(profit);
-            overall.netPL += profit;
-
-            overallAsset.lossesCount++;
-            overallAsset.loss += Math.abs(profit);
-            overallAsset.netPL += profit;
-
-            // Track consecutive loss stats
-            if (martingaleLevel === 2) {
-                dayStats.x2Losses++;
-                dayAssetStats.x2Losses++;
-                overall.x2Losses++;
-                overallAsset.x2Losses++;
-            }
-            if (martingaleLevel === 3) {
-                dayStats.x3Losses++;
-                dayAssetStats.x3Losses++;
-                overall.x3Losses++;
-                overallAsset.x3Losses++;
-            }
-            if (martingaleLevel === 4) {
-                dayStats.x4Losses++;
-                dayAssetStats.x4Losses++;
-                overall.x4Losses++;
-                overallAsset.x4Losses++;
-            }
-            if (martingaleLevel === 5) {
-                dayStats.x5Losses++;
-                dayAssetStats.x5Losses++;
-                overall.x5Losses++;
-                overallAsset.x5Losses++;
-            }
-            if (martingaleLevel === 6) {
-                dayStats.x6Losses++;
-                dayAssetStats.x6Losses++;
-                overall.x6Losses++;
-                overallAsset.x6Losses++;
-            }
-            if (martingaleLevel === 7) {
-                dayStats.x7Losses++;
-                dayAssetStats.x7Losses++;
-                overall.x7Losses++;
-                overallAsset.x7Losses++;
-            }
-            if (martingaleLevel === 8) {
-                dayStats.x8Losses++;
-                dayAssetStats.x8Losses++;
-                overall.x8Losses++;
-                overallAsset.x8Losses++;
-            }
-            if (martingaleLevel === 9) {
-                dayStats.x9Losses++;
-                dayAssetStats.x9Losses++;
-                overall.x9Losses++;
-                overallAsset.x9Losses++;
-            }
-        }
-
-        dayStats.endCapital = state.capital;
-        tradeHistory.lastUpdated = Date.now();
-
-        this.saveHistory();
-    }
-
-    /**
-     * Get today's stats
-     */
-    static getTodayStats() {
-        const dateKey = this.getDateKey();
-        this.ensureDayEntry(dateKey);
-        return tradeHistory.dailyHistory[dateKey];
-    }
-
-    /**
-     * Get overall stats
-     */
-    static getOverallStats() {
-        return tradeHistory.overall;
-    }
-
-    /**
-     * Get stats for a specific date
-     */
-    static getDayStats(dateKey) {
-        return tradeHistory.dailyHistory[dateKey] || null;
-    }
-
-    /**
-     * Get list of all trading days
-     */
-    static getAllDays() {
-        return Object.keys(tradeHistory.dailyHistory).sort();
-    }
-
-    /**
-     * Get last N days stats
-     */
-    static getRecentDays(n = 7) {
-        const days = this.getAllDays();
-        return days.slice(-n).map(dateKey => ({
-            date: dateKey,
-            ...tradeHistory.dailyHistory[dateKey]
-        }));
-    }
-}
+// ══════════════════════════════════════════════════════════════════════════════
+// STATE PERSISTENCE
+// ══════════════════════════════════════════════════════════════════════════════
 
 class StatePersistence {
-    static saveState() {
-        try {
-            const persistableState = {
-                savedAt: Date.now(),
-                capital: state.capital,
-                session: { ...state.session },
-                portfolio: {
-                    dailyProfit: state.portfolio.dailyProfit,
-                    dailyLoss: state.portfolio.dailyLoss,
-                    dailyWins: state.portfolio.dailyWins,
-                    dailyLosses: state.portfolio.dailyLosses
-                },
-                hourlyStats: { ...state.hourlyStats },
-                currentTradeDay: state.currentTradeDay,
-                assets: {}
-            };
-
-            Object.keys(state.assets).forEach(symbol => {
-                const asset = state.assets[symbol];
-                const assetConfig = getAssetConfig(symbol);
-                persistableState.assets[symbol] = {
-                    // Candle data
-                    closedCandles: asset.closedCandles.slice(-assetConfig.MAX_CANDLES_STORED),
-                    lastProcessedCandleOpenTime: asset.lastProcessedCandleOpenTime,
-                    candlesLoaded: asset.candlesLoaded,
-                    // Per-asset trade management
-                    lastTradeDirection: asset.lastTradeDirection,
-                    lastTradeWasWin: asset.lastTradeWasWin,
-                    martingaleLevel: asset.martingaleLevel,
-                    currentStake: asset.currentStake,
-                    canTrade: asset.canTrade,
-                    // Per-asset stats (today's session)
-                    tradesCount: asset.tradesCount,
-                    winsCount: asset.winsCount,
-                    lossesCount: asset.lossesCount,
-                    profit: asset.profit,
-                    loss: asset.loss,
-                    netPL: asset.netPL,
-                    x2Losses: asset.x2Losses,
-                    x3Losses: asset.x3Losses,
-                    x4Losses: asset.x4Losses,
-                    x5Losses: asset.x5Losses,
-                    x6Losses: asset.x6Losses,
-                    x7Losses: asset.x7Losses,
-                    x8Losses: asset.x8Losses,
-                    x9Losses: asset.x9Losses,
-                    // Per-asset active positions
-                    activePositions: asset.activePositions.map(pos => ({
-                        symbol: pos.symbol,
-                        direction: pos.direction,
-                        stake: pos.stake,
-                        duration: pos.duration,
-                        durationUnit: pos.durationUnit,
-                        entryTime: pos.entryTime,
-                        contractId: pos.contractId,
-                        reqId: pos.reqId,
-                        buyPrice: pos.buyPrice,
-                        currentProfit: pos.currentProfit
-                    }))
-                };
-            });
-
-            fs.writeFileSync(STATE_FILE, JSON.stringify(persistableState, null, 2));
-        } catch (error) {
-            LOGGER.error(`Failed to save state: ${error.message}`);
-        }
+  static save(bot) {
+    try {
+      const payload = {
+        savedAt: Date.now(),
+        trading: {
+          running: bot.running,
+          totalProfit: bot.totalProfit,
+          totalTrades: bot.totalTrades,
+          wins: bot.wins,
+          losses: bot.losses,
+          currentGridLevel: bot.currentGridLevel,
+          currentDirection: bot.currentDirection,
+          baseStake: bot.baseStake,
+          chainBaseStake: bot.chainBaseStake,
+          investmentRemaining: bot.investmentRemaining,
+          investmentStartAmount: bot.investmentStartAmount,
+          totalRecovered: bot.totalRecovered,
+          maxWinStreak: bot.maxWinStreak,
+          maxLossStreak: bot.maxLossStreak,
+          currentStreak: bot.currentStreak,
+          inRecoveryMode: bot.inRecoveryMode,
+          currentContractId: bot.currentContractId,
+          isPausedDueToStuckTrade: bot.isPausedDueToStuckTrade,
+          stuckTradePauseEnd: bot.stuckTradePauseEnd || null,
+          stuckTradeCount: bot.stuckTradeCount,
+        },
+        dailyStats: bot.dailyStats || null,
+        hourlyStats: bot.hourlyStats || null,
+      };
+      fs.writeFileSync(STATE_FILE, JSON.stringify(payload, null, 2), 'utf8');
+    } catch (e) {
+      console.error(`[StatePersistence] save error: ${e.message}`);
     }
+  }
 
-    static loadState() {
-        try {
-            if (!fs.existsSync(STATE_FILE)) {
-                LOGGER.info('📂 No previous state file found, starting fresh');
-                return false;
-            }
-
-            const savedData = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-            const ageMinutes = (Date.now() - savedData.savedAt) / 60000;
-
-            if (ageMinutes > 30) {
-                LOGGER.warn(
-                    `⚠️ Saved state is ${ageMinutes.toFixed(1)} minutes old, starting fresh`
-                );
-                fs.unlinkSync(STATE_FILE);
-                return false;
-            }
-
-            LOGGER.info(`📂 Restoring state from ${ageMinutes.toFixed(1)} minutes ago`);
-
-            state.capital = savedData.capital;
-            state.session = {
-                ...state.session,
-                ...savedData.session,
-                startTime: savedData.session.startTime || Date.now(),
-                startCapital: savedData.session.startCapital || savedData.capital
-            };
-
-            state.portfolio.dailyProfit = savedData.portfolio.dailyProfit;
-            state.portfolio.dailyLoss = savedData.portfolio.dailyLoss;
-            state.portfolio.dailyWins = savedData.portfolio.dailyWins;
-            state.portfolio.dailyLosses = savedData.portfolio.dailyLosses;
-
-            state.currentTradeDay = savedData.currentTradeDay || TradeHistoryManager.getDateKey();
-
-            state.hourlyStats = savedData.hourlyStats || {
-                trades: 0,
-                wins: 0,
-                losses: 0,
-                pnl: 0,
-                lastHour: new Date().getHours()
-            };
-
-            if (savedData.assets) {
-                Object.keys(savedData.assets).forEach(symbol => {
-                    if (state.assets[symbol]) {
-                        const saved = savedData.assets[symbol];
-                        const asset = state.assets[symbol];
-                        const assetConfig = getAssetConfig(symbol);
-
-                        // Candle data
-                        if (saved.closedCandles && saved.closedCandles.length > 0) {
-                            asset.closedCandles = saved.closedCandles;
-                            LOGGER.info(
-                                `  📊 Restored ${saved.closedCandles.length} closed candles for ${symbol}`
-                            );
-                        }
-                        asset.lastProcessedCandleOpenTime =
-                            saved.lastProcessedCandleOpenTime || 0;
-                        asset.candlesLoaded = saved.candlesLoaded || false;
-
-                        // Per-asset trade management
-                        asset.lastTradeDirection = saved.lastTradeDirection || null;
-                        asset.lastTradeWasWin = saved.lastTradeWasWin !== undefined
-                            ? saved.lastTradeWasWin : null;
-                        asset.martingaleLevel = saved.martingaleLevel || 0;
-                        asset.currentStake = saved.currentStake || CONFIG.STAKE;
-                        asset.canTrade = saved.canTrade || false;
-
-                        // Per-asset stats
-                        asset.tradesCount = saved.tradesCount || 0;
-                        asset.winsCount = saved.winsCount || 0;
-                        asset.lossesCount = saved.lossesCount || 0;
-                        asset.profit = saved.profit || 0;
-                        asset.loss = saved.loss || 0;
-                        asset.netPL = saved.netPL || 0;
-                        asset.x2Losses = saved.x2Losses || 0;
-                        asset.x3Losses = saved.x3Losses || 0;
-                        asset.x4Losses = saved.x4Losses || 0;
-                        asset.x5Losses = saved.x5Losses || 0;
-                        asset.x6Losses = saved.x6Losses || 0;
-                        asset.x7Losses = saved.x7Losses || 0;
-                        asset.x8Losses = saved.x8Losses || 0;
-                        asset.x9Losses = saved.x9Losses || 0;
-
-                        // Per-asset active positions
-                        asset.activePositions = (saved.activePositions || []).map(
-                            pos => ({
-                                ...pos,
-                                entryTime: pos.entryTime || Date.now()
-                            })
-                        );
-
-                        LOGGER.info(
-                            `  🔄 ${symbol}: Martingale=${asset.martingaleLevel}, Stake=$${asset.currentStake.toFixed(2)}, P/L=$${asset.netPL.toFixed(2)}, Positions=${asset.activePositions.length}`
-                        );
-                    }
-                });
-            }
-
-            LOGGER.info(`✅ State restored successfully!`);
-            LOGGER.info(`   💰 Capital: $${state.capital.toFixed(2)}`);
-            LOGGER.info(`   📊 Session P/L: $${state.session.netPL.toFixed(2)}`);
-            LOGGER.info(
-                `   🎯 Trades: ${state.session.tradesCount} (W:${state.session.winsCount} L:${state.session.lossesCount})`
-            );
-            LOGGER.info(
-                `   📉 Loss Stats: x2:${state.session.x2Losses} x3:${state.session.x3Losses} x4:${state.session.x4Losses} x5:${state.session.x5Losses} x6:${state.session.x6Losses} x7:${state.session.x7Losses} x8:${state.session.x8Losses} x9:${state.session.x9Losses}`
-            );
-
-            // Count total active positions across all assets
-            let totalActivePositions = 0;
-            Object.keys(state.assets).forEach(sym => {
-                totalActivePositions += state.assets[sym].activePositions.length;
-            });
-            LOGGER.info(`   🚀 Total Active Positions: ${totalActivePositions}`);
-
-            return true;
-        } catch (error) {
-            LOGGER.error(`Failed to load state: ${error.message}`);
-            LOGGER.error(`Stack: ${error.stack}`);
-            return false;
-        }
+  static load() {
+    try {
+      if (!fs.existsSync(STATE_FILE)) return null;
+      const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+      const ageMin = (Date.now() - data.savedAt) / 60000;
+      // Extended to 120 minutes to handle longer outages
+      if (ageMin > 120) {
+        console.warn(`[StatePersistence] State is ${ageMin.toFixed(1)} min old — discarding`);
+        fs.unlinkSync(STATE_FILE);
+        return null;
+      }
+      console.log(`[StatePersistence] Restoring state from ${ageMin.toFixed(1)} min ago`);
+      return data;
+    } catch (e) {
+      console.error(`[StatePersistence] load error: ${e.message}`);
+      return null;
     }
+  }
 
-    static startAutoSave() {
-        setInterval(() => {
-            if (state.isAuthorized) {
-                this.saveState();
-            }
-        }, STATE_SAVE_INTERVAL);
-        LOGGER.info(
-            `💾 Auto-save enabled (every ${STATE_SAVE_INTERVAL / 1000}s)`
-        );
-    }
+  static startAutoSave(bot) {
+    if (bot._autoSaveInterval) return;
+    bot._autoSaveInterval = setInterval(() => {
+      if (bot.running || bot.totalTrades > 0) StatePersistence.save(bot);
+    }, STATE_SAVE_INTERVAL);
+    console.log('[StatePersistence] Auto-save every 5 s ✅');
+  }
 
-    static clearState() {
-        try {
-            if (fs.existsSync(STATE_FILE)) {
-                fs.unlinkSync(STATE_FILE);
-                LOGGER.info('🗑️ State file cleared');
-            }
-        } catch (error) {
-            LOGGER.error(`Failed to clear state: ${error.message}`);
-        }
+  // ── Daily Stats Persistence ─────────────────────────────────────────────
+  static saveDailyStats(stats) {
+    try {
+      let allStats = {};
+      if (fs.existsSync(DAILY_STATS_FILE)) {
+        allStats = JSON.parse(fs.readFileSync(DAILY_STATS_FILE, 'utf8'));
+      }
+      const dateKey = stats.date;
+      allStats[dateKey] = stats;
+
+      // Keep last 30 days only
+      const keys = Object.keys(allStats).sort();
+      if (keys.length > 30) {
+        keys.slice(0, keys.length - 30).forEach(k => delete allStats[k]);
+      }
+
+      fs.writeFileSync(DAILY_STATS_FILE, JSON.stringify(allStats, null, 2), 'utf8');
+    } catch (e) {
+      console.error(`[StatePersistence] saveDailyStats error: ${e.message}`);
     }
+  }
+
+  static loadDailyStats(dateKey) {
+    try {
+      if (!fs.existsSync(DAILY_STATS_FILE)) return null;
+      const allStats = JSON.parse(fs.readFileSync(DAILY_STATS_FILE, 'utf8'));
+      return allStats[dateKey] || null;
+    } catch (e) {
+      console.error(`[StatePersistence] loadDailyStats error: ${e.message}`);
+      return null;
+    }
+  }
+
+  static loadAllDailyStats() {
+    try {
+      if (!fs.existsSync(DAILY_STATS_FILE)) return {};
+      return JSON.parse(fs.readFileSync(DAILY_STATS_FILE, 'utf8'));
+    } catch (e) {
+      console.error(`[StatePersistence] loadAllDailyStats error: ${e.message}`);
+      return {};
+    }
+  }
 }
 
-// ============================================
-// TELEGRAM SERVICE
-// ============================================
-class TelegramService {
-    static async sendMessage(message) {
-        if (!CONFIG.TELEGRAM_ENABLED) return;
-        try {
-            if (!message || message.length === 0) {
-                LOGGER.error('[TELEGRAM] ❌ Message is empty! Not sending.');
-                console.error('[DEBUG] Empty message received in sendMessage()');
-                return;
-            }
-
-            const url = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`;
-            const data = JSON.stringify({
-                chat_id: CONFIG.TELEGRAM_CHAT_ID,
-                text: message,
-                parse_mode: 'HTML'
-            });
-
-            console.log(`[DEBUG] Sending Telegram message (${message.length} chars, ${data.length} bytes)`);
-            console.log(`[DEBUG] Message preview: ${message.substring(0, 100)}...`);
-
-            const options = {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Content-Length': data.length
-                }
-            };
-
-            return new Promise((resolve, reject) => {
-                const req = https.request(url, options, res => {
-                    let body = '';
-                    res.on('data', chunk => (body += chunk));
-                    res.on('end', () => {
-                        if (res.statusCode === 200) {
-                            resolve(true);
-                        } else {
-                            reject(new Error(`HTTP ${res.statusCode}: ${body}`));
-                        }
-                    });
-                });
-                req.on('error', reject);
-                req.write(data);
-                req.end();
-            }).then(() => {
-                LOGGER.info('[TELEGRAM] ✅ Message sent successfully');
-            }).catch(error => {
-                LOGGER.error(`[TELEGRAM] ❌ Send failed: ${error.message}`);
-            });
-        } catch (error) {
-            LOGGER.error(
-                `[TELEGRAM] ❌ Failed to send message: ${error.message}`
-            );
-            console.error('[DEBUG] Exception in sendMessage:', error);
-        }
-    }
-
-    static async sendTradeAlert(
-        type,
-        symbol,
-        direction,
-        stake,
-        duration,
-        durationUnit,
-        details = {}
-    ) {
-        const emoji =
-            type === 'OPEN'
-                ? '🚀'
-                : type === 'WIN'
-                    ? '✅'
-                    : '❌';
-
-        const assetState = state.assets[symbol];
-        const assetMartingale = assetState ? assetState.martingaleLevel : 0;
-        const assetNetPL = assetState ? assetState.netPL : 0;
-        const assetWins = assetState ? assetState.winsCount : 0;
-        const assetLosses = assetState ? assetState.lossesCount : 0;
-
-        const overall = TradeHistoryManager.getOverallStats();
-        const today = TradeHistoryManager.getTodayStats();
-
-        const message = `
-                ${emoji} <b>${type} TRADE ALERT</b>
-                Asset: ${symbol}
-                Direction: ${direction}
-                Stake: $${stake.toFixed(2)}
-                Duration: ${duration} (${durationUnit == 't' ? 'Ticks' : durationUnit == 's' ? 'Seconds' : 'Minutes'})
-                Martingale Level: ${assetMartingale}
-                ${details.profit !== undefined
-                ? `Profit: $${details.profit.toFixed(2)}
-
-                📊 <b>Today's Stats:</b>
-                ${symbol} P&L: $${assetNetPL.toFixed(2)}
-                ${symbol} W/L: ${assetWins}/${assetLosses}
-                Today P&L: $${today.netPL.toFixed(2)}
-                Today W/L: ${today.winsCount}/${today.lossesCount}
-
-                📈 <b>Overall Stats:</b>
-                Overall P&L: $${overall.netPL.toFixed(2)}
-                Overall W/L: ${overall.winsCount}/${overall.lossesCount}
-                Total Trades: ${overall.tradesCount}
-                Capital: $${state.capital.toFixed(2)}
-            `
-                : ''
-            }`.trim();
-        await this.sendMessage(message);
-    }
-
-    static async sendSessionSummary() {
-        try {
-            const stats = SessionManager.getSessionStats();
-            const today = TradeHistoryManager.getTodayStats();
-            const overall = TradeHistoryManager.getOverallStats();
-
-            // Build per-asset breakdown (today)
-            let assetBreakdown = '';
-            ACTIVE_ASSETS.forEach(symbol => {
-                const a = state.assets[symbol];
-                if (a && a.tradesCount > 0) {
-                    const winRate = a.tradesCount > 0
-                        ? ((a.winsCount / a.tradesCount) * 100).toFixed(1)
-                        : '0.0';
-                    assetBreakdown += `\n  ${symbol}: ${a.tradesCount} trades, ${a.winsCount}W/${a.lossesCount}L (${winRate}%), P/L: $${a.netPL.toFixed(2)}, Mart: ${a.martingaleLevel}`;
-                }
-            });
-
-            // Build overall per-asset breakdown
-            let overallAssetBreakdown = '';
-            if (tradeHistory.overallAssets) {
-                ACTIVE_ASSETS.forEach(symbol => {
-                    const oa = tradeHistory.overallAssets[symbol];
-                    if (oa && oa.tradesCount > 0) {
-                        const winRate = oa.tradesCount > 0
-                            ? ((oa.winsCount / oa.tradesCount) * 100).toFixed(1)
-                            : '0.0';
-                        overallAssetBreakdown += `\n  ${symbol}: ${oa.tradesCount} trades, ${oa.winsCount}W/${oa.lossesCount}L (${winRate}%), P/L: $${oa.netPL.toFixed(2)}`;
-                    }
-                });
-            }
-
-            // Recent days summary
-            const recentDays = TradeHistoryManager.getRecentDays(5);
-            let recentDaysStr = '';
-            recentDays.forEach(day => {
-                const wr = day.tradesCount > 0
-                    ? ((day.winsCount / day.tradesCount) * 100).toFixed(1)
-                    : '0.0';
-                const pnlEmoji = day.netPL >= 0 ? '🟢' : '🔴';
-                recentDaysStr += `\n  ${day.date}: ${day.tradesCount}t ${day.winsCount}W/${day.lossesCount}L (${wr}%) ${pnlEmoji} $${day.netPL.toFixed(2)}`;
-            });
-
-            const overallWinRate = overall.tradesCount > 0
-                ? ((overall.winsCount / overall.tradesCount) * 100).toFixed(1) + '%'
-                : '0.0%';
-
-            const message = `
-            📊 <b>SESSION SUMMARY</b>
-
-            📅 <b>Today (${TradeHistoryManager.getDateKey()}):</b>
-            Duration: ${stats.duration}
-            Trades: ${stats.trades}
-            Wins: ${stats.wins} | Losses: ${stats.losses}
-            Win Rate: ${stats.winRate}
-            Loss Stats: x2:${today.x2Losses} | x3:${today.x3Losses} | x4:${today.x4Losses} | x5:${today.x5Losses} | x6:${today.x6Losses} | x7:${today.x7Losses} | x8:${today.x8Losses} | x9:${today.x9Losses}
-            Today P/L: $${today.netPL.toFixed(2)}
-
-            📈 <b>Today's Per-Asset:</b>${assetBreakdown || '\n  No trades yet'}
-
-            📊 <b>Overall Stats (${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}):</b>
-            Total Trades: ${overall.tradesCount}
-            Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
-            Overall Win Rate: ${overallWinRate}
-            Overall P/L: $${overall.netPL.toFixed(2)}
-            Loss Stats: x2:${overall.x2Losses} | x3:${overall.x3Losses} | x4:${overall.x4Losses} | x5:${overall.x5Losses} | x6:${overall.x6Losses} | x7:${overall.x7Losses} | x8:${overall.x8Losses} | x9:${overall.x9Losses}
-
-            📈 <b>Overall Per-Asset:</b>${overallAssetBreakdown || '\n  No trades yet'}
-
-            📆 <b>Recent Days:</b>${recentDaysStr || '\n  No history yet'}
-
-            💰 Current Capital: $${state.capital.toFixed(2)}
-        `.trim();
-            await this.sendMessage(message);
-        } catch (err) {
-            LOGGER.error(`❌ sendSessionSummary crashed: ${err.message}`);
-        }
-    }
-
-    static async sendDayEndSummary(dateKey) {
-        try {
-            const dayStats = TradeHistoryManager.getDayStats(dateKey);
-            const overall = TradeHistoryManager.getOverallStats();
-
-            if (!dayStats || dayStats.tradesCount === 0) return;
-
-            const dayWinRate = dayStats.tradesCount > 0
-                ? ((dayStats.winsCount / dayStats.tradesCount) * 100).toFixed(1) + '%'
-                : '0.0%';
-
-            const overallWinRate = overall.tradesCount > 0
-                ? ((overall.winsCount / overall.tradesCount) * 100).toFixed(1) + '%'
-                : '0.0%';
-
-            let assetBreakdown = '';
-            if (dayStats.assets) {
-                Object.keys(dayStats.assets).forEach(symbol => {
-                    const a = dayStats.assets[symbol];
-                    if (a && a.tradesCount > 0) {
-                        const wr = ((a.winsCount / a.tradesCount) * 100).toFixed(1);
-                        assetBreakdown += `\n  ${symbol}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L (${wr}%) P/L: $${a.netPL.toFixed(2)}`;
-                    }
-                });
-            }
-
-            const pnlEmoji = dayStats.netPL >= 0 ? '🟢' : '🔴';
-
-            const message = `
-            🌙 <b>END OF DAY REPORT — ${dateKey}</b>
-
-            ${pnlEmoji} <b>Day Results:</b>
-            ├ Trades: ${dayStats.tradesCount}
-            ├ Wins: ${dayStats.winsCount} | Losses: ${dayStats.lossesCount}
-            ├ Win Rate: ${dayWinRate}
-            ├ Profit: $${dayStats.profit.toFixed(2)} | Loss: $${dayStats.loss.toFixed(2)}
-            ├ Net P/L: $${dayStats.netPL.toFixed(2)}
-            ├ Start Capital: $${dayStats.startCapital.toFixed(2)}
-            └ End Capital: $${dayStats.endCapital.toFixed(2)}
-
-            📊 Loss Stats: x2:${dayStats.x2Losses} x3:${dayStats.x3Losses} x4:${dayStats.x4Losses} x5:${dayStats.x5Losses} x6:${dayStats.x6Losses} x7:${dayStats.x7Losses} x8:${dayStats.x8Losses} x9:${dayStats.x9Losses}
-
-            📈 <b>Per-Asset:</b>${assetBreakdown || '\n  No trades'}
-
-            📊 <b>Overall Stats (All Time):</b>
-            ├ Total Days: ${TradeHistoryManager.getAllDays().length}
-            ├ Total Trades: ${overall.tradesCount}
-            ├ Total Wins: ${overall.winsCount} | Total Losses: ${overall.lossesCount}
-            ├ Overall Win Rate: ${overallWinRate}
-            ├ Overall P/L: $${overall.netPL.toFixed(2)}
-            └ Loss Stats: x2:${overall.x2Losses} x3:${overall.x3Losses} x4:${overall.x4Losses} x5:${overall.x5Losses} x6:${overall.x6Losses} x7:${overall.x7Losses} x8:${overall.x8Losses} x9:${overall.x9Losses}
-
-            💰 Current Capital: $${state.capital.toFixed(2)}
-        `.trim();
-            await this.sendMessage(message);
-        } catch (err) {
-            LOGGER.error(`❌ sendDayEndSummary crashed: ${err.message}`);
-        }
-    }
-
-    static async sendStartupMessage() {
-        try {
-            const overall = TradeHistoryManager.getOverallStats();
-            const totalDays = TradeHistoryManager.getAllDays().length;
-
-            let assetConfigInfo = '';
-            ACTIVE_ASSETS.forEach(symbol => {
-                const ac = getAssetConfig(symbol);
-                assetConfigInfo += `\n  ${symbol}: ${ac.TIMEFRAME_LABEL} candles, Duration: ${ac.DURATION}${ac.DURATION_UNIT}`;
-            });
-
-            // Validate CONFIG values before using them
-            console.log('[DEBUG] CONFIG Session Values:');
-            console.log(`  TOKYO_START: ${CONFIG.TOKYO_START}, TOKYO_END: ${CONFIG.TOKYO_END}`);
-            console.log(`  LONDON_START: ${CONFIG.LONDON_START}, LONDON_END: ${CONFIG.LONDON_END}`);
-            console.log(`  NEWYORK_START: ${CONFIG.NEWYORK_START}, NEWYORK_END: ${CONFIG.NEWYORK_END}`);
-            console.log(`  SYDNEY_START: ${CONFIG.SYDNEY_START}, SYDNEY_END: ${CONFIG.SYDNEY_END}`);
-
-            const message = `
-            🤖 <b>DERIV RISE/FALL BOT STARTED</b>
-            Strategy: Candle-pattern detection — lookback ${CONFIG.CANDLE_PATTERN_LOOKBACK || 7}
-            Mode: <b>Independent Per-Asset Management</b>
-            Capital: $${state.capital.toFixed(2)}
-            Stake: $${CONFIG.STAKE}
-
-            🔧 <b>Asset Configurations:</b>${assetConfigInfo}
-
-            Max Positions Per Asset: ${CONFIG.MAX_OPEN_POSITIONS_PER_ASSET}
-            Session Target: $${CONFIG.SESSION_PROFIT_TARGET}
-            Stop Loss: $${CONFIG.SESSION_STOP_LOSS}
-            Trading Sessions: ${CONFIG.USE_TRADING_SESSIONS ? 'ENABLED' : 'DISABLED (24/7)'}
-
-            📊 <b>Historical Stats:</b>
-            ├ Trading Days: ${totalDays}
-            ├ Total Trades: ${overall.tradesCount}
-            ├ Overall P/L: $${overall.netPL.toFixed(2)}
-            └ Period: ${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}
-
-            🕐 TOKYO Session: ${CONFIG.TOKYO_START || 'UNDEFINED'}:00 - ${CONFIG.TOKYO_END || 'UNDEFINED'}:00 (GMT+1)
-            🕐 London Session: ${CONFIG.LONDON_START || 'UNDEFINED'}:00 - ${CONFIG.LONDON_END || 'UNDEFINED'}:00 (GMT+1)
-            🕐 New York Session: ${CONFIG.NEWYORK_START || 'UNDEFINED'}:00 - ${CONFIG.NEWYORK_END || 'UNDEFINED'}:00 (GMT+1)
-            🕐 SYDNEY Session: ${CONFIG.SYDNEY_START || 'UNDEFINED'}:00 - ${CONFIG.SYDNEY_END || 'UNDEFINED'}:00 (GMT+1)
-        `.trim();
-
-            if (!message || message.length === 0) {
-                LOGGER.error('[TELEGRAM] ❌ Message is empty before sending!');
-                return;
-            }
-
-            console.log('[DEBUG] Message preview:');
-            console.log(message.substring(0, 200) + '...');
-            console.log(`[DEBUG] Message length: ${message.length}`);
-
-            await this.sendMessage(message);
-        } catch (error) {
-            LOGGER.error(`[TELEGRAM] Failed to send startup message: ${error.message}`);
-            console.error('[DEBUG] Full error:', error);
-        }
-    }
-
-    static async sendHourlySummary() {
-        try {
-            const statsSnapshot = { ...state.hourlyStats };
-
-            if (statsSnapshot.trades === 0) {
-                LOGGER.info(
-                    '📱 Telegram: Skipping hourly summary (no trades this hour)'
-                );
-                return;
-            }
-
-            const totalTrades = statsSnapshot.wins + statsSnapshot.losses;
-            const winRate =
-                totalTrades > 0
-                    ? ((statsSnapshot.wins / totalTrades) * 100).toFixed(1)
-                    : 0;
-            const pnlEmoji = statsSnapshot.pnl >= 0 ? '🟢' : '🔴';
-            const pnlStr =
-                (statsSnapshot.pnl >= 0 ? '+' : '') +
-                '$' +
-                statsSnapshot.pnl.toFixed(2);
-
-            const today = TradeHistoryManager.getTodayStats();
-            const overall = TradeHistoryManager.getOverallStats();
-
-            // Per-asset hourly info
-            let assetInfo = '';
-            ACTIVE_ASSETS.forEach(symbol => {
-                const a = state.assets[symbol];
-                if (a) {
-                    const ac = getAssetConfig(symbol);
-                    assetInfo += `\n  ${symbol} (${ac.TIMEFRAME_LABEL}/${ac.DURATION}${ac.DURATION_UNIT}): Mart=${a.martingaleLevel}, Stake=$${a.currentStake.toFixed(2)}, P/L=$${a.netPL.toFixed(2)}`;
-                }
-            });
-
-            const message = `
-            ⏰ <b>Rise/Fall Bot Hourly Summary</b>
-
-            📊 <b>Last Hour</b>
-            ├ Trades: ${statsSnapshot.trades}
-            ├ Wins: ${statsSnapshot.wins} | Losses: ${statsSnapshot.losses}
-            ├ Win Rate: ${winRate}%
-            └ ${pnlEmoji} <b>P&L:</b> ${pnlStr}
-
-            📅 <b>Today (${TradeHistoryManager.getDateKey()})</b>
-            ├ Total Trades: ${today.tradesCount}
-            ├ Total W/L: ${today.winsCount}/${today.lossesCount}
-            └ Today P&L: ${today.netPL >= 0 ? '+' : ''}$${today.netPL.toFixed(2)}
-
-            📈 <b>Overall (All Time)</b>
-            ├ Total Trades: ${overall.tradesCount}
-            ├ Total W/L: ${overall.winsCount}/${overall.lossesCount}
-            └ Overall P&L: ${overall.netPL >= 0 ? '+' : ''}$${overall.netPL.toFixed(2)}
-
-            💰 Current Capital: $${state.capital.toFixed(2)}
-
-            🔧 <b>Per-Asset Status:</b>${assetInfo}
-        `.trim();
-
-            try {
-                await this.sendMessage(message);
-                LOGGER.info('📱 Telegram: Hourly Summary sent');
-                LOGGER.info(
-                    `   📊 Hour Stats: ${statsSnapshot.trades} trades, ${statsSnapshot.wins}W/${statsSnapshot.losses}L, ${pnlStr}`
-                );
-            } catch (error) {
-                LOGGER.error(
-                    `❌ Telegram hourly summary failed: ${error.message}\n${error.stack}`
-                );
-            }
-
-            state.hourlyStats = {
-                trades: 0,
-                wins: 0,
-                losses: 0,
-                pnl: 0,
-                lastHour: new Date().getHours()
-            };
-        } catch (err) {
-            LOGGER.error(`❌ sendHourlySummary crashed: ${err.message}`);
-        }
-    }
-
-    static startHourlyTimer() {
-        const now = new Date();
-        const nextHour = new Date(now);
-        nextHour.setHours(nextHour.getHours() + 1);
-        nextHour.setMinutes(0);
-        nextHour.setSeconds(0);
-        nextHour.setMilliseconds(0);
-
-        const timeUntilNextHour = nextHour.getTime() - now.getTime();
-
-        LOGGER.info(`📱 Hourly Telegram timer started (first summary in ${Math.ceil(timeUntilNextHour / 60000)} min)`);
-
-        setTimeout(() => {
-            this.sendHourlySummary();
-            setInterval(() => {
-                this.sendHourlySummary();
-            }, 60 * 60 * 1000); // Every hour
-        }, timeUntilNextHour);
-    }
-
-    static startDailyTimer() {
-        const now = new Date();
-        const nextDay = new Date(now);
-        nextDay.setDate(nextDay.getDate() + 1);
-        nextDay.setHours(0, 0, 0, 0);
-
-        const timeUntilNextDay = nextDay.getTime() - now.getTime();
-
-        LOGGER.info(`📱 Daily Telegram timer started (first summary in ${Math.ceil(timeUntilNextDay / 60000 / 60)} hours)`);
-
-        setTimeout(() => {
-            if (typeof SessionManager !== 'undefined') {
-                SessionManager.checkDayChange();
-            }
-            setInterval(() => {
-                if (typeof SessionManager !== 'undefined') {
-                    SessionManager.checkDayChange();
-                }
-            }, 24 * 60 * 60 * 1000);
-        }, timeUntilNextDay);
-    }
-}
-
-// ============================================
-// LOGGER UTILITY
-// ============================================
-const getGMTTime = () =>
-    new Date().toISOString().split('T')[1].split('.')[0] + ' GMT';
-
-const LOGGER = {
-    info: msg => console.log(`[INFO] ${getGMTTime()} - ${msg}`),
-    trade: msg =>
-        console.log(
-            `\x1b[32m[TRADE] ${getGMTTime()} - ${msg}\x1b[0m`
-        ),
-    warn: msg =>
-        console.warn(
-            `\x1b[33m[WARN] ${getGMTTime()} - ${msg}\x1b[0m`
-        ),
-    error: msg =>
-        console.error(
-            `\x1b[31m[ERROR] ${getGMTTime()} - ${msg}\x1b[0m`
-        ),
-    debug: msg => {
-        if (CONFIG.DEBUG_MODE)
-            console.log(
-                `\x1b[90m[DEBUG] ${getGMTTime()} - ${msg}\x1b[0m`
-            );
-    }
-};
-
-// ============================================
-// CANDLE ANALYSIS UTILITY
-// ============================================
-class CandleAnalyzer {
-    static isBullish(candle) {
-        return candle.close > candle.open;
-    }
-
-    static isBearish(candle) {
-        return candle.close < candle.open;
-    }
-
-    static getLastClosedCandle(symbol) {
-        const assetState = state.assets[symbol];
-        if (
-            !assetState ||
-            !assetState.closedCandles ||
-            assetState.closedCandles.length === 0
-        ) {
-            return null;
-        }
-        return assetState.closedCandles[
-            assetState.closedCandles.length - 1
-        ];
-    }
-
-    static getCandleDirection(candle) {
-        if (this.isBullish(candle)) return 'BULLISH';
-        if (this.isBearish(candle)) return 'BEARISH';
-        return 'DOJI';
-    }
-}
-
-// ============================================
-// CONFIGURATION
-// ============================================
-const CONFIG = {
-    // API Settings
-    API_TOKEN: '0P94g4WdSrSrzir',
-    APP_ID: '1089',
-    WS_URL: 'wss://ws.derivws.com/websockets/v3',
-
-    // Capital Settings
-    INITIAL_CAPITAL: 500,
-    STAKE: 0.35,
-
-    // Session Targets
-    SESSION_PROFIT_TARGET: 50000,
-    SESSION_STOP_LOSS: -250,
-
-    // Default Candle Settings (used if asset has no specific config)
-    GRANULARITY: 60,
-    TIMEFRAME_LABEL: '1m',
-    MAX_CANDLES_STORED: 300,
-    CANDLES_TO_LOAD: 300,
-
-    CANDLE_PATTERN_LOOKBACK: 6, // Number of previous candles to analyze for pattern detection (user configurable)
-
-    // Default Trade Duration Settings (used if asset has no specific config)
-    DURATION: 54,
-    DURATION_UNIT: 's',
-
-    // Trade Settings — NOW PER ASSET
-    MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    TRADE_DELAY: 1000,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MARTINGALE_MULTIPLIER2: 1.8,
-    MARTINGALE_MULTIPLIER3: 2.0,
-    MARTINGALE_MULTIPLIER4: 2.1,
-    MARTINGALE_MULTIPLIER5: 2.2,
-    // MARTINGALE_MULTIPLIER6: 3.0,
-    MAX_MARTINGALE_STEPS: 9,
-    System: 1,
-    iDirection: 'RISE',
-
-    // ============================================
-    // TRADING SESSION TOGGLE
-    // true  = only trade during defined session windows below (recovery allowed anytime)
-    // false = trade 24/7 (ignore session windows entirely)
-    // ============================================
-    USE_TRADING_SESSIONS: false,
-    // ============================================
-    // TRADING SESSION WINDOWS (GMT+1 hours)
-    // ============================================
-    TOKYO_START: 1,
-    TOKYO_END: 2,
-    LONDON_START: 8,
-    LONDON_END: 9,
-    NEWYORK_START: 14,
-    NEWYORK_END: 15,
-    SYDNEY_START: 22,
-    SYDNEY_END: 23,
-
-    // Debug
-    DEBUG_MODE: true,
-
-    // Telegram Settings
-    TELEGRAM_ENABLED: true,
-    TELEGRAM_BOT_TOKEN: '8306232249:AAGMwjFngs68Lcq27oGmqewQgthXTJJRxP0',
-    TELEGRAM_CHAT_ID: '752497117'
-};
-
-// ============================================
-// ASSET-SPECIFIC CONFIGURATIONS
-// ============================================
-// Override default candle/duration settings per asset.
-// Any setting not specified here will fall back to CONFIG defaults.
-const ASSET_CONFIGS = {
-    // R_10: {
-    //     GRANULARITY: 60,
-    //     TIMEFRAME_LABEL: '1m',
-    //     MAX_CANDLES_STORED: 300,
-    //     CANDLES_TO_LOAD: 300,
-    //     // Candle-pattern lookback for pattern detection (user configurable)
-    //     CANDLE_PATTERN_LOOKBACK: 7,
-    //     DURATION: 54,
-    //     DURATION_UNIT: 's'
-    // },
-    // R_25: {
-    //     GRANULARITY: 60,
-    //     TIMEFRAME_LABEL: '1m',
-    //     MAX_CANDLES_STORED: 300,
-    //     CANDLES_TO_LOAD: 300,
-    //     DURATION: 54,
-    //     DURATION_UNIT: 's'
-    // },
-    // R_50: {
-    //     GRANULARITY: 60,        
-    //     TIMEFRAME_LABEL: '1m',
-    //     MAX_CANDLES_STORED: 300,
-    //     CANDLES_TO_LOAD: 300,
-    //     DURATION: 54,           
-    //     DURATION_UNIT: 's'
-    // },
-    // R_75: {
-    //     GRANULARITY: 60,
-    //     TIMEFRAME_LABEL: '1m',
-    //     MAX_CANDLES_STORED: 300,
-    //     CANDLES_TO_LOAD: 300,
-    //     DURATION: 54,
-    //     DURATION_UNIT: 's'
-    // },
-    // R_100: {
-    //     GRANULARITY: 60,        
-    //     TIMEFRAME_LABEL: '1m',
-    //     MAX_CANDLES_STORED: 300,
-    //     CANDLES_TO_LOAD: 300,
-    //     DURATION: 54,             
-    //     DURATION_UNIT: 's'      
-    // }
-};
-
-/**
- * Get the merged configuration for a specific asset.
- * Falls back to CONFIG defaults for any missing keys.
- */
-function getAssetConfig(symbol) {
-    const assetOverrides = ASSET_CONFIGS[symbol] || {};
-    return {
-        GRANULARITY: assetOverrides.GRANULARITY !== undefined ? assetOverrides.GRANULARITY : CONFIG.GRANULARITY,
-        TIMEFRAME_LABEL: assetOverrides.TIMEFRAME_LABEL !== undefined ? assetOverrides.TIMEFRAME_LABEL : CONFIG.TIMEFRAME_LABEL,
-        MAX_CANDLES_STORED: assetOverrides.MAX_CANDLES_STORED !== undefined ? assetOverrides.MAX_CANDLES_STORED : CONFIG.MAX_CANDLES_STORED,
-        CANDLES_TO_LOAD: assetOverrides.CANDLES_TO_LOAD !== undefined ? assetOverrides.CANDLES_TO_LOAD : CONFIG.CANDLES_TO_LOAD,
-        DURATION: assetOverrides.DURATION !== undefined ? assetOverrides.DURATION : CONFIG.DURATION,
-        DURATION_UNIT: assetOverrides.DURATION_UNIT !== undefined ? assetOverrides.DURATION_UNIT : CONFIG.DURATION_UNIT
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN BOT CLASS
+// ══════════════════════════════════════════════════════════════════════════════
+
+class STEPINDEXGridBot {
+  constructor(config = {}) {
+    this.config = { ...DEFAULT_CONFIG, ...config };
+
+    // ── WebSocket ───────────────────────────────────────────────────────────
+    this.ws = null;
+    this.isConnected = false;
+    this.isAuthorized = false;
+    this.reqId = 1;
+
+    // ── Reconnection ────────────────────────────────────────────────────────
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 50;
+    this.reconnectDelay = 5000;
+    this.reconnectTimer = null;
+    this.isReconnecting = false;
+
+    // ── Ping / Keepalive ────────────────────────────────────────────────────
+    this.pingInterval = null;
+    this.lastPongTime = Date.now();
+
+    // ── Trade Watchdog ───────────────────────────────────────────────────────
+    this.tradeWatchdogTimer = null;
+    this.tradeWatchdogPollTimer = null;
+    this.tradeWatchdogMs = 20000;
+    this.tradeStartTime = null;
+
+    // ── Stuck Trade Pause State ──────────────────────────────────────────────
+    this.isPausedDueToStuckTrade = false;
+    this.stuckTradePauseTimer = null;
+    this.stuckTradePauseEnd = null;   // absolute timestamp when pause ends
+    this.stuckTradeCount = 0;
+
+    // ── Message queue ────────────────────────────────────────────────────────
+    this.messageQueue = [];
+    this.maxQueueSize = 50;
+
+    // ── Account ──────────────────────────────────────────────────────────────
+    this.balance = 0;
+    this.currency = 'USD';
+    this.accountId = '';
+
+    // ── Session trading state ────────────────────────────────────────────────
+    this.running = false;
+    this.tradeInProgress = false;
+    this.currentContractId = null;
+    this.pendingTradeInfo = null;
+
+    this.currentGridLevel = 0;
+    this.currentDirection = 'CALLE';
+    this.baseStake = this.config.initialStake;
+    this.chainBaseStake = this.config.initialStake;
+    this.investmentRemaining = 0;
+    this.investmentStartAmount = 0;
+    this.totalProfit = 0;
+    this.totalTrades = 0;
+    this.wins = 0;
+    this.losses = 0;
+    this.currentStreak = 0;
+    this.maxWinStreak = 0;
+    this.maxLossStreak = 0;
+    this.totalRecovered = 0;
+    this.tickDuration = this.config.tickDuration;
+    this.awaitRiseConfidence = false;
+
+    // ── Candle tracking ─────────────────────────────────────────────────────
+    this.assetState = {
+      candles: [],
+      closedCandles: [],
+      currentFormingCandle: null,
+      lastProcessedCandleOpenTime: null,
+      candlesLoaded: false,
     };
-}
+    this.candleConfig = {
+      GRANULARITY: 60,
+      MAX_CANDLES_STORED: 100,
+      CANDLES_TO_LOAD: 50,
+    };
 
-// let ACTIVE_ASSETS = ['R_10', 'R_75', 'R_100', '1HZ50V', 'stpRNG', 'stpRNG2'];
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+    // ── Candle subscription tracking ────────────────────────────────────────
+    this._candleSubId = null;    // subscription id returned by Deriv
 
-// ============================================
-// STATE MANAGEMENT
-// ============================================
-const state = {
-    assets: {},
-    capital: CONFIG.INITIAL_CAPITAL,
-    accountBalance: 0,
-    currentTradeDay: null, // Track current trading day for day-change detection
-    session: {
-        profit: 0,
-        loss: 0,
-        netPL: 0,
-        tradesCount: 0,
-        winsCount: 0,
-        lossesCount: 0,
-        x2Losses: 0,
-        x3Losses: 0,
-        x4Losses: 0,
-        x5Losses: 0,
-        x6Losses: 0,
-        x7Losses: 0,
-        x8Losses: 0,
-        x9Losses: 0,
-        isActive: true,
-        startTime: Date.now(),
-        startCapital: CONFIG.INITIAL_CAPITAL
-    },
-    isConnected: false,
-    isAuthorized: false,
-    portfolio: {
-        dailyProfit: 0,
-        dailyLoss: 0,
-        dailyWins: 0,
-        dailyLosses: 0
-    },
-    hourlyStats: {
+    // ── Tick history for smart pattern predictor ─────────────────────────────
+    this.tickHistory = [];   // rolling window of last 50 lastDigit values
+    this.TICK_HISTORY_SIZE = DEFAULT_CONFIG.tickHistorySize;
+    this._tickSubId = null; // live-tick subscription id
+
+    // ══════════════════════════════════════════════════════════════════════
+    // CANDLE-GATED TRADING + RECOVERY LOGIC
+    // ══════════════════════════════════════════════════════════════════════
+    this.canTrade = false;
+    this.inRecoveryMode = false;
+
+    // ── Session control ──────────────────────────────────────────────────────
+    this.endOfDay = false;
+    this.isWinTrade = false;
+    this.hasStartedOnce = false;
+    this._autoSaveInterval = null;
+
+    this._processedContracts = new Set();
+    this._maxProcessedCache = 200;
+
+    // ── Retry scheduling guard ───────────────────────────────────────────────
+    this._retryTimer = null;
+
+    // ── Hourly Telegram stats ─────────────────────────────────────────────────
+    this.hourlyStats = {
+      trades: 0, wins: 0, losses: 0, pnl: 0,
+      lastHour: new Date().getHours(),
+    };
+
+    // ── Daily Stats ───────────────────────────────────────────────────────────
+    this._initDailyStats();
+
+    // ── Telegram ─────────────────────────────────────────────────────────────
+    this.telegramBot = null;
+    if (this.config.telegramEnabled && this.config.telegramToken && this.config.telegramChatId) {
+      try {
+        this.telegramBot = new TelegramBot(this.config.telegramToken, { polling: false });
+        this.log('Telegram notifications enabled ✅');
+      } catch (e) {
+        this.log(`Telegram init error: ${e.message}`, 'warning');
+      }
+    } else {
+      this.log('Telegram disabled — no token/chat-id configured', 'warning');
+    }
+
+    // ── Restore saved state ───────────────────────────────────────────────────
+    this._restoreState();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // DAILY STATS MANAGEMENT
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _getTodayKey() {
+    // Always use GMT+1 (UTC+1) for the daily key so stats align to the
+    // Lagos / West Africa / Central European Standard Time calendar day.
+    const gmt1 = new Date(Date.now() + 60 * 60 * 1000); // shift UTC → GMT+1
+    const yyyy = gmt1.getUTCFullYear();
+    const mm = String(gmt1.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(gmt1.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  _initDailyStats() {
+    const today = this._getTodayKey();
+
+    // Try to load existing daily stats for today
+    const saved = StatePersistence.loadDailyStats(today);
+    if (saved) {
+      this.dailyStats = saved;
+      this.log(`📊 Loaded existing daily stats for ${today}`, 'success');
+    } else {
+      this.dailyStats = {
+        date: today,
+        startTime: new Date().toISOString(),
+        endTime: null,
         trades: 0,
         wins: 0,
         losses: 0,
         pnl: 0,
-        lastHour: new Date().getHours()
-    },
-    requestId: 1,
-    // Track whether we've logged "outside session" to avoid log spam
-    lastSessionLogTime: 0
-};
+        peakPnl: 0,
+        worstPnl: 0,
+        startBalance: 0,
+        endBalance: 0,
+        startInvestment: 0,
+        endInvestment: 0,
+        maxGridLevel: 0,
+        recoveryCount: 0,
+        totalRecovered: 0,
+        maxWinStreak: 0,
+        maxLossStreak: 0,
+        stuckTradeCount: 0,
+        largestWin: 0,
+        largestLoss: 0,
+        tradeLog: [],  // last N trade results
+      };
+    }
+  }
 
-// ============================================
-// TRADE HISTORY (loaded at startup)
-// ============================================
-let tradeHistory = null; // Will be initialized after LOGGER is available
+  _updateDailyStats(isWin, profit) {
+    const today = this._getTodayKey();
 
-// ============================================
-// TRADING SESSION HELPER
-// ============================================
-class TradingSessionManager {
-    static getGMTPlus1Time() {
-        const now = new Date();
-        const gmtPlus1 = new Date(now.getTime() + (1 * 60 * 60 * 1000));
-        return gmtPlus1;
+    // Check if day has changed
+    if (this.dailyStats.date !== today) {
+      // Send summary for previous day before resetting
+      this._sendDailySummary();
+      this._initDailyStats();
+      this.dailyStats.startBalance = this.balance;
+      this.dailyStats.startInvestment = this.investmentRemaining;
     }
 
-    static isWithinTradingSession() {
-        const gmtPlus1 = this.getGMTPlus1Time();
-        const currentHour = gmtPlus1.getUTCHours();
-        const currentMinute = gmtPlus1.getUTCMinutes();
-        const currentTimeDecimal = currentHour + (currentMinute / 60);
+    this.dailyStats.trades++;
+    if (isWin) this.dailyStats.wins++;
+    else this.dailyStats.losses++;
 
-        if (currentTimeDecimal >= CONFIG.TOKYO_START && currentTimeDecimal < CONFIG.TOKYO_END) {
-            return {
-                inSession: true,
-                sessionName: 'TOKYO',
-                nextSession: null,
-                minutesUntilNext: 0
-            };
-        }
+    this.dailyStats.pnl = Number((this.dailyStats.pnl + profit).toFixed(2));
+    this.dailyStats.peakPnl = Math.max(this.dailyStats.peakPnl, this.dailyStats.pnl);
+    this.dailyStats.worstPnl = Math.min(this.dailyStats.worstPnl, this.dailyStats.pnl);
 
-        if (currentTimeDecimal >= CONFIG.LONDON_START && currentTimeDecimal < CONFIG.LONDON_END) {
-            return {
-                inSession: true,
-                sessionName: 'LONDON',
-                nextSession: null,
-                minutesUntilNext: 0
-            };
-        }
+    if (isWin) this.dailyStats.largestWin = Math.max(this.dailyStats.largestWin, profit);
+    if (!isWin) this.dailyStats.largestLoss = Math.min(this.dailyStats.largestLoss, profit);
 
-        if (currentTimeDecimal >= CONFIG.NEWYORK_START && currentTimeDecimal < CONFIG.NEWYORK_END) {
-            return {
-                inSession: true,
-                sessionName: 'NEW YORK',
-                nextSession: null,
-                minutesUntilNext: 0
-            };
-        }
+    this.dailyStats.maxGridLevel = Math.max(this.dailyStats.maxGridLevel, this.currentGridLevel);
+    this.dailyStats.endBalance = this.balance;
+    this.dailyStats.endInvestment = this.investmentRemaining;
+    this.dailyStats.endTime = new Date().toISOString();
+    this.dailyStats.stuckTradeCount = this.stuckTradeCount;
 
-        // SYDNEY session check (handles both normal and overnight sessions)
-        // If END < START, it's an overnight session (e.g., 23:00-00:00)
-        if (CONFIG.SYDNEY_END < CONFIG.SYDNEY_START) {
-            // Overnight session: >= START OR < END
-            if (currentTimeDecimal >= CONFIG.SYDNEY_START || currentTimeDecimal < CONFIG.SYDNEY_END) {
-                return {
-                    inSession: true,
-                    sessionName: 'SYDNEY',
-                    nextSession: null,
-                    minutesUntilNext: 0
-                };
-            }
-        } else {
-            // Normal session: START <= time < END
-            if (currentTimeDecimal >= CONFIG.SYDNEY_START && currentTimeDecimal < CONFIG.SYDNEY_END) {
-                return {
-                    inSession: true,
-                    sessionName: 'SYDNEY',
-                    nextSession: null,
-                    minutesUntilNext: 0
-                };
-            }
-        }
-
-
-        let nextSession = '';
-        let minutesUntilNext = 0;
-
-        if (currentTimeDecimal < CONFIG.TOKYO_START) {
-            nextSession = 'TOKYO';
-            minutesUntilNext = (CONFIG.TOKYO_START - currentTimeDecimal) * 60;
-        } else if (currentTimeDecimal < CONFIG.LONDON_START) {
-            nextSession = 'LONDON';
-            minutesUntilNext = (CONFIG.LONDON_START - currentTimeDecimal) * 60;
-        } else if (currentTimeDecimal < CONFIG.NEWYORK_START) {
-            nextSession = 'NEW YORK';
-            minutesUntilNext = (CONFIG.NEWYORK_START - currentTimeDecimal) * 60;
-        } else if (currentTimeDecimal < CONFIG.SYDNEY_START) {
-            nextSession = 'SYDNEY';
-            minutesUntilNext = (CONFIG.SYDNEY_START - currentTimeDecimal) * 60;
-        } else {
-            nextSession = 'TOKYO';
-            minutesUntilNext = ((24 - currentTimeDecimal) + CONFIG.TOKYO_START) * 60;
-        }
-
-        return {
-            inSession: false,
-            sessionName: null,
-            nextSession: nextSession,
-            minutesUntilNext: Math.round(minutesUntilNext)
-        };
+    // Compute streaks for daily stats
+    if (isWin) {
+      this.dailyStats.maxWinStreak = Math.max(
+        this.dailyStats.maxWinStreak,
+        this.currentStreak > 0 ? this.currentStreak : 0
+      );
+    } else {
+      this.dailyStats.maxLossStreak = Math.max(
+        this.dailyStats.maxLossStreak,
+        this.currentStreak < 0 ? Math.abs(this.currentStreak) : 0
+      );
     }
 
-    static getSessionStatusString() {
-        const sessionInfo = this.isWithinTradingSession();
-        const gmtPlus1 = this.getGMTPlus1Time();
-        const timeStr = `${String(gmtPlus1.getUTCHours()).padStart(2, '0')}:${String(gmtPlus1.getUTCMinutes()).padStart(2, '0')} GMT+1`;
-
-        if (sessionInfo.inSession) {
-            return `🟢 IN SESSION: ${sessionInfo.sessionName} (${timeStr})`;
-        } else {
-            return `🔴 OUTSIDE SESSION (${timeStr}) — Next: ${sessionInfo.nextSession} in ${sessionInfo.minutesUntilNext}min`;
-        }
-    }
-}
-
-// ============================================
-// SESSION MANAGER
-// ============================================
-class SessionManager {
-    static isSessionActive() {
-        return state.session.isActive;
+    if (this.inRecoveryMode && isWin) {
+      this.dailyStats.recoveryCount++;
+      this.dailyStats.totalRecovered = Number(
+        (this.dailyStats.totalRecovered + profit).toFixed(2)
+      );
     }
 
-    static checkSessionTargets() {
-        const netPL = state.session.netPL;
-
-        if (netPL >= CONFIG.SESSION_PROFIT_TARGET) {
-            LOGGER.trade(
-                `🎯 SESSION PROFIT TARGET REACHED! Net P/L: $${netPL.toFixed(2)}`
-            );
-            this.endSession('PROFIT_TARGET');
-            return true;
-        }
-
-        if (netPL <= CONFIG.SESSION_STOP_LOSS) {
-            LOGGER.error(
-                `🛑 SESSION STOP LOSS REACHED! Net P/L: $${netPL.toFixed(2)}`
-            );
-            this.endSession('STOP_LOSS');
-            return true;
-        }
-
-        // Check if ANY asset has hit max martingale
-        let anyMaxMartingale = false;
-        ACTIVE_ASSETS.forEach(symbol => {
-            const asset = state.assets[symbol];
-            if (asset && asset.martingaleLevel >= CONFIG.MAX_MARTINGALE_STEPS) {
-                LOGGER.warn(
-                    `⚠️ ${symbol} hit max martingale level (${CONFIG.MAX_MARTINGALE_STEPS}), resetting that asset's martingale`
-                );
-                // asset.martingaleLevel = 0;
-                // asset.currentStake = CONFIG.STAKE;
-            }
-        });
-
-        if (anyMaxMartingale) {
-            this.endSession('MAX_MARTINGALE');
-            return true;
-        }
-
-        return false;
+    // Keep last 50 trade results for reference
+    this.dailyStats.tradeLog.push({
+      time: new Date().toISOString(),
+      result: isWin ? 'WIN' : 'LOSS',
+      profit: profit,
+      level: this.currentGridLevel,
+      direction: this.currentDirection,
+      stake: this.pendingTradeInfo?.stake || 0,
+    });
+    if (this.dailyStats.tradeLog.length > 50) {
+      this.dailyStats.tradeLog = this.dailyStats.tradeLog.slice(-50);
     }
 
-    static async endSession(reason) {
-        state.session.isActive = false;
-        LOGGER.info(`⏸️ Session ended (${reason}).`);
-        TelegramService.sendSessionSummary();
+    // Persist daily stats
+    StatePersistence.saveDailyStats(this.dailyStats);
+  }
+
+  async _sendDailySummary() {
+    const s = this.dailyStats;
+    const wr = s.trades > 0 ? ((s.wins / s.trades) * 100).toFixed(1) : '0.0';
+
+    const message =
+      `📅 <b>${DEFAULT_CONFIG.symbol} — DAILY SUMMARY 3</b>\n` +
+      `📆 Date: ${s.date}\n` +
+      `⏰ ${s.startTime} → ${s.endTime || new Date().toISOString()}\n\n` +
+      `📊 <b>Trading Results:</b>\n` +
+      `  Total Trades: ${s.trades}\n` +
+      `  Wins: ${s.wins} | Losses: ${s.losses}\n` +
+      `  Win Rate: ${wr}%\n\n` +
+      `💰 <b>P&L:</b>\n` +
+      `  ${s.pnl >= 0 ? '🟢' : '🔴'} Day P&L: ${s.pnl >= 0 ? '+' : ''}$${s.pnl.toFixed(2)}\n` +
+      `  📈 Peak P&L: +$${s.peakPnl.toFixed(2)}\n` +
+      `  📉 Worst P&L: $${s.worstPnl.toFixed(2)}\n` +
+      `  🏆 Largest Win: +$${s.largestWin.toFixed(2)}\n` +
+      `  💀 Largest Loss: $${s.largestLoss.toFixed(2)}\n\n` +
+      `💵 <b>Balance:</b>\n` +
+      `  Start: $${s.startBalance.toFixed(2)}\n` +
+      `  End: $${(s.endBalance || this.balance).toFixed(2)}\n` +
+      `  Change: ${((s.endBalance || this.balance) - s.startBalance) >= 0 ? '+' : ''}$${((s.endBalance || this.balance) - s.startBalance).toFixed(2)}\n\n` +
+      `📊 <b>Investment Pool:</b>\n` +
+      `  Start: $${s.startInvestment.toFixed(2)}\n` +
+      `  End: $${(s.endInvestment || this.investmentRemaining).toFixed(2)}\n\n` +
+      `🔄 <b>Recovery Stats:</b>\n` +
+      `  Recoveries: ${s.recoveryCount}\n` +
+      `  Total Recovered: $${s.totalRecovered.toFixed(2)}\n` +
+      `  Max Grid Level: L${s.maxGridLevel}\n` +
+      `  Max Win Streak: ${s.maxWinStreak}\n` +
+      `  Max Loss Streak: ${s.maxLossStreak}\n` +
+      `  Stuck Trades: ${s.stuckTradeCount}\n`;
+
+    await this._sendTelegram(message);
+    this.log(`📅 Daily summary3 sent for ${s.date}`, 'success');
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // STATE RESTORE - ENHANCED
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _restoreState() {
+    const saved = StatePersistence.load();
+    if (!saved) return;
+    const t = saved.trading;
+    this.running = t.running || false;
+    this.totalProfit = t.totalProfit || 0;
+    this.totalTrades = t.totalTrades || 0;
+    this.wins = t.wins || 0;
+    this.losses = t.losses || 0;
+    this.currentGridLevel = t.currentGridLevel || 0;
+    this.currentDirection = t.currentDirection || 'CALLE';
+    this.baseStake = t.baseStake || this.config.initialStake;
+    this.chainBaseStake = t.chainBaseStake || this.baseStake;
+    this.investmentRemaining = t.investmentRemaining || 0;
+    this.investmentStartAmount = t.investmentStartAmount || this.config.investmentAmount;
+    this.totalRecovered = t.totalRecovered || 0;
+    this.maxWinStreak = t.maxWinStreak || 0;
+    this.maxLossStreak = t.maxLossStreak || 0;
+    this.currentStreak = t.currentStreak || 0;
+    this.inRecoveryMode = t.inRecoveryMode || false;
+    this.currentContractId = t.currentContractId || null;
+    this.stuckTradeCount = t.stuckTradeCount || 0;
+
+    // Restore paused state
+    this.isPausedDueToStuckTrade = t.isPausedDueToStuckTrade || false;
+    this.stuckTradePauseEnd = t.stuckTradePauseEnd || null;
+
+    // Restore hourly stats
+    if (saved.hourlyStats) {
+      this.hourlyStats = saved.hourlyStats;
     }
 
-    static getSessionStats() {
-        const duration = Date.now() - state.session.startTime;
-        const hours = Math.floor(duration / 3600000);
-        const minutes = Math.floor((duration % 3600000) / 60000);
-
-        return {
-            duration: `${hours}h ${minutes}m`,
-            trades: state.session.tradesCount,
-            wins: state.session.winsCount,
-            losses: state.session.lossesCount,
-            winRate:
-                state.session.tradesCount > 0
-                    ? (
-                        (state.session.winsCount /
-                            state.session.tradesCount) *
-                        100
-                    ).toFixed(1) + '%'
-                    : '0%',
-            x2Losses: state.session.x2Losses,
-            x3Losses: state.session.x3Losses,
-            x4Losses: state.session.x4Losses,
-            x5Losses: state.session.x5Losses,
-            x6Losses: state.session.x6Losses,
-            x7Losses: state.session.x7Losses,
-            x8Losses: state.session.x8Losses,
-            x9Losses: state.session.x9Losses,
-            netPL: state.session.netPL
-        };
+    // Restore daily stats
+    if (saved.dailyStats && saved.dailyStats.date === this._getTodayKey()) {
+      this.dailyStats = saved.dailyStats;
     }
 
-    /**
-     * Check if the trading day has changed. If so, archive today's session stats
-     * and start fresh session stats for the new day.
-     */
-    static checkDayChange() {
-        const currentDay = TradeHistoryManager.getDateKey();
-
-        if (state.currentTradeDay && state.currentTradeDay !== currentDay) {
-            LOGGER.info(`📅 Day changed from ${state.currentTradeDay} to ${currentDay}`);
-
-            // Send end-of-day summary for the previous day
-            TelegramService.sendDayEndSummary(state.currentTradeDay);
-
-            // Reset session stats for the new day
-            this.resetSessionForNewDay();
-        }
-
-        state.currentTradeDay = currentDay;
+    // Determine canTrade based on restored state
+    if (this.isPausedDueToStuckTrade && this.stuckTradePauseEnd) {
+      const remaining = this.stuckTradePauseEnd - Date.now();
+      if (remaining > 0) {
+        this.canTrade = false;
+        this.log(`⏸️ Restoring stuck trade pause — ${Math.ceil(remaining / 60000)} min remaining`, 'warning');
+        // Re-set the timer for remaining duration
+        this.stuckTradePauseTimer = setTimeout(() => {
+          this._resumeTradingAfterStuckTradePause();
+        }, remaining);
+      } else {
+        // Pause has expired while we were down
+        this.isPausedDueToStuckTrade = false;
+        this.stuckTradePauseEnd = null;
+        this.canTrade = !this.inRecoveryMode ? false : true;
+        this.log('⏸️ Stuck trade pause expired during downtime — resuming normally', 'info');
+      }
+    } else {
+      this.canTrade = this.inRecoveryMode;
     }
 
-    static resetSessionForNewDay() {
-        LOGGER.info('📅 Resetting session stats for new trading day...');
+    this.hasStartedOnce = true;
 
-        // Reset global session stats (daily counters)
-        state.session.tradesCount = 0;
-        state.session.winsCount = 0;
-        state.session.lossesCount = 0;
-        state.session.profit = 0;
-        state.session.loss = 0;
-        state.session.netPL = 0;
-        state.session.x2Losses = 0;
-        state.session.x3Losses = 0;
-        state.session.x4Losses = 0;
-        state.session.x5Losses = 0;
-        state.session.x6Losses = 0;
-        state.session.x7Losses = 0;
-        state.session.x8Losses = 0;
-        state.session.x9Losses = 0;
-        state.session.startTime = Date.now();
-        state.session.startCapital = state.capital;
-        state.lastSessionLogTime = 0;
+    this.log(
+      `State restored | Running: ${this.running} | Trades: ${this.totalTrades} | ` +
+      `W/L: ${this.wins}/${this.losses} | P&L: $${this.totalProfit.toFixed(2)} | ` +
+      `Level: ${this.currentGridLevel} | Recovery: ${this.inRecoveryMode ? 'YES' : 'NO'} | ` +
+      `Paused: ${this.isPausedDueToStuckTrade ? 'YES' : 'NO'} | ` +
+      `Contract: ${this.currentContractId || 'none'}`,
+      'success'
+    );
+  }
 
-        // Reset per-asset daily stats BUT preserve martingale state
-        ACTIVE_ASSETS.forEach(symbol => {
-            const asset = state.assets[symbol];
-            if (asset) {
-                // Reset daily counters
-                asset.tradesCount = 0;
-                asset.winsCount = 0;
-                asset.lossesCount = 0;
-                asset.profit = 0;
-                asset.loss = 0;
-                asset.netPL = 0;
-                asset.x2Losses = 0;
-                asset.x3Losses = 0;
-                asset.x4Losses = 0;
-                asset.x5Losses = 0;
-                asset.x6Losses = 0;
-                asset.x7Losses = 0;
-                asset.x8Losses = 0;
-                asset.x9Losses = 0;
-                asset.lastCrossSignalDirection = null;
-            }
-        });
+  // ══════════════════════════════════════════════════════════════════════════════
+  // LOGGING
+  // ══════════════════════════════════════════════════════════════════════════════
 
-        // Reset portfolio daily stats
-        state.portfolio.dailyProfit = 0;
-        state.portfolio.dailyLoss = 0;
-        state.portfolio.dailyWins = 0;
-        state.portfolio.dailyLosses = 0;
+  log(message, type = 'info') {
+    const ts = new Date().toISOString();
+    const emoji = { error: '❌', success: '✅', warning: '⚠️', info: 'ℹ️' }[type] || 'ℹ️';
+    console.log(`[${ts}] ${emoji} ${message}`);
+  }
 
-        // Reset hourly stats
-        state.hourlyStats = {
-            trades: 0,
-            wins: 0,
-            losses: 0,
-            pnl: 0,
-            lastHour: new Date().getHours()
-        };
+  // ══════════════════════════════════════════════════════════════════════════════
+  // AUTO-COMPOUNDING — INTELLIGENT STEP SYSTEM
+  // ══════════════════════════════════════════════════════════════════════════════
 
-        // Update today entry in history with start capital
-        TradeHistoryManager.ensureDayEntry(TradeHistoryManager.getDateKey());
-        tradeHistory.dailyHistory[TradeHistoryManager.getDateKey()].startCapital = state.capital;
-        TradeHistoryManager.saveHistory();
+  _calculateCompoundedBaseStake() {
+    const cfg = this.config;
+    if (!cfg.autoCompounding) return cfg.initialStake;
 
-        LOGGER.info('📊 Daily stats reset for new day (martingale state preserved)');
+    const baseInvestment = cfg.investmentAmount;           // starting reference (153)
+    const currentPool = this.investmentRemaining;
+    const investmentStep = cfg.compoundInvestmentStep;     // 153
+    const stakeStep = cfg.compoundStakeStep;          // 0.5
+
+    // How much has the investment grown above the base?
+    const growth = currentPool - baseInvestment;
+
+    if (growth <= 0) {
+      // Pool hasn't grown — use initial stake
+      return cfg.initialStake;
     }
 
-    /**
-     * Record trade result FOR A SPECIFIC ASSET
-     * Updates both the per-asset stats AND the global session stats,
-     * AND records into persistent trade history
-     */
-    static recordTradeResult(symbol, profit, direction) {
-        const assetState = state.assets[symbol];
-        if (!assetState) {
-            LOGGER.error(`recordTradeResult: Unknown symbol ${symbol}`);
-            return;
-        }
+    // Number of full steps completed
+    const steps = Math.floor(growth / investmentStep);
 
-        // Check for day change before recording
-        this.checkDayChange();
+    // New base stake = initial + (steps × stakeStep)
+    const newBase = cfg.initialStake + (steps * stakeStep);
 
-        // ---- Hourly stats (global) ----
-        const currentHour = new Date().getHours();
-        if (currentHour !== state.hourlyStats.lastHour) {
-            LOGGER.warn(
-                `⏰ Hour changed detected (${state.hourlyStats.lastHour} → ${currentHour}), resetting hourly stats`
-            );
-            state.hourlyStats = {
-                trades: 0,
-                wins: 0,
-                losses: 0,
-                pnl: 0,
-                lastHour: currentHour
-            };
-        }
+    return Math.max(newBase, cfg.initialStake);
+  }
 
-        // ---- Global session stats ----
-        state.session.tradesCount++;
-        state.capital += profit;
-        state.hourlyStats.trades++;
-        state.hourlyStats.pnl += profit;
+  // ══════════════════════════════════════════════════════════════════════════════
+  // STAKE CALCULATOR - UPDATED FOR INTELLIGENT COMPOUNDING
+  // ══════════════════════════════════════════════════════════════════════════════
 
-        // ---- Per-asset stats ----
-        assetState.tradesCount++;
+  calculateStake(level) {
+    const cfg = this.config;
 
-        if (profit > 0) {
-            // === WIN ===
-            // Global
-            state.session.winsCount++;
-            state.session.profit += profit;
-            state.session.netPL += profit;
-            state.portfolio.dailyProfit += profit;
-            state.portfolio.dailyWins++;
-            state.hourlyStats.wins++;
+    // Use the intelligent compounding system
+    let base = this._calculateCompoundedBaseStake();
+    base = Math.max(base, 0.35);
 
-            // Per-asset
-            assetState.winsCount++;
-            assetState.profit += profit;
-            assetState.netPL += profit;
-            assetState.martingaleLevel = 0;
-            assetState.lastTradeWasWin = true;
-            assetState.currentStake = CONFIG.STAKE;
+    // Store the computed base for logging
+    this.baseStake = base;
 
-            // Record in persistent history
-            TradeHistoryManager.recordTrade(symbol, profit, assetState.martingaleLevel);
-
-            LOGGER.trade(
-                `✅ [${symbol}] WIN: +$${profit.toFixed(2)} | Direction: ${direction} | ${symbol} Martingale Reset | ${symbol} P/L: $${assetState.netPL.toFixed(2)}`
-            );
-        } else {
-            // === LOSS ===
-            // Global
-            state.session.lossesCount++;
-            state.session.loss += Math.abs(profit);
-            state.session.netPL += profit;
-            state.portfolio.dailyLoss += Math.abs(profit);
-            state.portfolio.dailyLosses++;
-            state.hourlyStats.losses++;
-
-            // Per-asset
-            assetState.lossesCount++;
-            assetState.loss += Math.abs(profit);
-            assetState.netPL += profit;
-            assetState.martingaleLevel++;
-            assetState.lastTradeWasWin = false;
-
-            // Track consecutive loss stats (per-asset session)
-            if (assetState.martingaleLevel === 2) assetState.x2Losses++;
-            if (assetState.martingaleLevel === 3) assetState.x3Losses++;
-            if (assetState.martingaleLevel === 4) assetState.x4Losses++;
-            if (assetState.martingaleLevel === 5) assetState.x5Losses++;
-            if (assetState.martingaleLevel === 6) assetState.x6Losses++;
-            if (assetState.martingaleLevel === 7) assetState.x7Losses++;
-            if (assetState.martingaleLevel === 8) assetState.x8Losses++;
-            if (assetState.martingaleLevel === 9) assetState.x9Losses++;
-
-            // Also track in global session
-            if (assetState.martingaleLevel === 2) state.session.x2Losses++;
-            if (assetState.martingaleLevel === 3) state.session.x3Losses++;
-            if (assetState.martingaleLevel === 4) state.session.x4Losses++;
-            if (assetState.martingaleLevel === 5) state.session.x5Losses++;
-            if (assetState.martingaleLevel === 6) state.session.x6Losses++;
-            if (assetState.martingaleLevel === 7) state.session.x7Losses++;
-            if (assetState.martingaleLevel === 8) state.session.x8Losses++;
-            if (assetState.martingaleLevel === 9) state.session.x9Losses++;
-
-            // Record in persistent history (pass martingale level for loss tracking)
-            TradeHistoryManager.recordTrade(symbol, profit, assetState.martingaleLevel);
-
-            // Martingale stake calculation (per-asset)
-            if (assetState.martingaleLevel === 1) {
-                assetState.currentStake =
-                    Math.ceil(
-                        assetState.currentStake *
-                        CONFIG.MARTINGALE_MULTIPLIER *
-                        100
-                    ) / 100;
-            } else if (assetState.martingaleLevel === 2) {
-                assetState.currentStake =
-                    Math.ceil(
-                        assetState.currentStake *
-                        CONFIG.MARTINGALE_MULTIPLIER2 *
-                        100
-                    ) / 100;
-            } else if (assetState.martingaleLevel >= 3 && assetState.martingaleLevel <= 4) {
-                assetState.currentStake =
-                    Math.ceil(
-                        assetState.currentStake *
-                        CONFIG.MARTINGALE_MULTIPLIER3 *
-                        100
-                    ) / 100;
-            } else if (assetState.martingaleLevel >= 5 && assetState.martingaleLevel <= 6) {
-                assetState.currentStake =
-                    Math.ceil(
-                        assetState.currentStake *
-                        CONFIG.MARTINGALE_MULTIPLIER4 *
-                        100
-                    ) / 100;
-            } else if (assetState.martingaleLevel >= 7) {
-                assetState.currentStake =
-                    Math.ceil(
-                        assetState.currentStake *
-                        CONFIG.MARTINGALE_MULTIPLIER5 *
-                        100
-                    ) / 100;
-            }
-            // else if (assetState.martingaleLevel === 6) {
-            //     assetState.currentStake =
-            //         Math.ceil(
-            //             assetState.currentStake *
-            //             CONFIG.MARTINGALE_MULTIPLIER6 *
-            //             100
-            //         ) / 100;
-            // }
-
-            if (assetState.martingaleLevel >= CONFIG.MAX_MARTINGALE_STEPS) {
-                LOGGER.warn(
-                    `⚠️ [${symbol}] Maximum Martingale step reached (${CONFIG.MAX_MARTINGALE_STEPS}), resetting ${symbol} martingale to 0`
-                );
-                assetState.martingaleLevel = 0;
-                assetState.currentStake = CONFIG.STAKE;
-            } else {
-                LOGGER.trade(
-                    `❌ [${symbol}] LOSS: -$${Math.abs(profit).toFixed(2)} | Direction: ${direction} | ${symbol} Next Martingale Level: ${assetState.martingaleLevel} | ${symbol} Next Stake: $${assetState.currentStake.toFixed(2)} | ${symbol} P/L: $${assetState.netPL.toFixed(2)}`
-                );
-            }
-        }
+    if (level <= cfg.maxMartingaleLevel) {
+      return Number((base * Math.pow(cfg.martingaleMultiplier, level)).toFixed(2));
     }
-}
 
-// ============================================
-// CONNECTION MANAGER
-// ============================================
-class ConnectionManager {
-    constructor() {
-        this.ws = null;
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 50;
-        this.reconnectDelay = 5000;
-        this.pingInterval = null;
-        this.autoSaveStarted = false;
+    let stake = base * Math.pow(cfg.martingaleMultiplier, cfg.maxMartingaleLevel);
+    const extraIdx = level - cfg.maxMartingaleLevel - 1;
+    const mults = cfg.extraLevelMultipliers || [];
+    for (let i = 0; i <= extraIdx; i++) {
+      stake *= (mults[i] > 0 ? mults[i] : cfg.martingaleMultiplier);
+    }
+    return Number(stake.toFixed(2));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // WEBSOCKET — CONNECT
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  connect() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.log('Already connected', 'warning');
+      return;
+    }
+
+    this._cleanupWs();
+
+    const wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=${this.config.appId}`;
+    this.log(`Connecting to Deriv WebSocket… (attempt ${this.reconnectAttempts + 1})`);
+
+    try {
+      this.ws = new WebSocket(wsUrl);
+
+      this.ws.on('open', () => this._onOpen());
+      this.ws.on('message', data => this._onRawMessage(data));
+      this.ws.on('error', err => this._onError(err));
+      this.ws.on('close', (code) => this._onClose(code));
+    } catch (err) {
+      this.log(`WebSocket creation error: ${err.message}`, 'error');
+      this._scheduleReconnect();
+    }
+  }
+
+  _onOpen() {
+    this.log('WebSocket connected ✅', 'success');
+    this.isConnected = true;
+    this.reconnectAttempts = 0;
+    this.isReconnecting = false;
+    this.lastPongTime = Date.now();
+
+    this._startPing();
+
+    StatePersistence.startAutoSave(this);
+
+    this._send({ authorize: this.config.apiToken });
+  }
+
+  _onError(err) {
+    this.log(`WebSocket error: ${err.message}`, 'error');
+  }
+
+  _onClose(code) {
+    this.log(`WebSocket closed (code: ${code})`, 'warning');
+    this.isConnected = false;
+    this.isAuthorized = false;
+
+    this._stopPing();
+    this._clearAllWatchdogTimers();
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+
+    // DON'T clear tradeInProgress here — we want to know on reconnect
+    // whether we need to check for an open contract
+    this.pendingTradeInfo = null;
+
+    StatePersistence.save(this);
+
+    if (this.endOfDay) {
+      this.log('Planned disconnect — not reconnecting');
+      return;
+    }
+
+    this._scheduleReconnect();
+  }
+
+  _scheduleReconnect() {
+    if (this.isReconnecting) return;
+
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      this.log('Max reconnect attempts reached — will keep trying every 60s', 'error');
+      this._sendTelegram(
+        `❌ <b>${DEFAULT_CONFIG.symbol} Max reconnect attempts3 reached</b>\n` +
+        `Will keep trying every 60s…\n` +
+        `Final P&L: $${this.totalProfit.toFixed(2)}`
+      );
+      // Don't give up entirely — keep trying with a longer delay
+      this.isReconnecting = true;
+      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = setTimeout(() => {
         this.isReconnecting = false;
-        this.activeSubscriptions = new Set();
+        this.reconnectAttempts = Math.floor(this.maxReconnectAttempts / 2); // reset partially
+        this.connect();
+      }, 60000);
+      return;
     }
 
-    connect() {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            LOGGER.info('Already connected');
-            return;
+    this.isReconnecting = true;
+    this.reconnectAttempts++;
+    const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
+
+    this.log(`Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})…`);
+    this.log(
+      `State preserved — Trades: ${this.totalTrades} | P&L: $${this.totalProfit.toFixed(2)} | ` +
+      `Level: ${this.currentGridLevel} | Recovery: ${this.inRecoveryMode}`
+    );
+
+    this._sendTelegram(
+      `⚠️ <b>${DEFAULT_CONFIG.symbol} CONNECTION LOST — RECONNECTING3</b>\n` +
+      `Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n` +
+      `Retrying in ${(delay / 1000).toFixed(1)}s\n` +
+      `State preserved: ${this.totalTrades} trades | $${this.totalProfit.toFixed(2)} P&L | ` +
+      `Level: ${this.currentGridLevel}`
+    );
+
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      this.isReconnecting = false;
+      this.connect();
+    }, delay);
+  }
+
+  _cleanupWs() {
+    this._stopPing();
+    this._clearAllWatchdogTimers();
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    if (this.ws) {
+      this.ws.removeAllListeners();
+      try {
+        if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+          this.ws.close();
+        }
+      } catch (_) { }
+      this.ws = null;
+    }
+    this.isConnected = false;
+    this.isAuthorized = false;
+    this._candleSubId = null;
+    this._tickSubId = null;
+  }
+
+  disconnect() {
+    this.log('Disconnecting…');
+    StatePersistence.save(this);
+    this.endOfDay = true;
+    this._cleanupWs();
+    this.log('Disconnected ✅', 'success');
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // WEBSOCKET — SEND
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _send(request) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.log(`Cannot send (not connected): ${JSON.stringify(request).substring(0, 80)}`, 'warning');
+      return null;
+    }
+    request.req_id = this.reqId++;
+    try {
+      this.ws.send(JSON.stringify(request));
+      return request.req_id;
+    } catch (e) {
+      this.log(`Send error: ${e.message}`, 'error');
+      return null;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // PING / KEEPALIVE — ENHANCED WITH PONG MONITORING
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _startPing() {
+    this._stopPing();
+    this.lastPongTime = Date.now();
+
+    this.pingInterval = setInterval(() => {
+      if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        // Check if we've received a pong recently (within 15s)
+        const timeSinceLastPong = Date.now() - this.lastPongTime;
+        if (timeSinceLastPong > 15000) {
+          this.log(`⚠️ No pong received for ${(timeSinceLastPong / 1000).toFixed(0)}s — connection may be dead`, 'warning');
+          // Force close and reconnect
+          try { this.ws.close(4000, 'ping_timeout'); } catch (_) { }
+          return;
+        }
+        this._send({ ping: 1 });
+      }
+    }, 5000);
+  }
+
+  _stopPing() {
+    if (this.pingInterval) { clearInterval(this.pingInterval); this.pingInterval = null; }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // MESSAGE ROUTER
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _onRawMessage(data) {
+    try {
+      this._handleMessage(JSON.parse(data));
+    } catch (e) {
+      this.log(`Parse error: ${e.message}`, 'error');
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // MESSAGE HANDLER
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _handleMessage(msg) {
+    // Track pong responses
+    if (msg.msg_type === 'ping' || msg.ping) {
+      this.lastPongTime = Date.now();
+      return;
+    }
+
+    if (msg.error) {
+      this._handleApiError(msg);
+      return;
+    }
+
+    switch (msg.msg_type) {
+      case 'authorize': this._onAuthorize(msg); break;
+      case 'balance': this._onBalance(msg); break;
+      case 'proposal': this._onProposal(msg); break;
+      case 'buy': this._onBuy(msg); break;
+      case 'proposal_open_contract': this._onContract(msg); break;
+      case 'ohlc': this._handleOHLC(msg.ohlc); break;
+      case 'candles': this._handleCandlesHistory(msg); break;
+      case 'history': this._handleTickHistory(msg); break;
+      case 'tick': this._handleTickUpdate(msg.tick); break;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // CANDLE HANDLER — NEW CANDLE DETECTION
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _handleOHLC(ohlc) {
+    // Track subscription id
+    if (ohlc.id) this._candleSubId = ohlc.id;
+
+    const symbol = ohlc.symbol;
+    const calculatedOpenTime = ohlc.open_time ||
+      Math.floor(ohlc.epoch / this.candleConfig.GRANULARITY) * this.candleConfig.GRANULARITY;
+
+    const incomingCandle = {
+      open: parseFloat(ohlc.open),
+      high: parseFloat(ohlc.high),
+      low: parseFloat(ohlc.low),
+      close: parseFloat(ohlc.close),
+      epoch: ohlc.epoch,
+      open_time: calculatedOpenTime,
+    };
+
+    const currentOpenTime = this.assetState.currentFormingCandle?.open_time;
+    const isNewCandle = currentOpenTime && incomingCandle.open_time !== currentOpenTime;
+
+    // ── NEW CANDLE DETECTED ───────────────────────────────────────────────
+    if (isNewCandle) {
+      const closedCandle = { ...this.assetState.currentFormingCandle };
+      closedCandle.epoch = closedCandle.open_time + this.candleConfig.GRANULARITY;
+
+      if (closedCandle.open_time !== this.assetState.lastProcessedCandleOpenTime) {
+        this.assetState.closedCandles.push(closedCandle);
+
+        if (this.assetState.closedCandles.length > this.candleConfig.MAX_CANDLES_STORED) {
+          this.assetState.closedCandles = this.assetState.closedCandles.slice(
+            -this.candleConfig.MAX_CANDLES_STORED
+          );
         }
 
-        LOGGER.info('🔌 Connecting to Deriv API...');
-        this.cleanup();
+        this.assetState.lastProcessedCandleOpenTime = closedCandle.open_time;
 
-        this.ws = new WebSocket(
-            `${CONFIG.WS_URL}?app_id=${CONFIG.APP_ID}`
+        const closeTime = new Date(closedCandle.epoch * 1000).toISOString();
+        const candleType = closedCandle.close > closedCandle.open
+          ? 'BULLISH'
+          : closedCandle.close < closedCandle.open
+            ? 'BEARISH'
+            : 'DOJI';
+        const candleEmoji = candleType === 'BULLISH' ? '🟢' : candleType === 'BEARISH' ? '🔴' : '⚪';
+
+        this.log(
+          `${symbol} ${candleEmoji} NEW CANDLE [${closeTime}] ${candleType}: ` +
+          `O:${closedCandle.open.toFixed(5)} H:${closedCandle.high.toFixed(5)} ` +
+          `L:${closedCandle.low.toFixed(5)} C:${closedCandle.close.toFixed(5)}`
         );
 
-        this.ws.on('open', () => this.onOpen());
-        this.ws.on('message', data => this.onMessage(data));
-        this.ws.on('error', error => this.onError(error));
-        this.ws.on('close', () => this.onClose());
-
-        return this.ws;
-    }
-
-    onOpen() {
-        LOGGER.info('✅ Connected to Deriv API');
-        state.isConnected = true;
-        this.reconnectAttempts = 0;
-        this.isReconnecting = false;
-
-        this.startPing();
-
-        if (!this.autoSaveStarted) {
-            StatePersistence.startAutoSave();
-            this.autoSaveStarted = true;
-        }
-
-        this.send({ authorize: CONFIG.API_TOKEN });
-    }
-
-    initializeAssets() {
-        ACTIVE_ASSETS.forEach(symbol => {
-            if (!state.assets[symbol]) {
-                state.assets[symbol] = {
-                    // Candle data
-                    candles: [],
-                    closedCandles: [],
-                    currentFormingCandle: null,
-                    lastProcessedCandleOpenTime: null,
-                    candlesLoaded: false,
-                    // === PER-ASSET TRADE MANAGEMENT ===
-                    lastTradeDirection: null,
-                    lastTradeWasWin: null,
-                    martingaleLevel: 0,
-                    currentStake: CONFIG.STAKE,
-                    canTrade: false,
-                    // === PER-ASSET POSITIONS ===
-                    activePositions: [],
-                    // === PER-ASSET STATS (today's session) ===
-                    tradesCount: 0,
-                    winsCount: 0,
-                    lossesCount: 0,
-                    profit: 0,
-                    loss: 0,
-                    netPL: 0,
-                    x2Losses: 0,
-                    x3Losses: 0,
-                    x4Losses: 0,
-                    x5Losses: 0,
-                    x6Losses: 0,
-                    x7Losses: 0,
-                    x8Losses: 0,
-                    x9Losses: 0
-                };
-                const ac = getAssetConfig(symbol);
-                LOGGER.info(`📊 Initialized asset: ${symbol} (${ac.TIMEFRAME_LABEL} candles, Duration: ${ac.DURATION}${ac.DURATION_UNIT})`);
-            } else {
-                const ac = getAssetConfig(symbol);
-                LOGGER.info(
-                    `📊 Asset ${symbol} already initialized (state restored) — ${ac.TIMEFRAME_LABEL}/${ac.DURATION}${ac.DURATION_UNIT} Mart=${state.assets[symbol].martingaleLevel}, Stake=$${state.assets[symbol].currentStake.toFixed(2)}`
-                );
-            }
-        });
-    }
-
-    restoreSubscriptions() {
-        LOGGER.info('📊 Restoring subscriptions after reconnection...');
-        ACTIVE_ASSETS.forEach(symbol => {
-            const asset = state.assets[symbol];
-            if (asset && asset.activePositions) {
-                asset.activePositions.forEach(pos => {
-                    if (pos.contractId) {
-                        LOGGER.info(
-                            `  ✅ Re-subscribing to contract ${pos.contractId} (${symbol})`
-                        );
-                        this.send({
-                            proposal_open_contract: 1,
-                            contract_id: pos.contractId,
-                            subscribe: 1
-                        });
-                    }
-                });
-            }
-        });
-    }
-
-    cleanup() {
-        if (this.ws) {
-            this.ws.removeAllListeners();
-            if (
-                this.ws.readyState === WebSocket.OPEN ||
-                this.ws.readyState === WebSocket.CONNECTING
-            ) {
-                try {
-                    this.ws.close();
-                } catch (e) {
-                    LOGGER.debug('WebSocket already closed');
-                }
-            }
-            this.ws = null;
-        }
-    }
-
-    onMessage(data) {
-        try {
-            const response = JSON.parse(data);
-            this.handleResponse(response);
-        } catch (error) {
-            LOGGER.error(`Error parsing message: ${error.message}`);
-        }
-    }
-
-    handleResponse(response) {
-        if (response.msg_type === 'authorize') {
-            if (response.error) {
-                LOGGER.error(
-                    `Authorization failed: ${response.error.message}`
-                );
-                return;
-            }
-            LOGGER.info('🔐 Authorized successfully');
-            LOGGER.info(`👤 Account: ${response.authorize.loginid}`);
-            LOGGER.info(
-                `💰 Balance: ${response.authorize.balance} ${response.authorize.currency}`
-            );
-
-            state.isAuthorized = true;
-            state.accountBalance = response.authorize.balance;
-
-            if (state.capital === CONFIG.INITIAL_CAPITAL) {
-                state.capital = response.authorize.balance;
-            }
-
-            this.send({ balance: 1, subscribe: 1 });
-
-            if (this.reconnectAttempts > 0 || this.hasAnyActivePositions()) {
-                LOGGER.info('🔄 Reconnection detected, restoring subscriptions...');
-                this.restoreSubscriptions();
-            }
-
-            bot.start();
-        }
-
-        if (response.msg_type === 'balance') {
-            state.accountBalance = response.balance.balance;
-        }
-
-        if (response.msg_type === 'ohlc') {
-            this.handleOHLC(response.ohlc);
-        }
-
-        if (response.msg_type === 'candles') {
-            this.handleCandlesHistory(response);
-        }
-
-        if (response.msg_type === 'buy') {
-            this.handleBuyResponse(response);
-        }
-
-        if (response.msg_type === 'proposal_open_contract') {
-            this.handleOpenContract(response);
-        }
-    }
-
-    /**
-     * Check if any asset has active positions
-     */
-    hasAnyActivePositions() {
-        return ACTIVE_ASSETS.some(symbol => {
-            const asset = state.assets[symbol];
-            return asset && asset.activePositions && asset.activePositions.length > 0;
-        });
-    }
-
-    /**
-     * Get total active positions count across all assets
-     */
-    getTotalActivePositions() {
-        let total = 0;
-        ACTIVE_ASSETS.forEach(symbol => {
-            const asset = state.assets[symbol];
-            if (asset && asset.activePositions) {
-                total += asset.activePositions.length;
-            }
-        });
-        return total;
-    }
-
-    handleBuyResponse(response) {
-        if (response.error) {
-            LOGGER.error(`Trade error: ${response.error.message}`);
-
-            const reqId = response.echo_req?.req_id;
-            if (reqId) {
-                // Find and remove the position from the correct asset
-                ACTIVE_ASSETS.forEach(symbol => {
-                    const asset = state.assets[symbol];
-                    if (asset && asset.activePositions) {
-                        const posIndex = asset.activePositions.findIndex(
-                            p => p.reqId === reqId
-                        );
-                        if (posIndex >= 0) {
-                            asset.activePositions.splice(posIndex, 1);
-                            LOGGER.info(`  Removed failed position from ${symbol}`);
-                        }
-                    }
-                });
-            }
-            return;
-        }
-
-        const contract = response.buy;
-        LOGGER.trade(
-            `✅ Position opened: Contract ${contract.contract_id}, Buy Price: $${contract.buy_price}`
-        );
-
-        const reqId = response.echo_req.req_id;
-
-        // Find the position in the correct asset
-        let foundSymbol = null;
-        let position = null;
-
-        for (const symbol of ACTIVE_ASSETS) {
-            const asset = state.assets[symbol];
-            if (asset && asset.activePositions) {
-                position = asset.activePositions.find(p => p.reqId === reqId);
-                if (position) {
-                    foundSymbol = symbol;
-                    break;
-                }
-            }
-        }
-
-        if (position) {
-            position.contractId = contract.contract_id;
-            position.buyPrice = contract.buy_price;
-
-            TelegramService.sendTradeAlert(
-                'OPEN',
-                position.symbol,
-                position.direction,
-                position.stake,
-                position.duration,
-                position.durationUnit
-            );
-        }
-
-        this.send({
-            proposal_open_contract: 1,
-            contract_id: contract.contract_id,
-            subscribe: 1
-        });
-    }
-
-    handleOpenContract(response) {
-        if (response.error) {
-            LOGGER.error(`Contract error: ${response.error.message}`);
-            return;
-        }
-
-        const contract = response.proposal_open_contract;
-        const contractId = contract.contract_id;
-
-        // Find which asset owns this contract
-        let ownerSymbol = null;
-        let posIndex = -1;
-
-        for (const symbol of ACTIVE_ASSETS) {
-            const asset = state.assets[symbol];
-            if (asset && asset.activePositions) {
-                const idx = asset.activePositions.findIndex(
-                    p => p.contractId === contractId
-                );
-                if (idx >= 0) {
-                    ownerSymbol = symbol;
-                    posIndex = idx;
-                    break;
-                }
-            }
-        }
-
-        if (posIndex < 0 || !ownerSymbol) return;
-
-        const assetState = state.assets[ownerSymbol];
-        const position = assetState.activePositions[posIndex];
-        position.currentProfit = contract.profit;
-
-        if (
-            contract.is_sold ||
-            contract.is_expired ||
-            contract.status === 'sold'
-        ) {
-            const profit = contract.profit;
-
-            LOGGER.trade(
-                `[${ownerSymbol}] Contract ${contractId} closed: ${profit >= 0 ? 'WIN' : 'LOSS'} $${profit.toFixed(2)}`
-            );
-
-            // Record result for THIS SPECIFIC ASSET
-            SessionManager.recordTradeResult(
-                ownerSymbol,
-                profit,
-                position.direction
-            );
-
-            TelegramService.sendTradeAlert(
-                profit >= 0 ? 'WIN' : 'LOSS',
-                ownerSymbol,
-                position.direction,
-                position.stake,
-                position.duration,
-                position.durationUnit,
-                { profit }
-            );
-
-            // Remove position from THIS asset
-            assetState.activePositions.splice(posIndex, 1);
-
-            if (response.subscription?.id) {
-                this.send({ forget: response.subscription.id });
-            }
-
-            SessionManager.checkSessionTargets();
-            StatePersistence.saveState();
-        }
-    }
-
-    handleOHLC(ohlc) {
-        const symbol = ohlc.symbol;
-        if (!state.assets[symbol]) return;
-
-        const assetState = state.assets[symbol];
-        const assetConfig = getAssetConfig(symbol);
-        const granularity = assetConfig.GRANULARITY;
-
-        const calculatedOpenTime =
-            ohlc.open_time ||
-            Math.floor(ohlc.epoch / granularity) * granularity;
-
-        const incomingCandle = {
-            open: parseFloat(ohlc.open),
-            high: parseFloat(ohlc.high),
-            low: parseFloat(ohlc.low),
-            close: parseFloat(ohlc.close),
-            epoch: ohlc.epoch,
-            open_time: calculatedOpenTime
-        };
-
-        const currentOpenTime =
-            assetState.currentFormingCandle?.open_time;
-        const isNewCandle =
-            currentOpenTime &&
-            incomingCandle.open_time !== currentOpenTime;
-
-        if (isNewCandle) {
-            const closedCandle = {
-                ...assetState.currentFormingCandle
-            };
-            closedCandle.epoch =
-                closedCandle.open_time + granularity;
-
-            if (
-                closedCandle.open_time !==
-                assetState.lastProcessedCandleOpenTime
-            ) {
-                assetState.closedCandles.push(closedCandle);
-
-                if (
-                    assetState.closedCandles.length >
-                    assetConfig.MAX_CANDLES_STORED
-                ) {
-                    assetState.closedCandles =
-                        assetState.closedCandles.slice(
-                            -assetConfig.MAX_CANDLES_STORED
-                        );
-                }
-
-                assetState.lastProcessedCandleOpenTime =
-                    closedCandle.open_time;
-
-                const closeTime = new Date(
-                    closedCandle.epoch * 1000
-                ).toISOString();
-                const candleType =
-                    CandleAnalyzer.getCandleDirection(closedCandle);
-                const candleEmoji =
-                    candleType === 'BULLISH'
-                        ? '🟢'
-                        : candleType === 'BEARISH'
-                            ? '🔴'
-                            : '⚪';
-
-                LOGGER.info(
-                    `${symbol} ${candleEmoji} CANDLE CLOSED [${closeTime}] ${candleType}: O:${closedCandle.open.toFixed(5)} H:${closedCandle.high.toFixed(5)} L:${closedCandle.low.toFixed(5)} C:${closedCandle.close.toFixed(5)}`
-                );
-
-                // Use candle-pattern based signals (no technical indicator calculations)
-                const lastN = CONFIG.CANDLE_PATTERN_LOOKBACK || 7;
-                const recent = assetState.closedCandles.slice(-lastN);
-                const bullCount = recent.filter(c => CandleAnalyzer.isBullish(c)).length;
-                const bearCount = recent.filter(c => CandleAnalyzer.isBearish(c)).length;
-                LOGGER.info(`${symbol} 📊 Recent candles (last ${recent.length}): bulls=${bullCount} bears=${bearCount}`);
-
-                // TRIGGER TRADE ANALYSIS FOR THIS SPECIFIC ASSET
-                assetState.canTrade = true;
-                bot.executeNextTrade(symbol, closedCandle);
-            }
-        }
-
-        assetState.currentFormingCandle = incomingCandle;
-
-        const candles = assetState.candles;
-        const existingIndex = candles.findIndex(
-            c => c.open_time === incomingCandle.open_time
-        );
-        if (existingIndex >= 0) {
-            candles[existingIndex] = incomingCandle;
+        // ════════════════════════════════════════════════════════════════════
+        // CANDLE-GATED TRADE TRIGGER
+        // ════════════════════════════════════════════════════════════════════
+        if (this.isPausedDueToStuckTrade) {
+          this.log(`📊 NEW CANDLE — but trading is paused (stuck trade recovery)`, 'warning');
+        } else if (this.inRecoveryMode) {
+          this.log(
+            `📊 NEW CANDLE — in RECOVERY mode (L${this.currentGridLevel}), ` +
+            `recovery trades continue independently`,
+            'info'
+          );
+          if (this.running && !this.tradeInProgress) {
+            // this.canTrade = true;
+            // this._placeTrade();
+          }
         } else {
-            candles.push(incomingCandle);
+          // ── Candle strategy: trade on candle close ─────────────────────
+          if (DEFAULT_CONFIG.useCandleStrategy) {
+            this.log(`📊 NEW CANDLE — Ready for fresh trade 🚀`, 'success');
+            this.canTrade = true;
+            if (this.running && !this.tradeInProgress && this.canTrade) {
+              this._placeTrade(candleType, candleEmoji);
+            }
+          } else {
+            this.log(`📊 NEW CANDLE — candle strategy OFF, fresh trades driven by pattern`, 'info');
+            // this.canTrade = true;
+            // this._placeTrade();
+            // Candle strategy is OFF — fresh trades are triggered on win, not candle
+          }
         }
-
-        if (candles.length > assetConfig.MAX_CANDLES_STORED) {
-            assetState.candles = candles.slice(
-                -assetConfig.MAX_CANDLES_STORED
-            );
-        }
+      }
     }
 
-    handleCandlesHistory(response) {
-        if (response.error) {
-            LOGGER.error(
-                `Error fetching candles: ${response.error.message}`
-            );
-            return;
+    this.assetState.currentFormingCandle = incomingCandle;
+
+    const candles = this.assetState.candles;
+    const existingIndex = candles.findIndex(c => c.open_time === incomingCandle.open_time);
+    if (existingIndex >= 0) {
+      candles[existingIndex] = incomingCandle;
+    } else {
+      candles.push(incomingCandle);
+    }
+
+    if (candles.length > this.candleConfig.MAX_CANDLES_STORED) {
+      this.assetState.candles = candles.slice(-this.candleConfig.MAX_CANDLES_STORED);
+    }
+  }
+
+  _handleCandlesHistory(response) {
+    if (response.error) {
+      this.log(`Error fetching candles: ${response.error.message}`, 'error');
+      return;
+    }
+
+    const symbol = response.echo_req.ticks_history;
+    if (!symbol) return;
+
+    if (!response.candles || response.candles.length === 0) {
+      this.log(`${symbol}: No historical candles received`, 'warning');
+      return;
+    }
+
+    const candles = response.candles.map(c => {
+      const openTime = Math.floor(
+        (c.epoch - this.candleConfig.GRANULARITY) / this.candleConfig.GRANULARITY
+      ) * this.candleConfig.GRANULARITY;
+      return {
+        open: parseFloat(c.open),
+        high: parseFloat(c.high),
+        low: parseFloat(c.low),
+        close: parseFloat(c.close),
+        epoch: c.epoch,
+        open_time: openTime,
+      };
+    });
+
+    this.assetState.candles = [...candles];
+    this.assetState.closedCandles = [...candles];
+
+    const lastCandle = candles[candles.length - 1];
+    this.assetState.lastProcessedCandleOpenTime = lastCandle.open_time;
+    this.assetState.currentFormingCandle = null;
+
+    this.log(`📊 Loaded ${candles.length} historical candles for ${symbol}`);
+
+    if (this.isPausedDueToStuckTrade) {
+      this.log(`📊 Paused due to stuck trade — waiting for pause to end`, 'warning');
+      this.canTrade = false;
+    } else if (this.inRecoveryMode) {
+      this.log(`📊 In recovery mode — canTrade stays true for recovery trades`, 'warning');
+      this.canTrade = true;
+    } else {
+      this.log(`📊 Waiting for next new candle to start trading…`, 'info');
+      this.canTrade = false;
+    }
+
+    this.assetState.candlesLoaded = true;
+  }
+
+  _handleApiError(msg) {
+    this.log(
+      `API Error [${msg.error.code}]: ${msg.error.message} (msg_type: ${msg.msg_type})`,
+      'error'
+    );
+
+    const code = msg.error.code;
+    if (code === 'AuthorizationRequired' || code === 'InvalidToken') {
+      this.isAuthorized = false;
+      this._onClose(4001);
+      return;
+    }
+
+    // Rate limit — back off
+    if (code === 'RateLimit' || code === 'TooManyRequests') {
+      this.log('Rate limited — backing off for 10s', 'warning');
+      this.tradeInProgress = false;
+      this.pendingTradeInfo = null;
+      this.currentContractId = null;
+      this._clearAllWatchdogTimers();
+
+      if (this._retryTimer) clearTimeout(this._retryTimer);
+      this._retryTimer = setTimeout(() => {
+        this._retryTimer = null;
+        if (this.running && !this.tradeInProgress) {
+          this.canTrade = true;
+          // this._placeTrade();
         }
+      }, 10000);
+      return;
+    }
 
-        const symbol = response.echo_req.ticks_history;
-        if (!state.assets[symbol]) return;
+    if (msg.msg_type === 'buy' || msg.msg_type === 'proposal') {
+      this.log('Trade error — releasing lock and retrying in 3s', 'warning');
+      this._clearAllWatchdogTimers();
+      this.tradeInProgress = false;
+      this.pendingTradeInfo = null;
+      this.currentContractId = null;
 
-        const assetConfig = getAssetConfig(symbol);
-        const granularity = assetConfig.GRANULARITY;
+      if (this.running) {
+        // Use a guarded retry with a timer to prevent rapid looping
+        if (this._retryTimer) clearTimeout(this._retryTimer);
+        this._retryTimer = setTimeout(() => {
+          this._retryTimer = null;
+          if (this.running && !this.tradeInProgress) {
+            this.canTrade = true;
+            this.log('Retrying trade after API error…');
+            // this._placeTrade();
+          }
+        }, 3000);
+      }
+    }
+  }
 
-        const candles = response.candles.map(c => {
-            const openTime =
-                Math.floor(
-                    (c.epoch - granularity) / granularity
-                ) * granularity;
-            return {
-                open: parseFloat(c.open),
-                high: parseFloat(c.high),
-                low: parseFloat(c.low),
-                close: parseFloat(c.close),
-                epoch: c.epoch,
-                open_time: openTime
-            };
+  // ── authorize ─────────────────────────────────────────────────────────────
+  _onAuthorize(msg) {
+    if (msg.error) {
+      this.log(`Authentication failed: ${msg.error.message}`, 'error');
+      this._sendTelegram(
+        `❌ <b>${DEFAULT_CONFIG.symbol} Authentication3 Failed:</b> ${msg.error.message}`
+      );
+      return;
+    }
+
+    this.isAuthorized = true;
+    this.accountId = msg.authorize.loginid;
+    this.balance = msg.authorize.balance;
+    this.currency = msg.authorize.currency;
+
+    this.log(
+      `Authorized ✅ | Account: ${this.accountId} | Balance: ${this.currency} ${this.balance.toFixed(2)}`,
+      'success'
+    );
+
+    this._send({ balance: 1, subscribe: 1 });
+
+    // Subscribe to candles (fresh subscription after reconnect)
+    this._subscribeToCandles(this.config.symbol);
+
+    // Subscribe to tick history + live ticks for pattern predictor
+    this._subscribeToTicks(this.config.symbol);
+
+    if (!this.hasStartedOnce) {
+      // First-time connection
+      this._sendTelegram(
+        `✅ <b>${DEFAULT_CONFIG.symbol} Grid Bot Connected3</b>\n` +
+        `Account: ${this.accountId}\n` +
+        `Balance: ${this.currency} ${this.balance.toFixed(2)}`
+      );
+      setTimeout(() => { if (!this.running) this.start(); }, 300);
+
+    } else {
+      // ── RECONNECT LOGIC — ENHANCED ─────────────────────────────────────
+      // Don't reset tradeInProgress here; we need to determine the correct state
+
+      this.log(
+        `🔄 Reconnected — resuming | L${this.currentGridLevel} | ` +
+        `${this.currentDirection === 'CALLE' ? 'HIGHER' : 'LOWER'} | ` +
+        `Investment: $${this.investmentRemaining.toFixed(2)} | ` +
+        `Recovery: ${this.inRecoveryMode ? 'YES' : 'NO'} | ` +
+        `Paused: ${this.isPausedDueToStuckTrade ? 'YES' : 'NO'}`,
+        'success'
+      );
+
+      this._sendTelegram(
+        `🔄 <b>${DEFAULT_CONFIG.symbol} Reconnected3 — Resuming</b>\n` +
+        `Account: ${this.accountId} | Balance: ${this.currency} ${this.balance.toFixed(2)}\n` +
+        `Grid Level: ${this.currentGridLevel} | ` +
+        `Next: ${this.currentDirection === 'CALLE' ? 'HIGHER' : 'LOWER'} @ $${this.calculateStake(this.currentGridLevel).toFixed(2)}\n` +
+        `Investment: $${this.investmentRemaining.toFixed(2)}\n` +
+        `Recovery Mode: ${this.inRecoveryMode ? 'YES ⚡' : 'NO'}\n` +
+        `Paused: ${this.isPausedDueToStuckTrade ? 'YES ⏸️' : 'NO'}`
+      );
+
+      // If we had an open contract, try to check its status
+      if (this.currentContractId) {
+        this.log(`Re-subscribing to open contract ${this.currentContractId}…`);
+        this.tradeInProgress = true;
+        this._send({
+          proposal_open_contract: 1,
+          contract_id: this.currentContractId,
+          subscribe: 1,
         });
+        this._startTradeWatchdog(this.currentContractId);
+      } else {
+        // No open contract — set tradeInProgress to false
+        this.tradeInProgress = false;
 
-        if (candles.length === 0) {
-            LOGGER.warn(`${symbol}: No historical candles received`);
-            return;
+        if (this.isPausedDueToStuckTrade) {
+          this.log('⏸️ Still paused from stuck trade — waiting for pause to expire', 'info');
+        } else if (this.inRecoveryMode) {
+          this.canTrade = true;
+          this.log('In recovery mode — will trade after candle data loads', 'warning');
+          // Wait for candle data to load, then try trading
+          this._waitForCandlesAndTrade();
+        } else if (this.running) {
+          this.log(
+            'No open contract — will trade when next candle signal arrives',
+            'success'
+          );
         }
+      }
+    }
+  }
 
-        state.assets[symbol].candles = [...candles];
-        state.assets[symbol].closedCandles = [...candles];
+  /**
+   * Wait for candle data to load, then attempt to place a trade
+   * Used after reconnection when in recovery mode
+   */
+  _waitForCandlesAndTrade() {
+    let attempts = 0;
+    const maxAttempts = 20; // 20 × 500ms = 10s max wait
+    const checker = setInterval(() => {
+      attempts++;
+      if (this.assetState.candlesLoaded) {
+        clearInterval(checker);
+        if (this.running && !this.tradeInProgress && this.canTrade) {
+          this.log('📊 Candles loaded — placing recovery trade', 'success');
+          this.canTrade = true;
+          // this._placeTrade();
+        }
+        return;
+      }
+      if (attempts >= maxAttempts) {
+        clearInterval(checker);
+        // Candles still not loaded — trade anyway if in recovery
+        if (this.running && !this.tradeInProgress && this.canTrade) {
+          this.log('📊 Candles not loaded within timeout — placing recovery trade anyway', 'warning');
+          this.canTrade = true;
+          // this._placeTrade();
+        }
+      }
+    }, 200);
+  }
 
-        const lastCandle = candles[candles.length - 1];
-        state.assets[symbol].lastProcessedCandleOpenTime =
-            lastCandle.open_time;
-        state.assets[symbol].currentFormingCandle = null;
+  // ── balance ───────────────────────────────────────────────────────────────
+  _onBalance(msg) {
+    this.balance = msg.balance.balance;
+    this.log(`Balance updated: ${this.currency} ${this.balance.toFixed(2)}`);
+  }
 
-        LOGGER.info(
-            `📊 Loaded ${candles.length} ${assetConfig.TIMEFRAME_LABEL} candles for ${symbol}`
+  // ── proposal → buy ────────────────────────────────────────────────────────
+  _onProposal(msg) {
+    if (!this.running || !this.tradeInProgress) return;
+    if (msg.proposal) {
+      this._send({ buy: msg.proposal.id, price: msg.proposal.ask_price });
+    }
+  }
+
+  // ── buy confirmation ──────────────────────────────────────────────────────
+  _onBuy(msg) {
+    const b = msg.buy;
+    this.currentContractId = b.contract_id;
+    this.tradeStartTime = Date.now();
+    this.investmentRemaining = Math.max(
+      0,
+      Number((this.investmentRemaining - b.buy_price).toFixed(2))
+    );
+
+    this.log(
+      `Contract opened: ${b.contract_id} | Stake: $${b.buy_price.toFixed(2)} | ` +
+      `Investment left: $${this.investmentRemaining.toFixed(2)}`
+    );
+
+    // Save state immediately after buying so we have the contract ID
+    StatePersistence.save(this);
+
+    this._startTradeWatchdog(b.contract_id);
+
+    this._send({
+      proposal_open_contract: 1,
+      contract_id: b.contract_id,
+      subscribe: 1,
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // CONTRACT RESULT — WIN/LOSS HANDLER
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _onContract(msg) {
+    const c = msg.proposal_open_contract;
+    if (!c.is_sold) return;
+
+    const contractId = String(c.contract_id);
+    if (this.currentContractId && contractId !== String(this.currentContractId)) {
+      this.log(
+        `⚠️ Ignoring stale contract result: ${contractId} (current: ${this.currentContractId})`,
+        'warning'
+      );
+      return;
+    }
+
+    if (this._processedContracts.has(contractId)) {
+      this.log(`⚠️ Duplicate contract result ignored: ${contractId}`, 'warning');
+      return;
+    }
+    this._processedContracts.add(contractId);
+    if (this._processedContracts.size > this._maxProcessedCache) {
+      const first = this._processedContracts.values().next().value;
+      this._processedContracts.delete(first);
+    }
+
+    this._clearAllWatchdogTimers();
+
+    const profit = parseFloat(c.profit);
+    const payout = parseFloat(c.payout || 0);
+    const isWin = profit > 0;
+
+    this.tradeInProgress = false;
+    this.pendingTradeInfo = null;
+    this.currentContractId = null;
+    this.tradeStartTime = null;
+
+    // ── Update counters ───────────────────────────────────────────────────
+    this.totalTrades += 1;
+    this.totalProfit = Number((this.totalProfit + profit).toFixed(2));
+    if (isWin) { this.wins++; this.isWinTrade = true; }
+    else { this.losses++; this.isWinTrade = false; }
+
+    this.currentStreak = isWin
+      ? (this.currentStreak > 0 ? this.currentStreak + 1 : 1)
+      : (this.currentStreak < 0 ? this.currentStreak - 1 : -1);
+    if (isWin) this.maxWinStreak = Math.max(this.currentStreak, this.maxWinStreak);
+    if (!isWin) this.maxLossStreak = Math.min(this.currentStreak, this.maxLossStreak);
+
+    this.hourlyStats.trades++;
+    this.hourlyStats.pnl += profit;
+    if (isWin) this.hourlyStats.wins++; else this.hourlyStats.losses++;
+
+    // ── Update daily stats ───────────────────────────────────────────────
+    this._updateDailyStats(isWin, profit);
+
+    // ── Risk management ───────────────────────────────────────────────────
+    if (this.totalProfit <= -this.config.stopLoss) {
+      this.log(`🛑 STOP LOSS hit! P&L: $${this.totalProfit.toFixed(2)}`, 'error');
+      this._sendTelegram(
+        `🛑 <b>${DEFAULT_CONFIG.symbol} STOP LOSS REACHED3</b>\nFinal P&L: $${this.totalProfit.toFixed(2)}`
+      );
+      this._sendDailySummary();
+      this.running = false;
+      this.inRecoveryMode = false;
+      this.canTrade = false;
+      return;
+    }
+    if (this.totalProfit >= this.config.takeProfit) {
+      this.log(`🎉 TAKE PROFIT hit! P&L: $${this.totalProfit.toFixed(2)}`, 'success');
+      this._sendTelegram(
+        `🎉 <b>${DEFAULT_CONFIG.symbol} TAKE PROFIT REACHED3</b>\nFinal P&L: $${this.totalProfit.toFixed(2)}`
+      );
+      this._sendDailySummary();
+      this.running = false;
+      this.inRecoveryMode = false;
+      this.canTrade = false;
+      return;
+    }
+
+    let shouldContinue = true;
+    const cfg = this.config;
+
+    // ══════════════════════════════════════════════════════════════════════
+    // WIN HANDLING
+    // ══════════════════════════════════════════════════════════════════════
+    if (isWin) {
+      if (this.currentGridLevel > 0) this.totalRecovered += profit;
+      this.investmentRemaining = Number((this.investmentRemaining + payout).toFixed(2));
+
+      const wasRecovery = this.inRecoveryMode;
+
+      // Use intelligent compounding
+      const newBase = this._calculateCompoundedBaseStake();
+      this.baseStake = Math.max(newBase, 0.35);
+
+      this.log(
+        `🎯 WIN +$${profit.toFixed(2)}${wasRecovery ? ' | RECOVERY COMPLETE! 🎉' : ''} | ` +
+        `L${this.currentGridLevel} → RESET | ` +
+        `Investment: $${this.investmentRemaining.toFixed(2)} | ` +
+        `Base stake: $${this.baseStake.toFixed(2)} (step-compounded)`,
+        'success'
+      );
+
+      this.currentGridLevel = 0;
+      this.inRecoveryMode = false;
+
+      if (DEFAULT_CONFIG.useCandleStrategy) {
+        // Candle strategy ON — wait for next candle close before next fresh trade
+        this.canTrade = false;
+        this.log(`⏳ Waiting for next new candle before placing new trade…`, 'info');
+      } else {
+        // Candle strategy OFF — immediately schedule next pattern-driven fresh trade
+        // this.canTrade = true;
+        // this.log(`⚡ Pattern-only mode — scheduling next fresh trade in 1s…`, 'info');
+        // if (this._retryTimer) clearTimeout(this._retryTimer);
+        // this._retryTimer = setTimeout(() => {
+        //   this._retryTimer = null;
+        //   if (this.running && !this.tradeInProgress && this.canTrade) {
+        //     this._placeTrade(); // no candleType/candleEmoji — predictor sets direction
+        //   }
+        // }, 1000);
+      }
+
+      this._sendTelegramTradeResult(isWin, profit);
+
+      // ══════════════════════════════════════════════════════════════════════
+      // LOSS HANDLING
+      // ══════════════════════════════════════════════════════════════════════
+    } else {
+      const nextLevel = this.currentGridLevel + 1;
+      const absoluteMax = cfg.afterMaxLoss === 'continue'
+        ? cfg.maxMartingaleLevel + cfg.continueExtraLevels
+        : cfg.maxMartingaleLevel;
+
+      // Direction for next recovery trade
+      // usePatternStrategy → Smart Pattern Predictor
+      // otherwise          → keep current direction (simple, no alternating churn)
+      const nextDir = this.currentDirection
+      // ? this._predictRecoveryDirection()
+      // : (this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE'); // classic alternating fallback
+
+      // this.currentDirection = nextDir;
+      this.currentGridLevel = nextLevel;
+      this.inRecoveryMode = true;
+      this.canTrade = true;
+
+      if (nextLevel > absoluteMax) {
+        this.log(
+          `🛑 ABSOLUTE CEILING L${absoluteMax} reached — stopping to protect investment`,
+          'error'
+        );
+        this._sendTelegram(
+          `🛑 <b>${DEFAULT_CONFIG.symbol} ABSOLUTE MAX LEVEL REACHED3 (L${absoluteMax})</b>\n` +
+          `Investment remaining: $${this.investmentRemaining.toFixed(2)}\n` +
+          `Total P&L: $${this.totalProfit.toFixed(2)}`
+        );
+        shouldContinue = false;
+        this.inRecoveryMode = false;
+        this.canTrade = false;
+
+      } else if (nextLevel > cfg.maxMartingaleLevel) {
+        const extraIdx = nextLevel - cfg.maxMartingaleLevel - 1;
+        const extraMult = (cfg.extraLevelMultipliers && cfg.extraLevelMultipliers[extraIdx] > 0)
+          ? cfg.extraLevelMultipliers[extraIdx]
+          : cfg.martingaleMultiplier;
+        const nextStake = this.calculateStake(nextLevel);
+        this.log(
+          `🔴 LOSS -$${Math.abs(profit).toFixed(2)} | EXTENDED RECOVERY L${nextLevel}/${absoluteMax} | ` +
+          `Mult: ${extraMult}x | ${nextDir === 'CALLE' ? 'HIGHER' : 'LOWER'} @ $${nextStake} | ⚡ IMMEDIATE RECOVERY`,
+          'warning'
         );
 
-        // Inform about readiness for pattern detection
-        const needed = CONFIG.CANDLE_PATTERN_LOOKBACK || 7;
-        if (candles.length < needed) {
-            LOGGER.warn(
-                `   ⏳ Insufficient candles for pattern detection — have ${candles.length}, need ≥ ${needed}. Waiting for more data...`
-            );
+      } else if (nextLevel === cfg.maxMartingaleLevel) {
+        if (cfg.afterMaxLoss === 'stop') {
+          const nextStake = this.calculateStake(nextLevel);
+          this.log(
+            `⚠️ FINAL attempt (L${cfg.maxMartingaleLevel}) | ` +
+            `${nextDir === 'CALLE' ? 'HIGHER' : 'LOWER'} @ $${nextStake} | ⚡ IMMEDIATE RECOVERY`,
+            'warning'
+          );
+        } else if (cfg.afterMaxLoss === 'continue') {
+          const nextStake = this.calculateStake(nextLevel);
+          this.log(
+            `⚠️ MAX L${cfg.maxMartingaleLevel} — extending to L${absoluteMax} | ` +
+            `Next: ${nextDir === 'CALLE' ? 'HIGHER' : 'LOWER'} @ $${nextStake} | ⚡ IMMEDIATE RECOVERY`,
+            'warning'
+          );
+        } else if (cfg.afterMaxLoss === 'reset') {
+          this.currentGridLevel = 0;
+          this.currentDirection = nextDir;
+          this.inRecoveryMode = false;
+          this.canTrade = false;
+          this.log(
+            `🔄 MAX LEVEL — Resetting to L0 (reset mode) — waiting for new candle`,
+            'warning'
+          );
+        }
+      } else {
+        const nextStake = this.calculateStake(this.currentGridLevel);
+        this.log(
+          `📉 LOSS -$${Math.abs(profit).toFixed(2)} | Grid L${this.currentGridLevel} | ` +
+          `${this.currentDirection === 'CALLE' ? 'HIGHER' : 'LOWER'} @ $${nextStake} | ⚡ RECOVERY TRADE NEXT`,
+          'warning'
+        );
+      }
+
+      this._sendTelegramTradeResult(isWin, profit);
+
+      if (shouldContinue) {
+        const nextStake = this.calculateStake(this.currentGridLevel);
+        if (nextStake > this.investmentRemaining) {
+          this.log(
+            `🛑 INSUFFICIENT INVESTMENT: next $${nextStake} > remaining $${this.investmentRemaining.toFixed(2)}`,
+            'error'
+          );
+          shouldContinue = false;
+          this.inRecoveryMode = false;
+          this.canTrade = false;
+        } else if (nextStake > this.balance) {
+          this.log(
+            `🛑 INSUFFICIENT BALANCE: next $${nextStake} > balance $${this.balance.toFixed(2)}`,
+            'error'
+          );
+          shouldContinue = false;
+          this.inRecoveryMode = false;
+          this.canTrade = false;
+        }
+      }
+    }
+
+    this.awaitRiseConfidence = false;
+
+    // Save state after every trade result
+    StatePersistence.save(this);
+
+    if (!shouldContinue) {
+      this.running = false;
+      this.inRecoveryMode = false;
+      this.canTrade = false;
+      this._logSummary();
+      this._sendDailySummary();
+      return;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // NEXT TRADE SCHEDULING
+    // ══════════════════════════════════════════════════════════════════════
+    // if (this.running && this.inRecoveryMode && this.canTrade) {
+    //   this.log(`⚡ Recovery trade scheduled in 1s (L${this.currentGridLevel})…`, 'warning');
+    //   if (this._retryTimer) clearTimeout(this._retryTimer);
+    //   this._retryTimer = setTimeout(() => {
+    //     this._retryTimer = null;
+    //     if (this.running && !this.tradeInProgress && this.canTrade) {
+    //       this._placeTrade();
+    //     }
+    //   }, 1000);
+    // } else if (this.running && !this.inRecoveryMode) {
+    //   this.log(`⏳ WIN — Next trade will be placed on next new candle`, 'success');
+    // }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // TRADE WATCHDOG — DETECT STUCK CONTRACTS
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _startTradeWatchdog(contractId) {
+    this._clearAllWatchdogTimers();
+
+    const duration = DEFAULT_CONFIG.tickDuration;//this.getTickDuration(this.currentGridLevel);
+    const timeoutMs = duration > 3 ? (this.tradeWatchdogMs + 5000) : this.tradeWatchdogMs;
+
+    this.tradeWatchdogTimer = setTimeout(() => {
+      if (!this.tradeInProgress) return;
+
+      this.log(
+        `⏰ WATCHDOG FIRED — Contract ${contractId} has been open for ` +
+        `${(timeoutMs / 1000)}s with no settlement`,
+        'warning'
+      );
+
+      if (contractId && this.isConnected && this.isAuthorized) {
+        this.log(`🔍 Polling contract ${contractId} for current status…`);
+        this._send({
+          proposal_open_contract: 1,
+          contract_id: contractId,
+          subscribe: 1,
+        });
+
+        this.tradeWatchdogPollTimer = setTimeout(() => {
+          if (!this.tradeInProgress) return;
+          this.log(
+            `🚨 WATCHDOG: Poll timed out — contract ${contractId} still unresolved ` +
+            `after ${(timeoutMs / 1000)}s — force-releasing lock`,
+            'error'
+          );
+          this._recoverStuckTrade('watchdog-force');
+        }, timeoutMs);
+
+      } else {
+        this._recoverStuckTrade('watchdog-offline');
+      }
+    }, timeoutMs);
+  }
+
+  _clearAllWatchdogTimers() {
+    if (this.tradeWatchdogTimer) {
+      clearTimeout(this.tradeWatchdogTimer);
+      this.tradeWatchdogTimer = null;
+    }
+    if (this.tradeWatchdogPollTimer) {
+      clearTimeout(this.tradeWatchdogPollTimer);
+      this.tradeWatchdogPollTimer = null;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // SUBSCRIBE TO TICKS — for Smart Pattern Direction Predictor
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _subscribeToTicks(symbol) {
+    this.log(`📈 Subscribing to tick history (${this.TICK_HISTORY_SIZE} ticks) for ${symbol}…`);
+
+    // Fetch last N tick prices as history
+    this._send({
+      ticks_history: symbol,
+      adjust_start_time: 1,
+      count: this.TICK_HISTORY_SIZE,
+      end: 'latest',
+      start: 1,
+      style: 'ticks',
+    });
+
+    // Live tick stream (keeps tickHistory rolling)
+    this._send({ ticks: symbol, subscribe: 1 });
+  }
+
+  // ── Extract last digit of price (matches arbitrageRF.js pattern) ───────────
+  _getLastDigit(quote, asset) {
+    const quoteString = quote.toString();
+    const [, fractionalPart = ''] = quoteString.split('.');
+
+    if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
+      return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
+    } else if (['R_10', 'R_25', '1HZ15V', '1HZ30V', '1HZ90V'].includes(asset)) {
+      return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
+    } else if (['stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'].includes(asset)) {
+      return fractionalPart.length >= 1 ? parseInt(fractionalPart[0]) : 0;
+    } else {
+      return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
+    }
+  }
+
+  // ── Handle tick HISTORY response (msg_type === 'history') ──────────────────
+  _handleTickHistory(msg) {
+    if (msg.error) {
+      this.log(`Tick history error: ${msg.error.message}`, 'error');
+      return;
+    }
+    if (!msg.history || !msg.history.prices) return;
+    // Convert raw prices → last-digit values, store as rolling buffer
+    this.tickHistory = msg.history.prices.map(price => this._getLastDigit(price, this.config.symbol));
+    this.log(`📈 Loaded ${this.tickHistory.length} historical digits for pattern predictor`);
+  }
+
+  // ── Handle LIVE tick update (msg_type === 'tick') ──────────────────────────
+  _handleTickUpdate(tick) {
+    if (!tick || tick.symbol !== this.config.symbol) return;
+    const lastDigit = this._getLastDigit(tick.quote, this.config.symbol);
+
+    if (!this.tickHistory) this.tickHistory = [];
+    this.tickHistory.push(lastDigit);
+    if (this.tickHistory.length > this.TICK_HISTORY_SIZE) {
+      this.tickHistory.shift(); // keep rolling window at TICK_HISTORY_SIZE
+    }
+
+    // console.log('Total Tick History', this.tickHistory.length)
+    console.log(this.config.symbol, 'Last10Ticks:', this.tickHistory.slice(-10).join(', '), 'Tick:', tick.quote);
+
+    this._predictRecoveryDirection();
+
+    if (DEFAULT_CONFIG.usePatternStrategy && !this.tradeInProgress) {
+      let currentCandle = { ...this.assetState.currentFormingCandle };
+      let currentCandleType = currentCandle.close > currentCandle.open
+        ? 'BULLISH'
+        : currentCandle.close < currentCandle.open
+          ? 'BEARISH'
+          : 'DOJI';
+
+      let lastPred = this._lastPrediction || {
+        confidence: 0,
+        totalPatterns: 0,
+        prediction: 'CALLE',
+        aligned: false,
+        alignedCount: 0,
+        steps: [],
+      };
+
+      let {
+        confidence,        // primary step confidence
+        totalPatterns,
+        prediction,        // primary step direction
+        info,
+        riseNum,
+        fallNum,
+        neutral,
+        aligned,           // 3+ out of 5 steps agree
+        alignedCount,
+        steps,
+        primaryStep,
+      } = lastPred;
+
+      // ── Per-step confidence summary for console ──────────────────────────
+      const stepLog = (steps || []).map((s, i) => {
+        const marker = (i + 1) === primaryStep ? '★' : ' ';
+        return `${marker}S${i + 1}:${(s.confidence * 100).toFixed(0)}%${s.prediction === 'CALLE' ? '↑' : '↓'}`;
+      }).join(' ');
+
+      console.log(
+        `Primary S${primaryStep}: (${(confidence * 100).toFixed(2)}%)`,
+        `| Aligned: ${alignedCount}/5 ${aligned ? '✅' : '❌'}`,
+        `| Patterns: ${totalPatterns}`,
+        `| Dir: ${prediction}`,
+        `| Candle: ${currentCandleType}`,
+        `| ${stepLog}`
+      );
+      console.log('PatternInfo:', info);
+
+      // ── Entry gate configuration ─────────────────────────────────────────
+      //
+      // Tune these to control trade frequency vs accuracy:
+      //
+      //   minConfidence     — primary step must meet this threshold
+      //   requireAlignment  — if true, 3+ steps must agree with primary
+      //   minAlignedCount   — alternative: require at least N steps to agree
+      //                       (only used when requireAlignment is false)
+
+      const minConfidence = 0.5;
+      const requireAlignment = false;     // strongest filter
+      const minAlignedCount = 2;         // used only if requireAlignment = false
+
+      const confOk = confidence >= minConfidence;
+      const alignOk = requireAlignment
+        ? aligned                         // 3+ of 5 agree
+        : alignedCount <= minAlignedCount; // custom threshold
+
+      if (confOk && alignOk && this.currentGridLevel < 1) { // && currentCandleType === 'BULLISH' && prediction === 'CALLE'
+        this.canTrade = true;
+        this.currentDirection = prediction; // === "CALLE" ? "PUTE" : "CALLE";
+        this._placeTrade();
+      }
+      else if (confOk && alignOk && this.currentGridLevel >= 1) {// && currentCandleType === 'BEARISH' && prediction === 'PUTE'
+        this.canTrade = true;
+        this.currentDirection = prediction === "CALLE" ? "PUTE" : "CALLE";
+        this._placeTrade();
+      }
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // SMART PATTERN DIRECTION PREDICTOR — MULTI-STEP-AHEAD (1 to 5 steps)
+  //
+  // TIMING PROBLEM:
+  //   Tick T arrives → pattern built → prediction made → trade placed
+  //   Due to execution latency (proposal → buy → settlement), the contract
+  //   settles on tick T+N where N depends on network speed + tick duration.
+  //
+  //   By computing steps 1 through 5, we can:
+  //   1. Find which step offset best matches actual trade outcomes
+  //   2. Use alignment across multiple horizons for higher-confidence signals
+  //   3. Tune the optimal step via config without code changes
+  //
+  // USAGE:
+  //   Set this.config.predictionStep = 1..5 to select the primary step.
+  //   All 5 steps are always computed and stored in _lastPrediction.steps[]
+  //   for analysis and optional multi-horizon confirmation gating.
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _predictRecoveryDirection() {
+    const h = this.tickHistory;
+    const MAX_STEPS = 5;
+
+    // ── Fallback when insufficient data ────────────────────────────────────
+    if (!h || h.length < 15) {
+      this.log('⚠️ Not enough tick data for predictor — defaulting to alternating', 'warning');
+      const fallback = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+
+      const emptyStep = {
+        rises: 0, falls: 0, total: 0,
+        confidence: 0, direction: 0,
+        prediction: fallback, info: 'insufficient-data',
+      };
+
+      this._lastPrediction = {
+        info: 'insufficient-data',
+        confidence: 0,
+        prediction: fallback,
+        digits: h ? h.length : 0,
+        totalPatterns: 0,
+        riseNum: 0,
+        fallNum: 0,
+        neutral: 0,
+        primaryStep: this.config.predictionStep || 2,
+        steps: Array.from({ length: MAX_STEPS }, () => ({ ...emptyStep })),
+        aligned: false,
+        alignedCount: 0,
+      };
+      return fallback;
+    }
+
+    // ── Step 1: Build digit-step sequence ──────────────────────────────────
+    const getStep = (from, to) => {
+      if (from === to) return 0;
+      const diff = to - from;
+      if (diff === 1 || diff === -9) return 1;   // Rise (includes 9→0 wrap)
+      if (diff === -1 || diff === 9) return -1;  // Fall (includes 0→9 wrap)
+      return 0; // multi-step jump — treat as neutral
+    };
+
+    const dirs = [];
+    for (let i = 1; i < h.length; i++) {
+      dirs.push(getStep(h[i - 1], h[i]));
+    }
+
+    // ── Step 2: Pattern scan for ALL step offsets (1 through 5) ────────────
+    //
+    //  For step offset S:
+    //    outcome = dirs[i + patLen + (S - 1)]
+    //
+    //  Step 1: dirs[i + patLen]       (next tick — immediate)
+    //  Step 2: dirs[i + patLen + 1]   (one tick later — typical execution offset)
+    //  Step 3: dirs[i + patLen + 2]   (two ticks later)
+    //  Step 4: dirs[i + patLen + 3]   (three ticks later)
+    //  Step 5: dirs[i + patLen + 4]   (four ticks later)
+    //
+    //  Loop bound: i <= dirs.length - patLen - MAX_STEPS
+    //  This guarantees all 5 lookahead indices exist for every match.
+
+    // Results for each step offset
+    const stepResults = Array.from({ length: MAX_STEPS }, () => ({
+      rises: 0,
+      falls: 0,
+      total: 0,
+      confidence: 0,
+      direction: 0,       // +1 rise, -1 fall
+      prediction: 'CALLE',
+      info: '',
+    }));
+
+    for (const patLen of [5]) {
+      // Need patLen directions for the pattern + MAX_STEPS for all lookaheads
+      if (dirs.length < patLen + MAX_STEPS) continue;
+
+      const currentPattern = dirs.slice(-patLen);
+
+      // Maximum scan index — ensures all step offsets have valid indices
+      const scanEnd = dirs.length - patLen - MAX_STEPS;
+
+      for (let i = 0; i <= scanEnd; i++) {
+        // ── Pattern matching ─────────────────────────────────────────────
+        let match = true;
+        for (let k = 0; k < patLen; k++) {
+          if (currentPattern[k] !== dirs[i + k]) {
+            match = false;
+            break;
+          }
+        }
+        if (!match) continue;
+
+        // ── Count outcomes for each step offset ──────────────────────────
+        for (let s = 0; s < MAX_STEPS; s++) {
+          const outcomeIdx = i + patLen + s;  // s=0 → 1-step, s=1 → 2-step, etc.
+          const outcome = dirs[outcomeIdx];
+          if (outcome === 1) stepResults[s].rises++;
+          else if (outcome === -1) stepResults[s].falls++;
+        }
+      }
+
+      // ── Compute confidence and direction for each step ─────────────────
+      for (let s = 0; s < MAX_STEPS; s++) {
+        const r = stepResults[s];
+        r.total = r.rises + r.falls;
+
+        if (r.total >= 30) {
+          r.confidence = Math.max(r.rises, r.falls) / r.total;
+          r.direction = r.rises >= r.falls ? 1 : -1;
         } else {
-            LOGGER.info(`   ✅ Ready for candle-pattern detection (lookback ${needed})`);
-        }
-    }
-
-    onError(error) {
-        LOGGER.error(`WebSocket error: ${error.message}`);
-    }
-
-    onClose() {
-        LOGGER.warn('🔌 Disconnected from Deriv API');
-        state.isConnected = false;
-        state.isAuthorized = false;
-
-        this.stopPing();
-        StatePersistence.saveState();
-
-        if (this.isReconnecting) {
-            LOGGER.info('Already handling disconnect, skipping...');
-            return;
+          r.confidence = 0;
+          r.direction = 0;
         }
 
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.isReconnecting = true;
-            this.reconnectAttempts++;
-            const delay = Math.min(
-                this.reconnectDelay *
-                Math.pow(1.5, this.reconnectAttempts - 1),
-                30000
-            );
+        r.prediction = r.direction >= 0 ? 'CALLE' : 'PUTE';
+        r.info = `pat${patLen}-${s + 1}step: ${r.rises}R/${r.falls}F/${r.total}T`;
+      }
+    }
 
-            LOGGER.info(
-                `🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
-            );
-            LOGGER.info(
-                `📊 Preserved state - Trades: ${state.session.tradesCount}, P&L: $${state.session.netPL.toFixed(2)}`
-            );
+    // ── Trend direction bias (last 10 steps) ───────────────────────────────
+    const recent = dirs.slice(-10).filter(d => d !== undefined);
+    const riseNum = recent.filter(d => d === 1).length;
+    const fallNum = recent.filter(d => d === -1).length;
+    const neutral = recent.filter(d => d === 0).length;
+    const trendInfo = `Trend(${recent.length}): R:${riseNum} N:${neutral} F:${fallNum} (${recent.map(d => d === 1 ? '↑' : d === -1 ? '↓' : '·').join('')})`;
 
-            TelegramService.sendMessage(
-                `⚠️ <b>CONNECTION LOST - RECONNECTING</b>\n📊 Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n⏱️ Retrying in ${(delay / 1000).toFixed(1)}s\n💾 State preserved: ${state.session.tradesCount} trades, $${state.session.netPL.toFixed(2)} P&L`
-            );
+    // ── Select primary step from config ────────────────────────────────────
+    const primaryStepIdx = Math.max(0, Math.min(MAX_STEPS - 1,
+      (this.config.predictionStep || 2) - 1
+    ));
+    const primary = stepResults[primaryStepIdx];
+    const prediction = primary.prediction;
 
-            setTimeout(() => {
-                this.isReconnecting = false;
-                this.connect();
-            }, delay);
-        } else {
-            LOGGER.error('Max reconnection attempts reached.');
-            TelegramService.sendMessage(
-                `🛑 <b>BOT STOPPED</b>\nMax reconnection attempts reached.\nFinal P&L: $${state.session.netPL.toFixed(2)}`
-            );
-            process.exit(1);
+    // ── Alignment analysis ─────────────────────────────────────────────────
+    // Count how many step horizons agree with the primary prediction
+    let alignedCount = 0;
+    for (let s = 0; s < MAX_STEPS; s++) {
+      if (stepResults[s].total >= 30 && stepResults[s].prediction === prediction) {
+        alignedCount++;
+      }
+    }
+    // "Aligned" = at least 3 out of 5 steps agree with the primary
+    const aligned = alignedCount >= 5;
+
+    // ── Logging ────────────────────────────────────────────────────────────
+    const stepSummaries = stepResults.map((r, idx) => {
+      const marker = idx === primaryStepIdx ? '★' : ' ';
+      const arrow = r.prediction === 'CALLE' ? '↑' : '↓';
+      return `${marker}S${idx + 1}: ${(r.confidence * 100).toFixed(1)}% ${arrow} (${r.rises}R/${r.falls}F)`;
+    }).join(' | ');
+
+    this.log(
+      `🔮 Multi-Step Predictor | Primary: S${primaryStepIdx + 1} → ` +
+      `${prediction === 'CALLE' ? 'RISE ↑' : 'FALL ↓'} ${(primary.confidence * 100).toFixed(1)}% | ` +
+      `Aligned: ${alignedCount}/${MAX_STEPS} ${aligned ? '✅' : '❌'} | ${trendInfo}`
+    );
+    this.log(`   ${stepSummaries}`);
+
+    // ── Store result ───────────────────────────────────────────────────────
+    this._lastPrediction = {
+      info: primary.info,
+      confidence: primary.confidence,
+      prediction,
+      digits: h.length,
+      totalPatterns: primary.total,
+      riseNum,
+      fallNum,
+      neutral,
+      primaryStep: primaryStepIdx + 1,
+      // All 5 step results for analysis / dashboard / Telegram
+      steps: stepResults,
+      // Alignment across horizons
+      aligned,
+      alignedCount,
+      // Legacy one-step fields for backward compatibility
+      oneStepPrediction: stepResults[0].prediction,
+      oneStepConfidence: stepResults[0].confidence,
+      oneStepInfo: stepResults[0].info,
+    };
+
+    return prediction;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // SUBSCRIBE TO CANDLES
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _subscribeToCandles(symbol) {
+    this.log(`📊 Subscribing to ${this.candleConfig.GRANULARITY}s candles for ${symbol}...`);
+
+    // Forget previous subscription if any
+    if (this._candleSubId) {
+      this._send({ forget: this._candleSubId });
+      this._candleSubId = null;
+    }
+
+    // Reset candle loaded state for fresh load
+    this.assetState.candlesLoaded = false;
+
+    // Load historical candles
+    this._send({
+      ticks_history: symbol,
+      adjust_start_time: 1,
+      count: this.candleConfig.CANDLES_TO_LOAD,
+      end: 'latest',
+      start: 1,
+      style: 'candles',
+      granularity: this.candleConfig.GRANULARITY,
+    });
+
+    // Subscribe to live candle updates
+    this._send({
+      ticks_history: symbol,
+      adjust_start_time: 1,
+      count: 1,
+      end: 'latest',
+      start: 1,
+      style: 'candles',
+      granularity: this.candleConfig.GRANULARITY,
+      subscribe: 1,
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // RECOVER FROM STUCK TRADE - ENHANCED WITH PAUSE AND RESET
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _recoverStuckTrade(reason) {
+    const contractId = this.currentContractId;
+    const stakeInfo = this.pendingTradeInfo;
+    const openSeconds = this.tradeStartTime
+      ? Math.round((Date.now() - this.tradeStartTime) / 1000)
+      : '?';
+
+    this.log(
+      `🚨 STUCK TRADE RECOVERY [${reason}] | Contract: ${contractId} | ` +
+      `Open for: ${openSeconds}s | Level: ${this.currentGridLevel}`,
+      'error'
+    );
+
+    this.stuckTradeCount++;
+
+    if (stakeInfo && stakeInfo.stake > 0) {
+      this.investmentRemaining = Number(
+        (this.investmentRemaining + stakeInfo.stake).toFixed(2)
+      );
+      this.log(
+        `💰 Stake $${stakeInfo.stake.toFixed(2)} returned to pool (unknown outcome) → ` +
+        `pool: $${this.investmentRemaining.toFixed(2)}`,
+        'warning'
+      );
+    }
+
+    if (contractId) {
+      this._processedContracts.add(String(contractId));
+    }
+
+    this.tradeInProgress = false;
+    this.pendingTradeInfo = null;
+    this.currentContractId = null;
+    this.tradeStartTime = null;
+
+    this._clearAllWatchdogTimers();
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Pause trading, reset values, then resume after configured duration
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const pauseDurationMs = this.config.stuckTradePauseDuration || (5 * 60 * 1000);
+    const pauseDurationMin = Math.round(pauseDurationMs / 60000);
+
+    // Set pause state
+    this.isPausedDueToStuckTrade = true;
+    this.stuckTradePauseEnd = Date.now() + pauseDurationMs;  // absolute timestamp
+    this.canTrade = false;
+    this.inRecoveryMode = false;
+
+    // Reset to defaults
+    const previousGridLevel = this.currentGridLevel;
+    const previousBaseStake = this.baseStake;
+    this.currentGridLevel = 0;
+    this.currentDirection = 'CALLE';
+    this.baseStake = this.config.initialStake;
+
+    this.log(
+      `⏸️ PAUSING TRADING for ${pauseDurationMin} minute(s) due to stuck trade | ` +
+      `Grid Level: L${previousGridLevel} → L0 | ` +
+      `Base Stake: $${previousBaseStake.toFixed(2)} → $${this.baseStake.toFixed(2)}`,
+      'warning'
+    );
+
+    this._sendTelegram(
+      `🛑 <b>${DEFAULT_CONFIG.symbol} STUCK TRADE DETECTED — PAUSING TRADING3</b>\n\n` +
+      `⚠️ <b>Reason:</b> ${reason}\n` +
+      `⏱️ <b>Contract was open for:</b> ${openSeconds}s\n` +
+      `📊 <b>Stuck trade count:</b> ${this.stuckTradeCount}\n\n` +
+      `🔄 <b>Actions Taken:</b>\n` +
+      `  • Stake $${stakeInfo?.stake?.toFixed(2) || '0.00'} returned to pool\n` +
+      `  • Trading paused for ${pauseDurationMin} minute(s)\n` +
+      `  • Grid Level reset: L${previousGridLevel} → L0\n` +
+      `  • Base Stake reset: $${previousBaseStake.toFixed(2)} → $${this.baseStake.toFixed(2)}\n` +
+      `  • Direction reset to HIGHER (CALLE)\n\n` +
+      `⏰ <b>Trading will resume at:</b> ${new Date(this.stuckTradePauseEnd).toLocaleTimeString()}\n\n` +
+      `⚠️ Please verify the trade outcome on Deriv manually!\n\n` +
+      `📊 <b>Current State:</b>\n` +
+      `  Investment pool: $${this.investmentRemaining.toFixed(2)}\n` +
+      `  Session P&L: $${this.totalProfit.toFixed(2)}`
+    );
+
+    StatePersistence.save(this);
+
+    // Clear any existing pause timer
+    if (this.stuckTradePauseTimer) {
+      clearTimeout(this.stuckTradePauseTimer);
+      this.stuckTradePauseTimer = null;
+    }
+
+    // Set timer to resume trading
+    this.stuckTradePauseTimer = setTimeout(() => {
+      this._resumeTradingAfterStuckTradePause();
+    }, pauseDurationMs);
+
+    this.log(
+      `⏳ Stuck trade pause active — trading will resume in ${pauseDurationMin} minute(s) ` +
+      `at ${new Date(this.stuckTradePauseEnd).toLocaleTimeString()}`,
+      'info'
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // RESUME TRADING AFTER STUCK TRADE PAUSE
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _resumeTradingAfterStuckTradePause() {
+    this.isPausedDueToStuckTrade = false;
+    this.stuckTradePauseEnd = null;
+    this.stuckTradePauseTimer = null;
+
+    // Don't set canTrade=true here — wait for next candle
+    this.canTrade = false;
+
+    this.log(
+      `✅ STUCK TRADE PAUSE COMPLETE | Trading resumed | ` +
+      `Grid Level: L${this.currentGridLevel} | Base Stake: $${this.baseStake.toFixed(2)}`,
+      'success'
+    );
+
+    this._sendTelegram(
+      `✅ <b>${DEFAULT_CONFIG.symbol} TRADING3 RESUMED</b>\n\n` +
+      `⏰ <b>Pause duration completed</b>\n\n` +
+      `📊 <b>Current State:</b>\n` +
+      `  Grid Level: L${this.currentGridLevel}\n` +
+      `  Base Stake: $${this.baseStake.toFixed(2)}\n` +
+      `  Direction: ${this.currentDirection === 'CALLE' ? 'HIGHER' : 'LOWER'}\n` +
+      `  Investment pool: $${this.investmentRemaining.toFixed(2)}\n` +
+      `  Session P&L: $${this.totalProfit.toFixed(2)}\n\n` +
+      `🚀 Waiting for next candle to resume trading!`
+    );
+
+    StatePersistence.save(this);
+
+    this.log('⏳ Waiting for next new candle to place trade…', 'info');
+  }
+
+  // Tick duration: candle trades use config value, recovery trades use 3 ticks
+  // (3 ticks aligns closely with the tick-level predictor while giving safe
+  // WebSocket round-trip margin vs. 1-tick execution timing risk)
+  // getTickDuration(level) {
+  //   if (level < 1) return DEFAULT_CONFIG.tickDuration; // fresh candle trade
+  //   if (level <= 5) return 1; // 1 tick — optimal predictor alignment but might have execution safety issues because Deriv WebSocket 
+  //   // round-trip (proposal → buy confirmation) takes 300–500ms and ticks arrive every 1–2 seconds, you may miss the intended tick.
+  //   return 1;  // recovery: 3 ticks — optimal predictor alignment + execution safety
+  // }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // PLACE TRADE
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _placeTrade(candleType, candleEmoji) {
+    if (!this.isAuthorized) { this.log('Not authorized — cannot trade', 'error'); return; }
+    if (!this.running) { return; }
+    if (this.tradeInProgress) { this.log('Trade already in progress…', 'warning'); return; }
+
+    // ── CHECK IF PAUSED DUE TO STUCK TRADE ─────────────────────────────────
+    if (this.isPausedDueToStuckTrade) {
+      const remainingMs = this.stuckTradePauseEnd ? Math.max(0, this.stuckTradePauseEnd - Date.now()) : 0;
+      const remainingMin = Math.ceil(remainingMs / 60000);
+      this.log(
+        `⏸️ Cannot place trade - paused due to stuck trade. ` +
+        `Will resume in ~${remainingMin} minute(s)`,
+        'warning'
+      );
+      return;
+    }
+
+    // ── CANDLE GATE CHECK ─────────────────────────────────────────────────
+    if (!this.canTrade) {
+      if (this.inRecoveryMode) {
+        this.log(
+          '⚡ Recovery mode but canTrade=false — forcing canTrade=true',
+          'warning'
+        );
+        this.canTrade = true;
+      } else {
+        this.log(
+          '⏳ Waiting for new candle before trading… (canTrade=false)',
+          'info'
+        );
+        return;
+      }
+    }
+
+    // Determine direction for fresh trades (non-recovery)
+    if (!this.inRecoveryMode) {
+      if (DEFAULT_CONFIG.useCandleStrategy) {
+        // ── Candle strategy: direction from closed candle colour ─────────
+        if (!candleType) {
+          this.log('⏳ No candle type info — waiting for next candle');
+          this.canTrade = false;
+          return;
         }
-    }
-
-    startPing() {
-        this.pingInterval = setInterval(() => {
-            if (state.isConnected) {
-                this.send({ ping: 1 });
-            }
-        }, 30000);
-    }
-
-    stopPing() {
-        if (this.pingInterval) {
-            clearInterval(this.pingInterval);
+        if (candleType === 'DOJI') {
+          this.log('Last Candle was a Doji — skipping', 'warning');
+          this.canTrade = false;
+          return;
         }
+        this.currentDirection = candleType === 'BULLISH' ? 'CALLE' : 'PUTE';
+      } else if (DEFAULT_CONFIG.usePatternStrategy) {
+        // ── Pattern strategy (candle OFF): predictor sets direction ──────
+        // this.currentDirection = this._predictRecoveryDirection();
+        // const { confidence, totalPatterns } = this._lastPrediction;
+        // if ((confidence || 0) < 0.54 || (totalPatterns || 0) < 30) {
+        //   this.canTrade = true;
+        //   this.log(
+        //     `⚡ Pattern fresh trade: low confidence (${((confidence || 0) * 100).toFixed(2)}%) ` +
+        //     `or insufficient samples (${totalPatterns || 0}) — waiting for better signal`,
+        //     'info'
+        //   );
+        //   return;
+        // }
+      } else {
+        // Both strategies OFF — simple alternating direction
+        // this.currentDirection = this.currentDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+      }
+    } else {
+      // ── Recovery mode direction ──────────────────────────────────────────
+      if (DEFAULT_CONFIG.usePatternStrategy) {
+        // this.currentDirection = this._predictRecoveryDirection();
+
+        // // Confidence gate
+        // const { confidence, totalPatterns } = this._lastPrediction || {};
+        // if ((confidence || 0) < 0.54 || (totalPatterns || 0) < 30) {
+        //   this.canTrade = true;
+        //   this.log(
+        //     `⚡ Recovery mode: low confidence (${((confidence || 0) * 100).toFixed(2)}%) ` +
+        //     `or total patterns (${totalPatterns || 0}) < 30 — waiting for better signal`,
+        //     'info'
+        //   );
+        //   return;
+        // }
+      }
     }
 
-    send(data) {
-        if (!state.isConnected) {
-            LOGGER.error('Cannot send: Not connected');
-            return null;
-        }
+    const stake = this.calculateStake(this.currentGridLevel);
+    const direction = this.currentDirection;
+    const label = direction === 'CALLE' ? 'HIGHER' : 'LOWER';
+    const tradeType = this.inRecoveryMode ? '⚡ RECOVERY' : '🕯️ NEW CANDLE';
 
-        data.req_id = state.requestId++;
-        this.ws.send(JSON.stringify(data));
-        return data.req_id;
+    if (stake > this.investmentRemaining) {
+      this.log(
+        `Insufficient investment: stake $${stake} > remaining $${this.investmentRemaining.toFixed(2)}`,
+        'error'
+      );
+      this.running = false;
+      this.inRecoveryMode = false;
+      this.canTrade = false;
+      return;
     }
+
+    if (stake > this.balance) {
+      this.log(
+        `Insufficient balance: stake $${stake} > balance $${this.balance.toFixed(2)}`,
+        'error'
+      );
+      this.running = false;
+      this.inRecoveryMode = false;
+      this.canTrade = false;
+      return;
+    }
+
+    const duration = DEFAULT_CONFIG.tickDuration;//this.getTickDuration(this.currentGridLevel);
+    this.tickDuration = duration;
+
+    // Log compounding info
+    const compoundInfo = this.config.autoCompounding
+      ? `(step-compound: base $${this.config.investmentAmount} → pool $${this.investmentRemaining.toFixed(2)}, ` +
+      `steps: ${Math.floor(Math.max(0, this.investmentRemaining - this.config.investmentAmount) / this.config.compoundInvestmentStep)})`
+      : '';
+
+    this.log(
+      `🚀 ${tradeType} TRADE Executed | ${label} | L${this.currentGridLevel} | Stake: $${stake} | ` +
+      `Investment left: $${this.investmentRemaining.toFixed(2)} ${compoundInfo}`
+    );
+
+    this._sendTelegram(
+      `🚀 <b>${DEFAULT_CONFIG.symbol}: TRADE3 OPEN</b>\n` +
+      `Type: ${tradeType}\n` +
+      `${candleEmoji ? `📊 Last Candle: ${candleEmoji} ${candleType}\n` : ''}` +
+      `📊 Direction: ${label}\n` +
+      `💰 Stake: $${stake}\n` +
+      `⏱ Duration: ${duration} ticks\n` +
+      `📊 <b>Grid Level:</b> ${this.currentGridLevel}\n` +
+      `💵 <b>Investment left:</b> $${this.investmentRemaining.toFixed(2)}\n` +
+      `📈 <b>Base Stake:</b> $${this.baseStake.toFixed(2)}\n` +
+      (DEFAULT_CONFIG.usePatternStrategy && this._lastPrediction
+        ? `\n🔮 <b>Pattern Analysis (S${this._lastPrediction.primaryStep}):</b>\n` +
+        `  Pattern: ${this._lastPrediction.info}\n` +
+        `  Primary Confidence: ${(this._lastPrediction.confidence * 100).toFixed(1)}%\n` +
+        `  Prediction: ${this._lastPrediction.prediction === 'CALLE' ? '↑ RISE' : '↓ FALL'}\n` +
+        `  Alignment: ${this._lastPrediction.alignedCount}/5 steps agree ${this._lastPrediction.aligned ? '✅' : '⚠️'}\n` +
+        `  Steps: ${(this._lastPrediction.steps || []).map((s, i) =>
+          `S${i + 1}:${(s.confidence * 100).toFixed(0)}%${s.prediction === 'CALLE' ? '↑' : '↓'}`
+        ).join(' | ')}\n` +
+        `  Ticks analysed: ${this._lastPrediction.digits}\n`
+        : '')
+    );
+
+    if (!this.inRecoveryMode) {
+      this.canTrade = false;
+    }
+
+    this.tradeInProgress = true;
+    this.pendingTradeInfo = {
+      id: Date.now(),
+      time: new Date().toISOString(),
+      direction,
+      stake,
+      gridLevel: this.currentGridLevel,
+    };
+
+    this._send({
+      proposal: 1,
+      amount: stake,
+      basis: 'stake',
+      contract_type: direction,
+      currency: this.currency,
+      duration: duration,
+      duration_unit: 't',
+      symbol: this.config.symbol,
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // START / STOP
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  start() {
+    if (!this.isAuthorized) {
+      this.log('Not authorized — connect first', 'error');
+      return false;
+    }
+    if (this.running) {
+      this.log('Bot already running', 'warning');
+      return false;
+    }
+    if (this.config.investmentAmount <= 0) {
+      this.log('Invalid investment amount', 'error');
+      return false;
+    }
+    if (this.config.investmentAmount > this.balance) {
+      this.log(
+        `Investment $${this.config.investmentAmount} exceeds balance $${this.balance.toFixed(2)}`,
+        'error'
+      );
+      return false;
+    }
+
+    const cfg = this.config;
+
+    // Calculate initial base stake using intelligent compounding
+    if (cfg.autoCompounding) {
+      this.baseStake = Math.max(cfg.initialStake, 0.35);
+      this.log(
+        `💰 Auto-compounding ON (step mode): base stake $${this.baseStake.toFixed(2)} | ` +
+        `+$${cfg.compoundStakeStep} per $${cfg.compoundInvestmentStep} investment growth`
+      );
+    } else {
+      this.baseStake = cfg.initialStake;
+      this.log(`💰 Fixed stake: $${this.baseStake.toFixed(2)}`);
+    }
+
+    this.running = true;
+    this.currentGridLevel = 0;
+    this.currentDirection = 'CALLE';
+    this.totalProfit = 0;
+    this.totalTrades = 0;
+    this.wins = 0;
+    this.losses = 0;
+    this.currentStreak = 0;
+    this.maxWinStreak = 0;
+    this.maxLossStreak = 0;
+    this.totalRecovered = 0;
+    this.investmentRemaining = cfg.investmentAmount;
+    this.investmentStartAmount = cfg.investmentAmount;
+    this.tradeInProgress = false;
+    this.pendingTradeInfo = null;
+    this.currentContractId = null;
+    this.isWinTrade = false;
+    this.reconnectAttempts = 0;
+    this.hasStartedOnce = true;
+    this.stuckTradeCount = 0;
+
+    // ── Initialize candle-gated trading ──────────────────────────────────
+    this.inRecoveryMode = false;
+    this.canTrade = false;
+    this.isPausedDueToStuckTrade = false;
+    this.stuckTradePauseEnd = null;
+
+    // ── Initialize daily stats ────────────────────────────────────────────
+    this._initDailyStats();
+    this.dailyStats.startBalance = this.balance;
+    this.dailyStats.startInvestment = cfg.investmentAmount;
+
+    this.log(`🚀 ${DEFAULT_CONFIG.symbol} Grid Martingale Bot STARTED!`, 'success');
+    this.log(
+      `💵 Investment: $${cfg.investmentAmount} | Base: $${this.baseStake.toFixed(2)} | ` +
+      `Mult: ${cfg.martingaleMultiplier}x | Max: L${cfg.maxMartingaleLevel} | ${cfg.tickDuration}t`
+    );
+    if (cfg.afterMaxLoss === 'continue') {
+      this.log(
+        `🔄 Extended recovery: up to L${cfg.maxMartingaleLevel + cfg.continueExtraLevels} with custom multipliers`
+      );
+    }
+    this.log(
+      `📈 Trading mode: NEW CANDLE → trade | LOSS → recovery until WIN → wait for new candle`
+    );
+    this.log(`⏳ Waiting for first new candle to start trading…`);
+
+    // Log compounding and stuck trade settings
+    if (cfg.autoCompounding) {
+      this.log(
+        `📊 Compounding: +$${cfg.compoundStakeStep} base stake per $${cfg.compoundInvestmentStep} investment growth`
+      );
+    }
+    const pauseMin = Math.round((cfg.stuckTradePauseDuration || 300000) / 60000);
+    this.log(`🛡️ Stuck trade pause duration: ${pauseMin} minute(s)`);
+
+    this._sendTelegram(
+      `🚀 <b>${DEFAULT_CONFIG.symbol} Grid Bot3 STARTED</b>\n` +
+      `💵 Investment: $${cfg.investmentAmount}\n` +
+      `📊 Base Stake: $${this.baseStake.toFixed(2)}\n` +
+      `🔢 Multiplier: ${cfg.martingaleMultiplier}x | Max Level: ${cfg.maxMartingaleLevel}\n` +
+      `⏱ Duration: ${cfg.tickDuration} ticks\n` +
+      `💰 Balance: ${this.currency} ${this.balance.toFixed(2)}\n` +
+      `🕯️ Mode: Trade on new candle | Recovery until win\n` +
+      `📈 Compounding: +$${cfg.compoundStakeStep} / $${cfg.compoundInvestmentStep} growth\n` +
+      `⏸️ Stuck trade pause: ${pauseMin} minute(s)`
+    );
+
+    StatePersistence.save(this);
+
+    return true;
+  }
+
+  stop() {
+    this.running = false;
+    this.tradeInProgress = false;
+    this.inRecoveryMode = false;
+    this.canTrade = false;
+    this._clearAllWatchdogTimers();
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+    this.log('🛑 Bot stopped', 'warning');
+    this._sendDailySummary();
+    this._sendTelegram(
+      `🛑 <b>${DEFAULT_CONFIG.symbol} Bot3 stopped</b>\nP&L: $${this.totalProfit.toFixed(2)} | Trades: ${this.totalTrades}`
+    );
+    this._logSummary();
+    StatePersistence.save(this);
+  }
+
+  emergencyStop() {
+    this.running = false;
+    this.tradeInProgress = false;
+    this.inRecoveryMode = false;
+    this.canTrade = false;
+    this._clearAllWatchdogTimers();
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+    this.log('🚨 EMERGENCY STOP — All activity halted!', 'error');
+    this._sendDailySummary();
+    this._sendTelegram(
+      `🚨 <b>${DEFAULT_CONFIG.symbol} EMERGENCY STOP TRIGGERED3</b>\nP&L: $${this.totalProfit.toFixed(2)} | Trades: ${this.totalTrades}`
+    );
+    this._logSummary();
+    StatePersistence.save(this);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // SUMMARY LOG
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  _logSummary() {
+    const wr = this.totalTrades > 0
+      ? ((this.wins / this.totalTrades) * 100).toFixed(1)
+      : '0.0';
+    this.log(
+      `📊 SUMMARY | Trades: ${this.totalTrades} | W/L: ${this.wins}/${this.losses} | ` +
+      `Win rate: ${wr}% | P&L: $${this.totalProfit.toFixed(2)} | ` +
+      `Recovered: $${this.totalRecovered.toFixed(2)}`
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // TELEGRAM
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  async _sendTelegram(message) {
+    if (!this.telegramBot || !this.config.telegramEnabled) return;
+    try {
+      await this.telegramBot.sendMessage(this.config.telegramChatId, message, {
+        parse_mode: 'HTML',
+      });
+    } catch (e) {
+      console.error(`[Telegram] send failed: ${e.message}`);
+    }
+  }
+
+  _sendTelegramTradeResult(isWin, profit) {
+    const wr = this.totalTrades > 0
+      ? ((this.wins / this.totalTrades) * 100).toFixed(1)
+      : '0.0';
+    const pnlStr = (profit >= 0 ? '+' : '') + '$' + profit.toFixed(2);
+    const dirLabel = this.currentDirection === 'CALLE' ? 'HIGHER' : 'LOWER';
+    const modeStr = this.inRecoveryMode ? '⚡ RECOVERY MODE' : '🕯️ CANDLE MODE';
+
+    // Compounding info
+    const steps = Math.floor(
+      Math.max(0, this.investmentRemaining - this.config.investmentAmount) /
+      this.config.compoundInvestmentStep
+    );
+    const compoundLine = this.config.autoCompounding
+      ? `  Base Stake: $${this.baseStake.toFixed(2)} (compound steps: ${steps})\n`
+      : '';
+
+    this._sendTelegram(
+      `${isWin ? '✅ WIN' : '❌ LOSS'} <b>— ${DEFAULT_CONFIG.symbol} Grid Bot3</b>\n\n` +
+      `${isWin ? '🟢' : '🔴'} <b>P&L:</b> ${pnlStr}\n` +
+      `📊 <b>Grid Level:</b> ${this.currentGridLevel} → ${isWin ? 'RESET L0' : `L${this.currentGridLevel}`}\n` +
+      `🎯 <b>Next:</b> ${isWin ? '⏳ Waiting for new candle' : `${dirLabel} @ $${this.calculateStake(this.currentGridLevel).toFixed(2)} ⚡`}\n` +
+      `🔄 <b>Mode:</b> ${isWin ? '🕯️ Wait for candle' : modeStr}\n\n` +
+      `📈 <b>Session Stats:</b>\n` +
+      `  Trades: ${this.totalTrades} | W/L: ${this.wins}/${this.losses}\n` +
+      `  Win Rate: ${wr}%\n` +
+      `  Daily P&L: ${(this.totalProfit >= 0 ? '+' : '')}$${this.totalProfit.toFixed(2)}\n` +
+      `  Investment: $${this.investmentRemaining.toFixed(2)}\n` +
+      compoundLine +
+      `\n⏰ ${new Date().toLocaleTimeString()}`
+    );
+  }
+
+  async _sendHourlySummary() {
+    const s = this.hourlyStats;
+    const wr = (s.wins + s.losses) > 0
+      ? ((s.wins / (s.wins + s.losses)) * 100).toFixed(1)
+      : '0.0';
+    const pnlStr = (s.pnl >= 0 ? '+' : '') + '$' + s.pnl.toFixed(2);
+
+    await this._sendTelegram(
+      `⏰ <b>${DEFAULT_CONFIG.symbol} Grid Bot3 — Hourly Summary</b>\n\n` +
+      `📊 <b>Last Hour:</b>\n` +
+      `  Trades: ${s.trades} | Wins: ${s.wins} | Losses: ${s.losses}\n` +
+      `  Win Rate: ${wr}%\n` +
+      `  ${s.pnl >= 0 ? '🟢' : '🔴'} P&L: ${pnlStr}\n\n` +
+      `📈 <b>Session Totals:</b>\n` +
+      `  Total Trades: ${this.totalTrades}\n` +
+      `  W/L: ${this.wins}/${this.losses}\n` +
+      `  Session P&L: ${(this.totalProfit >= 0 ? '+' : '')}$${this.totalProfit.toFixed(2)}\n` +
+      `  Investment: $${this.investmentRemaining.toFixed(2)} / $${this.investmentStartAmount.toFixed(2)}\n` +
+      `  Total Recovered: $${this.totalRecovered.toFixed(2)}\n` +
+      `  Max Win Streak: ${this.maxWinStreak}\n` +
+      `  Max Loss Streak: ${this.maxLossStreak}\n` +
+      `  Grid Level: ${this.currentGridLevel}\n` +
+      `  Recovery Mode: ${this.inRecoveryMode ? 'YES ⚡' : 'NO'}\n` +
+      `  Base Stake: $${this.baseStake.toFixed(2)}\n\n` +
+      `⏰ ${new Date().toLocaleString()}`
+    );
+
+    this.log('📱 Telegram hourly summary2 sent');
+    this.hourlyStats = {
+      trades: 0, wins: 0, losses: 0, pnl: 0,
+      lastHour: new Date().getHours(),
+    };
+  }
+
+  startTelegramTimer() {
+    const now = new Date();
+    const nextHour = new Date(now);
+    nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+    const msUntilNext = nextHour.getTime() - now.getTime();
+
+    setTimeout(() => {
+      this._sendHourlySummary();
+      setInterval(() => this._sendHourlySummary(), 60 * 60 * 1000);
+    }, msUntilNext);
+
+    this.log(
+      `📱 Hourly Telegram summaries scheduled (first in ${Math.ceil(msUntilNext / 60000)} min)`
+    );
+
+    // ── Daily summary at midnight ───────────────────────────────────────────
+    this._scheduleDailySummary();
+  }
+
+  _scheduleDailySummary() {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 5, 0);  // 00:00:05 next day
+    const msUntilMidnight = tomorrow.getTime() - now.getTime();
+
+    setTimeout(() => {
+      this._sendDailySummary();
+      // Re-schedule for next day
+      setInterval(() => {
+        this._sendDailySummary();
+        this._initDailyStats();
+        this.dailyStats.startBalance = this.balance;
+        this.dailyStats.startInvestment = this.investmentRemaining;
+      }, 24 * 60 * 60 * 1000);
+    }, msUntilMidnight);
+
+    this.log(
+      `📅 Daily summary scheduled (first in ${Math.ceil(msUntilMidnight / 3600000)} hours)`
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // TIME SCHEDULER
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  startTimeScheduler() {
+    setInterval(() => {
+      const now = new Date();
+      const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+      const gmt1 = new Date(utcMs + (1 * 60 * 60 * 1000));
+      const day = gmt1.getDay();
+      const hours = gmt1.getHours();
+      const minutes = gmt1.getMinutes();
+
+      // Check for day rollover in daily stats
+      const today = this._getTodayKey();
+      if (this.dailyStats.date !== today) {
+        this.log(`📅 Day changed from ${this.dailyStats.date} to ${today}`, 'info');
+        this._sendDailySummary();
+        this._initDailyStats();
+        this.dailyStats.startBalance = this.balance;
+        this.dailyStats.startInvestment = this.investmentRemaining;
+      }
+
+      //New Day Trade Resumption
+      if (this.endOfDay && hours === 3 && minutes >= 0) {
+        this.log('📅 03:00 GMT+1 — reconnecting bot', 'success');
+        this._resetDailyState();
+        this.endOfDay = false;
+        this.connect();
+        return;
+      }
+
+      //Mid Day Trade Resumption
+      if (this.endOfDay && hours === 15 && minutes >= 0) {
+        this.log('📅 15:00 GMT+1 — reconnecting bot', 'success');
+        this._resetDailyState();
+        this.endOfDay = false;
+        this.connect();
+        return;
+      }
+
+      //New York Open Trade Pause
+      if (!this.endOfDay && this.isWinTrade && hours >= 12 && minutes >= 50) {
+        this.log('📅 Past 13:50 GMT+1 — end-of-day stop', 'info');
+        this._sendHourlySummary();
+        this._sendDailySummary();
+        this.disconnect();
+        this.endOfDay = true;
+        return;
+      }
+
+      //END of Day Trade Pause
+      if (!this.endOfDay && this.isWinTrade && hours >= 23 && minutes >= 50) {
+        this.log('📅 Past 23:50 GMT+1 — end-of-day stop', 'info');
+        this._sendHourlySummary();
+        this._sendDailySummary();
+        this.disconnect();
+        this.endOfDay = true;
+        return;
+      }
+    }, 10000);
+
+    this.log('📅 Time scheduler started (weekend pause + EOD logic)');
+  }
+
+  _resetDailyState() {
+    this.tradeInProgress = false;
+    this.isWinTrade = false;
+    this.inRecoveryMode = false;
+    this.canTrade = false;
+    this.currentGridLevel = 0;
+    this.currentDirection = 'CALLE';
+    this.stuckTradeCount = 0;
+
+    // Initialize fresh daily stats
+    this._initDailyStats();
+  }
 }
 
-// ============================================
-// MAIN BOT CLASS
-// ============================================
-class DerivBot {
-    constructor() {
-        this.connection = new ConnectionManager();
-    }
+// ══════════════════════════════════════════════════════════════════════════════
+// TERMINAL BANNER
+// ══════════════════════════════════════════════════════════════════════════════
 
-    async start() {
-        console.log('\n' + '═'.repeat(80));
-        console.log(
-            ' DERIV RISE/FALL CANDLE PATTERN BOT (Per-Asset Independent Management)'
-        );
-        console.log('═'.repeat(80));
-        console.log(`💰 Initial Capital: $${state.capital}`);
-        console.log(`📊 Active Assets: ${ACTIVE_ASSETS.join(', ')}`);
-        console.log(`💵 Base Stake: $${CONFIG.STAKE} (per asset)`);
-        console.log(`🕯️ Asset Configurations:`);
-        ACTIVE_ASSETS.forEach(symbol => {
-            const ac = getAssetConfig(symbol);
-            console.log(`   ${symbol}: ${ac.TIMEFRAME_LABEL} candles (${ac.GRANULARITY}s), Duration: ${ac.DURATION}${ac.DURATION_UNIT}, Max Candles: ${ac.MAX_CANDLES_STORED}`);
-        });
-        console.log(
-            `🎯 Session Target: $${CONFIG.SESSION_PROFIT_TARGET} | Stop Loss: $${CONFIG.SESSION_STOP_LOSS}`
-        );
-        console.log(
-            `📱 Telegram: ${CONFIG.TELEGRAM_ENABLED ? 'ENABLED' : 'DISABLED'}`
-        );
-        console.log(
-            `🔄 Max Positions Per Asset: ${CONFIG.MAX_OPEN_POSITIONS_PER_ASSET}`
-        );
-        console.log(
-            `📊 Candle Pattern Lookback: ${CONFIG.CANDLE_PATTERN_LOOKBACK || 7} candles | Sessions: ${CONFIG.USE_TRADING_SESSIONS ? 'ON' : 'OFF (24/7)'}`
-        );
-        console.log(
-            `🕐 Trading Sessions: ${CONFIG.USE_TRADING_SESSIONS ? 'ENABLED (session windows apply)' : 'DISABLED (trading 24/7)'}`
-        );
-
-        // Display trade history info
-        const overall = TradeHistoryManager.getOverallStats();
-        const totalDays = TradeHistoryManager.getAllDays().length;
-        console.log('─'.repeat(80));
-        console.log(`📚 TRADE HISTORY:`);
-        console.log(`   Trading Days: ${totalDays}`);
-        console.log(`   Total Trades: ${overall.tradesCount}`);
-        console.log(`   Overall P/L: $${overall.netPL.toFixed(2)}`);
-        console.log(`   Period: ${overall.firstTradeDate || 'N/A'} to ${overall.lastTradeDate || 'N/A'}`);
-
-        console.log('─'.repeat(80));
-        console.log(`🕐 TRADING WINDOWS (GMT+1):`);
-        console.log(
-            `   JY TOKYO Session:   ${String(CONFIG.TOKYO_START).padStart(2, '0')}:00 - ${String(CONFIG.TOKYO_END).padStart(2, '0')}:00`
-        );
-        console.log(
-            `   🇬🇧 London Session:   ${String(CONFIG.LONDON_START).padStart(2, '0')}:00 - ${String(CONFIG.LONDON_END).padStart(2, '0')}:00`
-        );
-        console.log(
-            `   🇺🇸 New York Session: ${String(CONFIG.NEWYORK_START).padStart(2, '0')}:00 - ${String(CONFIG.NEWYORK_END).padStart(2, '0')}:00`
-        );
-        console.log(
-            `   AU Sedney Session: ${String(CONFIG.SYDNEY_START).padStart(2, '0')}:00 - ${String(CONFIG.SYDNEY_END).padStart(2, '0')}:00`
-        );
-        console.log(
-            `   📊 Current Status: ${TradingSessionManager.getSessionStatusString()}`
-        );
-        console.log('═'.repeat(80));
-        console.log(
-            '📋 Strategy: Candle-pattern (per-asset) + Per-Asset Recovery System'
-        );
-        console.log(
-            `    📈 BUY  — if last ${CONFIG.CANDLE_PATTERN_LOOKBACK || 7} candles are NOT bullish (then BUY). Recovery continues until win.`
-        );
-        console.log(
-            `    📉 SELL — if last ${CONFIG.CANDLE_PATTERN_LOOKBACK || 7} candles are NOT bearish (then SELL). Recovery continues until win.`
-        );
-        console.log(
-            '    🔄 Recovery: Each asset has its own martingale chain'
-        );
-        console.log(
-            '    🕐 Signal detected on every candle close (pattern evaluated)'
-        );
-        console.log(
-            '    🎯 Each asset manages its own stake, direction & recovery independently'
-        );
-        console.log(
-            '    📚 Trade history persisted across days'
-        );
-        console.log('═'.repeat(80) + '\n');
-
-        // Initialize current trade day
-        state.currentTradeDay = TradeHistoryManager.getDateKey();
-        TradeHistoryManager.ensureDayEntry(state.currentTradeDay);
-        if (!tradeHistory.dailyHistory[state.currentTradeDay].startCapital ||
-            tradeHistory.dailyHistory[state.currentTradeDay].startCapital === 0) {
-            tradeHistory.dailyHistory[state.currentTradeDay].startCapital = state.capital;
-        }
-
-        this.connection.initializeAssets();
-
-        ACTIVE_ASSETS.forEach(symbol => {
-            this.subscribeToCandles(symbol);
-        });
-
-        TelegramService.sendStartupMessage();
-        TelegramService.startHourlyTimer();
-        TelegramService.startDailyTimer();
-
-        this.startSessionTimeChecker();
-
-        LOGGER.info('✅ Bot started successfully! (Per-Asset Independent Mode)');
-    }
-
-    subscribeToCandles(symbol) {
-        const assetConfig = getAssetConfig(symbol);
-        LOGGER.info(
-            `📊 Subscribing to ${assetConfig.TIMEFRAME_LABEL} candles for ${symbol} (granularity: ${assetConfig.GRANULARITY}s)...`
-        );
-
-        this.connection.send({
-            ticks_history: symbol,
-            adjust_start_time: 1,
-            count: assetConfig.CANDLES_TO_LOAD,
-            end: 'latest',
-            start: 1,
-            style: 'candles',
-            granularity: assetConfig.GRANULARITY
-        });
-
-        this.connection.send({
-            ticks_history: symbol,
-            adjust_start_time: 1,
-            count: 1,
-            end: 'latest',
-            start: 1,
-            style: 'candles',
-            granularity: assetConfig.GRANULARITY,
-            subscribe: 1
-        });
-    }
-
-    /**
-     * =========================================================
-    * TRADE EXECUTION — PER-ASSET Candle-pattern Logic
-     * =========================================================
-     */
-    executeNextTrade(symbol, lastClosedCandle) {
-        const assetState = state.assets[symbol];
-        if (!assetState) return;
-        if (!assetState.canTrade) return;
-        if (!SessionManager.isSessionActive()) return;
-
-        const assetConfig = getAssetConfig(symbol);
-
-        // Check per-asset position limit
-        if (
-            assetState.activePositions.length >=
-            CONFIG.MAX_OPEN_POSITIONS_PER_ASSET
-        ) {
-            LOGGER.debug(
-                `${symbol} ⏳ Max positions reached (${assetState.activePositions.length}/${CONFIG.MAX_OPEN_POSITIONS_PER_ASSET})`
-            );
-            return;
-        }
-
-        // =============================================
-        // TRADING SESSION TIME CHECK
-        // Only enforced for new signals, never for recovery
-        // Skipped entirely when USE_TRADING_SESSIONS is false
-        // =============================================
-        const isInMartingaleRecovery = assetState.martingaleLevel > 0;
-        let sessionCheck = { inSession: true, sessionName: '24/7', nextSession: null, minutesUntilNext: 0 };
-
-        if (CONFIG.USE_TRADING_SESSIONS) {
-            sessionCheck = TradingSessionManager.isWithinTradingSession();
-
-            if (!sessionCheck.inSession && !isInMartingaleRecovery) {
-                const now = Date.now();
-                if (now - state.lastSessionLogTime > 300000) {
-                    LOGGER.info(
-                        `🕐 OUTSIDE TRADING SESSION — ${TradingSessionManager.getSessionStatusString()} | Skipping new pattern signals`
-                    );
-                    state.lastSessionLogTime = now;
-                }
-                return;
-            }
-
-            if (!sessionCheck.inSession && isInMartingaleRecovery) {
-                LOGGER.info(
-                    `🔄 [${symbol}] Outside session but IN RECOVERY (Martingale Level: ${assetState.martingaleLevel}) — continuing recovery trade`
-                );
-            }
-        }
-
-        const stake = assetState.currentStake;
-
-        // Capital sufficiency check
-        if (state.capital < stake) {
-            LOGGER.error(
-                `[${symbol}] Insufficient capital for stake: $${state.capital.toFixed(2)} (Needed: $${stake.toFixed(2)})`
-            );
-            if (assetState.martingaleLevel > 0) {
-                LOGGER.info(
-                    `[${symbol}] Resetting Martingale level due to insufficient capital.`
-                );
-                assetState.martingaleLevel = 0;
-                assetState.currentStake = CONFIG.STAKE;
-            }
-            return;
-        }
-
-        // =============================================
-        // DETERMINE TRADE DIRECTION (per-asset logic)
-        // =============================================
-        let direction = null;
-        let signalReason = '';
-
-        const isRecoveryMode = assetState.lastTradeWasWin === false;
-
-        if (isRecoveryMode) {
-            // RECOVERY MODE: After a loss, continue in the SAME direction
-            // This is a martingale continuation strategy - not a new breakout signal
-            if (assetState.lastTradeDirection === 'CALLE') {
-                direction = 'CALLE';
-                signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
-            } else {
-                direction = 'PUTE';
-                signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
-            }
-            LOGGER.trade(`🔄 [${symbol}] RECOVERY MODE: ${signalReason} (Martingale Level: ${assetState.martingaleLevel})`);
-
-        } else {
-            // ── NORMAL MODE: Candle-pattern signal
-            const lookback = CONFIG.CANDLE_PATTERN_LOOKBACK || 7;
-            const closed = assetState.closedCandles || [];
-
-            if (closed.length < lookback) {
-                LOGGER.info(`${symbol} ⏳ Waiting for ${lookback} closed candles — have ${closed.length}`);
-                return;
-            }
-
-            const recent = closed.slice(-lookback);
-            const allNotBullish = recent.every(c => !CandleAnalyzer.isBullish(c));
-            const allNotBearish = recent.every(c => !CandleAnalyzer.isBearish(c));
-
-            if (allNotBullish && !allNotBearish) {
-                direction = 'CALLE';
-                signalReason = `Candle pattern: last ${lookback} candles NOT bullish (buy)`;
-                LOGGER.trade(`⚡ [${symbol}] PATTERN SIGNAL (BUY): ${signalReason}`);
-            } else if (allNotBearish && !allNotBullish) {
-                direction = 'PUTE';
-                signalReason = `Candle pattern: last ${lookback} candles NOT bearish (sell)`;
-                LOGGER.trade(`⚡ [${symbol}] PATTERN SIGNAL (SELL): ${signalReason}`);
-            } else {
-                const bulls = recent.filter(c => CandleAnalyzer.isBullish(c)).length;
-                const bears = recent.filter(c => CandleAnalyzer.isBearish(c)).length;
-                LOGGER.info(`${symbol} ⏸️ Candle pattern not met — last ${lookback}: bulls=${bulls} bears=${bears}`);
-            }
-
-            if (direction) {
-                LOGGER.trade(`⚡ [${symbol}] PATTERN SIGNAL: ${signalReason}`);
-            }
-        }
-
-        StatePersistence.saveState();
-
-        if (!direction) {
-            return;
-        }
-
-        // =============================================
-        // EXECUTE TRADE FOR THIS ASSET
-        // =============================================
-        assetState.canTrade = false;
-        assetState.lastTradeDirection = direction;
-
-        const sessionLabel = CONFIG.USE_TRADING_SESSIONS
-            ? (sessionCheck.inSession
-                ? `[${sessionCheck.sessionName}]`
-                : `[RECOVERY - Outside Session]`)
-            : '[24/7]';
-
-        LOGGER.trade(
-            `🎯 ${sessionLabel} [${symbol}] Executing ${direction === 'CALLE' ? 'RISE' : 'FALL'} trade`
-        );
-        LOGGER.trade(
-            `   [${symbol}] Stake: $${stake.toFixed(2)} | Duration: ${assetConfig.DURATION} ${assetConfig.DURATION_UNIT} | Martingale Level: ${assetState.martingaleLevel}`
-        );
-        LOGGER.trade(`   [${symbol}] Reason: ${signalReason}`);
-        const lastDir = CandleAnalyzer.getCandleDirection(lastClosedCandle);
-        LOGGER.trade(
-            `   [${symbol}] Last candle: ${lastDir} | Close: ${lastClosedCandle.close.toFixed(5)}`
-        );
-        LOGGER.trade(
-            `   [${symbol}] Asset Stats: ${assetState.tradesCount} trades, ${assetState.winsCount}W/${assetState.lossesCount}L, P/L: $${assetState.netPL.toFixed(2)}`
-        );
-
-        const position = {
-            symbol: symbol,
-            direction,
-            stake,
-            duration: assetConfig.DURATION,
-            durationUnit: assetConfig.DURATION_UNIT,
-            entryTime: Date.now(),
-            contractId: null,
-            reqId: null,
-            currentProfit: 0,
-            buyPrice: 0
-        };
-
-        // Add position to THIS asset's positions
-        assetState.activePositions.push(position);
-
-        const tradeRequest = {
-            buy: 1,
-            subscribe: 1,
-            price: stake.toFixed(2),
-            parameters: {
-                contract_type: direction,
-                symbol: symbol,
-                currency: 'USD',
-                amount: stake.toFixed(2),
-                duration: assetConfig.DURATION,
-                duration_unit: assetConfig.DURATION_UNIT,
-                basis: 'stake'
-            }
-        };
-
-        const reqId = this.connection.send(tradeRequest);
-        position.reqId = reqId;
-
-        // Mark this cross direction as traded (prevents re-trading on the same cross)
-        if (!isRecoveryMode) {
-            assetState.lastCrossSignalDirection = direction;
-            LOGGER.info(
-                `${symbol} ✅ pattern direction '${direction}' marked as traded — will not re-trade until next valid trigger`
-            );
-        }
-    }
-
-    stop() {
-        LOGGER.info('🛑 Stopping bot...');
-        // Disable trading on all assets
-        ACTIVE_ASSETS.forEach(symbol => {
-            const asset = state.assets[symbol];
-            if (asset) {
-                asset.canTrade = false;
-            }
-        });
-
-        // Save final state and history
-        StatePersistence.saveState();
-        TradeHistoryManager.saveHistory();
-
-        setTimeout(() => {
-            if (this.connection.ws) this.connection.ws.close();
-            LOGGER.info('👋 Bot stopped');
-        }, 2000);
-    }
-
-    /**
-     * Session time checker
-     */
-    startSessionTimeChecker() {
-        setInterval(() => {
-            const now = new Date();
-            const gmtPlus1Time = new Date(
-                now.getTime() + 1 * 60 * 60 * 1000
-            );
-            const currentDay = gmtPlus1Time.getUTCDay();
-            const currentHours = gmtPlus1Time.getUTCHours();
-            const currentMinutes = gmtPlus1Time.getUTCMinutes();
-
-            // Check for day change
-            SessionManager.checkDayChange();
-
-            // Weekend check
-            // const isWeekend =
-            //     currentDay === 0 ||
-            //     (currentDay === 6 && currentHours >= 23) ||
-            //     (currentDay === 1 && currentHours < 2);
-
-            // if (isWeekend) {
-            //     if (state.session.isActive) {
-            //         LOGGER.info(
-            //             'Weekend trading suspension. Disconnecting...'
-            //         );
-            //         TelegramService.sendHourlySummary();
-            //         if (this.connection.ws)
-            //             this.connection.ws.close();
-            //         state.session.isActive = false;
-            //     }
-            //     return;
-            // }
-
-            // Daily reconnection at 1:00 AM GMT+1 (to catch TOKYO session start)
-            if (
-                !state.session.isActive &&
-                currentHours === 1 &&
-                currentMinutes >= 0
-            ) {
-                LOGGER.info(
-                    "It's 1:00 AM GMT+1, reconnecting the bot and resetting daily session stats."
-                );
-                // No longer call resetDailyStats — day change is handled by checkDayChange
-                state.session.isActive = true;
-                this.connection.connect();
-            }
-
-            // End-of-day disconnect: After New York session ends,
-            // only if ALL assets have their last trade as a win (no recovery needed)
-            if (state.session.isActive) {
-                const allAssetsRecovered = ACTIVE_ASSETS.every(symbol => {
-                    const asset = state.assets[symbol];
-                    return asset && asset.martingaleLevel === 0;
-                });
-
-                const anyAssetTradedWin = ACTIVE_ASSETS.some(symbol => {
-                    const asset = state.assets[symbol];
-                    return asset && asset.lastTradeWasWin === true;
-                });
-
-                if (
-                    allAssetsRecovered &&
-                    anyAssetTradedWin &&
-                    currentHours >= CONFIG.SYDNEY_END &&
-                    currentMinutes >= 30
-                ) {
-                    LOGGER.info(
-                        `It's past ${CONFIG.SYDNEY_END}:30 GMT+1, all assets recovered, disconnecting.`
-                    );
-                    // Send end-of-day summary
-                    TelegramService.sendDayEndSummary(TradeHistoryManager.getDateKey());
-                    TelegramService.sendSessionSummary();
-                    if (this.connection.ws)
-                        this.connection.ws.close();
-                    state.session.isActive = false;
-                }
-            }
-        }, 20000);
-    }
-
-    checkTimeForDisconnectReconnect() {
-        this.startSessionTimeChecker();
-    }
-
-    resetDailyStats() {
-        // This method now delegates to SessionManager for new-day reset
-        SessionManager.resetSessionForNewDay();
-    }
-
-    getStatus() {
-        const sessionStats = SessionManager.getSessionStats();
-        const tradingSession = TradingSessionManager.getSessionStatusString();
-        const overall = TradeHistoryManager.getOverallStats();
-        const today = TradeHistoryManager.getTodayStats();
-
-        // Build per-asset status
-        const assetStatuses = {};
-        ACTIVE_ASSETS.forEach(symbol => {
-            const a = state.assets[symbol];
-            const ac = getAssetConfig(symbol);
-            if (a) {
-                const nextDir =
-                    a.lastTradeWasWin === null
-                        ? 'Waiting for pattern signal'
-                        : a.lastTradeWasWin
-                            ? 'Waiting for pattern evaluation'
-                            : a.lastTradeDirection === 'CALLE'
-                                ? 'PUTE (Recovery)'
-                                : 'CALLE (Recovery)';
-
-                const lastClosed = a.closedCandles && a.closedCandles.length ? a.closedCandles[a.closedCandles.length - 1] : null;
-                const lastCandleDirection = lastClosed ? CandleAnalyzer.getCandleDirection(lastClosed) : null;
-
-                assetStatuses[symbol] = {
-                    martingaleLevel: a.martingaleLevel,
-                    currentStake: a.currentStake,
-                    lastDirection: a.lastTradeDirection,
-                    lastWasWin: a.lastTradeWasWin,
-                    nextDirection: nextDir,
-                    activePositions: a.activePositions.length,
-                    trades: a.tradesCount,
-                    wins: a.winsCount,
-                    losses: a.lossesCount,
-                    netPL: a.netPL,
-                    lastCandleDirection: lastCandleDirection,
-                    patternLookback: CONFIG.CANDLE_PATTERN_LOOKBACK || 7,
-                    timeframe: ac.TIMEFRAME_LABEL,
-                    duration: `${ac.DURATION}${ac.DURATION_UNIT}`
-                };
-            }
-        });
-
-        let totalActivePositions = 0;
-        ACTIVE_ASSETS.forEach(sym => {
-            const a = state.assets[sym];
-            if (a) totalActivePositions += a.activePositions.length;
-        });
-
-        return {
-            connected: state.isConnected,
-            authorized: state.isAuthorized,
-            capital: state.capital,
-            accountBalance: state.accountBalance,
-            session: sessionStats,
-            tradingSession: tradingSession,
-            totalActivePositions: totalActivePositions,
-            assets: assetStatuses,
-            overall: overall,
-            today: today
-        };
-    }
+function printBanner() {
+  console.log('\n╔══════════════════════════════════════════════════════════════════════╗');
+  console.log('║   GRID MARTINGALE BOT — Candle-Gated + Recovery Edition v2       ║');
+  console.log('║   Strategy: Trade on NEW CANDLE | Recovery until WIN              ║');
+  console.log('║   CALLE/PUTE | Martingale Recovery                                ║');
+  console.log('║   ENHANCED: Network recovery, daily stats, step-compounding       ║');
+  console.log('╚══════════════════════════════════════════════════════════════════════╝\n');
+  console.log('Flow: New Candle → Trade → WIN → Wait for Candle');
+  console.log('      New Candle → Trade → LOSS → Recovery → Recovery → WIN → Wait for Candle');
+  console.log('      STUCK TRADE → Pause 5min → Reset → Wait for Candle → Resume\n');
+  console.log('Compounding: Base stake increases by $0.50 for every $153 investment growth\n');
+  console.log('Signals: SIGINT / SIGTERM for graceful shutdown\n');
 }
 
-// ============================================
-// INITIALIZATION
-// ============================================
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN
+// ══════════════════════════════════════════════════════════════════════════════
 
-// Load trade history first (before bot initialization)
-tradeHistory = TradeHistoryManager.loadHistory();
+function main() {
+  printBanner();
 
-const bot = new DerivBot();
+  const bot = new STEPINDEXGridBot(DEFAULT_CONFIG);
 
-process.on('SIGINT', () => {
-    console.log('\n\n⚠️ Shutdown signal received...');
+  StatePersistence.startAutoSave(bot);
+
+  if (bot.telegramBot) bot.startTelegramTimer();
+
+  // bot.startTimeScheduler();
+
+  bot.connect();
+
+  const shutdown = (sig) => {
+    console.log(`\n[${sig}] Shutting down gracefully…`);
     bot.stop();
-    setTimeout(() => process.exit(0), 3000);
-});
+    bot.disconnect();
+    StatePersistence.save(bot);
+    setTimeout(() => process.exit(0), 2000);
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-process.on('SIGTERM', () => {
-    bot.stop();
-    setTimeout(() => process.exit(0), 3000);
-});
-
-const stateLoaded = StatePersistence.loadState();
-
-if (stateLoaded) {
-    LOGGER.info('🔄 Bot will resume from saved state after connection');
-} else {
-    LOGGER.info('🆕 Bot will start with fresh state');
-}
-
-if (CONFIG.API_TOKEN === 'YOUR_API_TOKEN_HERE') {
-    console.log('═'.repeat(80));
-    console.log(
-        ' DERIV RISE/FALL CANDLE PATTERN BOT (Per-Asset Independent)'
-    );
-    console.log('═'.repeat(80));
-    console.log('\n⚠️ API Token not configured!\n');
-    console.log('Usage:');
-    console.log(
-        ' API_TOKEN=xxx DURATION=5 DURATION_UNIT=t node risefall-bot.js'
-    );
-    console.log('\nEnvironment Variables:');
-    console.log(' API_TOKEN - Deriv API token (required)');
-    console.log(' CAPITAL - Initial capital (default: 1000)');
-    console.log(' STAKE - Stake per trade (default: 1)');
-    console.log(' DURATION - Contract duration (default: 1)');
-    console.log(
-        ' DURATION_UNIT - t=ticks, s=seconds, m=minutes (default: t)'
-    );
-    console.log(' PROFIT_TARGET - Session profit target (default: 1000)');
-    console.log(' STOP_LOSS - Session stop loss (default: -500)');
-    console.log(' TELEGRAM_ENABLED - Enable Telegram (default: false)');
-    console.log(' TELEGRAM_BOT_TOKEN - Telegram bot token');
-    console.log(' TELEGRAM_CHAT_ID - Telegram chat ID');
-    console.log('═'.repeat(80));
-    process.exit(1);
-}
-
-console.log('═'.repeat(80));
-console.log(
-    ' DERIV RISE/FALL CANDLE PATTERN CROSSOVER BOT (Per-Asset Independent)'
-);
-console.log(
-    ` Base Stake: $${CONFIG.STAKE} | Candle Lookback: ${CONFIG.CANDLE_PATTERN_LOOKBACK || 7} | Sessions: ${CONFIG.USE_TRADING_SESSIONS ? 'ON' : 'OFF (24/7)'}`
-);
-// console.log(
-//     ` 🕐 London: ${CONFIG.LONDON_START}:00-${CONFIG.LONDON_END}:00 | New York: ${CONFIG.NEWYORK_START}:00-${CONFIG.NEWYORK_END}:00 (GMT+1)`
-// );
-console.log('═'.repeat(80));
-console.log('\n🚀 Initializing Candle-pattern Bot (Per-Asset Independent Mode)...\n');
-
-bot.connection.connect();
-
-// Status display every 30 seconds
-setInterval(() => {
-    if (state.isAuthorized) {
-        const status = bot.getStatus();
-        const s = state.session;
-        const overall = status.overall;
-
-        // Per-asset status line
-        let assetLines = '';
-        ACTIVE_ASSETS.forEach(sym => {
-            const a = status.assets[sym];
-            if (a) {
-                const dir = a.lastDirection
-                    ? (a.lastDirection === 'CALLE' ? 'R' : 'F')
-                    : '-';
-                const winLoss = a.lastWasWin === null
-                    ? '-'
-                    : a.lastWasWin ? 'W' : 'L';
-                assetLines += `\n   ${sym} (${a.timeframe}/${a.duration}): M${a.martingaleLevel} $${a.currentStake.toFixed(2)} | ${a.trades}t ${a.wins}W/${a.losses}L | P/L:$${a.netPL.toFixed(2)} | Last:${dir}(${winLoss}) | Pos:${a.activePositions} | LastCandle:${a.lastCandleDirection || '---'} Lookback:${a.patternLookback}`;
-            }
-        });
-
-        console.log(
-            `\n📊 ${getGMTTime()} | Today: ${status.session.trades} trades | ${status.session.winRate} | $${status.session.netPL.toFixed(2)} | ${status.totalActivePositions} active`
-        );
-        console.log(
-            `📈 Overall: ${overall.tradesCount} trades | ${overall.winsCount}W/${overall.lossesCount}L | P/L: $${overall.netPL.toFixed(2)} | Days: ${TradeHistoryManager.getAllDays().length}`
-        );
-        console.log(
-            `📉 Today Loss Stats: x2:${s.x2Losses} x3:${s.x3Losses} x4:${s.x4Losses} x5:${s.x5Losses} x6:${s.x6Losses} x7:${s.x7Losses} x8:${s.x8Losses} x9:${s.x9Losses}`
-        );
-        console.log(`🔧 Per-Asset Status:${assetLines}`);
-        console.log(`🕐 ${status.tradingSession}`);
+  process.on('unhandledRejection', (reason) => {
+    console.error('[UnhandledRejection]', reason);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('[UncaughtException]', err);
+    // Don't crash — log and continue
+    if (bot.telegramBot) {
+      bot._sendTelegram(
+        `🚨 <b>${DEFAULT_CONFIG.symbol} Uncaught Exception</b>\n${err.message}\nBot is still running.`
+      );
     }
-}, 60000);
+  });
+}
+
+main();
