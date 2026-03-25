@@ -74,8 +74,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n4-grid-state0001.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n4-daily-stats0001.json');
+const STATE_FILE = path.join(__dirname, 'ST1n4-grid-state00001.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n4-daily-stats00001.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1671,7 +1671,7 @@ class STEPINDEXGridBot {
       }
       else if (confOk && alignOk && this.currentGridLevel >= 1) {// && currentCandleType === 'BEARISH' && prediction === 'PUTE'
         this.canTrade = true;
-        this.currentDirection = this.currentDirection === "CALLE" ? "PUTE" : "CALLE";
+        this.currentDirection = prediction === "CALLE" ? "PUTE" : "CALLE";
         this._placeTrade();
       }
     }
