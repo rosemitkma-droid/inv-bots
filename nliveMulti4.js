@@ -20,7 +20,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti4-state001.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti4-state0001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -2176,7 +2176,7 @@ class EnhancedAccumulatorBot {
                 if (decision.shouldTrade) {
                     console.log(`[${asset}] 🎯 TRADE SIGNAL | Score: ${decision.ensembleScore.toFixed(4)} | Confidence: ${decision.confidence.toFixed(2)}`);
                     console.log(`[${asset}] Model contributions: ${JSON.stringify(decision.modelContributions)}`);
-                    this.placeTrade(asset);
+                    this.placeTrade(asset, decision);
                 }
             }
         }
@@ -2339,6 +2339,12 @@ class EnhancedAccumulatorBot {
      * Detect dangerous patterns from historical losses
      */
     detectDangerousPattern(asset, currentDigitCount, stayedInArray) {
+
+        // FIX: Guard against undefined/null arguments
+        if (!stayedInArray || !Array.isArray(stayedInArray) || stayedInArray.length === 0) {
+            return false;
+        }
+
         const recentLosses = this.learningSystem.lossPatterns[asset] || [];
 
         if (recentLosses.length === 0) {
@@ -2368,6 +2374,11 @@ class EnhancedAccumulatorBot {
      */
     detectDangerousPattern2(asset) {
         const history = this.extendedStayedIn[asset];
+
+        // FIX: Guard against undefined/null/non-array
+        if (!history || !Array.isArray(history) || history.length < 10) {
+            return false;
+        }
 
         if (!history || history.length < 10) {
             return false;
@@ -2399,11 +2410,34 @@ class EnhancedAccumulatorBot {
     // TRADE EXECUTION (PRESERVED)
     // ========================================================================
 
-    placeTrade(asset) {
+    placeTrade(asset, decision) {
         if (this.tradeInProgress) return;
         const assetState = this.assetStates[asset];
         if (!assetState || !assetState.currentProposalId) {
             console.log(`Cannot place trade. Missing proposal for asset ${asset}.`);
+            return;
+        }
+
+        // FIX: Pass the required arguments from assetState
+        const stayedInArray = assetState.stayedInArray;
+        const currentDigitCount = (stayedInArray && stayedInArray.length >= 100)
+            ? stayedInArray[99] + 1
+            : null;
+
+        if (currentDigitCount !== null && stayedInArray) {
+            if (this.detectDangerousPattern(asset, currentDigitCount, stayedInArray)) {
+                console.log(`[${asset}] ⚠️ Trade blocked due to dangerous pattern`);
+                return;
+            }
+        }
+
+        if (this.detectDangerousPattern2(asset)) {
+            console.log(`[${asset}] ⚠️ Trade blocked due to dangerous pattern`);
+            return;
+        }
+
+        if (decision.confidence < 0.55) {
+            console.log(`[${asset}] ⚠️ Trade blocked due to low confidence`);
             return;
         }
 
@@ -2413,6 +2447,16 @@ class EnhancedAccumulatorBot {
         };
 
         console.log(`🚀 Placing trade for Asset: [${asset}] | Stake: ${this.currentStake.toFixed(2)}`);
+
+        const telegramMsg = `
+            🚀 Placing trade for Asset ${asset}
+            <b>TRADE SIGNAL: ${decision.ensembleScore.toFixed(4)}</b>
+            <b>CONFIDENCE: ${decision.confidence.toFixed(2)}</b>
+            <b>Model contributions: ${JSON.stringify(decision.modelContributions)}</b>
+            <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
+        `.trim();
+        this.sendTelegramMessage(telegramMsg);
+
         this.sendRequest(request);
         this.tradeInProgress = true;
         assetState.tradeInProgress = true;
@@ -2590,13 +2634,16 @@ class EnhancedAccumulatorBot {
             return;
         }
 
-        if (!this.endOfDay) {
-            setTimeout(() => {
-                this.tradeInProgress = false;
-                this.Pause = false;
-                this.connect();
-            }, randomWaitTime);
-        }
+        this.tradeInProgress = false;
+        this.Pause = false;
+
+        // if (!this.endOfDay) {
+        //     setTimeout(() => {
+        //         this.tradeInProgress = false;
+        //         this.Pause = false;
+        //         this.connect();
+        //     }, randomWaitTime);
+        // }
     }
 
     //Reset
@@ -2774,8 +2821,8 @@ class EnhancedAccumulatorBot {
             }
 
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 11 && currentMinutes >= 0) {
-                    console.log("It's past 11:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                if (currentHours >= 23 && currentMinutes >= 30) {
+                    console.log("It's past 11:30 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendHourlySummary();
                     this.disconnect();
                     this.endOfDay = true;
