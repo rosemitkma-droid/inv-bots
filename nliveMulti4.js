@@ -20,7 +20,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti4-state0001.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti4-state001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -951,7 +951,7 @@ class EnsembleDecisionMaker {
 
         this.recentDecisions = [];
         this.thresholdHistory = [];
-        this.adaptiveThreshold = 0.7;
+        this.adaptiveThreshold = 0.7; // Default threshold;
     }
 
     /**
@@ -2590,8 +2590,6 @@ class EnhancedAccumulatorBot {
             return;
         }
 
-        this.disconnect();
-
         if (!this.endOfDay) {
             setTimeout(() => {
                 this.tradeInProgress = false;
@@ -2936,7 +2934,7 @@ class EnhancedAccumulatorBot {
         console.log('');
 
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
@@ -2949,7 +2947,7 @@ const token = 'rgNedekYXvCaPeP'; //|| process.env.DERIV_TOKEN;
 const bot = new EnhancedAccumulatorBot(token, {
     initialStake: 1,
     stopLoss: 400,
-    takeProfit: 20000,
+    takeProfit: 2.5,
     enableNeuralNetwork: true,
     enablePatternRecognition: true,
     learningModeThreshold: 100,
