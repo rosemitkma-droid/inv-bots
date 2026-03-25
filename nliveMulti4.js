@@ -21,20 +21,14 @@ const path = require('path');
 // STATE PERSISTENCE MANAGER
 // ============================================
 const STATE_FILE = path.join(__dirname, 'nliveMulti4-state.json');
-const STATE_SAVE_INTERVAL = 10000; // Save every 10 seconds
+const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
     static saveState(bot) {
         try {
             const persistableState = {
                 savedAt: Date.now(),
-                config: {
-                    initialStake: bot.config.initialStake,
-                    multiplier: bot.config.multiplier,
-                    maxConsecutiveLosses: bot.config.maxConsecutiveLosses,
-                    stopLoss: bot.config.stopLoss,
-                    takeProfit: bot.config.takeProfit
-                },
+                config: bot.config,
                 trading: {
                     currentStake: bot.currentStake,
                     consecutiveLosses: bot.consecutiveLosses,
@@ -46,24 +40,28 @@ class StatePersistence {
                     consecutiveLosses4: bot.consecutiveLosses4,
                     consecutiveLosses5: bot.consecutiveLosses5,
                     totalProfitLoss: bot.totalProfitLoss,
+                    Pause: bot.Pause,
                     sys: bot.sys,
                     sysCount: bot.sysCount,
-                    observationCount: bot.observationCount,
-                    learningMode: bot.learningMode
                 },
-                engines: {
-                    bayesianPriors: bot.statisticalEngine.bayesianPriors,
-                    ngramModels: bot.patternEngine.ngramModels,
-                    markovChains: bot.patternEngine.markovChains,
-                    regimeStates: bot.patternEngine.regimeStates,
-                    neuralHistory: bot.neuralEngine.trainingHistory,
-                    ensembleThreshold: bot.ensembleDecisionMaker.adaptiveThreshold,
-                    ensemblePerformance: bot.ensembleDecisionMaker.modelPerformance,
-                    ensembleWeights: bot.ensembleDecisionMaker.modelWeights
-                },
+                neuralEngine: bot.neuralEngine.exportWeights(),
+                ensembleDecisionMaker: bot.ensembleDecisionMaker.exportState(),
                 learningSystem: bot.learningSystem,
-                extendedStayedIn: bot.extendedStayedIn
+                extendedStayedIn: bot.extendedStayedIn,
+                previousStayedIn: bot.previousStayedIn,
+                assetStates: bot.assetStates,
+                subscriptions: {
+                    tickSubscriptionIds: { ...bot.tickSubscriptionIds }
+                },
+                assets: {},
+                hourlyStats: bot.hourlyStats
             };
+
+            bot.assets.forEach(asset => {
+                persistableState.assets[asset] = {
+                    tickHistory: bot.tickHistories[asset]
+                };
+            });
 
             fs.writeFileSync(STATE_FILE, JSON.stringify(persistableState, null, 2));
         } catch (error) {
@@ -81,8 +79,9 @@ class StatePersistence {
             const savedData = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
             const ageMinutes = (Date.now() - savedData.savedAt) / 60000;
 
-            if (ageMinutes > 60) {
+            if (ageMinutes > 30) {
                 console.warn(`⚠️ Saved state is ${ageMinutes.toFixed(1)} minutes old, starting fresh`);
+                fs.unlinkSync(STATE_FILE);
                 return false;
             }
 
@@ -98,10 +97,9 @@ class StatePersistence {
         setInterval(() => {
             StatePersistence.saveState(bot);
         }, STATE_SAVE_INTERVAL);
-        console.log('🔄 Auto-save started (every 10 seconds)');
+        console.log('🔄 Auto-save started (every 5 seconds)');
     }
 }
-
 
 // ============================================================================
 // TIER 1: STATISTICAL LEARNING ENGINE
@@ -1321,6 +1319,7 @@ class EnhancedAccumulatorBot {
             maxWaitTime: config.maxWaitTime || 500 * 1000,
             survivalThreshold: config.survivalThreshold || 0.98,
             minSamplesForEstimate: 50,
+            // New config options
             learningModeThreshold: config.learningModeThreshold || 100,
             enableNeuralNetwork: config.enableNeuralNetwork !== false,
             enablePatternRecognition: config.enablePatternRecognition !== false,
@@ -1352,23 +1351,6 @@ class EnhancedAccumulatorBot {
         this.sysCount = 0;
         this.stopLossStake = false;
 
-        // Reconnection & Monitoring logic
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 500;
-        this.reconnectDelay = 5000;
-        this.reconnectTimer = null;
-        this.isReconnecting = false;
-        this.pingInterval = null;
-        this.checkDataInterval = null;
-        this.pongTimeout = null;
-        this.lastPongTime = Date.now();
-        this.lastDataTime = Date.now();
-        this.pingIntervalMs = 20000;
-        this.pongTimeoutMs = 10000;
-        this.dataTimeoutMs = 60000;
-        this.messageQueue = [];
-        this.maxQueueSize = 100;
-
         // Asset-specific data
         this.digitCounts = {};
         this.tickSubscriptionIds = {};
@@ -1384,14 +1366,27 @@ class EnhancedAccumulatorBot {
         // ====================================================================
         // ENHANCED LEARNING COMPONENTS
         // ====================================================================
+
+        // Tier 1: Statistical Engine
         this.statisticalEngine = new StatisticalEngine();
+
+        // Tier 2: Pattern Engine
         this.patternEngine = new PatternEngine();
+
+        // Tier 3: Neural Engine
         this.neuralEngine = new NeuralEngine(60, [32, 16], 1);
+
+        // Tier 4: Ensemble Decision Maker
         this.ensembleDecisionMaker = new EnsembleDecisionMaker();
 
+        // Tier 5: Persistence Manager
+        // this.persistenceManager = new PersistenceManager();
+
+        // Learning mode counter
         this.observationCount = 0;
         this.learningMode = true;
 
+        // Legacy learning system (enhanced)
         this.learningSystem = {
             lossPatterns: {},
             failedDigitCounts: {},
@@ -1403,6 +1398,7 @@ class EnhancedAccumulatorBot {
             predictionAccuracy: {},
         };
 
+        // Risk manager (preserved as requested)
         this.riskManager = {
             currentSessionRisk: 0,
             riskPerTrade: 0.02,
@@ -1431,11 +1427,15 @@ class EnhancedAccumulatorBot {
             };
             this.previousStayedIn[asset] = null;
             this.extendedStayedIn[asset] = [];
+
+            // Initialize learning components per asset
             this.learningSystem.lossPatterns[asset] = [];
             this.learningSystem.volatilityScores[asset] = 0;
             this.learningSystem.adaptiveFilters[asset] = 8;
             this.learningSystem.predictionAccuracy[asset] = { correct: 0, total: 0 };
             this.riskManager.consecutiveSameDigitLosses[asset] = {};
+
+            // Initialize statistical engine
             this.statisticalEngine.initBayesianPrior(asset);
         });
 
@@ -1447,8 +1447,11 @@ class EnhancedAccumulatorBot {
         if (this.telegramEnabled) {
             this.telegramBot = new TelegramBot(this.telegramToken, { polling: false });
             this.startTelegramTimer();
+        } else {
+            console.log('📱 Telegram notifications disabled (missing API keys).');
         }
 
+        // Stats tracking for Telegram summaries
         this.hourlyStats = {
             trades: 0,
             wins: 0,
@@ -1457,144 +1460,146 @@ class EnhancedAccumulatorBot {
             lastHour: new Date().getHours()
         };
 
+        // Reconnection logic
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 50;
+        this.reconnectDelay = 5000;
+        this.reconnectTimer = null;
+        this.isReconnecting = false;
+
+        // Heartbeat/Ping mechanism
+        this.pingInterval = null;
+        this.checkDataInterval = null;
+        this.pongTimeout = null;
+        this.lastPongTime = Date.now();
+        this.lastDataTime = Date.now();
+        this.pingIntervalMs = 20000;
+        this.pongTimeoutMs = 10000;
+        this.dataTimeoutMs = 60000;
+
+        // Message queue for failed sends
+        this.messageQueue = [];
+        this.maxQueueSize = 50;
         this.kLoss = 0.01;
 
-        // Load saved state
+        // Load saved state if available
         this.loadSavedState();
     }
 
     // ========================================================================
-    // STATE PERSISTENCE METHODS
+    // PERSISTENCE METHODS
     // ========================================================================
 
     loadSavedState() {
-        const savedState = StatePersistence.loadState();
-        if (!savedState) return;
+        const state = StatePersistence.loadState();
+        if (state) {
+            console.log('📂 Loading saved learning state...');
 
-        try {
-            console.log('📂 Restoring bot state...');
+            const trading = state.trading || {};
+            this.currentStake = trading.currentStake || this.config.initialStake;
+            this.consecutiveLosses = trading.consecutiveLosses || 0;
+            this.totalTrades = trading.totalTrades || 0;
+            this.totalWins = trading.totalWins || 0;
+            this.totalLosses = trading.totalLosses || 0;
+            this.consecutiveLosses2 = trading.consecutiveLosses2 || 0;
+            this.consecutiveLosses3 = trading.consecutiveLosses3 || 0;
+            this.consecutiveLosses4 = trading.consecutiveLosses4 || 0;
+            this.consecutiveLosses5 = trading.consecutiveLosses5 || 0;
+            this.totalProfitLoss = trading.totalProfitLoss || 0;
+            this.Pause = trading.Pause || false;
+            this.sys = trading.sys || 1;
+            this.sysCount = trading.sysCount || 0;
 
-            // Restore trading state
-            const t = savedState.trading;
-            this.currentStake = t.currentStake;
-            this.consecutiveLosses = t.consecutiveLosses;
-            this.totalTrades = t.totalTrades;
-            this.totalWins = t.totalWins;
-            this.totalLosses = t.totalLosses;
-            this.consecutiveLosses2 = t.consecutiveLosses2;
-            this.consecutiveLosses3 = t.consecutiveLosses3;
-            this.consecutiveLosses4 = t.consecutiveLosses4;
-            this.consecutiveLosses5 = t.consecutiveLosses5;
-            this.totalProfitLoss = t.totalProfitLoss;
-            this.sys = t.sys;
-            this.sysCount = t.sysCount;
-            this.observationCount = t.observationCount;
-            this.learningMode = t.learningMode;
+            if (state.hourlyStats) this.hourlyStats = state.hourlyStats;
 
-            // Restore engines state
-            const e = savedState.engines;
-            if (e) {
-                this.statisticalEngine.bayesianPriors = e.bayesianPriors || this.statisticalEngine.bayesianPriors;
-                this.patternEngine.ngramModels = e.ngramModels || this.patternEngine.ngramModels;
-                this.patternEngine.markovChains = e.markovChains || this.patternEngine.markovChains;
-                this.patternEngine.regimeStates = e.regimeStates || this.patternEngine.regimeStates;
-                if (e.neuralHistory) this.neuralEngine.trainingHistory = e.neuralHistory;
-                if (e.ensembleThreshold) this.ensembleDecisionMaker.adaptiveThreshold = e.ensembleThreshold;
-                if (e.ensemblePerformance) this.ensembleDecisionMaker.modelPerformance = e.ensemblePerformance;
-                if (e.ensembleWeights) this.ensembleDecisionMaker.modelWeights = e.ensembleWeights;
+            if (state.neuralEngine) {
+                this.neuralEngine.importWeights(state.neuralEngine);
             }
 
-            this.learningSystem = savedState.learningSystem || this.learningSystem;
-            this.extendedStayedIn = savedState.extendedStayedIn || this.extendedStayedIn;
+            if (state.ensembleDecisionMaker) {
+                this.ensembleDecisionMaker.importState(state.ensembleDecisionMaker);
+            }
 
-            console.log('✅ State restored successfully');
-        } catch (error) {
-            console.error(`Error restoring state: ${error.message}`);
+            if (state.learningSystem) {
+                this.learningSystem = { ...this.learningSystem, ...state.learningSystem };
+            }
+
+            if (state.extendedStayedIn) {
+                this.extendedStayedIn = state.extendedStayedIn;
+            }
+            if (state.previousStayedIn) {
+                this.previousStayedIn = state.previousStayedIn;
+            }
+            if (state.assetStates) {
+                this.assetStates = state.assetStates;
+            }
+
+            if (state.assets) {
+                Object.keys(state.assets).forEach(asset => {
+                    if (this.tickHistories[asset]) {
+                        this.tickHistories[asset] = state.assets[asset].tickHistory || [];
+                    }
+                });
+            }
+
+            console.log('✅ Learning state restored successfully');
+        } else {
+            console.log('🆕 No saved state found. Starting fresh learning.');
         }
     }
 
     // ========================================================================
-    // TELEGRAM NOTIFICATION METHODS
+    // WEBSOCKET & CONNECTION METHODS
     // ========================================================================
 
-    async sendTelegramMessage(message) {
-        if (!this.telegramEnabled || !this.telegramBot) return;
-        try {
-            await this.telegramBot.sendMessage(this.telegramChatId, message, { parse_mode: 'HTML' });
-        } catch (error) {
-            console.error(`❌ Failed to send Telegram message: ${error.message}`);
-        }
-    }
-
-    async sendHourlySummary() {
-        const stats = this.hourlyStats;
-        const winRate = stats.wins + stats.losses > 0
-            ? ((stats.wins / (stats.wins + stats.losses)) * 100).toFixed(1)
-            : 0;
-        const pnlEmoji = stats.pnl >= 0 ? '🟢' : '🔴';
-        const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
-
-        const message = `
-            ⏰ <b>Enhanced Accumulator Bot Hourly Summary</b>
-
-            📊 <b>Last Hour</b>
-            ├ Trades: ${stats.trades}
-            ├ Wins: ${stats.wins} | Losses: ${stats.losses}
-            ├ Win Rate: ${winRate}%
-            └ ${pnlEmoji} <b>P&L:</b> ${pnlStr}
-
-            📈 <b>Daily Totals</b>
-            ├ Total Trades: ${this.totalTrades}
-            ├ Total W/L: ${this.totalWins}/${this.totalLosses}
-            ├ x2 Losses: ${this.consecutiveLosses2}
-            ├ x3 Losses: ${this.consecutiveLosses3}
-            ├ x4 Losses: ${this.consecutiveLosses4}
-            ├ x5 Losses: ${this.consecutiveLosses5}
-            ├ Daily P&L: ${(this.totalProfitLoss >= 0 ? '+' : '')}$${this.totalProfitLoss.toFixed(2)}
-            └ Current Capital: $${(this.currentStake + this.totalProfitLoss).toFixed(2)}
-
-            ⏰ ${new Date().toLocaleString()}
-        `.trim();
-
-        try {
-            await this.sendTelegramMessage(message);
-            console.log('📱 Telegram: Hourly Summary sent');
-        } catch (error) {
-            console.error(`❌ Telegram hourly summary failed: ${error.message}`);
+    connect() {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            console.log('Already connected');
+            return;
         }
 
-        this.hourlyStats = {
-            trades: 0,
-            wins: 0,
-            losses: 0,
-            pnl: 0,
-            lastHour: new Date().getHours()
-        };
+        console.log('🔌 Connecting to Deriv API...');
+        this.cleanup();
+
+        this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+
+        this.ws.on('open', () => {
+            console.log('✅ Connected to Deriv API');
+            this.connected = true;
+            this.wsReady = false; // Wait for auth
+            this.reconnectAttempts = 0;
+            this.isReconnecting = false;
+            this.lastPongTime = Date.now();
+            this.lastDataTime = Date.now();
+
+            this.startMonitor();
+            this.authenticate();
+        });
+
+        this.ws.on('message', (data) => {
+            this.lastPongTime = Date.now();
+            this.lastDataTime = Date.now();
+            try {
+                const message = JSON.parse(data);
+                this.handleMessage(message);
+            } catch (error) {
+                console.error('Error parsing message:', error);
+            }
+        });
+
+        this.ws.on('error', (error) => {
+            console.error('WebSocket error:', error.message);
+        });
+
+        this.ws.on('close', (code, reason) => {
+            console.log(`Disconnected from Deriv API (Code: ${code}, Reason: ${reason || 'None'})`);
+            this.handleDisconnect();
+        });
+
+        this.ws.on('pong', () => {
+            this.lastPongTime = Date.now();
+        });
     }
-
-    startTelegramTimer() {
-        const now = new Date();
-        const nextHour = new Date(now);
-        nextHour.setHours(nextHour.getHours() + 1);
-        nextHour.setMinutes(0);
-        nextHour.setSeconds(0);
-        nextHour.setMilliseconds(0);
-
-        const timeUntilNextHour = nextHour.getTime() - now.getTime();
-
-        setTimeout(() => {
-            this.sendHourlySummary();
-            setInterval(() => {
-                this.sendHourlySummary();
-            }, 60 * 60 * 1000);
-        }, timeUntilNextHour);
-
-        console.log(`📱 Hourly summaries scheduled. First in ${Math.ceil(timeUntilNextHour / 60000)} minutes.`);
-    }
-
-    // ========================================================================
-    // CONNECTION MONITORING METHODS
-    // ========================================================================
 
     startMonitor() {
         this.stopMonitor();
@@ -1622,8 +1627,6 @@ class EnhancedAccumulatorBot {
                 if (this.ws) this.ws.terminate();
             }
         }, 10000);
-
-        console.log('🔄 Connection monitoring started');
     }
 
     stopMonitor() {
@@ -1635,141 +1638,129 @@ class EnhancedAccumulatorBot {
         this.pongTimeout = null;
     }
 
-    processMessageQueue() {
-        if (this.messageQueue.length === 0) return;
+    sendRequest(request) {
+        if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.warn('Cannot send request: WebSocket not ready');
+            if (this.messageQueue && this.messageQueue.length < this.maxQueueSize) {
+                this.messageQueue.push(request);
+            }
+            return false;
+        }
 
-        console.log(`Processing ${this.messageQueue.length} queued messages...`);
+        try {
+            this.ws.send(JSON.stringify(request));
+            return true;
+        } catch (error) {
+            console.error('Error sending request:', error.message);
+            if (this.messageQueue && this.messageQueue.length < this.maxQueueSize) {
+                this.messageQueue.push(request);
+            }
+            return false;
+        }
+    }
+
+    processMessageQueue() {
+        if (!this.messageQueue || this.messageQueue.length === 0) return;
         const queue = [...this.messageQueue];
         this.messageQueue = [];
-
-        queue.forEach(message => {
-            this.sendRequest(message);
-        });
-    }
-
-
-    // ========================================================================
-    // WEBSOCKET METHODS (PRESERVED)
-    // ========================================================================
-
-    connect() {
-        if (this.isReconnecting) return;
-
-        console.log(`🔌 Connecting to Deriv API... (Attempt ${this.reconnectAttempts + 1})`);
-        this.ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
-
-        this.ws.on('open', this.onOpen.bind(this));
-        this.ws.on('message', this.onMessage.bind(this));
-        this.ws.on('close', this.handleDisconnect.bind(this));
-        this.ws.on('error', this.handleApiError.bind(this));
-        this.ws.on('pong', () => {
-            this.lastPongTime = Date.now();
-        });
-    }
-
-    onOpen() {
-        console.log('✅ Connected to Deriv API');
-        this.connected = true;
-        this.reconnectAttempts = 0;
-        this.reconnectDelay = 5000;
-        this.isReconnecting = false;
-
-        const authorizeRequest = { authorize: this.token };
-        this.ws.send(JSON.stringify(authorizeRequest));
-
-        // Start connection monitoring
-        this.startMonitor();
-    }
-
-    onMessage(data) {
-        this.lastDataTime = Date.now();
-        const response = JSON.parse(data);
-
-        if (response.error) {
-            this.handleApiError(response.error);
-            return;
-        }
-
-        const msgType = response.msg_type;
-
-        if (msgType === 'authorize') {
-            console.log('👤 Authorized successfully');
-            this.wsReady = true;
-            this.initializeSubscriptions();
-            this.processMessageQueue();
-
-            if (this.reconnectAttempts === 0) {
-                // this.sendTelegramMessage('🟢 <b>Bot Connected & Authorized</b>');
-            }
-        } else if (msgType === 'tick') {
-            this.handleTickUpdate(response.tick);
-        } else if (msgType === 'history') {
-            const asset = response.echo_req.ticks_history;
-            this.handleTickHistory(asset, response.history);
-        } else if (msgType === 'proposal') {
-            this.handleProposal(response.proposal);
-        } else if (msgType === 'buy') {
-            console.log(`💰 Trade execution: ${response.buy.contract_id}`);
-            this.subscribeToOpenContract(response.buy.contract_id);
-        } else if (msgType === 'proposal_open_contract') {
-            this.handleContractUpdate(response.proposal_open_contract);
-        }
+        queue.forEach(message => this.sendRequest(message));
     }
 
     handleDisconnect() {
-        this.connected = false;
-        this.wsReady = false;
-        this.stopMonitor();
-
         if (this.endOfDay) {
-            console.log('Bot stopped for the day.');
+            console.log('Planned shutdown, not reconnecting.');
+            this.cleanup();
             return;
         }
 
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.isReconnecting = true;
-            const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts), 60000);
-            console.log(`❌ Connection lost. Reconnecting in ${Math.round(delay / 1000)}s...`);
+        if (this.isReconnecting) return;
 
-            if (this.reconnectAttempts % 5 === 0) {
-                this.sendTelegramMessage(`⚠️ <b>Connection Lost</b>\nAttempting reconnection in ${Math.round(delay / 1000)}s...`);
-            }
+        this.connected = false;
+        this.wsReady = false;
+        this.stopMonitor();
+        StatePersistence.saveState(this);
 
-            setTimeout(() => {
-                this.reconnectAttempts++;
-                this.isReconnecting = false;
-                this.connect();
-            }, delay);
-        } else {
-            const errorMsg = 'Max reconnection attempts reached. Bot stopping.';
-            console.error(errorMsg);
-            this.sendTelegramMessage(`🚨 <b>CRITICAL ERROR</b>\n${errorMsg}`);
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            console.error('❌ Max reconnection attempts reached');
+            this.sendTelegramMessage(
+                `❌ <b>Max Reconnection Attempts Reached</b>\n` +
+                `Please restart the bot manually.\n` +
+                `Final P&L: $${this.totalProfitLoss.toFixed(2)}`
+            );
+            this.isReconnecting = false;
+            return;
         }
+
+        this.isReconnecting = true;
+        this.reconnectAttempts++;
+
+        const delay = Math.min(
+            this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1),
+            30000
+        );
+
+        console.log(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... (Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+
+        this.sendTelegramMessage(
+            `⚠️ <b>CONNECTION LOST - RECONNECTING</b>\n` +
+            `📊 Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n` +
+            `⏱️ Retrying in ${(delay / 1000).toFixed(1)}s`
+        );
+
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+
+        this.reconnectTimer = setTimeout(() => {
+            this.isReconnecting = false;
+            this.connect();
+        }, delay);
+    }
+
+    cleanup() {
+        this.stopMonitor();
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+        if (this.ws) {
+            this.ws.removeAllListeners();
+            if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+                try { this.ws.close(); } catch (e) { }
+            }
+            this.ws = null;
+        }
+        this.connected = false;
+        this.wsReady = false;
     }
 
     handleApiError(error) {
-        console.error('❌ API Error:', error.message || error);
+        console.error('API Error:', error.message);
 
-        if (error.code === 'RateLimit') {
-            console.warn('⚠️ Rate limit hit. Increasing delay...');
-            this.reconnectDelay = 30000;
-        } else if (error.code === 'AuthorizationRequired' || error.code === 'InvalidToken') {
-            this.sendTelegramMessage('🚨 <b>Auth Error:</b> Token invalid or expired.');
-            this.endOfDay = true;
-            this.disconnect();
+        switch (error.code) {
+            case 'InvalidToken':
+                console.error('Invalid token. Please check your API token and restart the bot.');
+                this.sendErrorEmail('Invalid API token');
+                this.disconnect();
+                break;
+            case 'RateLimit':
+                console.log('Rate limit reached. Waiting before next request...');
+                setTimeout(() => this.initializeSubscriptions(), 60000);
+                break;
+            case 'MarketIsClosed':
+                console.log('Market is closed. Waiting for market to open...');
+                setTimeout(() => this.initializeSubscriptions(), 3600000);
+                break;
+            default:
+                console.log('Encountered an error. Continuing operation...');
+                this.initializeSubscriptions();
         }
     }
 
-    sendRequest(request) {
-        if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify(request));
-        } else {
-            console.warn('⚠️ WS not ready, queuing message:', request.msg_type || Object.keys(request)[0]);
-            this.messageQueue.push(request);
-            if (this.messageQueue.length > this.maxQueueSize) this.messageQueue.shift();
-        }
+    authenticate() {
+        console.log('Attempting to authenticate...');
+        this.sendRequest({
+            authorize: this.token
+        });
     }
-
 
     subscribeToTickHistory(asset) {
         const request = {
@@ -1812,19 +1803,27 @@ class EnhancedAccumulatorBot {
     // ========================================================================
 
     handleMessage(message) {
+        if (message.msg_type === 'ping') {
+            this.sendRequest({ ping: 1 });
+            return;
+        }
+
         if (message.msg_type === 'authorize') {
             if (message.error) {
                 console.error('Authentication failed:', message.error.message);
+                this.sendTelegramMessage(`❌ <b>Authentication Failed:</b> ${message.error.message}`);
                 this.disconnect();
                 return;
             }
-            console.log('Authentication successful');
+            console.log('✅ Authenticated successfully');
+            this.wsReady = true;
+
+            this.processMessageQueue();
 
             this.tradeInProgress = false;
             this.predictionInProgress = false;
-            this.resetForNewDay();
+            // Removed: this.resetForNewDay(); - so we don't wipe memory during a reconnect
             this.survivalNum = null;
-            this.tickSubscriptionIds = {};
             this.retryCount = 0;
             this.initializeSubscriptions();
 
@@ -1872,6 +1871,26 @@ class EnhancedAccumulatorBot {
         } else {
             return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
         }
+    }
+
+    startTelegramTimer() {
+        const now = new Date();
+        const nextHour = new Date(now);
+        nextHour.setHours(nextHour.getHours() + 1);
+        nextHour.setMinutes(0);
+        nextHour.setSeconds(0);
+        nextHour.setMilliseconds(0);
+
+        const timeUntilNextHour = nextHour.getTime() - now.getTime();
+
+        setTimeout(() => {
+            this.sendHourlySummary();
+            setInterval(() => {
+                this.sendHourlySummary();
+            }, 60 * 60 * 1000);
+        }, timeUntilNextHour);
+
+        console.log(`📱 Hourly summaries scheduled. First in ${Math.ceil(timeUntilNextHour / 60000)} minutes.`);
     }
 
     initializeSubscriptions() {
@@ -1972,7 +1991,7 @@ class EnhancedAccumulatorBot {
         const regime = this.patternEngine.detectRegime(asset, this.extendedStayedIn[asset]);
 
         // Too volatile or unpredictable regime
-        if (volatilityData.changeRate > 0.92 || regime.regime === 'volatile') {
+        if (volatilityData.changeRate > 0.90 || regime.regime === 'volatile') {
             console.log(`[${asset}] Market too volatile (${volatilityData.changeRate.toFixed(2)}), regime: ${regime.regime}`);
             return false;
         }
@@ -2381,11 +2400,6 @@ class EnhancedAccumulatorBot {
     // ========================================================================
 
     placeTrade(asset) {
-        if (!this.connected || !this.wsReady) {
-            console.error('WebSocket not ready. Cannot place trade.');
-            return;
-        }
-
         if (this.tradeInProgress) return;
         const assetState = this.assetStates[asset];
         if (!assetState || !assetState.currentProposalId) {
@@ -2397,14 +2411,6 @@ class EnhancedAccumulatorBot {
             buy: assetState.currentProposalId,
             price: this.currentStake.toFixed(2)
         };
-
-        const message = `
-            🎯 <b>TRADE OPENED</b>
-            ├ Asset: ${asset}
-            ├ Stake: $${this.currentStake.toFixed(2)}
-            └ Time: ${new Date().toLocaleTimeString()}
-        `.trim();
-        this.sendTelegramMessage(message);
 
         console.log(`🚀 Placing trade for Asset: [${asset}] | Stake: ${this.currentStake.toFixed(2)}`);
         this.sendRequest(request);
@@ -2438,25 +2444,65 @@ class EnhancedAccumulatorBot {
             assetState.lastTradeResult = won ? 'win' : 'loss';
         }
 
-        const resultEmoji = won ? '✅' : '❌';
-        const resultText = won ? 'WIN' : 'LOSS';
-
         console.log(`[${asset}] Trade outcome: ${won ? '✅ WON' : '❌ LOST'}`);
 
+        if (!this.hourlyStats) {
+            this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
+        }
+        this.hourlyStats.trades++;
+        this.hourlyStats.pnl += profit;
+        if (won) this.hourlyStats.wins++;
+        else this.hourlyStats.losses++;
+
+        const resultEmoji = won ? '✅ WIN' : '❌ LOSS';
+        const pnlStr = (profit >= 0 ? '+' : '') + '$' + Math.abs(profit).toFixed(2);
+        const pnlColor = profit >= 0 ? '🟢' : '🔴';
+        const winRate = this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(1) : 0;
+
+        const telegramMsg = `
+            ${resultEmoji} (Enhanced Accumulator Bot)
+            
+            📊 <b>${asset}</b>
+            ${pnlColor} <b>P&L:</b> ${pnlStr}
+            
+            📊 <b>Trades Today:</b> ${this.totalTrades}
+            📊 <b>Wins Today:</b> ${this.totalWins}
+            📊 <b>Losses Today:</b> ${this.totalLosses}
+            📊 <b>x2-x5 Losses:</b> ${this.consecutiveLosses2}/${this.consecutiveLosses3}/${this.consecutiveLosses4}/${this.consecutiveLosses5}
+            
+            📈 <b>Total P&L:</b> ${(this.totalProfitLoss >= 0 ? '+' : '')}$${Math.abs(this.totalProfitLoss).toFixed(2)}
+            🎯 <b>Win Rate:</b> ${winRate}%
+            
+            📊 <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
+            
+            ⏰ ${new Date().toLocaleTimeString()}
+        `.trim();
+        this.sendTelegramMessage(telegramMsg);
+
         // Record outcome for enhanced learning
-        const stayedIn = assetState && assetState.stayedInArray ? assetState.stayedInArray : [];
-        const digitCount = stayedIn.length > 0 ? stayedIn[stayedIn.length - 1] + 1 : 0;
-        const filterUsed = asset && this.learningSystem.adaptiveFilters[asset] ? this.learningSystem.adaptiveFilters[asset] : 'default';
-        this.recordTradeOutcome(asset, won, digitCount, filterUsed, stayedIn);
+        const digitCount = assetState.stayedInArray[99] + 1;
+        const filterUsed = this.learningSystem.adaptiveFilters[asset];
+        this.recordTradeOutcome(asset, won, digitCount, filterUsed, assetState.stayedInArray);
 
         this.totalTrades++;
-        this.hourlyStats.trades++;
 
         if (won) {
             this.totalWins++;
-            this.hourlyStats.wins++;
             this.isWinTrade = true;
             this.consecutiveLosses = 0;
+
+            // if (this.sys === 2) {
+            //     if (this.sysCount === 5) {
+            //         this.sys = 1;
+            //         this.sysCount = 0;
+            //     }
+            // } else if (this.sys === 3) {
+            //     if (this.sysCount === 2) {
+            //         this.sys = 1;
+            //         this.sysCount = 0;
+            //     }
+            // }
+
             this.currentStake = this.config.initialStake;
 
             if (assetState) {
@@ -2464,7 +2510,6 @@ class EnhancedAccumulatorBot {
             }
         } else {
             this.totalLosses++;
-            this.hourlyStats.losses++;
             this.consecutiveLosses++;
             this.isWinTrade = false;
 
@@ -2481,39 +2526,30 @@ class EnhancedAccumulatorBot {
         }
 
         this.totalProfitLoss += profit;
-        this.hourlyStats.pnl += profit;
         this.Pause = true;
-
-        const message = `
-            ${resultEmoji} <b>TRADE RESULT: ${resultText}</b>
-            ├ Asset: ${asset}
-            ├ Profit: ${(profit >= 0 ? '+' : '')}$${profit.toFixed(2)}
-            ├ Daily P&L: $${this.totalProfitLoss.toFixed(2)}
-            ├ W/L: ${this.totalWins}/${this.totalLosses}
-            └ Time: ${new Date().toLocaleTimeString()}
-        `.trim();
-        this.sendTelegramMessage(message);
-
-        // Check for Stop Loss / Take Profit
-        if (this.totalProfitLoss <= -this.config.stopLoss) {
-            this.sendTelegramMessage(`🛑 <b>STOP LOSS HIT: $${this.totalProfitLoss.toFixed(2)}</b>\nStopping bot.`);
-            this.disconnect();
-            this.endOfDay = true;
-            return;
-        } else if (this.totalProfitLoss >= this.config.takeProfit) {
-            this.sendTelegramMessage(`🎊 <b>TAKE PROFIT HIT: $${this.totalProfitLoss.toFixed(2)}</b>\nStopping bot.`);
-            this.disconnect();
-            this.endOfDay = true;
-            return;
-        }
 
         let baseWaitTime = this.config.minWaitTime;
 
         if (!won) {
             baseWaitTime = this.config.minWaitTime;
+            // Loss handled by trade result telegram message.
             this.suspendAsset(asset);
+
+            // if (this.consecutiveLosses >= 2) {
+            //     if (this.sys === 1) {
+            //         this.sys = 2;
+            //     } else if (this.sys === 2) {
+            //         this.sys = 3;
+            //     }
+            //     this.sysCount = 0;
+            // }
+
+            // if (this.sys === 2 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier2) {
+            //     this.sys = 3;
+            //     this.sysCount = 0;
+            // }
         } else {
-            if (this.suspendedAssets.size > 0) {
+            if (this.suspendedAssets.size > 1) {
                 const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
                 this.reactivateAsset(firstSuspendedAsset);
             }
@@ -2524,15 +2560,35 @@ class EnhancedAccumulatorBot {
         ) + baseWaitTime;
 
         const waitTimeMinutes = Math.round(randomWaitTime / 60000);
-        this.waitTime = (won ? waitTimeMinutes : waitTimeMinutes + 2);
+        if (!won) {
+            this.waitTime = waitTimeMinutes + 120000;
+        } else {
+            this.waitTime = waitTimeMinutes;
+        }
         this.waitSeconds = randomWaitTime;
 
         if (!this.endOfDay) {
             this.logTradingSummary(asset);
         }
 
-        // Save state after each result
-        StatePersistence.saveState(this);
+        // Save state after each trade
+        // this.persistenceManager.saveFullState(this);
+
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss || this.stopLossStake) {
+            console.log('Stop condition reached. Stopping trading.');
+            this.endOfDay = true;
+            this.sendEmailSummary();
+            this.disconnect();
+            return;
+        }
+
+        if (this.totalProfitLoss >= this.config.takeProfit) {
+            console.log('Take Profit Reached... Stopping trading.');
+            this.endOfDay = true;
+            this.sendEmailSummary();
+            this.disconnect();
+            return;
+        }
 
         this.disconnect();
 
@@ -2697,46 +2753,45 @@ class EnhancedAccumulatorBot {
             const currentHours = gmtPlus1Time.getUTCHours();
             const currentMinutes = gmtPlus1Time.getUTCMinutes();
 
-            // Weekend logic: Saturday 11pm to Monday 8am GMT+1 -> Disconnect and stay disconnected
-            // const isWeekend = (currentDay === 0) || // Sunday
-            //     (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
-            //     (currentDay === 1 && currentHours < 8);    // Monday before 8am
+            // Weekend logic: Saturday 11pm to Monday 2am GMT+1 -> Disconnect and stay disconnected
+            const isWeekend = (currentDay === 0) || // Sunday
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+                (currentDay === 1 && currentHours < 8);    // Monday before 8am
 
             // if (isWeekend) {
             //     if (!this.endOfDay) {
             //         console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
             //         this.sendHourlySummary();
-            //         this.sendTelegramMessage("🛌 <b>Weekend Trading Suspension</b>\nMarket is closed until Monday 8:00 AM GMT+1.");
             //         this.disconnect();
             //         this.endOfDay = true;
             //     }
             //     return; // Prevent any reconnection logic during the weekend
             // }
 
-            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
-                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
-                this.sendTelegramMessage("🏁 <b>Daily Resumption</b>\nIt's 8:00 AM GMT+1, bot is starting fresh.");
+            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
+                console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
                 this.resetForNewDay();
                 this.endOfDay = false;
                 this.connect();
             }
 
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 17 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                if (currentHours >= 11 && currentMinutes >= 0) {
+                    console.log("It's past 11:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendHourlySummary();
-                    this.sendTelegramMessage("🌅 <b>Daily Target/Time Reached</b>\nDisconnecting for the day. See you tomorrow at 8:00 AM GMT+1!");
                     this.disconnect();
                     this.endOfDay = true;
                 }
             }
-        }, 30000);
+        }, 20000);
     }
 
     disconnect() {
-        if (this.connected) {
-            this.ws.close();
-        }
+        console.log('🛑 Disconnecting bot...');
+        StatePersistence.saveState(this);
+        this.endOfDay = true; // Prevent reconnection
+        this.cleanup();
+        console.log('✅ Bot disconnected successfully');
     }
 
     // ========================================================================
@@ -2776,43 +2831,112 @@ class EnhancedAccumulatorBot {
     }
 
     // ========================================================================
-    // EMAIL METHODS (ENHANCED)
+    // TELEGRAM METHODS (ENHANCED)
     // ========================================================================
+
+    async sendTelegramMessage(message) {
+        if (!this.telegramEnabled || !this.telegramBot) return;
+        try {
+            await this.telegramBot.sendMessage(this.telegramChatId, message, { parse_mode: 'HTML' });
+        } catch (error) {
+            console.error(`❌ Failed to send Telegram message: ${error.message}`);
+        }
+    }
+
+    async sendHourlySummary() {
+        if (!this.hourlyStats) return;
+        const stats = this.hourlyStats;
+        const winRate = stats.wins + stats.losses > 0
+            ? ((stats.wins / (stats.wins + stats.losses)) * 100).toFixed(1)
+            : 0;
+        const pnlEmoji = stats.pnl >= 0 ? '🟢' : '🔴';
+        const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + Math.abs(stats.pnl).toFixed(2);
+
+        // Neural network metrics
+        const neuralMetrics = this.config.enableNeuralNetwork && this.neuralEngine.initialized ? this.neuralEngine.getPerformanceMetrics() : { accuracy: 0 };
+        // Ensemble performance
+        const ensemblePerf = this.ensembleDecisionMaker.getPerformanceSummary();
+
+        const message = `
+            ⏰ <b>Enhanced Accumulator Session Summary</b>
+
+            📊 <b>Session Stats</b>
+            ├ Trades: ${stats.trades}
+            ├ Wins: ${stats.wins} | Losses: ${stats.losses}
+            ├ Win Rate: ${winRate}%
+            └ ${pnlEmoji} <b>P&L:</b> ${pnlStr}
+
+            📈 <b>All-Time/Daily Totals</b>
+            ├ Total Trades: ${this.totalTrades}
+            ├ Total W/L: ${this.totalWins}/${this.totalLosses}
+            ├ x2-x5 Losses: ${this.consecutiveLosses2}/${this.consecutiveLosses3}/${this.consecutiveLosses4}/${this.consecutiveLosses5}
+            ├ Total P&L: ${(this.totalProfitLoss >= 0 ? '+' : '')}$${Math.abs(this.totalProfitLoss).toFixed(2)}
+            └ Current Stake: $${this.currentStake.toFixed(2)}
+            
+            🧠 <b>AI System State</b>
+            ├ Neural Accuracy: ${(neuralMetrics.accuracy * 100).toFixed(1)}%
+            └ Adaptive Threshold: ${ensemblePerf.adaptiveThreshold}
+
+            ⏰ ${new Date().toLocaleString()}
+        `.trim();
+
+        try {
+            await this.sendTelegramMessage(message);
+            console.log('📱 Telegram: Session Summary sent');
+        } catch (error) {
+            console.error(`❌ Telegram session summary failed: ${error.message}`);
+        }
+
+        this.hourlyStats = {
+            trades: 0,
+            wins: 0,
+            losses: 0,
+            pnl: 0,
+            lastHour: new Date().getHours()
+        };
+    }
+
+    sendEmailSummary() {
+        // Redirect legacy email summary calls to telegram summary
+        this.sendHourlySummary();
+    }
+
+    sendDisconnectResumptionEmailSummary() {
+        this.sendHourlySummary();
+    }
+
+    sendLossEmail(asset) {
+        // Handled intrinsically by handleTradeResult
+    }
+
+    sendErrorEmail(errorMessage) {
+        this.sendTelegramMessage(`❌ <b>ERROR REPORT</b>\n\n${errorMessage}`);
+    }
 
     // ========================================================================
     // START METHOD
     // ========================================================================
 
     start() {
-        console.log('===========================================================');
-        console.log('  🚀 ENHANCED AI ACCUMULATOR TRADING BOT v2.5');
-        console.log('===========================================================');
+        console.log('═══════════════════════════════════════════════════════════');
+        console.log('  🚀 ENHANCED AI ACCUMULATOR TRADING BOT v2.0');
+        console.log('═══════════════════════════════════════════════════════════');
         console.log('');
-        console.log('  🤖 Intelligence Stack:');
+        console.log('  📊 Features:');
         console.log('    • Kaplan-Meier Survival Analysis');
         console.log('    • Bayesian Probability Updating');
         console.log('    • Markov Chain Pattern Recognition');
         console.log('    • Neural Network Prediction');
         console.log('    • Ensemble Decision Making');
-        console.log('    • Persistent State Manager');
+        console.log('    • Persistent Learning Memory');
         console.log('');
-        console.log('  📱 Notifications: Telegram Enabled');
         console.log(`  🎓 Learning Mode: ${this.learningMode ? 'Active' : 'Complete'}`);
-        console.log('===========================================================');
+        console.log(`  📁 Memory Directory: ./bot_memory/`);
+        console.log('═══════════════════════════════════════════════════════════');
         console.log('');
-
-        // Start persistence
-        StatePersistence.startAutoSave(this);
 
         this.connect();
-        // this.checkTimeForDisconnectReconnect();
-
-        this.sendTelegramMessage(
-            `🚀 <b>STARTED ENHANCED AI ACCUMULATOR TRADING BOT v2.5</b>\n` +
-            `Initial Stake: $${this.config.initialStake.toFixed(2)}\n` +
-            `Stop Loss: $${this.config.stopLoss}\n` +
-            `Take Profit: $${this.config.takeProfit}`
-        );
+        this.checkTimeForDisconnectReconnect();
     }
 }
 
