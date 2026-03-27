@@ -21,7 +21,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti4-state0001.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti4-state02.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -2633,7 +2633,7 @@ class EnhancedAccumulatorBot {
             if (this.sys2) {
                 this.currentStake = this.config.initialStake2;
                 this.sys2WinCount++;
-                if (this.sys2WinCount === 30) {
+                if (this.sys2WinCount === 50) {
                     this.currentStake = this.config.initialStake;
                     this.sys2WinCount = 0;
                     this.sys2 = false;
@@ -3124,9 +3124,9 @@ const token = 'rgNedekYXvCaPeP'; //|| process.env.DERIV_TOKEN;
 
 const bot = new EnhancedAccumulatorBot(token, {
     initialStake: 1,
-    initialStake2: 5,
+    initialStake2: 10,
     multiplier: 21,
-    stopLoss: 132,
+    stopLoss: 242,
     takeProfit: 50000,
     growthRate: 0.05,
     accuTakeProfit: 0.01,
