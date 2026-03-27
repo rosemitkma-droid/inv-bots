@@ -21,7 +21,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti4-state02.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti4-state03.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -2601,11 +2601,6 @@ class EnhancedAccumulatorBot {
         if (won) this.hourlyStats.wins++;
         else this.hourlyStats.losses++;
 
-        const resultEmoji = won ? '✅ WIN' : '❌ LOSS';
-        const pnlStr = (profit >= 0 ? '+' : '') + '$' + Math.abs(profit).toFixed(2);
-        const pnlColor = profit >= 0 ? '🟢' : '🔴';
-        const winRate = this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(1) : 0;
-
         // Record outcome for enhanced learning
         const digitCount = assetState.stayedInArray[99] + 1;
         const filterUsed = this.learningSystem.adaptiveFilters[asset];
@@ -2673,6 +2668,11 @@ class EnhancedAccumulatorBot {
 
         this.totalProfitLoss += profit;
 
+        const resultEmoji = won ? '✅ WIN' : '❌ LOSS';
+        const pnlStr = (profit >= 0 ? '+' : '') + '$' + Math.abs(profit).toFixed(2);
+        const pnlColor = profit >= 0 ? '🟢' : '🔴';
+        const winRate = this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(1) : 0;
+
         const telegramMsg = `
             ${resultEmoji} (Enhanced Accumulator Bot)
             
@@ -2684,10 +2684,11 @@ class EnhancedAccumulatorBot {
             📊 <b>Losses Today:</b> ${this.totalLosses}
             📊 <b>x2-x5 Losses:</b> ${this.consecutiveLosses2}/${this.consecutiveLosses3}/${this.consecutiveLosses4}/${this.consecutiveLosses5}
             
-            📈 <b>Total P&L:</b> ${(this.totalProfitLoss >= 0 ? '+' : '')}$${Math.abs(this.totalProfitLoss).toFixed(2)}
-            🎯 <b>Win Rate:</b> ${winRate}%
-            
             📊 <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
+
+            🎯 <b>Win Rate:</b> ${winRate}%
+            📈 <b>Total P&L:</b> ${(this.totalProfitLoss >= 0 ? '+' : '')}$${Math.abs(this.totalProfitLoss).toFixed(2)}
+
             
             ⏰ ${new Date().toLocaleTimeString()}
         `.trim();
