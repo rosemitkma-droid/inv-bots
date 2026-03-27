@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti00000002-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti03-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -208,15 +208,15 @@ class StatePersistence {
             };
 
             // Save analyzer state for each asset
-            CONFIG.assets.forEach(asset => {
-                if (bot.analyzers[asset] && bot.cycleAnalyzers[asset]) {
-                    persistableState.assets[asset] = {
-                        tickHistory: bot.analyzers[asset].digitHistory.slice(-100),
-                        cycleDigits: bot.cycleAnalyzers[asset].digits.slice(-100),
-                        cycleRepeats: bot.cycleAnalyzers[asset].repeats.slice(-100),
-                    };
-                }
-            });
+            // CONFIG.assets.forEach(asset => {
+            //     if (bot.analyzers[asset] && bot.cycleAnalyzers[asset]) {
+            //         persistableState.assets[asset] = {
+            //             tickHistory: bot.analyzers[asset].digitHistory.slice(-100),
+            //             cycleDigits: bot.cycleAnalyzers[asset].digits.slice(-100),
+            //             cycleRepeats: bot.cycleAnalyzers[asset].repeats.slice(-100),
+            //         };
+            //     }
+            // });
 
             fs.writeFileSync(STATE_FILE, JSON.stringify(persistableState, null, 2));
         } catch (error) {
