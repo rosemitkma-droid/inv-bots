@@ -17,10 +17,11 @@ const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
+
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti4-state00001.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti4-state0001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -43,6 +44,9 @@ class StatePersistence {
                     Pause: bot.Pause,
                     sys: bot.sys,
                     sysCount: bot.sysCount,
+                    sys2: bot.sys2,
+                    sys2WinCount: bot.sys2WinCount,
+                    isWinTrade: bot.isWinTrade,
                 },
                 neuralEngine: bot.neuralEngine.exportWeights(),
                 ensembleDecisionMaker: bot.ensembleDecisionMaker.exportState(),
@@ -54,18 +58,23 @@ class StatePersistence {
                     tickSubscriptionIds: { ...bot.tickSubscriptionIds }
                 },
                 assets: {},
-                hourlyStats: bot.hourlyStats
+                hourlyStats: bot.hourlyStats,
+                observationCount: bot.observationCount,
+                learningMode: bot.learningMode
             };
 
             bot.assets.forEach(asset => {
                 persistableState.assets[asset] = {
-                    tickHistory: bot.tickHistories[asset]
+                    tickHistory: bot.tickHistories[asset] || []
                 };
             });
 
             fs.writeFileSync(STATE_FILE, JSON.stringify(persistableState, null, 2));
+            // console.log(`💾 State saved successfully at ${new Date().toLocaleTimeString()}`);
+            return true;
         } catch (error) {
-            console.error(`Failed to save state: ${error.message}`);
+            console.error(`❌ Failed to save state: ${error.message}`);
+            return false;
         }
     }
 
@@ -73,31 +82,83 @@ class StatePersistence {
         try {
             if (!fs.existsSync(STATE_FILE)) {
                 console.log('📂 No previous state file found, starting fresh');
-                return false;
+                return null;
             }
 
-            const savedData = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+            const fileContent = fs.readFileSync(STATE_FILE, 'utf8');
+            const savedData = JSON.parse(fileContent);
+
             const ageMinutes = (Date.now() - savedData.savedAt) / 60000;
 
             if (ageMinutes > 30) {
                 console.warn(`⚠️ Saved state is ${ageMinutes.toFixed(1)} minutes old, starting fresh`);
-                fs.unlinkSync(STATE_FILE);
-                return false;
+                // Optionally backup old state before deleting
+                const backupFile = STATE_FILE.replace('.json', `_backup_${Date.now()}.json`);
+                fs.renameSync(STATE_FILE, backupFile);
+                console.log(`📦 Old state backed up to: ${backupFile}`);
+                return null;
             }
 
             console.log(`📂 Restoring state from ${ageMinutes.toFixed(1)} minutes ago`);
             return savedData;
         } catch (error) {
-            console.error(`Failed to load state: ${error.message}`);
-            return false;
+            console.error(`❌ Failed to load state: ${error.message}`);
+            if (error.code === 'ENOENT') {
+                console.log('📂 State file not found, starting fresh');
+            } else if (error instanceof SyntaxError) {
+                console.error('⚠️ State file corrupted, starting fresh');
+                // Backup corrupted file
+                try {
+                    const backupFile = STATE_FILE.replace('.json', `_corrupted_${Date.now()}.json`);
+                    fs.renameSync(STATE_FILE, backupFile);
+                    console.log(`📦 Corrupted file backed up to: ${backupFile}`);
+                } catch (backupError) {
+                    console.error('Failed to backup corrupted file:', backupError.message);
+                }
+            }
+            return null;
         }
     }
 
     static startAutoSave(bot) {
-        setInterval(() => {
-            StatePersistence.saveState(bot);
+        // Clear any existing auto-save interval
+        if (bot.autoSaveInterval) {
+            clearInterval(bot.autoSaveInterval);
+        }
+
+        bot.autoSaveInterval = setInterval(() => {
+            if (bot.connected && !bot.endOfDay) {
+                StatePersistence.saveState(bot);
+            }
         }, STATE_SAVE_INTERVAL);
-        console.log('🔄 Auto-save started (every 5 seconds)');
+
+        console.log(`🔄 Auto-save started (every ${STATE_SAVE_INTERVAL / 1000} seconds)`);
+
+        // Save on process exit
+        const exitHandler = (options) => {
+            console.log('\n🛑 Shutting down, saving final state...');
+            StatePersistence.saveState(bot);
+            if (options.exit) {
+                process.exit();
+            }
+        };
+
+        // Handle different exit events
+        process.on('exit', exitHandler.bind(null, { cleanup: true }));
+        process.on('SIGINT', exitHandler.bind(null, { exit: true }));
+        process.on('SIGTERM', exitHandler.bind(null, { exit: true }));
+        process.on('uncaughtException', (err) => {
+            console.error('Uncaught Exception:', err);
+            exitHandler({ exit: true });
+        });
+    }
+
+    static stopAutoSave(bot) {
+        if (bot.autoSaveInterval) {
+            clearInterval(bot.autoSaveInterval);
+            bot.autoSaveInterval = null;
+            console.log('🔄 Auto-save stopped');
+        }
     }
 }
 
@@ -1303,14 +1364,13 @@ class EnhancedAccumulatorBot {
 
         this.config = {
             initialStake: config.initialStake || 1,
+            initialStake2: config.initialStake2 || 5,
             multiplier: config.multiplier || 21,
-            multiplier2: config.multiplier2 || 100,
-            multiplier3: config.multiplier3 || 1000,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
             stopLoss: config.stopLoss || 400,
             takeProfit: config.takeProfit || 5000,
-            growthRate: 0.05,
-            accuTakeProfit: 0.01,
+            growthRate: config.growthRate || 0.05,
+            accuTakeProfit: config.accuTakeProfit || 0.01,
             requiredHistoryLength: config.requiredHistoryLength || 200,
             winProbabilityThreshold: config.winProbabilityThreshold || 100,
             maxReconnectAttempts: config.maxReconnectAttempts || 10000,
@@ -1350,6 +1410,8 @@ class EnhancedAccumulatorBot {
         this.sys = 1;
         this.sysCount = 0;
         this.stopLossStake = false;
+        this.sys2 = false;
+        this.sys2WinCount = 0;
 
         // Asset-specific data
         this.digitCounts = {};
@@ -1480,7 +1542,6 @@ class EnhancedAccumulatorBot {
         // Message queue for failed sends
         this.messageQueue = [];
         this.maxQueueSize = 50;
-        this.kLoss = 0.01;
 
         // Load saved state if available
         this.loadSavedState();
@@ -1492,59 +1553,101 @@ class EnhancedAccumulatorBot {
 
     loadSavedState() {
         const state = StatePersistence.loadState();
-        if (state) {
-            console.log('📂 Loading saved learning state...');
 
-            const trading = state.trading || {};
-            this.currentStake = trading.currentStake || this.config.initialStake;
-            this.consecutiveLosses = trading.consecutiveLosses || 0;
-            this.totalTrades = trading.totalTrades || 0;
-            this.totalWins = trading.totalWins || 0;
-            this.totalLosses = trading.totalLosses || 0;
-            this.consecutiveLosses2 = trading.consecutiveLosses2 || 0;
-            this.consecutiveLosses3 = trading.consecutiveLosses3 || 0;
-            this.consecutiveLosses4 = trading.consecutiveLosses4 || 0;
-            this.consecutiveLosses5 = trading.consecutiveLosses5 || 0;
-            this.totalProfitLoss = trading.totalProfitLoss || 0;
-            this.Pause = trading.Pause || false;
-            this.sys = trading.sys || 1;
-            this.sysCount = trading.sysCount || 0;
+        // Check if state was successfully loaded
+        if (!state) {
+            console.log('🆕 No saved state found or state too old. Starting fresh learning.');
+            return;
+        }
 
-            if (state.hourlyStats) this.hourlyStats = state.hourlyStats;
+        console.log('📂 Loading saved learning state...');
 
+        try {
+            // Restore trading state
+            if (state.trading) {
+                const trading = state.trading;
+                this.currentStake = trading.currentStake || this.config.initialStake;
+                this.consecutiveLosses = trading.consecutiveLosses || 0;
+                this.totalTrades = trading.totalTrades || 0;
+                this.totalWins = trading.totalWins || 0;
+                this.totalLosses = trading.totalLosses || 0;
+                this.consecutiveLosses2 = trading.consecutiveLosses2 || 0;
+                this.consecutiveLosses3 = trading.consecutiveLosses3 || 0;
+                this.consecutiveLosses4 = trading.consecutiveLosses4 || 0;
+                this.consecutiveLosses5 = trading.consecutiveLosses5 || 0;
+                this.totalProfitLoss = trading.totalProfitLoss || 0;
+                this.Pause = trading.Pause || false;
+                this.sys = trading.sys || 1;
+                this.sysCount = trading.sysCount || 0;
+                this.sys2 = trading.sys2 || false;
+                this.sys2WinCount = trading.sys2WinCount || 0;
+                this.isWinTrade = trading.isWinTrade || false;
+            }
+
+            // Restore hourly stats
+            if (state.hourlyStats) {
+                this.hourlyStats = state.hourlyStats;
+            }
+
+            // Restore learning mode state
+            if (state.observationCount !== undefined) {
+                this.observationCount = state.observationCount;
+            }
+            if (state.learningMode !== undefined) {
+                this.learningMode = state.learningMode;
+            }
+
+            // Restore neural network weights
             if (state.neuralEngine) {
                 this.neuralEngine.importWeights(state.neuralEngine);
+                console.log('  ✓ Neural network weights restored');
             }
 
+            // Restore ensemble decision maker
             if (state.ensembleDecisionMaker) {
                 this.ensembleDecisionMaker.importState(state.ensembleDecisionMaker);
+                console.log('  ✓ Ensemble decision maker restored');
             }
 
+            // Restore learning system
             if (state.learningSystem) {
                 this.learningSystem = { ...this.learningSystem, ...state.learningSystem };
+                console.log('  ✓ Learning system restored');
             }
 
+            // Restore extended stayed-in data
             if (state.extendedStayedIn) {
                 this.extendedStayedIn = state.extendedStayedIn;
+                console.log('  ✓ Extended stayed-in data restored');
             }
+
+            // Restore previous stayed-in data
             if (state.previousStayedIn) {
                 this.previousStayedIn = state.previousStayedIn;
             }
+
+            // Restore asset states
             if (state.assetStates) {
                 this.assetStates = state.assetStates;
+                console.log('  ✓ Asset states restored');
             }
 
+            // Restore tick histories
             if (state.assets) {
                 Object.keys(state.assets).forEach(asset => {
-                    if (this.tickHistories[asset]) {
-                        this.tickHistories[asset] = state.assets[asset].tickHistory || [];
+                    if (this.tickHistories[asset] && state.assets[asset].tickHistory) {
+                        this.tickHistories[asset] = state.assets[asset].tickHistory;
                     }
                 });
+                console.log('  ✓ Tick histories restored');
             }
 
             console.log('✅ Learning state restored successfully');
-        } else {
-            console.log('🆕 No saved state found. Starting fresh learning.');
+            console.log(`📊 Restored ${this.totalTrades} trades, P&L: $${this.totalProfitLoss.toFixed(2)}`);
+
+        } catch (error) {
+            console.error(`❌ Error restoring state: ${error.message}`);
+            console.log('⚠️ Continuing with fresh state...');
         }
     }
 
@@ -1792,7 +1895,7 @@ class EnhancedAccumulatorBot {
             symbol: asset,
             growth_rate: this.config.growthRate,
             limit_order: {
-                take_profit: this.kLoss
+                take_profit: this.config.accuTakeProfit
             }
         };
         this.sendRequest(proposal);
@@ -2503,26 +2606,6 @@ class EnhancedAccumulatorBot {
         const pnlColor = profit >= 0 ? '🟢' : '🔴';
         const winRate = this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(1) : 0;
 
-        const telegramMsg = `
-            ${resultEmoji} (Enhanced Accumulator Bot)
-            
-            📊 <b>${asset}</b>
-            ${pnlColor} <b>P&L:</b> ${pnlStr}
-            
-            📊 <b>Trades Today:</b> ${this.totalTrades}
-            📊 <b>Wins Today:</b> ${this.totalWins}
-            📊 <b>Losses Today:</b> ${this.totalLosses}
-            📊 <b>x2-x5 Losses:</b> ${this.consecutiveLosses2}/${this.consecutiveLosses3}/${this.consecutiveLosses4}/${this.consecutiveLosses5}
-            
-            📈 <b>Total P&L:</b> ${(this.totalProfitLoss >= 0 ? '+' : '')}$${Math.abs(this.totalProfitLoss).toFixed(2)}
-            🎯 <b>Win Rate:</b> ${winRate}%
-            
-            📊 <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
-            
-            ⏰ ${new Date().toLocaleTimeString()}
-        `.trim();
-        this.sendTelegramMessage(telegramMsg);
-
         // Record outcome for enhanced learning
         const digitCount = assetState.stayedInArray[99] + 1;
         const filterUsed = this.learningSystem.adaptiveFilters[asset];
@@ -2547,7 +2630,17 @@ class EnhancedAccumulatorBot {
             //     }
             // }
 
-            this.currentStake = this.config.initialStake;
+            if (this.sys2) {
+                this.currentStake = this.config.initialStake2;
+                this.sys2WinCount++;
+                if (this.sys2WinCount === 30) {
+                    this.currentStake = this.config.initialStake;
+                    this.sys2WinCount = 0;
+                    this.sys2 = false;
+                }
+            } else {
+                this.currentStake = this.config.initialStake;
+            }
 
             if (assetState) {
                 assetState.consecutiveLosses = 0;
@@ -2566,10 +2659,41 @@ class EnhancedAccumulatorBot {
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            if (this.consecutiveLosses === 2) {
+                if (this.sys2) {
+                    this.consecutiveLosses = 4
+                };
+                this.sys2 = true
+                this.currentStake = this.config.initialStake2;
+            } else {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            }
+            // this.suspendAsset(asset);
         }
 
         this.totalProfitLoss += profit;
+
+        const telegramMsg = `
+            ${resultEmoji} (Enhanced Accumulator Bot)
+            
+            📊 <b>${asset}</b>
+            ${pnlColor} <b>P&L:</b> ${pnlStr}
+            
+            📊 <b>Trades Today:</b> ${this.totalTrades}
+            📊 <b>Wins Today:</b> ${this.totalWins}
+            📊 <b>Losses Today:</b> ${this.totalLosses}
+            📊 <b>x2-x5 Losses:</b> ${this.consecutiveLosses2}/${this.consecutiveLosses3}/${this.consecutiveLosses4}/${this.consecutiveLosses5}
+            
+            📈 <b>Total P&L:</b> ${(this.totalProfitLoss >= 0 ? '+' : '')}$${Math.abs(this.totalProfitLoss).toFixed(2)}
+            🎯 <b>Win Rate:</b> ${winRate}%
+            
+            📊 <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
+            
+            ⏰ ${new Date().toLocaleTimeString()}
+        `.trim();
+        this.sendTelegramMessage(telegramMsg);
+
+
         this.Pause = true;
 
         let baseWaitTime = this.config.minWaitTime;
@@ -2680,8 +2804,8 @@ class EnhancedAccumulatorBot {
         // this.persistenceManager = new PersistenceManager();
 
         // Learning mode counter
-        // this.observationCount = 0;
-        // this.learningMode = true;
+        this.observationCount = 0;
+        this.learningMode = true;
 
         // Legacy learning system (enhanced)
         // this.learningSystem = {
@@ -2833,7 +2957,11 @@ class EnhancedAccumulatorBot {
 
     disconnect() {
         console.log('🛑 Disconnecting bot...');
+        // Save final state
         StatePersistence.saveState(this);
+        // Stop auto-save
+        StatePersistence.stopAutoSave(this);
+
         this.endOfDay = true; // Prevent reconnection
         this.cleanup();
         console.log('✅ Bot disconnected successfully');
@@ -2980,6 +3108,9 @@ class EnhancedAccumulatorBot {
         console.log('═══════════════════════════════════════════════════════════');
         console.log('');
 
+        // Start auto-save
+        StatePersistence.startAutoSave(this);
+
         this.connect();
         this.checkTimeForDisconnectReconnect();
     }
@@ -2993,13 +3124,17 @@ const token = 'rgNedekYXvCaPeP'; //|| process.env.DERIV_TOKEN;
 
 const bot = new EnhancedAccumulatorBot(token, {
     initialStake: 1,
-    stopLoss: 421,
-    takeProfit: 250000,
+    initialStake2: 5,
+    multiplier: 21,
+    stopLoss: 132,
+    takeProfit: 50000,
+    growthRate: 0.05,
+    accuTakeProfit: 0.01,
     enableNeuralNetwork: true,
     enablePatternRecognition: true,
     learningModeThreshold: 100,
     survivalThreshold: 0.9,
-    maxConsecutiveLosses: 3,
+    maxConsecutiveLosses: 4,
     minWaitTime: 2000,
     maxWaitTime: 2000,
 });
