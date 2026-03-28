@@ -58,8 +58,8 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST1n-grid-state000000001.json');
-const DAILY_STATS_FILE = path.join(__dirname, 'ST1n-daily-stats0001.json');
+const STATE_FILE = path.join(__dirname, 'ST1n-grid-state00000005.json');
+const DAILY_STATS_FILE = path.join(__dirname, 'ST1n-daily-stats005.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -989,7 +989,7 @@ class STEPINDEXGridBot {
       this._retryTimer = setTimeout(() => {
         this._retryTimer = null;
         if (this.running && !this.tradeInProgress && this.canTrade) {
-          this._placeTrade();
+          // this._placeTrade();
         }
       }, 10000);
       return;
@@ -1009,7 +1009,7 @@ class STEPINDEXGridBot {
           this._retryTimer = null;
           if (this.running && !this.tradeInProgress && this.canTrade) {
             this.log('Retrying trade after API error…');
-            this._placeTrade();
+            // this._placeTrade();
           }
         }, 3000);
       }
@@ -1117,7 +1117,7 @@ class STEPINDEXGridBot {
         clearInterval(checker);
         if (this.running && !this.tradeInProgress && this.canTrade) {
           this.log('📊 Candles loaded — placing recovery trade', 'success');
-          this._placeTrade();
+          // this._placeTrade();
         }
         return;
       }
@@ -1126,7 +1126,7 @@ class STEPINDEXGridBot {
         // Candles still not loaded — trade anyway if in recovery
         if (this.running && !this.tradeInProgress && this.canTrade) {
           this.log('📊 Candles not loaded within timeout — placing recovery trade anyway', 'warning');
-          this._placeTrade();
+          // this._placeTrade();
         }
       }
     }, 500);
@@ -1307,8 +1307,8 @@ class STEPINDEXGridBot {
 
       this.currentDirection = nextDir;
       this.currentGridLevel = nextLevel;
-      this.inRecoveryMode = true;
-      this.canTrade = true;
+      // this.inRecoveryMode = true;
+      // this.canTrade = true;
 
       if (nextLevel > absoluteMax) {
         this.log(
@@ -1695,7 +1695,7 @@ class STEPINDEXGridBot {
           '⚡ Recovery mode but canTrade=false — forcing canTrade=true',
           'warning'
         );
-        this.canTrade = true;
+        // this.canTrade = true;
       } else {
         this.log(
           '⏳ Waiting for new candle before trading… (canTrade=false)',
