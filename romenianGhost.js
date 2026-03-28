@@ -14,7 +14,7 @@ const TOKEN = "DMylfkyce6VyZt7";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'ghost92-00013-state.json');
+const STATE_FILE = path.join(__dirname, 'ghost92-000010-state.json');
 
 class RomanianGhostUltimate {
     constructor() {
@@ -27,7 +27,7 @@ class RomanianGhostUltimate {
             minHistoryForTrading: 2000,
 
             // Z-Score thresholds (CORRECTED - uses AVERAGE not sum)
-            minAvgZScore: 3,           // Average Z-score per window
+            minAvgZScore: 2.5,           // Average Z-score per window
             minParticipation: 8,          // Digit must dominate 8+ windows
 
             // Volatility thresholds (CORRECTED - realistic values)
@@ -44,9 +44,10 @@ class RomanianGhostUltimate {
 
             // Money management
             baseStake: 2.20,
+            baseStake2: 10.4,
             firstLossMultiplier: 11.3,
             subsequentMultiplier: 11.3,
-            maxConsecutiveLosses: 6,
+            maxConsecutiveLosses: 4,
             takeProfit: 10000,
             stopLoss: -500,
 
@@ -65,6 +66,8 @@ class RomanianGhostUltimate {
         this.totalWins = 0;
         this.x2 = 0; this.x3 = 0; this.x4 = 0; this.x5 = 0;
         this.netProfit = 0;
+        this.sys2 = false;
+        this.sys2WinCount = 0;
 
         this.lastTradeDigit = {};
         this.lastTradeTime = {};
@@ -557,6 +560,17 @@ class RomanianGhostUltimate {
             this.consecutiveLosses = 0;
             this.stake = this.config.baseStake;
             this.isWinTrade = true;
+            if (this.sys2) {
+                this.stake = this.config.baseStake2;
+                this.sys2WinCount++;
+                if (this.sys2WinCount === 30) {
+                    this.stake = this.config.baseStake;
+                    this.sys2WinCount = 0;
+                    this.sys2 = false;
+                }
+            } else {
+                this.stake = this.config.baseStake;
+            }
         } else {
             this.isWinTrade = false;
             this.hourly.losses++;
@@ -568,13 +582,23 @@ class RomanianGhostUltimate {
             if (this.consecutiveLosses === 5) this.x5++;
 
             // Money management
-            if (this.consecutiveLosses === 1) {
-                this.stake = this.config.baseStake * this.config.firstLossMultiplier;
+            // if (this.consecutiveLosses === 1) {
+            //     this.stake = this.config.baseStake * this.config.firstLossMultiplier;
+            // } else {
+            //     this.stake = this.config.baseStake *
+            //         Math.pow(this.config.subsequentMultiplier, this.consecutiveLosses - 1);
+            // }
+            // this.stake = Math.round(this.stake * 100) / 100;
+
+            if (this.consecutiveLosses === 2) {
+                if (this.sys2) {
+                    this.consecutiveLosses = 4
+                };
+                this.sys2 = true
+                this.stake = this.config.baseStake2;
             } else {
-                this.stake = this.config.baseStake *
-                    Math.pow(this.config.subsequentMultiplier, this.consecutiveLosses - 1);
+                this.stake = Math.ceil(this.stake * this.config.firstLossMultiplier * 100) / 100;
             }
-            this.stake = Math.round(this.stake * 100) / 100;
         }
 
         // Result Alert
@@ -794,7 +818,9 @@ class RomanianGhostUltimate {
                 totalWins: this.totalWins,
                 x2: this.x2, x3: this.x3, x4: this.x4, x5: this.x5,
                 netProfit: this.netProfit,
-                recentTrades: this.recentTrades
+                recentTrades: this.recentTrades,
+                sys2: this.sys2,
+                sys2WinCount: this.sys2WinCount,
             }, null, 2));
         } catch (e) { }
     }
@@ -818,18 +844,18 @@ class RomanianGhostUltimate {
             if (this.hourly.trades === 0) return;
             const winRate = ((this.hourly.wins / this.hourly.trades) * 100).toFixed(1);
             this.sendTelegram(`
-⏰ <b>HOURLY — GHOST 9.2</b>
+                ⏰ <b>HOURLY — GHOST 9.2</b>
 
-📊 Trades: ${this.hourly.trades}
-✅/❌ W/L: ${this.hourly.wins}/${this.hourly.losses}
-📈 Win Rate: ${winRate}%
-💰 P&L: ${this.hourly.pnl >= 0 ? '+' : ''}$${this.hourly.pnl.toFixed(2)}
+                📊 Trades: ${this.hourly.trades}
+                ✅/❌ W/L: ${this.hourly.wins}/${this.hourly.losses}
+                📈 Win Rate: ${winRate}%
+                💰 P&L: ${this.hourly.pnl >= 0 ? '+' : ''}$${this.hourly.pnl.toFixed(2)}
 
-📊 <b>Session</b>
-├ Total: ${this.totalTrades}
-├ W/L: ${this.totalWins}/${this.totalTrades - this.totalWins}
-├ x2-x5: ${this.x2}/${this.x3}/${this.x4}/${this.x5}
-└ Net: $${this.netProfit.toFixed(2)}
+                📊 <b>Session</b>
+                ├ Total: ${this.totalTrades}
+                ├ W/L: ${this.totalWins}/${this.totalTrades - this.totalWins}
+                ├ x2-x5: ${this.x2}/${this.x3}/${this.x4}/${this.x5}
+                └ Net: $${this.netProfit.toFixed(2)}
             `.trim());
             this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
             this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
@@ -849,25 +875,25 @@ class RomanianGhostUltimate {
                 (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
                 (currentDay === 1 && currentHours < 8);    // Monday before 8am
 
-            if (isWeekend) {
-                if (!this.endOfDay) {
-                    console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
-                    this.disconnect();
-                    this.endOfDay = true;
-                }
-                return; // Prevent any reconnection logic during the weekend
-            }
+            // if (isWeekend) {
+            //     if (!this.endOfDay) {
+            //         console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
+            //         this.disconnect();
+            //         this.endOfDay = true;
+            //     }
+            //     return; // Prevent any reconnection logic during the weekend
+            // }
 
-            if (this.endOfDay && currentHours === 8 && currentMinutes >= 0) {
-                console.log("It's 8:00 AM GMT+1, reconnecting the bot.");
+            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
+                console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
                 this.resetDailyStats();
                 this.endOfDay = false;
                 this.connect();
             }
 
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 17 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                if (currentHours >= 19 && currentMinutes >= 0) {
+                    console.log("It's past 7:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.disconnect();
                     this.endOfDay = true;
                 }
