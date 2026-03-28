@@ -2155,7 +2155,7 @@ class EnhancedAccumulatorBot {
                 this.agreementScore = decision.ensembleAgreementScore;
                 console.log(`[${asset}] Ken's Agreement: ${this.ensembleAgreement} | Score: ${this.agreementScore}`);
 
-                if (this.ensembleAgreement > 4 && this.agreementScore > (this.consecutiveLosses > 0 ? 0.8 : 0.6)) {//decision.shouldTrade
+                if (this.ensembleAgreement > 4 && this.agreementScore >= (this.consecutiveLosses > 0 ? 0.9 : 0.8)) {//decision.shouldTrade
                     console.log(`[${asset}] 🎯 TRADE SIGNAL | Score: ${decision.ensembleScore.toFixed(4)} | Confidence: ${decision.confidence.toFixed(2)} | SurvivalProb: ${decision.survivalProb.toFixed(2)} | Threshold: ${decision.threshold.toFixed(2)}`);
                     console.log(`[${asset}] Model contributions: ${JSON.stringify(decision.modelContributions)}`);
                     console.log(`[${asset}] 🎯 Agreement: ${this.ensembleAgreement} | Score: ${this.agreementScore}`);
