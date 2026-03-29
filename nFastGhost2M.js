@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti03-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0007-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -1800,15 +1800,15 @@ class MultiAssetGhostBot {
                 (currentDay === 6 && currentHours >= 23) || // Saturday after 23:00
                 (currentDay === 1 && currentHours < 7);    // Monday before 07:00
 
-            if (isWeekend) {
-                if (!this.endOfDay) {
-                    console.log('Weekend trading suspension (Saturday 23:00 - Monday 07:00). Disconnecting...');
-                    this.sendHourlySummary();
-                    this.disconnect();
-                    this.endOfDay = true;
-                }
-                return; // Prevent any reconnection logic during the weekend
-            }
+            // if (isWeekend) {
+            //     if (!this.endOfDay) {
+            //         console.log('Weekend trading suspension (Saturday 23:00 - Monday 07:00). Disconnecting...');
+            //         this.sendHourlySummary();
+            //         this.disconnect();
+            //         this.endOfDay = true;
+            //     }
+            //     return; // Prevent any reconnection logic during the weekend
+            // }
 
             // Reconnect only at 07:00 GMT+1
             if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
