@@ -21,7 +21,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti4-state08.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti4-state09.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -2155,7 +2155,7 @@ class EnhancedAccumulatorBot {
                 this.agreementScore = decision.ensembleAgreementScore;
                 console.log(`[${asset}] Ken's Agreement: ${this.ensembleAgreement} | Score: ${this.agreementScore}`);
 
-                if (this.ensembleAgreement > 4 && this.agreementScore >= (this.consecutiveLosses > 0 ? 0.9 : 0.8)) {//decision.shouldTrade
+                if (this.ensembleAgreement > 4 && this.agreementScore >= 0.9) {//decision.shouldTrade
                     console.log(`[${asset}] 🎯 TRADE SIGNAL | Score: ${decision.ensembleScore.toFixed(4)} | Confidence: ${decision.confidence.toFixed(2)} | SurvivalProb: ${decision.survivalProb.toFixed(2)} | Threshold: ${decision.threshold.toFixed(2)}`);
                     console.log(`[${asset}] Model contributions: ${JSON.stringify(decision.modelContributions)}`);
                     console.log(`[${asset}] 🎯 Agreement: ${this.ensembleAgreement} | Score: ${this.agreementScore}`);
