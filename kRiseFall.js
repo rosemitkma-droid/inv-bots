@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_1-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_1-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_1_01-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_1_01-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -932,6 +932,7 @@ Capital: $${state.capital.toFixed(2)}`
                 `📈 <b>Overall (All Time)</b>`,
                 `├ Total Trades: ${overall.tradesCount || 0}`,
                 `├ Total W/L: ${overall.winsCount || 0}/${overall.lossesCount || 0}`,
+                `├ x2-x9 Losses: ${overall.x2Losses || 0}/${overall.x3Losses || 0}/${overall.x4Losses || 0}/${overall.x5Losses || 0}/${overall.x6Losses || 0}/${overall.x7Losses || 0}/${overall.x8Losses || 0}/${overall.x9Losses || 0} `,
                 `└ Overall P&amp;L: ${(overall.netPL || 0) >= 0 ? '+' : ''}$${(overall.netPL || 0).toFixed(2)}`,
                 ``,
                 `💰 Current Capital: $${state.capital.toFixed(2)}`,
@@ -1509,14 +1510,14 @@ class SessionManager {
                 asset.profit = 0;
                 asset.loss = 0;
                 asset.netPL = 0;
-                asset.x2Losses = 0;
-                asset.x3Losses = 0;
-                asset.x4Losses = 0;
-                asset.x5Losses = 0;
-                asset.x6Losses = 0;
-                asset.x7Losses = 0;
-                asset.x8Losses = 0;
-                asset.x9Losses = 0;
+                // asset.x2Losses = 0;
+                // asset.x3Losses = 0;
+                // asset.x4Losses = 0;
+                // asset.x5Losses = 0;
+                // asset.x6Losses = 0;
+                // asset.x7Losses = 0;
+                // asset.x8Losses = 0;
+                // asset.x9Losses = 0;
                 asset.lastCrossSignalDirection = null;
             }
         });
