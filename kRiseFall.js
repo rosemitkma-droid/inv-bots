@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_1_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_1_01-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_1_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_1_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1100,7 +1100,7 @@ const CONFIG = {
     CANDLE_PATTERN_LOOKBACK: 9, // Number of previous candles to analyze for pattern detection (user configurable)
 
     // Default Trade Duration Settings (used if asset has no specific config)
-    DURATION: 60,
+    DURATION: 58,
     DURATION_UNIT: 's',
 
     // Trade Settings — NOW PER ASSET
