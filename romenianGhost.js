@@ -14,7 +14,7 @@ const TOKEN = "DMylfkyce6VyZt7";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'ghost92-000010-state.json');
+const STATE_FILE = path.join(__dirname, 'ghost92-000011-state.json');
 
 class RomanianGhostUltimate {
     constructor() {
@@ -23,24 +23,27 @@ class RomanianGhostUltimate {
             assets: [
                 'R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR',
             ],  // Multi-asset support
-            requiredHistoryLength: 3000,
+            requiredHistoryLength: 3500,
             minHistoryForTrading: 2000,
 
             // Z-Score thresholds (CORRECTED - uses AVERAGE not sum)
-            minAvgZScore: 2.5,           // Average Z-score per window
-            minParticipation: 8,          // Digit must dominate 8+ windows
+            minAvgZScore: 2.88, //3.15          // Average Z-score per window
+            minParticipation: 8, //9,          // Digit must dominate 8+ windows
+            minConsistency: 0.65, //0.62
 
             // Volatility thresholds (CORRECTED - realistic values)
-            minConcentration: 0.023,      // Minimum concentration for ultra-low
-            maxConcentration: 0.25,       // Maximum (avoid extreme anomalies)
+            minConcentration: 0.041, //0.048, //0.023,      // Minimum concentration for ultra-low
+            maxConcentration: 0.135, //0.25,       // Maximum (avoid extreme anomalies)
+
+            minSignalScore: 68,               // New: Overall confluence score
 
             // Confirmation layers
             minStreakLength: 2,           // Minimum current streak
-            maxStreakLength: 8,           // Maximum before exhaustion
+            maxStreakLength: 7, //8          // Maximum before exhaustion
 
             // Cooldown (prevents overtrading)
-            cooldownTicks: 15,            // Wait 15 ticks between trades
-            cooldownAfterLoss: 30,        // Wait 30 ticks after loss
+            cooldownTicks: 18,            // Wait 15 ticks between trades
+            cooldownAfterLoss: 37,        // Wait 30 ticks after loss
 
             // Money management
             baseStake: 2.20,
@@ -54,6 +57,16 @@ class RomanianGhostUltimate {
             // Time filters (avoid volatile periods)
             avoidMinutesAroundHour: 5,    // Avoid first/last 5 min of hour
             tradingHoursUTC: { start: 0, end: 24 },  // 24/7 for synthetics
+
+            // Asset-specific Z-Score overrides (Recommended)
+            assetSpecific: {
+                'R_10': { minAvgZScore: 2.76 },
+                'R_25': { minAvgZScore: 2.88 },
+                'R_50': { minAvgZScore: 2.97 },
+                'R_75': { minAvgZScore: 3.05 },
+                'RDBULL': { minAvgZScore: 2.83 },
+                'RDBEAR': { minAvgZScore: 2.84 }
+            },
         };
 
         // ====== TRADING STATE ======
@@ -89,6 +102,12 @@ class RomanianGhostUltimate {
         // Performance tracking (for adaptive thresholds)
         this.recentTrades = [];  // Last 50 trades for analysis
         this.maxRecentTrades = 50;
+
+        // Additional optimized state
+        this.dailyPnL = 0;
+        this.currentDay = new Date().getUTCDate();
+        this.minConsistency = this.config.minConsistency;
+        this.minSignalScore = this.config.minSignalScore;
 
         // Hourly stats
         this.hourly = { trades: 0, wins: 0, losses: 0, pnl: 0 };
@@ -324,6 +343,8 @@ class RomanianGhostUltimate {
         // Consistency bonus (max 15 points)
         const consistencyScore = best.consistency * 15;
 
+        if (best.consistency < this.config.minConsistency) return null; // Reject inconsistent signals
+
         // Participation bonus (max 10 points)
         const participationScore = (best.participation / 10) * 10;
 
@@ -344,11 +365,11 @@ class RomanianGhostUltimate {
             if (streak.currentStreak >= 5) streakScore += 5; // Bonus for strong streak
         }
 
+        // Recent appearance check
         const totalScore = zScore + consistencyScore + participationScore +
             volScore + trendScore + streakScore;
 
-        // Recent appearance check
-        const inRecent = history.slice(-9).includes(digit);
+        const inRecent = history.slice(-10).includes(digit);   // Changed from -9 to -10
 
         return {
             digit,
@@ -364,7 +385,9 @@ class RomanianGhostUltimate {
             avgZScore: best.avgZScore,
             participation: best.participation,
             inRecent,
-            isValid: totalScore >= 65 && inRecent  // Minimum 60 points to trade
+            isValid: totalScore >= this.minSignalScore &&
+                best.consistency >= this.minConsistency &&
+                inRecent
         };
     }
 
@@ -466,9 +489,13 @@ class RomanianGhostUltimate {
         // Step 5: Check if signal is valid
         if (!signal || !signal.isValid) return;
 
-        if (signal.totalScore < thresholds.minScore) return;
-        if (signal.avgZScore < thresholds.minZScore) return;
-        if (volAnalysis.concentration < thresholds.minConcentration) return;
+        const assetConfig = this.config.assetSpecific[asset] || {};
+        const effectiveZThreshold = assetConfig.minAvgZScore || this.config.minAvgZScore;
+
+        if (signal.totalScore < this.minSignalScore) return;
+        if (signal.avgZScore < effectiveZThreshold) return;
+        if (volAnalysis.concentration < this.config.minConcentration) return;
+        if (volAnalysis.concentration > this.config.maxConcentration) return;
         if (!volAnalysis.isUltraLow || !volAnalysis.isMeanReverting) return;
 
         // Step 6: Check if different from last trade
