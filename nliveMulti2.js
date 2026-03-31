@@ -1,1272 +1,1791 @@
+/**
+ * Deriv Accumulator Trading Bot v3.0
+ * Complete Strategy Rewrite - Evidence-Based Approach
+ * 
+ * Core Strategy:
+ * - Realized Volatility vs Barrier Width analysis
+ * - Tick-level survival probability estimation  
+ * - Conservative entry with verified edge
+ * - Flat staking with controlled recovery
+ * - Regime detection to avoid hostile markets
+ */
+
 require('dotenv').config();
 const WebSocket = require('ws');
-const nodemailer = require('nodemailer');
+const TelegramBot = require('node-telegram-bot-api');
+const fs = require('fs');
+const path = require('path');
 
-class EnhancedDigitDifferTradingBot {
+// ============================================
+// CONFIGURATION
+// ============================================
+const STATE_FILE = path.join(__dirname, 'accubot-v3-state.json');
+const PERFORMANCE_LOG = path.join(__dirname, 'accubot-v3-performance.jsonl');
+const STATE_SAVE_INTERVAL = 5000;
+
+// ============================================
+// STATE PERSISTENCE
+// ============================================
+class StatePersistence {
+    static saveState(bot) {
+        try {
+            const state = {
+                savedAt: Date.now(),
+                version: '3.0',
+                config: bot.config,
+                trading: {
+                    currentStake: bot.currentStake,
+                    consecutiveLosses: bot.consecutiveLosses,
+                    totalTrades: bot.totalTrades,
+                    totalWins: bot.totalWins,
+                    totalLosses: bot.totalLosses,
+                    totalProfitLoss: bot.totalProfitLoss,
+                    sessionId: bot.sessionId,
+                    dailyTradeCount: bot.dailyTradeCount,
+                    dailyPnL: bot.dailyPnL,
+                },
+                analytics: bot.analyticsEngine.exportState(),
+                riskManager: bot.riskManager.exportState(),
+                assetData: {},
+                hourlyStats: bot.hourlyStats,
+            };
+
+            bot.assets.forEach(asset => {
+                state.assetData[asset] = {
+                    priceHistory: (bot.priceHistories[asset] || []).slice(-500),
+                    tickTimestamps: (bot.tickTimestamps[asset] || []).slice(-500),
+                    stayedInHistory: bot.stayedInHistory[asset] || [],
+                    tradeResults: (bot.tradeResults[asset] || []).slice(-200),
+                    volatilityHistory: (bot.volatilityHistory[asset] || []).slice(-100),
+                };
+            });
+
+            fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+            return true;
+        } catch (error) {
+            console.error(`❌ State save failed: ${error.message}`);
+            return false;
+        }
+    }
+
+    static loadState() {
+        try {
+            if (!fs.existsSync(STATE_FILE)) return null;
+            const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+            const ageMinutes = (Date.now() - data.savedAt) / 60000;
+            if (ageMinutes > 60) {
+                console.warn(`⚠️ State is ${ageMinutes.toFixed(0)}min old, backing up and starting fresh`);
+                const backup = STATE_FILE.replace('.json', `_backup_${Date.now()}.json`);
+                fs.renameSync(STATE_FILE, backup);
+                return null;
+            }
+            console.log(`📂 Restoring state from ${ageMinutes.toFixed(1)} minutes ago`);
+            return data;
+        } catch (error) {
+            console.error(`❌ State load failed: ${error.message}`);
+            return null;
+        }
+    }
+
+    static startAutoSave(bot) {
+        if (bot._autoSaveInterval) clearInterval(bot._autoSaveInterval);
+        bot._autoSaveInterval = setInterval(() => {
+            if (bot.connected) StatePersistence.saveState(bot);
+        }, STATE_SAVE_INTERVAL);
+
+        const exitHandler = () => {
+            console.log('\n🛑 Saving final state...');
+            StatePersistence.saveState(bot);
+            process.exit();
+        };
+        process.on('SIGINT', exitHandler);
+        process.on('SIGTERM', exitHandler);
+        process.on('uncaughtException', (err) => {
+            console.error('Uncaught:', err);
+            StatePersistence.saveState(bot);
+            process.exit(1);
+        });
+    }
+
+    static stopAutoSave(bot) {
+        if (bot._autoSaveInterval) {
+            clearInterval(bot._autoSaveInterval);
+            bot._autoSaveInterval = null;
+        }
+    }
+
+    static appendPerformanceLog(entry) {
+        try {
+            fs.appendFileSync(PERFORMANCE_LOG, JSON.stringify({
+                ...entry,
+                timestamp: Date.now(),
+                time: new Date().toISOString()
+            }) + '\n');
+        } catch (e) { /* non-critical */ }
+    }
+}
+
+// ============================================
+// ANALYTICS ENGINE
+// Replaces the unreliable Statistical/Pattern/Neural engines
+// Focus: Measure what actually matters for accumulator survival
+// ============================================
+class AnalyticsEngine {
+    constructor() {
+        // Per-asset volatility tracking
+        this.volatilityWindows = {};
+        // Per-asset survival statistics  
+        this.survivalStats = {};
+        // Per-asset regime detection
+        this.regimeState = {};
+        // Edge tracking - do we actually have an edge?
+        this.edgeTracker = {};
+        // Tick-level price data for volatility calculation
+        this.tickData = {};
+    }
+
+    /**
+     * Initialize tracking for an asset
+     */
+    initAsset(asset) {
+        this.volatilityWindows[asset] = {
+            shortWindow: [],  // Last 20 ticks
+            medWindow: [],    // Last 50 ticks  
+            longWindow: [],   // Last 200 ticks
+        };
+        this.survivalStats[asset] = {
+            completedRuns: [],     // Array of completed run lengths
+            runStartTimes: [],     // When each run started
+            totalTicksObserved: 0,
+            totalRunsObserved: 0,
+        };
+        this.regimeState[asset] = {
+            currentRegime: 'unknown', // 'low_vol', 'normal', 'high_vol', 'trending', 'choppy'
+            regimeConfidence: 0,
+            regimeStartTime: Date.now(),
+            lastUpdate: 0,
+        };
+        this.edgeTracker[asset] = {
+            predictedSurvival: [],  // What we predicted
+            actualSurvival: [],     // What actually happened
+            edgeEstimate: 0,        // Running edge estimate
+            sampleCount: 0,
+            isEdgePositive: false,
+        };
+        this.tickData[asset] = {
+            prices: [],
+            timestamps: [],
+            returns: [],           // Log returns between ticks
+        };
+    }
+
+    /**
+     * Process a new tick - this is the core data ingestion
+     */
+    processTick(asset, price, timestamp) {
+        if (!this.tickData[asset]) this.initAsset(asset);
+
+        const td = this.tickData[asset];
+        td.prices.push(price);
+        td.timestamps.push(timestamp);
+
+        // Calculate log return
+        if (td.prices.length >= 2) {
+            const prev = td.prices[td.prices.length - 2];
+            const logReturn = Math.log(price / prev);
+            td.returns.push(logReturn);
+
+            // Keep bounded
+            if (td.returns.length > 500) td.returns.shift();
+        }
+
+        // Keep bounded
+        if (td.prices.length > 500) {
+            td.prices.shift();
+            td.timestamps.shift();
+        }
+
+        // Update volatility windows
+        this.updateVolatility(asset);
+
+        // Update regime detection every 10 ticks
+        if (td.prices.length % 10 === 0 && td.returns.length >= 50) {
+            this.detectRegime(asset);
+        }
+    }
+
+    /**
+     * Calculate realized volatility over different windows
+     * This is THE critical metric for accumulator trading
+     * 
+     * Barrier width = spot_price × growth_rate / 100
+     * If realized vol per tick << barrier width, survival probability is high
+     */
+    updateVolatility(asset) {
+        const returns = this.tickData[asset].returns;
+        if (returns.length < 10) return;
+
+        const vw = this.volatilityWindows[asset];
+
+        // Standard deviation of returns over different windows
+        vw.shortWindow = this.calcRealizedVol(returns, 20);
+        vw.medWindow = this.calcRealizedVol(returns, 50);
+        vw.longWindow = this.calcRealizedVol(returns, 200);
+    }
+
+    /**
+     * Calculate realized volatility (standard deviation of log returns)
+     */
+    calcRealizedVol(returns, window) {
+        const slice = returns.slice(-window);
+        if (slice.length < Math.min(window, 10)) return null;
+
+        const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
+        const variance = slice.reduce((a, b) => a + (b - mean) ** 2, 0) / slice.length;
+        return {
+            volatility: Math.sqrt(variance),
+            mean: mean,
+            maxAbsReturn: Math.max(...slice.map(Math.abs)),
+            count: slice.length,
+            // What % of ticks had returns exceeding various thresholds
+            exceedance: {
+                p001: slice.filter(r => Math.abs(r) > 0.001).length / slice.length,
+                p0005: slice.filter(r => Math.abs(r) > 0.0005).length / slice.length,
+                p0002: slice.filter(r => Math.abs(r) > 0.0002).length / slice.length,
+            }
+        };
+    }
+
+    /**
+     * Estimate per-tick survival probability based on volatility vs barrier
+     * 
+     * For accumulator: barrier = spot × growthRate
+     * A tick "survives" if |price_change / spot| < growthRate
+     * 
+     * Under normal distribution assumption:
+     * P(survive) = P(|Z| < barrier/sigma) = 2×Φ(barrier/sigma) - 1
+     */
+    estimateTickSurvival(asset, growthRate) {
+        const vw = this.volatilityWindows[asset];
+        if (!vw || !vw.shortWindow) return null;
+
+        const results = {};
+
+        // Calculate for each window
+        ['shortWindow', 'medWindow', 'longWindow'].forEach(windowName => {
+            const vol = vw[windowName];
+            if (!vol || vol.volatility === 0) {
+                results[windowName] = null;
+                return;
+            }
+
+            // barrier in log-return terms ≈ growthRate (for small values)
+            const barrier = growthRate;  // e.g., 0.01 for 1% growth rate
+            const ratio = barrier / vol.volatility;
+
+            // P(|Z| < ratio) using normal CDF approximation
+            const survivalPerTick = this.normalCDF(ratio) - this.normalCDF(-ratio);
+
+            // P(survive N ticks) = P(survive 1 tick)^N (independent assumption)
+            // This is optimistic - autocorrelation can make it worse
+            results[windowName] = {
+                perTickSurvival: survivalPerTick,
+                survive5: Math.pow(survivalPerTick, 5),
+                survive10: Math.pow(survivalPerTick, 10),
+                survive20: Math.pow(survivalPerTick, 20),
+                barrierToVolRatio: ratio,
+                volatility: vol.volatility,
+            };
+        });
+
+        return results;
+    }
+
+    /**
+     * Record a completed accumulator run (from stayedIn data)
+     */
+    recordCompletedRun(asset, runLength) {
+        if (!this.survivalStats[asset]) this.initAsset(asset);
+
+        const ss = this.survivalStats[asset];
+        ss.completedRuns.push(runLength);
+        ss.totalRunsObserved++;
+
+        // Keep bounded
+        if (ss.completedRuns.length > 500) ss.completedRuns.shift();
+    }
+
+    /**
+     * Empirical survival function from observed run lengths
+     * More reliable than parametric models with enough data
+     */
+    empiricalSurvival(asset, targetLength) {
+        const runs = this.survivalStats[asset]?.completedRuns;
+        if (!runs || runs.length < 30) return null;
+
+        const total = runs.length;
+        const survived = runs.filter(r => r >= targetLength).length;
+        const probability = survived / total;
+
+        // Wilson score confidence interval (better than normal approx for small p)
+        const z = 1.96;
+        const n = total;
+        const p = probability;
+        const denominator = 1 + z * z / n;
+        const center = (p + z * z / (2 * n)) / denominator;
+        const halfWidth = (z * Math.sqrt((p * (1 - p) + z * z / (4 * n)) / n)) / denominator;
+
+        return {
+            probability,
+            ci_lower: Math.max(0, center - halfWidth),
+            ci_upper: Math.min(1, center + halfWidth),
+            sampleSize: total,
+            survived,
+        };
+    }
+
+    /**
+     * Conditional survival: P(survive to T+1 | already survived to T)
+     * This is what actually matters for deciding whether to enter NOW
+     */
+    conditionalSurvival(asset, currentLength) {
+        const runs = this.survivalStats[asset]?.completedRuns;
+        if (!runs || runs.length < 30) return null;
+
+        // Count runs that reached currentLength
+        const reachedCurrent = runs.filter(r => r >= currentLength).length;
+        if (reachedCurrent < 10) return null; // Not enough data
+
+        // Count runs that reached currentLength + 1
+        const reachedNext = runs.filter(r => r >= currentLength + 1).length;
+
+        const conditionalProb = reachedNext / reachedCurrent;
+
+        return {
+            probability: conditionalProb,
+            hazardRate: 1 - conditionalProb,
+            sampleSize: reachedCurrent,
+        };
+    }
+
+    /**
+     * Detect market regime using multiple indicators
+     */
+    detectRegime(asset) {
+        const vw = this.volatilityWindows[asset];
+        if (!vw || !vw.shortWindow || !vw.medWindow || !vw.longWindow) return;
+
+        const shortVol = vw.shortWindow?.volatility;
+        const medVol = vw.medWindow?.volatility;
+        const longVol = vw.longWindow?.volatility;
+
+        if (!shortVol || !medVol || !longVol) return;
+
+        const returns = this.tickData[asset].returns;
+        if (returns.length < 50) return;
+
+        // Volatility ratio: short/long
+        const volRatio = shortVol / longVol;
+
+        // Autocorrelation at lag 1 (trending vs mean-reverting)
+        const recentReturns = returns.slice(-50);
+        const autocorr = this.autocorrelation(recentReturns, 1);
+
+        // Determine regime
+        let regime, confidence;
+
+        if (volRatio > 1.5) {
+            regime = 'high_vol';
+            confidence = Math.min(1, (volRatio - 1) / 2);
+        } else if (volRatio < 0.7) {
+            regime = 'low_vol';
+            confidence = Math.min(1, (1 - volRatio) / 0.5);
+        } else if (autocorr > 0.15) {
+            regime = 'trending';
+            confidence = Math.min(1, autocorr / 0.3);
+        } else if (autocorr < -0.15) {
+            regime = 'mean_reverting';
+            confidence = Math.min(1, Math.abs(autocorr) / 0.3);
+        } else {
+            regime = 'normal';
+            confidence = 0.5;
+        }
+
+        this.regimeState[asset] = {
+            currentRegime: regime,
+            regimeConfidence: confidence,
+            volRatio,
+            autocorrelation: autocorr,
+            shortVol,
+            medVol,
+            longVol,
+            lastUpdate: Date.now(),
+        };
+    }
+
+    /**
+     * Get trade signal strength
+     * Returns a score from -1 (strong no-trade) to +1 (strong trade)
+     * 
+     * Core logic:
+     * - High barrier-to-vol ratio = favorable
+     * - Low volatility regime = favorable  
+     * - Positive edge from historical trades = favorable
+     * - Recent short runs = unfavorable
+     */
+    getTradeSignal(asset, growthRate, currentRunLength) {
+        const signals = [];
+        const details = {};
+
+        // Signal 1: Volatility-based survival estimate
+        const survival = this.estimateTickSurvival(asset, growthRate);
+        if (survival) {
+            const windows = ['shortWindow', 'medWindow', 'longWindow'];
+            const weights = [0.5, 0.3, 0.2]; // Weight recent vol more
+
+            let weightedSurvival = 0;
+            let totalWeight = 0;
+
+            windows.forEach((w, i) => {
+                if (survival[w]) {
+                    // We need at least survive5 to be profitable at 1% growth
+                    // (need ~5 ticks to cover the spread/commission)
+                    const score = survival[w].survive5;
+                    weightedSurvival += score * weights[i];
+                    totalWeight += weights[i];
+                }
+            });
+
+            if (totalWeight > 0) {
+                const volScore = weightedSurvival / totalWeight;
+                // Map to [-1, 1]: below 0.8 is bad, above 0.95 is good
+                const mapped = (volScore - 0.85) / 0.15; // -1 at 0.7, 0 at 0.85, +1 at 1.0
+                signals.push({ name: 'volatility', score: Math.max(-1, Math.min(1, mapped)), weight: 0.35 });
+                details.volatility = {
+                    score: volScore,
+                    mapped,
+                    shortSurvive5: survival.shortWindow?.survive5,
+                    barrierRatio: survival.shortWindow?.barrierToVolRatio,
+                };
+            }
+        }
+
+        // Signal 2: Empirical conditional survival
+        const condSurv = this.conditionalSurvival(asset, currentRunLength);
+        if (condSurv && condSurv.sampleSize >= 20) {
+            // Conditional hazard: if > 0.1, it means 10%+ chance of dying next tick
+            const mapped = (condSurv.probability - 0.85) / 0.15;
+            signals.push({ name: 'empirical', score: Math.max(-1, Math.min(1, mapped)), weight: 0.25 });
+            details.empirical = {
+                conditionalProb: condSurv.probability,
+                hazardRate: condSurv.hazardRate,
+                sampleSize: condSurv.sampleSize,
+            };
+        }
+
+        // Signal 3: Regime favorability
+        const regime = this.regimeState[asset];
+        if (regime && regime.currentRegime !== 'unknown') {
+            let regimeScore;
+            switch (regime.currentRegime) {
+                case 'low_vol': regimeScore = 0.8; break;
+                case 'mean_reverting': regimeScore = 0.5; break;
+                case 'normal': regimeScore = 0.2; break;
+                case 'trending': regimeScore = -0.5; break;
+                case 'high_vol': regimeScore = -1.0; break;
+                default: regimeScore = 0;
+            }
+            regimeScore *= regime.regimeConfidence;
+            signals.push({ name: 'regime', score: regimeScore, weight: 0.20 });
+            details.regime = {
+                regime: regime.currentRegime,
+                confidence: regime.regimeConfidence,
+                volRatio: regime.volRatio,
+                autocorrelation: regime.autocorrelation,
+            };
+        }
+
+        // Signal 4: Recent run length pattern
+        const runs = this.survivalStats[asset]?.completedRuns;
+        if (runs && runs.length >= 10) {
+            const recent10 = runs.slice(-10);
+            const avgRecentRun = recent10.reduce((a, b) => a + b, 0) / recent10.length;
+            const shortRunCount = recent10.filter(r => r <= 2).length;
+
+            // Too many short runs = dangerous
+            let runPatternScore;
+            if (shortRunCount >= 5) {
+                runPatternScore = -0.8;
+            } else if (shortRunCount >= 3) {
+                runPatternScore = -0.3;
+            } else if (avgRecentRun > 10) {
+                runPatternScore = 0.5;
+            } else {
+                runPatternScore = 0.1;
+            }
+
+            signals.push({ name: 'runPattern', score: runPatternScore, weight: 0.10 });
+            details.runPattern = {
+                avgRecentRun,
+                shortRunCount,
+                recent10,
+            };
+        }
+
+        // Signal 5: Edge tracker - are we actually profitable?
+        const edge = this.edgeTracker[asset];
+        if (edge && edge.sampleCount >= 10) {
+            const edgeScore = edge.edgeEstimate > 0 ? 0.3 : -0.5;
+            signals.push({ name: 'edge', score: edgeScore, weight: 0.10 });
+            details.edge = {
+                estimate: edge.edgeEstimate,
+                sampleCount: edge.sampleCount,
+                isPositive: edge.isEdgePositive,
+            };
+        }
+
+        // Combine weighted signals
+        if (signals.length === 0) {
+            return { score: 0, shouldTrade: false, reason: 'insufficient_data', details };
+        }
+
+        let weightedSum = 0;
+        let totalWeight = 0;
+        signals.forEach(s => {
+            weightedSum += s.score * s.weight;
+            totalWeight += s.weight;
+        });
+
+        const finalScore = weightedSum / totalWeight;
+
+        // Agreement: how many signals are positive?
+        const positiveSignals = signals.filter(s => s.score > 0).length;
+        const agreement = positiveSignals / signals.length;
+
+        return {
+            score: finalScore,
+            shouldTrade: finalScore > 0.3 && agreement >= 0.6,
+            positiveSignals,
+            totalSignals: signals.length,
+            agreement,
+            signals: signals.map(s => ({ name: s.name, score: s.score.toFixed(3) })),
+            details,
+        };
+    }
+
+    /**
+     * Record trade outcome for edge tracking
+     */
+    recordTradeOutcome(asset, won, profit, stake) {
+        if (!this.edgeTracker[asset]) this.initAsset(asset);
+
+        const et = this.edgeTracker[asset];
+        const returnOnStake = profit / stake;
+
+        et.sampleCount++;
+
+        // Exponential moving average of return
+        const alpha = Math.min(0.1, 2 / (et.sampleCount + 1));
+        et.edgeEstimate = (1 - alpha) * et.edgeEstimate + alpha * returnOnStake;
+        et.isEdgePositive = et.edgeEstimate > 0;
+    }
+
+    // ---- Utility functions ----
+
+    normalCDF(x) {
+        // Abramowitz and Stegun approximation
+        const a1 = 0.254829592;
+        const a2 = -0.284496736;
+        const a3 = 1.421413741;
+        const a4 = -1.453152027;
+        const a5 = 1.061405429;
+        const p = 0.3275911;
+
+        const sign = x < 0 ? -1 : 1;
+        x = Math.abs(x) / Math.sqrt(2);
+
+        const t = 1.0 / (1.0 + p * x);
+        const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+
+        return 0.5 * (1.0 + sign * y);
+    }
+
+    autocorrelation(data, lag) {
+        if (data.length < lag + 10) return 0;
+        const n = data.length;
+        const mean = data.reduce((a, b) => a + b, 0) / n;
+        let numerator = 0;
+        let denominator = 0;
+
+        for (let i = 0; i < n - lag; i++) {
+            numerator += (data[i] - mean) * (data[i + lag] - mean);
+        }
+        for (let i = 0; i < n; i++) {
+            denominator += (data[i] - mean) ** 2;
+        }
+
+        return denominator === 0 ? 0 : numerator / denominator;
+    }
+
+    exportState() {
+        return {
+            survivalStats: this.survivalStats,
+            regimeState: this.regimeState,
+            edgeTracker: this.edgeTracker,
+            // Don't save tickData - too large and will be rebuilt
+        };
+    }
+
+    importState(state) {
+        if (state.survivalStats) this.survivalStats = state.survivalStats;
+        if (state.regimeState) this.regimeState = state.regimeState;
+        if (state.edgeTracker) this.edgeTracker = state.edgeTracker;
+    }
+}
+
+// ============================================
+// RISK MANAGER
+// Replaces the broken martingale system
+// ============================================
+class RiskManager {
+    constructor(config) {
+        this.config = config;
+        this.state = {
+            consecutiveLosses: 0,
+            maxConsecutiveLosses: 0,
+            sessionPnL: 0,
+            peakPnL: 0,
+            drawdown: 0,
+            maxDrawdown: 0,
+            tradeCount: 0,
+            lastTradeTime: 0,
+            cooldownUntil: 0,
+            assetCooldowns: {},     // Per-asset cooldown timers
+            dailyLossCount: 0,
+            dailyWinCount: 0,
+        };
+    }
+
+    /**
+     * Calculate stake for next trade
+     * Uses a controlled recovery system instead of martingale
+     * 
+     * Strategy:
+     * - Base stake after a win
+     * - After 1 loss: 2x base (recover previous loss)
+     * - After 2 losses: 3x base (recover two losses)
+     * - After 3+ losses: STOP trading, cooldown
+     * - Never exceed maxStake
+     */
+    calculateStake() {
+        const base = this.config.initialStake;
+        const maxStake = this.config.maxStake || base * 5;
+        const losses = this.state.consecutiveLosses;
+
+        if (losses === 0) return base;
+        if (losses === 1) return Math.min(base * 2, maxStake);
+        if (losses === 2) return Math.min(base * 3, maxStake);
+
+        // After 3+ losses, we should be in cooldown but just in case:
+        return base;
+    }
+
+    /**
+     * Check if trading is allowed right now
+     */
+    canTrade(asset) {
+        const now = Date.now();
+        const reasons = [];
+
+        // Global cooldown
+        if (now < this.state.cooldownUntil) {
+            const remaining = Math.ceil((this.state.cooldownUntil - now) / 1000);
+            reasons.push(`Global cooldown: ${remaining}s remaining`);
+        }
+
+        // Per-asset cooldown
+        const assetCooldown = this.state.assetCooldowns[asset];
+        if (assetCooldown && now < assetCooldown) {
+            const remaining = Math.ceil((assetCooldown - now) / 1000);
+            reasons.push(`Asset cooldown: ${remaining}s remaining`);
+        }
+
+        // Max consecutive losses
+        if (this.state.consecutiveLosses >= this.config.maxConsecutiveLosses) {
+            reasons.push(`Max consecutive losses reached: ${this.state.consecutiveLosses}`);
+        }
+
+        // Daily stop loss
+        if (this.state.sessionPnL <= -this.config.stopLoss) {
+            reasons.push(`Daily stop loss hit: $${this.state.sessionPnL.toFixed(2)}`);
+        }
+
+        // Max drawdown
+        if (this.state.drawdown >= this.config.maxDrawdownPercent) {
+            reasons.push(`Max drawdown: ${(this.state.drawdown * 100).toFixed(1)}%`);
+        }
+
+        // Daily take profit
+        if (this.state.sessionPnL >= this.config.takeProfit) {
+            reasons.push(`Take profit reached: $${this.state.sessionPnL.toFixed(2)}`);
+        }
+
+        // Minimum time between trades (prevent rapid-fire)
+        const timeSinceLastTrade = now - this.state.lastTradeTime;
+        if (timeSinceLastTrade < this.config.minTimeBetweenTrades) {
+            const remaining = Math.ceil((this.config.minTimeBetweenTrades - timeSinceLastTrade) / 1000);
+            reasons.push(`Min time between trades: ${remaining}s remaining`);
+        }
+
+        return {
+            allowed: reasons.length === 0,
+            reasons,
+        };
+    }
+
+    /**
+     * Record a trade result and update risk state
+     */
+    recordResult(asset, won, profit, stake) {
+        this.state.tradeCount++;
+        this.state.lastTradeTime = Date.now();
+        this.state.sessionPnL += profit;
+
+        if (won) {
+            this.state.consecutiveLosses = 0;
+            this.state.dailyWinCount++;
+
+            // Update peak P&L
+            if (this.state.sessionPnL > this.state.peakPnL) {
+                this.state.peakPnL = this.state.sessionPnL;
+            }
+        } else {
+            this.state.consecutiveLosses++;
+            this.state.dailyLossCount++;
+
+            if (this.state.consecutiveLosses > this.state.maxConsecutiveLosses) {
+                this.state.maxConsecutiveLosses = this.state.consecutiveLosses;
+            }
+
+            // Calculate drawdown from peak
+            if (this.state.peakPnL > 0) {
+                this.state.drawdown = (this.state.peakPnL - this.state.sessionPnL) / this.state.peakPnL;
+                if (this.state.drawdown > this.state.maxDrawdown) {
+                    this.state.maxDrawdown = this.state.drawdown;
+                }
+            }
+
+            // Apply cooldowns after losses
+            this.applyCooldown(asset);
+        }
+    }
+
+    /**
+     * Apply cooldown after a loss
+     * Cooldown increases with consecutive losses
+     */
+    applyCooldown(asset) {
+        const now = Date.now();
+        const losses = this.state.consecutiveLosses;
+
+        // Per-asset cooldown: longer after more losses
+        const assetCooldownMs = Math.min(
+            this.config.baseCooldownMs * Math.pow(2, losses - 1),
+            this.config.maxCooldownMs
+        );
+        this.state.assetCooldowns[asset] = now + assetCooldownMs;
+
+        // Global cooldown after 2+ consecutive losses
+        if (losses >= 2) {
+            const globalCooldownMs = Math.min(
+                this.config.baseCooldownMs * Math.pow(2, losses),
+                this.config.maxCooldownMs
+            );
+            this.state.cooldownUntil = now + globalCooldownMs;
+        }
+
+        // After 3+ losses, enforce long global cooldown
+        if (losses >= this.config.maxConsecutiveLosses) {
+            this.state.cooldownUntil = now + this.config.maxCooldownMs;
+        }
+    }
+
+    exportState() {
+        return { ...this.state };
+    }
+
+    importState(state) {
+        if (state) {
+            this.state = { ...this.state, ...state };
+        }
+    }
+
+    resetDaily() {
+        this.state.dailyLossCount = 0;
+        this.state.dailyWinCount = 0;
+        this.state.sessionPnL = 0;
+        this.state.peakPnL = 0;
+        this.state.drawdown = 0;
+        this.state.consecutiveLosses = 0;
+        this.state.cooldownUntil = 0;
+        this.state.assetCooldowns = {};
+    }
+}
+
+// ============================================
+// MAIN TRADING BOT v3.0
+// ============================================
+class AccumulatorBotV3 {
     constructor(token, config = {}) {
         this.token = token;
         this.ws = null;
         this.connected = false;
         this.wsReady = false;
+        this.sessionId = `session_${Date.now()}`;
 
         this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
 
         this.config = {
-            initialStake: config.initialStake || 10.5,
-            multiplier: config.multiplier || 21,
-            multiplier2: config.multiplier2 || 100,
-            multiplier3: config.multiplier3 || 1000,
-            maxConsecutiveLosses: config.maxConsecutiveLosses || 5,
+            // Stake management
+            initialStake: config.initialStake || 1,
+            maxStake: config.maxStake || 5,
+
+            // Growth rate - ALWAYS use lowest for highest survival probability
+            growthRate: config.growthRate || 0.01,
+
+            // Take profit per contract
+            accuTakeProfit: config.accuTakeProfit || 0.01,
+
+            // Risk management
             stopLoss: config.stopLoss || 50,
-            takeProfit: config.takeProfit || 1,
-            growthRate: 0.05,
-            accuTakeProfit: 0.01,
+            takeProfit: config.takeProfit || 100,
+            maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
+            maxDrawdownPercent: config.maxDrawdownPercent || 0.3,
+
+            // Timing
+            baseCooldownMs: config.baseCooldownMs || 30000,      // 30s base cooldown
+            maxCooldownMs: config.maxCooldownMs || 300000,       // 5min max cooldown
+            minTimeBetweenTrades: config.minTimeBetweenTrades || 10000, // 10s min between trades
+
+            // Data requirements
             requiredHistoryLength: config.requiredHistoryLength || 200,
-            winProbabilityThreshold: config.winProbabilityThreshold || 100,
-            maxReconnectAttempts: config.maxReconnectAttempts || 10000,
+            minRunsForSignal: config.minRunsForSignal || 30,
+
+            // Signal thresholds
+            minSignalScore: config.minSignalScore || 0.3,
+            minAgreement: config.minAgreement || 0.6,
+
+            // Connection
+            maxReconnectAttempts: config.maxReconnectAttempts || 100,
             reconnectInterval: config.reconnectInterval || 5000,
-            minWaitTime: config.minWaitTime || 200 * 1000,
-            maxWaitTime: config.maxWaitTime || 500 * 1000,
-            survivalThreshold: 0.99, // Minimum estimated survival probability for next tick
-            minSamplesForEstimate: 50, // Minimum historical samples for reliable hazard estimate
         };
+
+        // Core engines
+        this.analyticsEngine = new AnalyticsEngine();
+        this.riskManager = new RiskManager(this.config);
 
         // Trading state
         this.currentStake = this.config.initialStake;
-        this.consecutiveLosses = 0;
+        this.tradeInProgress = false;
         this.currentTradeId = null;
+        this.currentTradeAsset = null;
+        this.endOfDay = false;
+
+        // Tracking
         this.totalTrades = 0;
         this.totalWins = 0;
         this.totalLosses = 0;
-        this.consecutiveLosses2 = 0;
-        this.consecutiveLosses3 = 0;
-        this.consecutiveLosses4 = 0;
-        this.consecutiveLosses5 = 0;
         this.totalProfitLoss = 0;
-        this.tradeInProgress = false;
-        this.endOfDay = false;
-        this.waitTime = 0;
-        this.waitSeconds = 0;
-        this.isWinTrade = false;
-        this.retryCount = 0;
-        this.suspendedAssets = new Set();
-        this.Pause = false;
-        this.survivalNum = null;
-        this.sys = 1;
-        this.sysCount = 0;
-        this.stopLossStake = false;
+        this.consecutiveLosses = 0;
+        this.dailyTradeCount = 0;
+        this.dailyPnL = 0;
 
-        // Asset-specific data
-        this.digitCounts = {};
+        // Per-asset data
+        this.priceHistories = {};
+        this.tickTimestamps = {};
         this.tickSubscriptionIds = {};
-        this.tickHistories = {};
-        this.lastDigits = {};
-        this.predictedDigits = {};
-        this.lastPredictions = {};
+        this.stayedInHistory = {};  // Historical completed run lengths
+        this.tradeResults = {};
+        this.volatilityHistory = {};
         this.assetStates = {};
-        this.pendingProposals = new Map();
         this.previousStayedIn = {};
-        this.extendedStayedIn = {}; // Extended historical run lengths (up to 5000)
+        this.pendingProposals = new Map();
 
-        // NEW: Advanced analytics and learning system
-        this.learningSystem = {
-            lossPatterns: {},
-            failedDigitCounts: {},
-            volatilityScores: {},
-            filterPerformance: {},
-            resetPatterns: {},
-            timeWindowPerformance: [],
-            adaptiveFilters: {},
-        };
-
-        // NEW: Advanced risk management
-        this.riskManager = {
-            // maxDailyLoss: config.stopLoss * 0.7,
-            currentSessionRisk: 0,
-            riskPerTrade: 0.02,
-            cooldownPeriod: 0,
-            lastLossTime: null,
-            consecutiveSameDigitLosses: {},
-        };
-
-        // NEW: Pattern recognition
-        this.patternRecognition = {
-            recentSequences: [],
-            maxSequenceLength: 50,
-            patternMemory: {},
-        };
-
+        // Initialize per-asset
         this.assets.forEach(asset => {
-            this.tickHistories[asset] = [];
-            this.digitCounts[asset] = Array(10).fill(0);
-            this.lastDigits[asset] = null;
-            this.predictedDigits[asset] = null;
-            this.lastPredictions[asset] = [];
+            this.priceHistories[asset] = [];
+            this.tickTimestamps[asset] = [];
+            this.stayedInHistory[asset] = [];
+            this.tradeResults[asset] = [];
+            this.volatilityHistory[asset] = [];
             this.assetStates[asset] = {
-                stayedInArray: [],
-                tradedDigitArray: [],
-                filteredArray: [],
-                totalArray: [],
                 currentProposalId: null,
                 tradeInProgress: false,
-                consecutiveLosses: 0,
-                lastTradeResult: null,
-                digitFrequency: {},
+                lastStayedIn: null,
+                currentRunLength: 0,
+                dataReady: false,
             };
             this.previousStayedIn[asset] = null;
-            this.extendedStayedIn[asset] = [];
-
-            // Initialize learning system for each asset
-            this.learningSystem.lossPatterns[asset] = [];
-            this.learningSystem.volatilityScores[asset] = 0;
-            this.learningSystem.adaptiveFilters[asset] = 8;
-            this.riskManager.consecutiveSameDigitLosses[asset] = {};
+            this.analyticsEngine.initAsset(asset);
         });
 
-        // Email Configuration
-        this.emailConfig = {
-            service: 'gmail',
-            auth: {
-                user: 'kenzkdp2@gmail.com',
-                pass: 'jfjhtmussgfpbgpk'
-            }
-        };
-        this.emailRecipient = 'kenotaru@gmail.com';
-        this.startEmailTimer();
+        // Telegram
+        this.telegramToken = config.telegramToken || process.env.TELEGRAM_TOKEN;
+        this.telegramChatId = config.telegramChatId || process.env.TELEGRAM_CHAT_ID;
+        this.telegramEnabled = !!(this.telegramToken && this.telegramChatId);
 
+        if (this.telegramEnabled) {
+            this.telegramBot = new TelegramBot(this.telegramToken, { polling: false });
+        }
+
+        // Stats
+        this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
+
+        // Connection management
         this.reconnectAttempts = 0;
-        this.kLoss = 0.01;
+        this.isReconnecting = false;
+        this.reconnectTimer = null;
+        this.pingInterval = null;
+        this.checkDataInterval = null;
+        this.lastPongTime = Date.now();
+        this.lastDataTime = Date.now();
+
+        // Message queue
+        this.messageQueue = [];
+
+        // Load saved state
+        this.loadSavedState();
     }
 
-    connect() {
-        if (!this.Pause) {
-            console.log('Attempting to connect to Deriv API...');
-            this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+    // ========================================================================
+    // STATE RESTORATION
+    // ========================================================================
+    loadSavedState() {
+        const state = StatePersistence.loadState();
+        if (!state) return;
 
-            this.ws.on('open', () => {
-                console.log('Connected to Deriv API');
-                this.connected = true;
-                this.wsReady = true;
-                this.reconnectAttempts = 0;
-                this.authenticate();
-            });
+        try {
+            if (state.trading) {
+                Object.assign(this, {
+                    currentStake: state.trading.currentStake || this.config.initialStake,
+                    consecutiveLosses: state.trading.consecutiveLosses || 0,
+                    totalTrades: state.trading.totalTrades || 0,
+                    totalWins: state.trading.totalWins || 0,
+                    totalLosses: state.trading.totalLosses || 0,
+                    totalProfitLoss: state.trading.totalProfitLoss || 0,
+                    dailyTradeCount: state.trading.dailyTradeCount || 0,
+                    dailyPnL: state.trading.dailyPnL || 0,
+                });
+            }
 
-            this.ws.on('message', (data) => {
-                const message = JSON.parse(data);
-                this.handleMessage(message);
-            });
+            if (state.analytics) {
+                this.analyticsEngine.importState(state.analytics);
+                console.log('  ✓ Analytics engine restored');
+            }
 
-            this.ws.on('error', (error) => {
-                console.error('WebSocket error:', error);
-                this.handleDisconnect();
-            });
+            if (state.riskManager) {
+                this.riskManager.importState(state.riskManager);
+                console.log('  ✓ Risk manager restored');
+            }
 
-            this.ws.on('close', () => {
-                console.log('Disconnected from Deriv API');
-                this.connected = false;
-                if (!this.Pause) {
-                    this.handleDisconnect();
-                }
-            });
+            if (state.assetData) {
+                Object.keys(state.assetData).forEach(asset => {
+                    const ad = state.assetData[asset];
+                    if (ad.priceHistory) this.priceHistories[asset] = ad.priceHistory;
+                    if (ad.tickTimestamps) this.tickTimestamps[asset] = ad.tickTimestamps;
+                    if (ad.stayedInHistory) this.stayedInHistory[asset] = ad.stayedInHistory;
+                    if (ad.tradeResults) this.tradeResults[asset] = ad.tradeResults;
+                    if (ad.volatilityHistory) this.volatilityHistory[asset] = ad.volatilityHistory;
+                });
+                console.log('  ✓ Asset data restored');
+            }
+
+            if (state.hourlyStats) this.hourlyStats = state.hourlyStats;
+
+            console.log(`✅ State restored: ${this.totalTrades} trades, P&L: $${this.totalProfitLoss.toFixed(2)}`);
+        } catch (error) {
+            console.error(`❌ State restore error: ${error.message}`);
         }
     }
 
+    // ========================================================================
+    // WEBSOCKET
+    // ========================================================================
+    connect() {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+        console.log('🔌 Connecting to Deriv API...');
+        this.cleanup();
+
+        this.ws = new WebSocket('wss://ws.binaryws.com/websockets/v3?app_id=1089');
+
+        this.ws.on('open', () => {
+            console.log('✅ WebSocket connected');
+            this.connected = true;
+            this.wsReady = false;
+            this.reconnectAttempts = 0;
+            this.isReconnecting = false;
+            this.lastPongTime = Date.now();
+            this.lastDataTime = Date.now();
+            this.startMonitor();
+            this.authenticate();
+        });
+
+        this.ws.on('message', (data) => {
+            this.lastPongTime = Date.now();
+            this.lastDataTime = Date.now();
+            try {
+                this.handleMessage(JSON.parse(data));
+            } catch (error) {
+                console.error('Message parse error:', error.message);
+            }
+        });
+
+        this.ws.on('error', (error) => {
+            console.error('WebSocket error:', error.message);
+        });
+
+        this.ws.on('close', (code, reason) => {
+            console.log(`WebSocket closed (${code}: ${reason || 'none'})`);
+            this.handleDisconnect();
+        });
+
+        this.ws.on('pong', () => {
+            this.lastPongTime = Date.now();
+        });
+    }
+
+    startMonitor() {
+        this.stopMonitor();
+
+        this.pingInterval = setInterval(() => {
+            if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
+                this.ws.ping();
+            }
+        }, 20000);
+
+        this.checkDataInterval = setInterval(() => {
+            if (!this.connected) return;
+            if (Date.now() - this.lastDataTime > 60000) {
+                console.error('⚠️ No data for 60s, forcing reconnect');
+                StatePersistence.saveState(this);
+                this.ws?.terminate();
+            }
+        }, 10000);
+    }
+
+    stopMonitor() {
+        if (this.pingInterval) clearInterval(this.pingInterval);
+        if (this.checkDataInterval) clearInterval(this.checkDataInterval);
+        this.pingInterval = null;
+        this.checkDataInterval = null;
+    }
+
     sendRequest(request) {
-        if (this.connected && this.wsReady) {
+        if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            if (this.messageQueue.length < 50) this.messageQueue.push(request);
+            return false;
+        }
+        try {
             this.ws.send(JSON.stringify(request));
-        } else if (this.connected && !this.wsReady) {
-            console.log('WebSocket not ready. Queueing request...');
-            setTimeout(() => this.sendRequest(request), this.config.reconnectInterval);
-        } else {
-            console.error('Not connected to Deriv API. Unable to send request:', request);
+            return true;
+        } catch (error) {
+            console.error('Send error:', error.message);
+            return false;
         }
     }
 
     handleDisconnect() {
+        if (this.endOfDay || this.isReconnecting) return;
+
         this.connected = false;
         this.wsReady = false;
-        if (this.reconnectAttempts < this.config.maxReconnectAttempts) {
-            console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.config.maxReconnectAttempts})...`);
-            setTimeout(() => this.connect(), this.config.reconnectInterval);
+        this.stopMonitor();
+        StatePersistence.saveState(this);
+
+        if (this.reconnectAttempts >= this.config.maxReconnectAttempts) {
+            console.error('❌ Max reconnect attempts reached');
+            this.sendTelegramMessage(`❌ Max reconnect attempts. P&L: $${this.totalProfitLoss.toFixed(2)}`);
+            return;
         }
+
+        this.isReconnecting = true;
+        this.reconnectAttempts++;
+
+        const delay = Math.min(this.config.reconnectInterval * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
+        console.log(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts})`);
+
+        this.reconnectTimer = setTimeout(() => {
+            this.isReconnecting = false;
+            this.connect();
+        }, delay);
     }
 
-    handleApiError(error) {
-        console.error('API Error:', error.message);
-
-        switch (error.code) {
-            case 'InvalidToken':
-                console.error('Invalid token. Please check your API token and restart the bot.');
-                this.sendErrorEmail('Invalid API token');
-                this.disconnect();
-                break;
-            case 'RateLimit':
-                console.log('Rate limit reached. Waiting before next request...');
-                setTimeout(() => this.initializeSubscriptions(), 60000);
-                break;
-            case 'MarketIsClosed':
-                console.log('Market is closed. Waiting for market to open...');
-                setTimeout(() => this.initializeSubscriptions(), 3600000);
-                break;
-            default:
-                console.log('Encountered an error. Continuing operation...');
-                this.initializeSubscriptions();
+    cleanup() {
+        this.stopMonitor();
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        if (this.ws) {
+            this.ws.removeAllListeners();
+            try { this.ws.close(); } catch (e) { }
+            this.ws = null;
         }
+        this.connected = false;
+        this.wsReady = false;
     }
 
     authenticate() {
-        console.log('Attempting to authenticate...');
-        this.sendRequest({
-            authorize: this.token
+        this.sendRequest({ authorize: this.token });
+    }
+
+    // ========================================================================
+    // MESSAGE HANDLING
+    // ========================================================================
+    handleMessage(message) {
+        if (message.msg_type === 'ping') {
+            this.sendRequest({ ping: 1 });
+            return;
+        }
+
+        switch (message.msg_type) {
+            case 'authorize':
+                this.handleAuth(message);
+                break;
+            case 'history':
+                this.handleTickHistory(message);
+                break;
+            case 'tick':
+                this.handleTick(message);
+                break;
+            case 'proposal':
+                this.handleProposal(message);
+                break;
+            case 'buy':
+                this.handleBuy(message);
+                break;
+            case 'proposal_open_contract':
+                this.handleContractUpdate(message);
+                break;
+            default:
+                if (message.error) {
+                    console.error(`API error [${message.msg_type}]: ${message.error.message}`);
+                    if (message.error.code === 'InvalidToken') {
+                        this.disconnect();
+                    }
+                }
+        }
+    }
+
+    handleAuth(message) {
+        if (message.error) {
+            console.error('Auth failed:', message.error.message);
+            this.disconnect();
+            return;
+        }
+        console.log('✅ Authenticated');
+        this.wsReady = true;
+        this.tradeInProgress = false;
+
+        // Process queued messages
+        const queue = [...this.messageQueue];
+        this.messageQueue = [];
+        queue.forEach(m => this.sendRequest(m));
+
+        // Subscribe to all assets
+        this.assets.forEach(asset => {
+            this.sendRequest({
+                ticks_history: asset,
+                adjust_start_time: 1,
+                count: this.config.requiredHistoryLength,
+                end: 'latest',
+                start: 1,
+                style: 'ticks'
+            });
+            this.sendRequest({ ticks: asset, subscribe: 1 });
         });
     }
 
-    subscribeToTickHistory(asset) {
-        const request = {
-            ticks_history: asset,
-            adjust_start_time: 1,
-            count: this.config.requiredHistoryLength,
-            end: 'latest',
-            start: 1,
-            style: 'ticks'
-        };
-        this.sendRequest(request);
-        // console.log(`Requested tick history for asset: ${asset}`);
+    handleTickHistory(message) {
+        const asset = message.echo_req.ticks_history;
+        if (!asset) return;
+
+        const prices = message.history.prices.map(Number);
+        const times = message.history.times.map(Number);
+
+        this.priceHistories[asset] = prices;
+        this.tickTimestamps[asset] = times;
+
+        // Feed to analytics engine
+        prices.forEach((price, i) => {
+            this.analyticsEngine.processTick(asset, price, times[i]);
+        });
+
+        console.log(`📊 [${asset}] Loaded ${prices.length} historical ticks`);
     }
 
-    subscribeToTicks(asset) {
-        const request = {
-            ticks: asset,
-            subscribe: 1
-        };
-        this.sendRequest(request);
+    handleTick(message) {
+        const tick = message.tick;
+        if (!tick) return;
+
+        const asset = tick.symbol;
+        const price = parseFloat(tick.quote);
+        const timestamp = tick.epoch;
+
+        if (message.subscription) {
+            this.tickSubscriptionIds[asset] = message.subscription.id;
+        }
+
+        // Store price
+        this.priceHistories[asset].push(price);
+        this.tickTimestamps[asset].push(timestamp);
+        if (this.priceHistories[asset].length > 500) {
+            this.priceHistories[asset].shift();
+            this.tickTimestamps[asset].shift();
+        }
+
+        // Feed to analytics
+        this.analyticsEngine.processTick(asset, price, timestamp);
+
+        // Check data readiness
+        if (this.priceHistories[asset].length >= this.config.requiredHistoryLength) {
+            this.assetStates[asset].dataReady = true;
+        }
+
+        // Try to trade if not already in a trade
+        if (!this.tradeInProgress && this.assetStates[asset].dataReady) {
+            this.evaluateTradeOpportunity(asset);
+        }
     }
 
-    requestProposal(asset) {
+    // ========================================================================
+    // TRADE EVALUATION - THE CORE LOGIC
+    // ========================================================================
+    evaluateTradeOpportunity(asset) {
+        if (this.tradeInProgress) return;
+        if (this.endOfDay) return;
 
-        const proposal = {
+        // Check risk manager
+        const riskCheck = this.riskManager.canTrade(asset);
+        if (!riskCheck.allowed) {
+            // Only log occasionally to avoid spam
+            if (Math.random() < 0.01) {
+                console.log(`[${asset}] ⛔ Risk block: ${riskCheck.reasons[0]}`);
+            }
+            return;
+        }
+
+        // Get current run length from proposal (we need to request one)
+        // Request a proposal to get current stayedIn data
+        const stake = this.riskManager.calculateStake();
+        this.currentStake = stake;
+
+        this.sendRequest({
             proposal: 1,
-            amount: this.currentStake.toFixed(2),
+            amount: stake.toFixed(2),
             basis: 'stake',
             contract_type: 'ACCU',
             currency: 'USD',
             symbol: asset,
             growth_rate: this.config.growthRate,
             limit_order: {
-                take_profit: this.kLoss
+                take_profit: this.config.accuTakeProfit
             }
-        };
-
-        this.sendRequest(proposal);
-    }
-
-    handleMessage(message) {
-        if (message.msg_type === 'authorize') {
-            if (message.error) {
-                console.error('Authentication failed:', message.error.message);
-                this.disconnect();
-                return;
-            }
-            console.log('Authentication successful');
-
-            this.tradeInProgress = false;
-            this.predictionInProgress = false;
-            this.assets.forEach(asset => {
-                this.tickHistories[asset] = [];
-                this.digitCounts[asset] = Array(10).fill(0);
-                this.predictedDigits[asset] = null;
-                this.lastPredictions[asset] = [];
-            });
-            this.survivalNum = null;
-            this.tickSubscriptionIds = {};
-            this.retryCount = 0;
-            this.initializeSubscriptions();
-
-        } else if (message.msg_type === 'proposal') {
-            this.handleProposal(message);
-        } else if (message.msg_type === 'history') {
-            const asset = message.echo_req.ticks_history;
-            this.handleTickHistory(asset, message.history);
-        } else if (message.msg_type === 'tick') {
-            if (message.subscription) {
-                const asset = message.tick.symbol;
-                this.tickSubscriptionIds[asset] = message.subscription.id;
-                // console.log(`Subscribed to ticks for ${asset}. Subscription ID: ${this.tickSubscriptionIds[asset]}`);
-            }
-            this.handleTickUpdate(message.tick);
-        } else if (message.msg_type === 'buy') {
-            if (message.error) {
-                console.error('Error placing trade:', message.error.message);
-                this.tradeInProgress = false;
-                return;
-            }
-            console.log('Trade placed successfully');
-            this.currentTradeId = message.buy.contract_id;
-            this.subscribeToOpenContract(this.currentTradeId);
-        } else if (message.msg_type === 'proposal_open_contract') {
-            if (message.error) {
-                console.error('Error receiving contract update:', message.error.message);
-                return;
-            }
-            this.handleContractUpdate(message.proposal_open_contract);
-        } else if (message.msg_type === 'forget') {
-            // console.log('Successfully unsubscribed from ticks');
-        } else if (message.error) {
-            this.handleApiError(message.error);
-        }
-    }
-
-    getLastDigit(quote, asset) {
-        const quoteString = quote.toString();
-        const [, fractionalPart = ''] = quoteString.split('.');
-
-        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
-            return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
-        } else if (['R_10', 'R_25', '1HZ15V', '1HZ30V', '1HZ90V',].includes(asset)) {
-            return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
-        } else {
-            return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
-        }
-    }
-
-    initializeSubscriptions() {
-        console.log('Initializing subscriptions for all assets...');
-        this.assets.forEach(asset => {
-            this.subscribeToTickHistory(asset);
-            this.subscribeToTicks(asset);
         });
     }
 
-    handleTickHistory(asset, history) {
-        this.tickHistories[asset] = history.prices.map(price => this.getLastDigit(price, asset));
-        // console.log(`Received tick history for asset: ${asset}. Length: ${this.tickHistories[asset].length}`);
-    }
-
-    handleTickUpdate(tick) {
-        const asset = tick.symbol;
-        const lastDigit = this.getLastDigit(tick.quote, asset);
-
-        this.lastDigits[asset] = lastDigit;
-
-        this.tickHistories[asset].push(lastDigit);
-
-        if (this.tickHistories[asset].length > this.config.requiredHistoryLength) {
-            this.tickHistories[asset].shift();
-        }
-
-        this.digitCounts[asset][lastDigit]++;
-
-        // console.log(`[${asset}] ${tick.quote}: ${this.tickHistories[asset].slice(-5).join(', ')}`);
-
-        if (this.tickHistories[asset].length < this.config.requiredHistoryLength) {
-            // console.log(`[${asset}] Waiting for more ticks. Current length: ${this.tickHistories[asset].length}`);
-            return;
-        }
-
-        if (!this.tradeInProgress) {
-            this.analyzeTicks(asset);
-        }
-    }
-
-
-    // NEW: Calculate market volatility for an asset
-    calculateVolatility(asset) {
-        const history = this.tickHistories[asset];
-        if (history.length < 20) return 0;
-
-        const recentHistory = history.slice(-50);
-        let changes = 0;
-        for (let i = 1; i < recentHistory.length; i++) {
-            if (recentHistory[i] !== recentHistory[i - 1]) changes++;
-        }
-
-        const volatility = changes / (recentHistory.length - 1);
-        this.learningSystem.volatilityScores[asset] = volatility;
-        return volatility;
-    }
-
-    // NEW: Analyze if market conditions are favorable
-    isMarketConditionFavorable(asset) {
-        const volatility = this.calculateVolatility(asset);
-        const assetState = this.assetStates[asset];
-
-        // Too volatile - avoid trading
-        if (volatility > 0.90) {
-            console.log(`[${asset}] Market too volatile (${volatility.toFixed(2)}), skipping`);
-            return false;
-        }
-
-        // Too stable - hard to profit
-        if (volatility < 0.31) {
-            console.log(`[${asset}] Market too stable (${volatility.toFixed(2)}), skipping`);
-            return false;
-        }
-
-        // Check if we've lost too much on this asset recently
-        if (assetState.consecutiveLosses >= 2) {
-            console.log(`[${asset}] Too many consecutive losses on this asset, skipping`);
-            return false;
-        }
-
-        return true;
-    }
-
-
-    // NEW: Calculate recent win rate for an asset
-    calculateAssetWinRate(asset) {
-        const lossHistory = this.learningSystem.lossPatterns[asset] || [];
-        const recentTrades = lossHistory.slice(-10);
-
-        if (recentTrades.length === 0) return 0.5; // Default
-
-        const wins = recentTrades.filter(t => t.result === 'win').length;
-        return wins / recentTrades.length;
-    }
-
-    // MODIFIED: Record outcome and update learning (keep but enhance)
-    recordTradeOutcome(asset, won, digitCount, filterUsed, stayedInArray) {
-        const outcome = {
-            asset,
-            result: won ? 'win' : 'loss',
-            digitCount,
-            filterUsed,
-            arraySum: stayedInArray.reduce((a, b) => a + b, 0),
-            timestamp: Date.now(),
-            volatility: this.learningSystem.volatilityScores[asset],
-        };
-
-        if (!this.learningSystem.lossPatterns[asset]) {
-            this.learningSystem.lossPatterns[asset] = [];
-        }
-        this.learningSystem.lossPatterns[asset].push(outcome);
-        if (this.learningSystem.lossPatterns[asset].length > 100) {
-            this.learningSystem.lossPatterns[asset].shift();
-        }
-
-        if (!this.learningSystem.filterPerformance[filterUsed]) {
-            this.learningSystem.filterPerformance[filterUsed] = { wins: 0, losses: 0 };
-        }
-        if (won) {
-            this.learningSystem.filterPerformance[filterUsed].wins++;
-        } else {
-            this.learningSystem.filterPerformance[filterUsed].losses++;
-            // Dynamically adjust threshold if losing
-            if (this.totalLosses % 3 === 0) {
-                // this.config.survivalThreshold += 0.005; // Make stricter
-                console.log(`Adjusted survival threshold to ${this.config.survivalThreshold} after losses`);
-            }
-        }
-
-        if (!won) {
-            const key = `${asset}_${digitCount}`;
-            // this.riskManager.consecutiveSameDigitLosses[key] = (this.riskManager.consecutiveSameDigitLosses[key] || 0) + 1;
-        } else {
-            const key = `${asset}_${digitCount}`;
-            // this.riskManager.consecutiveSameDigitLosses[key] = 0;
-            // Relax threshold on wins
-            // if (this.config.survivalThreshold > 0.98) {
-            //     this.config.survivalThreshold -= 0.001;
-            //     console.log(`Relaxed survival threshold to ${this.config.survivalThreshold} after win`);
-            // }
-        }
-    }
-
-    // MODIFIED: Enhanced proposal handler with learning integration and extended history
     handleProposal(message) {
         if (message.error) {
             console.error('Proposal error:', message.error.message);
             return;
         }
 
-        let asset = null;
-        if (message.echo_req && message.echo_req.symbol) {
-            asset = message.echo_req.symbol;
-        }
-        if (!asset && message.proposal && message.proposal.id) {
-            asset = this.pendingProposals.get(message.proposal.id) || null;
-        }
-        if (!asset || !this.assets.includes(asset)) {
-            return;
-        }
+        const asset = message.echo_req?.symbol;
+        if (!asset || !this.assets.includes(asset)) return;
+
+        const proposal = message.proposal;
+        if (!proposal) return;
+
+        const stayedInArray = proposal.contract_details?.ticks_stayed_in;
+        if (!stayedInArray || stayedInArray.length < 100) return;
 
         const assetState = this.assetStates[asset];
+        assetState.currentProposalId = proposal.id;
+        this.pendingProposals.set(proposal.id, asset);
 
-        if (message.proposal) {
-            const stayedInArray = message.proposal.contract_details.ticks_stayed_in;
-            assetState.stayedInArray = stayedInArray;
-
-            // Update extended historical stayedInArray
-            const prev = this.previousStayedIn[asset];
-            if (prev === null) {
-                this.extendedStayedIn[asset] = stayedInArray.slice(0, 99); // Initialize with first 99 as historical completed runs
-            } else {
-                let isIncreased = true;
-                for (let i = 0; i < 99; i++) {
-                    if (stayedInArray[i] !== prev[i]) {
-                        isIncreased = false;
-                        break;
-                    }
-                }
-                if (isIncreased && stayedInArray[99] === prev[99] + 1) {
-                    // No reset, current run length increased
-                } else {
-                    // Reset detected, add the completed run length to extended history
-                    const completed = prev[99] + 1; // Adjust based on reset timing
-                    this.extendedStayedIn[asset].push(completed);
-                    if (this.extendedStayedIn[asset].length > 100) {
-                        this.extendedStayedIn[asset].shift();
-                    }
+        // Track completed runs from stayedIn transitions
+        const prev = this.previousStayedIn[asset];
+        if (prev !== null) {
+            // Detect if a new run started (stayedIn[99] reset or changed pattern)
+            let isIncreased = true;
+            for (let i = 0; i < 99; i++) {
+                if (stayedInArray[i] !== prev[i]) {
+                    isIncreased = false;
+                    break;
                 }
             }
-            this.previousStayedIn[asset] = stayedInArray.slice(); // Update previous
 
-            assetState.currentProposalId = message.proposal.id;
-            this.pendingProposals.set(message.proposal.id, asset);
-
-            // Calculate digit frequency (keep for compatibility, but primary analysis is now probabilistic)
-            const digitFrequency = {};
-            stayedInArray.forEach(digit => {
-                digitFrequency[digit] = (digitFrequency[digit] || 0) + 1;
-            });
-            assetState.digitFrequency = digitFrequency;
-
-            // console.log(`[${asset}] Proposal received. Stayed-in array: [${stayedInArray.join(', ')}]`);
-            // console.log(`[${asset}] Extended stayed-in history: ${this.extendedStayedIn[asset].join(', ')}, Length: ${this.extendedStayedIn[asset].length}`);
-            // console.log(`[${asset}] Digit frequency: ${JSON.stringify(digitFrequency)}`);
-
-            // console.log(`[${asset}] Survival probability (${this.survivalNum} vs ${this.config.survivalThreshold})`);
-
-            // Check for market conditions and decide whether to trade
-            if (!assetState.tradeInProgress) {
-                // NEW: Use probabilistic survival estimate for trading decision
-                if (this.shouldTradeBasedOnSurvivalProb(asset, stayedInArray) && this.survivalNum > this.config.survivalThreshold) {
-                    console.log(`[${asset}] High survival probability (${this.survivalNum.toFixed(4)} > ${this.config.survivalThreshold}), placing trade`);
-                    this.placeTrade(asset);
+            if (!(isIncreased && stayedInArray[99] === prev[99] + 1)) {
+                // A run completed! Record it
+                const completedRunLength = prev[99] + 1;
+                this.stayedInHistory[asset].push(completedRunLength);
+                if (this.stayedInHistory[asset].length > 500) {
+                    this.stayedInHistory[asset].shift();
                 }
+                this.analyticsEngine.recordCompletedRun(asset, completedRunLength);
             }
         }
-    }
+        this.previousStayedIn[asset] = stayedInArray.slice();
 
-    // NEW: Method to decide trade based on estimated survival probability using extended history
-    shouldTradeBasedOnSurvivalProb(asset, stayedInArray) {
-        const currentDigitCount = stayedInArray[99] + 1; // Calculate current digit count
+        const currentRunLength = stayedInArray[99] + 1;
+        assetState.currentRunLength = currentRunLength;
 
-        // Check for dangerous pattern based on similar past losses
-        if (this.detectDangerousPattern(asset, currentDigitCount, stayedInArray)) {
-            console.log(`[${asset}] ⚠️  PATTERN ALERT: Skipping trade - Similar pattern led to recent losses`);
-            return false;
+        // ---- TRADE DECISION ----
+        if (this.tradeInProgress) return;
+
+        // Re-check risk (may have changed since proposal request)
+        const riskCheck = this.riskManager.canTrade(asset);
+        if (!riskCheck.allowed) return;
+
+        // Get trade signal from analytics engine
+        const signal = this.analyticsEngine.getTradeSignal(
+            asset,
+            this.config.growthRate,
+            currentRunLength
+        );
+
+        // Log signal details periodically
+        if (Math.random() < 0.05) { // 5% of the time
+            console.log(`[${asset}] Signal: score=${signal.score.toFixed(3)}, ` +
+                `agree=${signal.agreement.toFixed(2)}, ` +
+                `signals=[${signal.signals?.map(s => `${s.name}:${s.score}`).join(', ')}]`);
         }
 
-        // Check for frequent short runs pattern
-        if (this.detectDangerousPattern2(asset)) {
-            console.log(`[${asset}] ⚠️  SHORT RUN ALERT: Skipping trade - Too many short runs detected`);
-            return false;
-        }
+        if (!signal.shouldTrade) return;
 
-        // Check market conditions
-        if (!this.isMarketConditionFavorable(asset)) {
-            console.log(`[${asset}] Skipping trade due to unfavorable market conditions`);
-            return false;
-        }
-        const current_k = currentDigitCount; // Use the already calculated digit countst current_k = stayedInArray[99] + 1; // Keep original +1 adjustment for current count
+        // Additional safety checks
+        if (!this.additionalSafetyChecks(asset, currentRunLength, stayedInArray)) return;
 
-        // Use extended history for frequency
-        const history = this.extendedStayedIn[asset];
-        if (history.length < this.config.minSamplesForEstimate) {
-            // console.log(`[${asset}] Insufficient historical data (${history.length} < ${this.config.minSamplesForEstimate}), skipping`);
-            return false;
-        }
-
-        const freq = {};
-        history.forEach(l => {
-            freq[l] = (freq[l] || 0) + 1;
+        // ---- EXECUTE TRADE ----
+        console.log(`\n[${asset}] 🎯 TRADE SIGNAL TRIGGERED`);
+        console.log(`  Score: ${signal.score.toFixed(3)} | Agreement: ${signal.agreement.toFixed(2)}`);
+        console.log(`  Run Length: ${currentRunLength} | Stake: $${this.currentStake.toFixed(2)}`);
+        signal.signals?.forEach(s => {
+            console.log(`  ${s.name}: ${s.score}`);
         });
 
-        let max_l = 0;
-        if (Object.keys(freq).length > 0) {
-            max_l = Math.max(...Object.keys(freq).map(Number));
-        }
+        this.executeTrade(asset, signal);
+    }
 
-        const ge_counts = Array(max_l + 2).fill(0);
-        for (let l = max_l; l >= 0; l--) {
-            ge_counts[l] = (freq[l] || 0) + ge_counts[l + 1];
-        }
-
-        const ge_k = ge_counts[current_k - 1]; // Adjust for survival to next (since current_k is +1 adjusted)
-        if (ge_k < this.config.minSamplesForEstimate) {
-            // console.log(`[${asset}] Insufficient samples for current length (${ge_k} < ${this.config.minSamplesForEstimate}), skipping`);
+    /**
+     * Additional safety checks beyond the signal
+     */
+    additionalSafetyChecks(asset, currentRunLength, stayedInArray) {
+        // 1. Don't trade if we don't have enough run history
+        if (this.stayedInHistory[asset].length < this.config.minRunsForSignal) {
             return false;
         }
 
-        const num_end_at_k = freq[current_k - 1] || 0;
-        const hazard = num_end_at_k / ge_k;
-        const p_survive = 1 - hazard;
-
-        // Record for learning
-        this.learningSystem.resetPatterns[asset] = this.learningSystem.resetPatterns[asset] || [];
-        this.learningSystem.resetPatterns[asset].push({ length: current_k, estimated_p: p_survive });
-
-        console.log(`[${asset}] Estimated survival prob for next tick: ${p_survive.toFixed(4)} (samples: ${ge_k})`);
-
-        // Trade if above threshold (high to minimize losses)
-        if (p_survive > this.config.survivalThreshold) {
-            // console.log(`[${asset}] High survival probability (${p_survive.toFixed(4)} > ${this.config.survivalThreshold}), placing trade`);
-            this.survivalNum = p_survive;
-            return true;
-        }
-
-        return false;
-    }
-
-    // MODIFIED: Integrate with new decision
-    detectDangerousPattern(asset, currentDigitCount, stayedInArray) {
-        const recentLosses = this.learningSystem.lossPatterns[asset] || [];
-        // Only check if we have enough loss history
-        if (recentLosses.length === 0) {
-            return false;
-        }
-        const currentArraySum = stayedInArray.reduce((a, b) => a + b, 0);
-        // Check if we've seen similar patterns fail recently
-        const similarLosses = recentLosses
-            .filter(loss => loss.result === 'loss') // Only count actual losses
-            .slice(-10) // Look at last 10 trades
-            .filter(loss => {
-                // Similar if same digit count and similar array sum
-                return loss.digitCount === currentDigitCount &&
-                    Math.abs(loss.arraySum - currentArraySum) < 100;
-            });
-        if (similarLosses.length >= 2) {
-            console.log(`[${asset}] 🚨 Dangerous pattern detected: ${similarLosses.length} similar losses recently (digitCount: ${currentDigitCount}, arraySum: ${currentArraySum})`);
-            return true;
-        }
-        return false;
-    }
-
-    detectDangerousPattern2(asset) {
-        const history = this.extendedStayedIn[asset];
-
-        // Need sufficient history
-        if (!history || history.length < 10) {
+        // 2. Don't trade if last 5 runs were all very short (< 3 ticks)
+        const recentRuns = this.stayedInHistory[asset].slice(-5);
+        if (recentRuns.length >= 5 && recentRuns.every(r => r < 3)) {
+            console.log(`[${asset}] ⚠️ Last 5 runs all < 3 ticks, skipping`);
             return false;
         }
 
-        // Check for frequent short runs recently (runs that ended before tick 5)
-        const recentShort = history.slice(-10).filter(l => l < 5).length;
+        // 3. Don't trade if current run is at a historically dangerous length
+        const allRuns = this.stayedInHistory[asset];
+        const runsEndingAtThisLength = allRuns.filter(r => r === currentRunLength).length;
+        const runsReachingThisLength = allRuns.filter(r => r >= currentRunLength).length;
 
-        if (recentShort > 6) {
-            console.log(`[${asset}] 🚨 Too many short runs: ${recentShort}/10 recent runs ended before tick 5`);
-            return true;
+        if (runsReachingThisLength > 0) {
+            const instantHazard = runsEndingAtThisLength / runsReachingThisLength;
+            if (instantHazard > 0.3 && runsReachingThisLength >= 15) {
+                console.log(`[${asset}] ⚠️ High instant hazard at length ${currentRunLength}: ${(instantHazard * 100).toFixed(1)}%`);
+                return false;
+            }
         }
 
-        return false;
-    }
-
-    analyzeTicks(asset) {
-        if (this.tradeInProgress) return;
-        if (this.tickHistories[asset].length < this.config.requiredHistoryLength) return;
-        if (this.suspendedAssets.has(asset)) return;
-
-        // NEW: Check market conditions before requesting proposal
-        if (!this.isMarketConditionFavorable(asset)) {
-            console.log(`[${asset}] Skipping trade due to market conditions`);
-            return;
+        // 4. Check volatility isn't spiking
+        const volData = this.analyticsEngine.volatilityWindows[asset];
+        if (volData?.shortWindow && volData?.longWindow) {
+            const shortVol = volData.shortWindow.volatility;
+            const longVol = volData.longWindow.volatility;
+            if (shortVol > 0 && longVol > 0 && shortVol / longVol > 2.0) {
+                console.log(`[${asset}] ⚠️ Volatility spike detected (ratio: ${(shortVol / longVol).toFixed(2)})`);
+                return false;
+            }
         }
 
-        this.requestProposal(asset);
+        return true;
     }
 
-
-    placeTrade(asset) {
-        if (this.tradeInProgress) return;
+    /**
+     * Execute the trade
+     */
+    executeTrade(asset, signal) {
         const assetState = this.assetStates[asset];
-        if (!assetState || !assetState.currentProposalId) {
-            console.log(`Cannot place trade. Missing proposal for asset ${asset}.`);
+        if (!assetState.currentProposalId) {
+            console.log(`[${asset}] No proposal ID available`);
             return;
         }
 
-        const request = {
-            buy: assetState.currentProposalId,
-            price: this.currentStake.toFixed(2)
-        };
-
-        console.log(`🚀 Placing trade for Asset: [${asset}] | Stake: ${this.currentStake.toFixed(2)}`);
-        this.sendRequest(request);
         this.tradeInProgress = true;
         assetState.tradeInProgress = true;
+        this.currentTradeAsset = asset;
+
+        // Store signal for post-trade analysis
+        this._lastSignal = signal;
+
+        this.sendRequest({
+            buy: assetState.currentProposalId,
+            price: this.currentStake.toFixed(2)
+        });
+
+        console.log(`🚀 Trade placed: [${asset}] Stake: $${this.currentStake.toFixed(2)}`);
+
+        this.sendTelegramMessage(
+            `🚀 <b>TRADE PLACED</b>\n` +
+            `Asset: ${asset}\n` +
+            `Stake: $${this.currentStake.toFixed(2)}\n` +
+            `Signal Score: ${signal.score.toFixed(3)}\n` +
+            `Agreement: ${signal.agreement.toFixed(2)}\n` +
+            `Run Length: ${assetState.currentRunLength}\n` +
+            `Signals: ${signal.signals?.map(s => `${s.name}:${s.score}`).join(', ')}`
+        );
     }
 
-    subscribeToOpenContract(contractId) {
+    handleBuy(message) {
+        if (message.error) {
+            console.error('Buy error:', message.error.message);
+            this.tradeInProgress = false;
+            if (this.currentTradeAsset) {
+                this.assetStates[this.currentTradeAsset].tradeInProgress = false;
+            }
+
+            // If error is about invalid proposal, that's OK - try again next tick
+            if (message.error.code === 'InvalidContractProposal') {
+                console.log('Proposal expired, will retry on next tick');
+            }
+            return;
+        }
+
+        this.currentTradeId = message.buy.contract_id;
+        console.log(`📝 Contract purchased: ${this.currentTradeId}`);
+
         this.sendRequest({
             proposal_open_contract: 1,
-            contract_id: contractId,
+            contract_id: this.currentTradeId,
             subscribe: 1
         });
     }
 
-    subscribeToOpenContract(contractId) {
-        const request = {
-            proposal_open_contract: 1,
-            contract_id: contractId,
-            subscribe: 1
-        };
-        this.sendRequest(request);
-    }
+    handleContractUpdate(message) {
+        const contract = message.proposal_open_contract;
+        if (!contract) return;
 
-    handleContractUpdate(contract) {
         if (contract.is_sold) {
             this.handleTradeResult(contract);
         }
     }
 
+    // ========================================================================
+    // TRADE RESULT HANDLING
+    // ========================================================================
     handleTradeResult(contract) {
         const asset = contract.underlying;
         const won = contract.status === 'won';
         const profit = parseFloat(contract.profit);
-        const assetState = this.assetStates[asset];
+        const stake = parseFloat(contract.buy_price);
 
-        if (assetState) {
-            assetState.tradeInProgress = false;
-            assetState.lastTradeResult = won ? 'win' : 'loss';
-        }
-
-        console.log(`[${asset}] Trade outcome: ${won ? '✅ WON' : '❌ LOST'}`);
-
-        // NEW: Record outcome for learning
-        const digitCount = assetState.stayedInArray[99] + 1; // Use for recording
-        const filterUsed = this.learningSystem.adaptiveFilters[asset]; // Or 8
-        this.recordTradeOutcome(asset, won, digitCount, filterUsed, assetState.stayedInArray);
-
+        // Update counters
         this.totalTrades++;
+        this.dailyTradeCount++;
+        this.totalProfitLoss += profit;
+        this.dailyPnL += profit;
 
         if (won) {
             this.totalWins++;
-            this.isWinTrade = true;
             this.consecutiveLosses = 0;
-            //New Stake System
-            if (this.sys === 2) {
-                if (this.sysCount === 5) {
-                    this.sys = 1;
-                    this.sysCount = 0;
-                }
-            } else if (this.sys === 3) {
-                if (this.sysCount === 2) {
-                    this.sys = 1;
-                    this.sysCount = 0;
-                }
-            }
-
-            this.currentStake = this.config.initialStake;
-
-            // Reset asset-specific loss counter
-            if (assetState) {
-                assetState.consecutiveLosses = 0;
-            }
-
-            // NEW: Reset adaptive filters on win
-            // this.learningSystem.adaptiveFilters[asset] = 8;
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
-            this.isWinTrade = false;
-
-            // Increment asset-specific loss counter
-            if (assetState) {
-                assetState.consecutiveLosses++;
-            }
-
-            if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
-            else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
-            else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
-            else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
-
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
         }
 
-        this.totalProfitLoss += profit;
-        this.Pause = true;
+        // Update hourly stats
+        this.hourlyStats.trades++;
+        this.hourlyStats.pnl += profit;
+        if (won) this.hourlyStats.wins++;
+        else this.hourlyStats.losses++;
 
-        // NEW: Adaptive wait time based on market conditions and losses
-        let baseWaitTime = this.config.minWaitTime;
+        // Record in risk manager
+        this.riskManager.recordResult(asset, won, profit, stake);
 
-        if (!won) {
-            // Longer wait after losses to let market conditions change
-            baseWaitTime = this.config.minWaitTime //+ (this.consecutiveLosses * 60000); // +1min per loss
-            this.sendLossEmail(asset);
-            //Suspend All Assets (Non-Loss)
-            this.suspendAsset(asset);
-            // this.suspendAllExcept(asset);
+        // Record in analytics engine for edge tracking
+        this.analyticsEngine.recordTradeOutcome(asset, won, profit, stake);
 
-            //New Stake System
-            if (this.consecutiveLosses >= 2) {
-                if (this.sys === 1) {
-                    this.sys = 2;
-                } else if (this.sys === 2) {
-                    this.sys = 3;
-                }
-                this.sysCount = 0;
-            }
+        // Store trade result
+        if (!this.tradeResults[asset]) this.tradeResults[asset] = [];
+        this.tradeResults[asset].push({
+            won,
+            profit,
+            stake,
+            timestamp: Date.now(),
+            signal: this._lastSignal ? {
+                score: this._lastSignal.score,
+                agreement: this._lastSignal.agreement,
+            } : null,
+        });
+        if (this.tradeResults[asset].length > 200) this.tradeResults[asset].shift();
 
-            if (this.sys === 2 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier2) {
-                this.sys = 3;
-                this.sysCount = 0;
-            }
+        // Log performance
+        StatePersistence.appendPerformanceLog({
+            asset,
+            won,
+            profit,
+            stake,
+            totalPnL: this.totalProfitLoss,
+            consecutiveLosses: this.consecutiveLosses,
+            totalTrades: this.totalTrades,
+            winRate: this.totalWins / this.totalTrades,
+        });
 
-            // if (this.sys === 3 && this.consecutiveLosses === 1 && this.currentStake === this.config.multiplier3) {
-            //     this.stopLossStake = true;
-            // }
+        // Calculate next stake
+        this.currentStake = this.riskManager.calculateStake();
 
-            //New Stake System
-            // if (this.sys === 1) {
-            //     // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            //     this.currentStake = this.config.multiplier;
-            //     this.sys = 1;
-            // } else {
-            //     if (this.sys === 2 && this.consecutiveLosses === 1) {
-            //         this.currentStake = this.config.multiplier2;
-            //         this.sysCount++;
-            //     } else if (this.sys === 3 && this.consecutiveLosses === 1) {
-            //         this.currentStake = this.config.multiplier3;
-            //         this.sysCount++;
-            //     } else {
-            //         this.currentStake = this.config.initialStake;
-            //     }
-            // }
-        } else {
-            if (this.suspendedAssets.size > 1) {
-                const firstSuspendedAsset = Array.from(this.suspendedAssets)[0];
-                this.reactivateAsset(firstSuspendedAsset);
-            }
+        // Reset trade state
+        this.tradeInProgress = false;
+        this.currentTradeId = null;
+        if (this.assetStates[asset]) {
+            this.assetStates[asset].tradeInProgress = false;
         }
+        this.currentTradeAsset = null;
 
-        const randomWaitTime = Math.floor(
-            Math.random() * (this.config.maxWaitTime - baseWaitTime + 1)
-        ) + baseWaitTime;
+        // Log
+        const resultEmoji = won ? '✅ WIN' : '❌ LOSS';
+        const pnlStr = (profit >= 0 ? '+' : '') + '$' + Math.abs(profit).toFixed(2);
+        const winRate = ((this.totalWins / this.totalTrades) * 100).toFixed(1);
 
-        const waitTimeMinutes = Math.round(randomWaitTime / 60000);
-        if (!won) {
-            this.waitTime = waitTimeMinutes + 120000;
-        } else {
-            this.waitTime = waitTimeMinutes;
-        }
-        this.waitSeconds = randomWaitTime;
+        console.log(`\n${resultEmoji} [${asset}] ${pnlStr}`);
+        console.log(`  Trades: ${this.totalTrades} | W/L: ${this.totalWins}/${this.totalLosses} | WR: ${winRate}%`);
+        console.log(`  Total P&L: $${this.totalProfitLoss.toFixed(2)} | Next Stake: $${this.currentStake.toFixed(2)}`);
 
-        if (!this.endOfDay) {
-            this.logTradingSummary(asset);
-        }
+        // Telegram
+        this.sendTelegramMessage(
+            `${resultEmoji} <b>${asset}</b>\n` +
+            `P&L: ${pnlStr}\n` +
+            `Trades: ${this.totalTrades} | W/L: ${this.totalWins}/${this.totalLosses}\n` +
+            `Win Rate: ${winRate}%\n` +
+            `Total P&L: $${this.totalProfitLoss.toFixed(2)}\n` +
+            `Next Stake: $${this.currentStake.toFixed(2)}\n` +
+            `Consec. Losses: ${this.consecutiveLosses}`
+        );
 
-        // Enhanced stop conditions with risk management
-        // const riskLimitReached = this.totalProfitLoss <= -this.riskManager.maxDailyLoss;
-
-        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses || this.totalProfitLoss <= -this.config.stopLoss || this.stopLossStake) {
-            console.log('Stop condition reached. Stopping trading.');
+        // Check stop conditions
+        if (this.riskManager.state.sessionPnL <= -this.config.stopLoss) {
+            console.log('🛑 STOP LOSS reached');
+            this.sendTelegramMessage(`🛑 <b>STOP LOSS</b>\nP&L: $${this.totalProfitLoss.toFixed(2)}`);
             this.endOfDay = true;
-            this.sendEmailSummary();
             this.disconnect();
             return;
         }
 
-        if (this.totalProfitLoss >= this.config.takeProfit) {
-            console.log('Take Profit Reached... Stopping trading.');
+        if (this.riskManager.state.sessionPnL >= this.config.takeProfit) {
+            console.log('🎯 TAKE PROFIT reached');
+            this.sendTelegramMessage(`🎯 <b>TAKE PROFIT</b>\nP&L: $${this.totalProfitLoss.toFixed(2)}`);
             this.endOfDay = true;
-            this.sendEmailSummary();
             this.disconnect();
             return;
         }
 
-        this.disconnect();
-
-        if (!this.endOfDay) {
-            setTimeout(() => {
-                this.tradeInProgress = false;
-                this.Pause = false;
-                this.connect();
-            }, randomWaitTime);
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses) {
+            console.log(`⚠️ Max consecutive losses (${this.consecutiveLosses}), entering cooldown`);
         }
+
+        // Save state
+        StatePersistence.saveState(this);
     }
 
-
-    // Add new method to handle asset suspension
-    suspendAsset(asset) {
-        this.suspendedAssets.add(asset);
-        // console.log(`🚫 Suspended asset: ${asset}`);
-    }
-
-    // Add new method to reactivate asset
-    reactivateAsset(asset) {
-        this.suspendedAssets.delete(asset);
-        // console.log(`✅ Reactivated asset: ${asset}`);
-    }
-
-    // Add new method to handle all other assets suspension
-    suspendAllExcept(asset) {
-        this.assets.forEach(a => {
-            if (a !== asset) {
-                this.suspendAsset(a);
-            }
-        });
-        this.suspendedAssets.delete(asset);
-        // console.log(`🚫 Suspended all except: ${asset}`);
-    }
-
-    // Add new method to reactivate all suspended assets
-    reactivateAllSuspended() {
-        Array.from(this.suspendedAssets).forEach(a => {
-            this.reactivateAsset(a);
-        });
-    }
-
-    unsubscribeAllTicks() {
-        Object.values(this.tickSubscriptionIds).forEach(subId => {
-            const request = {
-                forget: subId
-            };
-            this.sendRequest(request);
-            // console.log(`Unsubscribing from ticks with ID: ${subId}`);
-        });
-        this.tickSubscriptionIds = {};
-    }
-
-    // Check for Disconnect and Reconnect
-    checkTimeForDisconnectReconnect() {
-        setInterval(() => {
-            // Always use GMT +1 time regardless of server location
-            const now = new Date();
-            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000)); // Convert UTC → GMT+1
-            const currentHours = gmtPlus1Time.getUTCHours();
-            const currentMinutes = gmtPlus1Time.getUTCMinutes();
-
-            // Optional: log current GMT+1 time for monitoring
-            // console.log(
-            // "Current GMT+1 time:",
-            // gmtPlus1Time.toISOString().replace("T", " ").substring(0, 19)
-            // );
-
-            // Check for Morning resume condition (7:00 AM GMT+1)
-            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
-                console.log("It's 7:00 AM GMT+1, reconnecting the bot.");
-                this.tradeInProgress = false;
-                this.usedAssets = new Set();
-                this.RestartTrading = true;
-                this.Pause = false;
-                this.endOfDay = false;
-                this.tradedDigitArray = [];
-                // Asset-specific data
-                this.digitCounts = {};
-                this.tickSubscriptionIds = {};
-                this.tickHistories = {};
-                this.lastDigits = {};
-                this.predictedDigits = {};
-                this.lastPredictions = {};
-                this.assetStates = {};
-                this.pendingProposals = new Map();
-                this.previousStayedIn = {};
-                this.extendedStayedIn = {}; // Extended historical run lengths (up to 5000)
-
-                // NEW: Advanced analytics and learning system
-                this.learningSystem = {
-                    lossPatterns: {},
-                    failedDigitCounts: {},
-                    volatilityScores: {},
-                    filterPerformance: {},
-                    resetPatterns: {},
-                    timeWindowPerformance: [],
-                    adaptiveFilters: {},
-                };
-
-                // NEW: Advanced risk management
-                this.riskManager = {
-                    // maxDailyLoss: config.stopLoss * 0.7,
-                    currentSessionRisk: 0,
-                    riskPerTrade: 0.02,
-                    cooldownPeriod: 0,
-                    lastLossTime: null,
-                    consecutiveSameDigitLosses: {},
-                };
-
-                this.assets.forEach(asset => {
-                    this.tickHistories[asset] = [];
-                    this.digitCounts[asset] = Array(10).fill(0);
-                    this.lastDigits[asset] = null;
-                    this.predictedDigits[asset] = null;
-                    this.lastPredictions[asset] = [];
-                    this.assetStates[asset] = {
-                        stayedInArray: [],
-                        tradedDigitArray: [],
-                        filteredArray: [],
-                        totalArray: [],
-                        currentProposalId: null,
-                        tradeInProgress: false,
-                        consecutiveLosses: 0,
-                        lastTradeResult: null,
-                        digitFrequency: {},
-                    };
-                    this.previousStayedIn[asset] = null;
-                    this.extendedStayedIn[asset] = [];
-
-                    // Initialize learning system for each asset
-                    this.learningSystem.lossPatterns[asset] = [];
-                    this.learningSystem.volatilityScores[asset] = 0;
-                    this.learningSystem.adaptiveFilters[asset] = 8;
-                    this.riskManager.consecutiveSameDigitLosses[asset] = {};
-                });
-
-                this.connect();
-            }
-
-            // Check for evening stop condition (after 5:00 PM GMT+1) 17
-            if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 17 && currentMinutes >= 0) {
-                    console.log("It's past 5:00 PM GMT+1 after a win trade, disconnecting the bot.");
-                    this.sendDisconnectResumptionEmailSummary();
-                    this.Pause = true;
-                    this.disconnect();
-                    this.endOfDay = true;
-                }
-            }
-        }, 20000); // Check every 20 seconds
-    }
-
-
-    disconnect() {
-        if (this.connected) {
-            this.ws.close();
-        }
-    }
-
-    logTradingSummary(asset) {
-        console.log('Trading Summary:');
-        console.log(`Total Trades: ${this.totalTrades}`);
-        console.log(`Total Trades Won: ${this.totalWins}`);
-        console.log(`Total Trades Lost: ${this.totalLosses}`);
-        console.log(`x2 Losses: ${this.consecutiveLosses2}`);
-        console.log(`x3 Losses: ${this.consecutiveLosses3}`);
-        console.log(`Total Profit/Loss Amount: ${this.totalProfitLoss.toFixed(2)}`);
-        console.log(`Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%`);
-        console.log(`[${asset}] Predicted Asset: ${asset}`);
-        console.log(`Current Stake: $${this.currentStake.toFixed(2)}`);
-        console.log(`Currently Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}`);
-        console.log(`Waiting for: ${this.waitTime} minutes (${this.waitSeconds} ms) before resubscribing...`);
-        const assetWinRate = this.calculateAssetWinRate(asset);
-        const volatility = this.learningSystem.volatilityScores[asset] || 0;
-        console.log(`[${asset}] Recent Win Rate: ${(assetWinRate * 100).toFixed(1)}% | Volatility: ${(volatility * 100).toFixed(1)}%`);
-
-        console.log(`Suspended Assets: ${Array.from(this.suspendedAssets).join(', ') || 'None'}`);
-        console.log(`Wait Time: ${this.waitTime} minutes (${this.waitSeconds} ms)`);
-        console.log('=========================================================');
-    }
-
-    startEmailTimer() {
-        if (!this.endOfDay) {
-            setInterval(() => {
-                this.sendEmailSummary();
-            }, 1800000); // 30 Minutes
-        }
-    }
-
-    async sendEmailSummary() {
-        const transporter = nodemailer.createTransport(this.emailConfig);
-
-        // Calculate additional learning metrics
-        const totalFilterStats = Object.entries(this.learningSystem.filterPerformance)
-            .map(([filter, stats]) => {
-                const total = stats.wins + stats.losses;
-                const winRate = total > 0 ? (stats.wins / total * 100).toFixed(1) : 0;
-                return `Filter ${filter}: ${winRate}% (${stats.wins}W/${stats.losses}L)`;
-            })
-            .join('\n        ');
-
-        const summaryText = `
-        ==================== Trading Summary ====================
-        Total Trades: ${this.totalTrades}
-        Total Wins: ${this.totalWins}
-        Total Losses: ${this.totalLosses}
-        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
-        
-        Consecutive Losses: ${this.consecutiveLosses}
-        x2 Losses: ${this.consecutiveLosses2}
-        x3 Losses: ${this.consecutiveLosses3}
-
-        Financial:
-        Current Stake: ${this.currentStake.toFixed(2)}
-        Total P/L: ${this.totalProfitLoss.toFixed(2)}
-        
-        Learning System Performance:
-        ${totalFilterStats || 'No filter data yet'}
-        
-        Asset Volatility:
-        ${this.assets.map(a => `${a}: ${(this.learningSystem.volatilityScores[a] * 100 || 0).toFixed(1)}%`).join('\n        ')}
-        =========================================================
-        `;
-
-        const mailOptions = {
-            from: this.emailConfig.auth.user,
-            to: this.emailRecipient,
-            subject: 'Grok_Enhanced Accumulator Bot - Performance Summary',
-            text: summaryText
-        };
-
+    // ========================================================================
+    // TELEGRAM
+    // ========================================================================
+    async sendTelegramMessage(message) {
+        if (!this.telegramEnabled) return;
         try {
-            await transporter.sendMail(mailOptions);
+            await this.telegramBot.sendMessage(this.telegramChatId, message, { parse_mode: 'HTML' });
         } catch (error) {
-            console.error('Error sending email:', error);
+            console.error(`Telegram error: ${error.message}`);
         }
     }
 
-    async sendLossEmail(asset) {
-        const transporter = nodemailer.createTransport(this.emailConfig);
-        const history = this.tickHistories[asset];
-        const lastFewTicks = history.slice(-10);
-        const assetState = this.assetStates[asset];
-
-        const recentLosses = this.learningSystem.lossPatterns[asset]?.slice(-5) || [];
-        const lossAnalysis = recentLosses.map(l =>
-            `Digit: ${l.digitCount}, Filter: ${l.filterUsed}, Vol: ${(l.volatility * 100).toFixed(1)}%`
-        ).join('\n        ');
-
-        const summaryText = `
-        ==================== Loss Alert ====================
-        Trade Summary:
-        Total Trades: ${this.totalTrades}
-        Wins: ${this.totalWins} | Losses: ${this.totalLosses}
-        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
-        
-        Consecutive Losses: ${this.consecutiveLosses}
-        x2: ${this.consecutiveLosses2} | x3: ${this.consecutiveLosses3}
-
-        Loss Analysis for [${asset}]:
-        Filtered Array: ${assetState.filteredArray}
-        Traded Digit: ${assetState.tradedDigitArray.slice(-1)[0]}
-        Filter Used: ${assetState.lastFilterUsed || 8}
-        Asset Volatility: ${(this.learningSystem.volatilityScores[asset] * 100 || 0).toFixed(1)}%
-        Asset Win Rate: ${(this.calculateAssetWinRate(asset) * 100).toFixed(1)}%
-        
-        Recent Loss Pattern:
-        ${lossAnalysis || 'No pattern data'}
-        
-        Last 10 Digits: ${lastFewTicks.join(', ')}
-
-        Financial:
-        Total P/L: ${this.totalProfitLoss.toFixed(2)}
-        Current Stake: ${this.currentStake.toFixed(2)}
-        
-        Next Action:
-        Waiting: ${this.waitTime} minutes before next trade
-        ====================================================
-        `;
-
-        const mailOptions = {
-            from: this.emailConfig.auth.user,
-            to: this.emailRecipient,
-            subject: `Grok_Enhanced Accumulator Bot - Loss Alert [${asset}]`,
-            text: summaryText
-        };
-
-        try {
-            await transporter.sendMail(mailOptions);
-        } catch (error) {
-            console.error('Error sending loss email:', error);
-        }
-    }
-
-    async sendDisconnectResumptionEmailSummary() {
-        const transporter = nodemailer.createTransport(this.emailConfig);
-
-        // Calculate additional learning metrics
-        const totalFilterStats = Object.entries(this.learningSystem.filterPerformance)
-            .map(([filter, stats]) => {
-                const total = stats.wins + stats.losses;
-                const winRate = total > 0 ? (stats.wins / total * 100).toFixed(1) : 0;
-                return `Filter ${filter}: ${winRate}% (${stats.wins}W/${stats.losses}L)`;
-            })
-            .join('\n        ');
+    startTelegramTimer() {
+        if (!this.telegramEnabled) return;
 
         const now = new Date();
-        const currentHours = now.getHours();
-        const currentMinutes = now.getMinutes();
+        const nextHour = new Date(now);
+        nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+        const timeUntil = nextHour.getTime() - now.getTime();
 
+        setTimeout(() => {
+            this.sendHourlySummary();
+            setInterval(() => this.sendHourlySummary(), 3600000);
+        }, timeUntil);
 
-        const summaryText = `
-        Disconnect/Reconnect Email: Time (${currentHours}:${currentMinutes})
-
-        ==================== Trading Summary ====================
-        Total Trades: ${this.totalTrades}
-        Total Wins: ${this.totalWins}
-        Total Losses: ${this.totalLosses}
-        Win Rate: ${((this.totalWins / this.totalTrades) * 100).toFixed(2)}%
-        
-        Consecutive Losses: ${this.consecutiveLosses}
-        x2 Losses: ${this.consecutiveLosses2}
-        x3 Losses: ${this.consecutiveLosses3}
-
-        Financial:
-        Current Stake: ${this.currentStake.toFixed(2)}
-        Total P/L: ${this.totalProfitLoss.toFixed(2)}
-        
-        Learning System Performance:
-        ${totalFilterStats || 'No filter data yet'}
-        
-        Asset Volatility:
-        ${this.assets.map(a => `${a}: ${(this.learningSystem.volatilityScores[a] * 100 || 0).toFixed(1)}%`).join('\n        ')}
-        =========================================================
-        `;
-
-        const mailOptions = {
-            from: this.emailConfig.auth.user,
-            to: this.emailRecipient,
-            subject: 'Grok_Enhanced Accumulator Bot - Performance Summary',
-            text: summaryText
-        };
-
-        try {
-            await transporter.sendMail(mailOptions);
-        } catch (error) {
-            console.error('Error sending email:', error);
-        }
+        console.log(`📱 Hourly summaries start in ${Math.ceil(timeUntil / 60000)} minutes`);
     }
 
-    async sendErrorEmail(errorMessage) {
-        const transporter = nodemailer.createTransport(this.emailConfig);
-        const mailOptions = {
-            from: this.emailConfig.auth.user,
-            to: this.emailRecipient,
-            subject: 'Grok_Enhanced Accumulator Bot - Error Report',
-            text: `An error occurred: ${errorMessage}`
-        };
+    async sendHourlySummary() {
+        const s = this.hourlyStats;
+        const winRate = (s.wins + s.losses) > 0
+            ? ((s.wins / (s.wins + s.losses)) * 100).toFixed(1) : '0';
 
-        try {
-            await transporter.sendMail(mailOptions);
-        } catch (error) {
-            console.error('Error sending error email:', error);
-        }
+        const edgeSummary = this.assets.map(asset => {
+            const edge = this.analyticsEngine.edgeTracker[asset];
+            if (!edge || edge.sampleCount < 5) return `${asset}: N/A`;
+            return `${asset}: ${edge.isEdgePositive ? '✅' : '❌'} (${(edge.edgeEstimate * 100).toFixed(2)}%)`;
+        }).join('\n├ ');
+
+        const regimeSummary = this.assets.map(asset => {
+            const regime = this.analyticsEngine.regimeState[asset];
+            if (!regime || regime.currentRegime === 'unknown') return `${asset}: unknown`;
+            return `${asset}: ${regime.currentRegime} (${(regime.regimeConfidence * 100).toFixed(0)}%)`;
+        }).join('\n├ ');
+
+        const msg = `
+⏰ <b>Hourly Summary (v3.0)</b>
+
+📊 <b>This Hour</b>
+├ Trades: ${s.trades} | W/L: ${s.wins}/${s.losses}
+├ Win Rate: ${winRate}%
+└ P&L: ${s.pnl >= 0 ? '+' : ''}$${Math.abs(s.pnl).toFixed(2)}
+
+📈 <b>Session Totals</b>
+├ Trades: ${this.totalTrades} | W/L: ${this.totalWins}/${this.totalLosses}
+├ Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(1) : 0}%
+├ P&L: $${this.totalProfitLoss.toFixed(2)}
+└ Stake: $${this.currentStake.toFixed(2)}
+
+📊 <b>Edge Estimates</b>
+├ ${edgeSummary}
+
+🌡️ <b>Regimes</b>
+├ ${regimeSummary}
+
+⏰ ${new Date().toLocaleString()}
+        `.trim();
+
+        await this.sendTelegramMessage(msg);
+
+        this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
     }
 
+    // ========================================================================
+    // TIME MANAGEMENT
+    // ========================================================================
+    startTimeManager() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1 = new Date(now.getTime() + 3600000);
+            const hour = gmtPlus1.getUTCHours();
+            const day = gmtPlus1.getUTCDay();
+
+            // Daily reset at 2 AM
+            if (this.endOfDay && hour === 2) {
+                console.log('🔄 New day, resetting...');
+                this.riskManager.resetDaily();
+                this.dailyTradeCount = 0;
+                this.dailyPnL = 0;
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            // End of day at 11:30 PM
+            if (!this.endOfDay && hour >= 23 && this.totalTrades > 0) {
+                console.log('🌙 End of day shutdown');
+                this.sendHourlySummary();
+                this.endOfDay = true;
+                this.disconnect();
+            }
+        }, 20000);
+    }
+
+    disconnect() {
+        console.log('🛑 Disconnecting...');
+        StatePersistence.saveState(this);
+        StatePersistence.stopAutoSave(this);
+        this.endOfDay = true;
+        this.cleanup();
+    }
+
+    // ========================================================================
+    // START
+    // ========================================================================
     start() {
-        console.log('🚀 Starting Enhanced Accumulator Trading Bot with Learning System');
-        console.log('Features: Adaptive filters, pattern recognition, volatility analysis');
+        console.log('═══════════════════════════════════════════════════════════');
+        console.log('  🚀 ACCUMULATOR TRADING BOT v3.0');
+        console.log('═══════════════════════════════════════════════════════════');
+        console.log('');
+        console.log('  📊 Strategy: Volatility-Based Survival Analysis');
+        console.log('  🎯 Growth Rate:', this.config.growthRate);
+        console.log('  💰 Base Stake:', this.config.initialStake);
+        console.log('  📉 Stop Loss:', this.config.stopLoss);
+        console.log('  📈 Take Profit:', this.config.takeProfit);
+        console.log('  🎰 Assets:', this.assets.join(', '));
+        console.log('');
+        console.log('  Key Improvements over v2:');
+        console.log('    • Realized volatility vs barrier width analysis');
+        console.log('    • Empirical conditional survival estimation');
+        console.log('    • Regime detection (vol/trend/mean-revert)');
+        console.log('    • Edge tracking - measures if strategy actually works');
+        console.log('    • Controlled recovery instead of martingale');
+        console.log('    • Per-asset cooldowns after losses');
+        console.log('═══════════════════════════════════════════════════════════');
+
+        StatePersistence.startAutoSave(this);
+        this.startTelegramTimer();
+        this.startTimeManager();
         this.connect();
-        this.checkTimeForDisconnectReconnect(); // Automatically handles disconnect/reconnect at specified times
     }
 }
 
-// Usage
-const bot = new EnhancedDigitDifferTradingBot('DMylfkyce6VyZt7', {
-    // 'DMylfkyce6VyZt7', '0P94g4WdSrSrzir', rgNedekYXvCaPeP, hsj0tA0XJoIzJG5, Dz2V2KvRf4Uukt3
-    initialStake: 1,
-    multiplier: 21,
-    multiplier2: 100,
-    multiplier3: 1000,
+// ============================================================================
+// RUN
+// ============================================================================
+const token = 'Dz2V2KvRf4Uukt3'; //|| process.env.DERIV_TOKEN;
+
+const bot = new AccumulatorBotV3(token, {
+    // Stake management
+    initialStake: 5,     // Starting stake
+    maxStake: 55,           // Max 5x base, NOT 21x
+
+    // Accumulator settings
+    growthRate: 0.01,       // 1% - lowest = safest
+    accuTakeProfit: 0.01,
+
+    // Risk management  
+    stopLoss: 150,           // Realistic daily stop loss
+    takeProfit: 10000,        // Realistic daily target
     maxConsecutiveLosses: 3,
-    stopLoss: 400,
-    takeProfit: 5000,
-    growthRate: 0.05,
-    accuTakeProfit: 0.5,
-    requiredHistoryLength: 1000,
-    winProbabilityThreshold: 100,
-    minWaitTime: 2000, // 2 seconds for testing
-    maxWaitTime: 5000, // 5 seconds for testing
-    // minWaitTime: 300000, //5 Minutes
-    // maxWaitTime: 2600000, //1 Hour
-    minOccurrencesThreshold: 1,
+    maxDrawdownPercent: 0.3,
+
+    // Cooldowns
+    baseCooldownMs: 30000,           // 30s after 1st loss
+    maxCooldownMs: 300000,           // 5 min max cooldown
+    minTimeBetweenTrades: 10000,     // 10s between trades
+
+    // Data requirements
+    requiredHistoryLength: 200,
+    minRunsForSignal: 30,
+
+    // Signal thresholds  
+    minSignalScore: 0.3,
+    minAgreement: 0.6,
+
+    // Telegram (use environment variables)
+    telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ', //process.env.TELEGRAM_TOKEN,
+    telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID,
+
+    // Assets
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
 });
 
 bot.start();
+
+module.exports = { AccumulatorBotV3, AnalyticsEngine, RiskManager };
