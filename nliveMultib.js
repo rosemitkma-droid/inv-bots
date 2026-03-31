@@ -21,7 +21,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti_b01-state001.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti_b001-state001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -171,7 +171,7 @@ class StatisticalEngine {
 
     recordCompletedRun(asset, runLength) {
         if (!this.runHistory[asset]) this.runHistory[asset] = [];
-        
+
         this.runHistory[asset].push(runLength);
         if (this.runHistory[asset].length > 1000) {
             this.runHistory[asset].shift();
@@ -180,7 +180,7 @@ class StatisticalEngine {
 
     getConditionalSurvivalProbability(asset, currentStayedIn, additionalTicks = 5) {
         const runs = this.runHistory[asset] || [];
-        
+
         if (runs.length < 50) {
             // More realistic fallback based on currentStayedIn
             return Math.max(0.58, 0.92 - (currentStayedIn * 0.008));
@@ -192,12 +192,12 @@ class StatisticalEngine {
         }
 
         const survivedKM = survivedK.filter(r => r >= currentStayedIn + additionalTicks);
-        
+
         let prob = survivedKM.length / survivedK.length;
-        
+
         // Smooth the probability
         prob = Math.min(0.98, Math.max(0.55, prob));
-        
+
         return prob;
     }
 
@@ -206,7 +206,7 @@ class StatisticalEngine {
 
         const slice = recentDigits.slice(-40);
         let changes = 0;
-        
+
         for (let i = 1; i < slice.length; i++) {
             if (slice[i] !== slice[i - 1]) changes++;
         }
@@ -1216,7 +1216,7 @@ class EnhancedAccumulatorBot {
         this.learningSystem.volatilityScores[asset] = volatility;
 
 
-        return { changeRate: volatility};
+        return { changeRate: volatility };
     }
 
     /**
@@ -1324,7 +1324,7 @@ class EnhancedAccumulatorBot {
         if (!this.tradeInProgress) {
             const decision = this.makeTradeDecision(asset, stayedInArray);
 
-            console.log(`[${asset}] Stayed: ${currentStayed} | Score: ${(decision.score*100).toFixed(1)}% | Survival: ${(decision.survival*100).toFixed(1)}% | Regime: ${(decision.regimeScore*100).toFixed(1)}% | Confidence: ${(decision.confidence*100).toFixed(1)}%`);
+            console.log(`[${asset}] Stayed: ${currentStayed} | Score: ${(decision.score * 100).toFixed(1)}% | Survival: ${(decision.survival * 100).toFixed(1)}% | Regime: ${(decision.regimeScore * 100).toFixed(1)}% | Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
 
             if (decision.shouldTrade) { // && decision.confidence >= 1.0
                 console.log(`✅ STRONG SIGNAL - Entering ${asset} at ${currentStayed} ticks`);
@@ -1376,18 +1376,18 @@ class EnhancedAccumulatorBot {
 
         const confidence = Math.min(1.0, (currentStayed - 8) / 28);
 
-        const shouldTrade = finalScore >= 0.60 && 
-                        survivalProb >= 0.60 && 
-                        // regimeScore >= 0.45 &&
-                        confidence >= 0.70;
+        const shouldTrade = finalScore >= 0.20 && //0.60
+            survivalProb >= 0.83 &&  //0.60
+            // regimeScore >= 0.45 &&
+            confidence >= 0.10; //0.70
 
         // === DEBUG LOGGING ===
         console.log(`[${asset}] Stayed:${currentStayed} | ` +
-            `Survival:${(survivalProb*100).toFixed(1)}% | ` +
-            `Regime:${(regimeScore*100).toFixed(1)}% | ` +
-            `DigitHealth:${(digitHealth*100).toFixed(1)}% | ` +
-            `FinalScore:${(finalScore*100).toFixed(1)}% | ` +
-            `Conf:${(confidence*100).toFixed(1)}% | ` +
+            `Survival:${(survivalProb * 100).toFixed(1)}% | ` +
+            `Regime:${(regimeScore * 100).toFixed(1)}% | ` +
+            `DigitHealth:${(digitHealth * 100).toFixed(1)}% | ` +
+            `FinalScore:${(finalScore * 100).toFixed(1)}% | ` +
+            `Conf:${(confidence * 100).toFixed(1)}% | ` +
             `TRADE:${shouldTrade ? 'YES' : 'no'}`);
 
         return {
@@ -1500,12 +1500,12 @@ class EnhancedAccumulatorBot {
 
         const telegramMsg = `
             🚀 <b>Placing trade for Asset ${asset}</b>
-            <b>SIGNAL: ${(decision.score*100).toFixed(1)}%</b>
+            <b>SIGNAL: ${(decision.score * 100).toFixed(1)}%</b>
 
             <b>DECISION:</b> ${decision.shouldTrade ? '✅ STRONG SIGNAL - Entering Trade' : '❌ Signal below threshold, not trading'}
-            <b>Regime Score: ${(decision.regimeScore*100).toFixed(1)}%</b>
+            <b>Regime Score: ${(decision.regimeScore * 100).toFixed(1)}%</b>
             <b>Confidence: ${decision.confidence.toFixed(2)}%</b> 
-            <b>SurvivalProb: ${(decision.survival*100).toFixed(1)}%</b>
+            <b>SurvivalProb: ${(decision.survival * 100).toFixed(1)}%</b>
             <b>currentStayed: ${decision.currentStayed}</b>
 
             <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
