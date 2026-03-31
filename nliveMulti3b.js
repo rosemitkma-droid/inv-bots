@@ -18,7 +18,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot01-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -116,7 +116,7 @@ class AccumulatorAnalyzer {
         if (!this.runHistory[asset]) {
             this.runHistory[asset] = [];
         }
-        
+
         this.runHistory[asset].push({
             length: runLength,
             reason: exitReason,
@@ -130,7 +130,7 @@ class AccumulatorAnalyzer {
 
     getWeightedSurvivalProbability(asset, currentTicks, targetAdditionalTicks = 5) {
         const runs = this.runHistory[asset] || [];
-        
+
         if (runs.length < 30) {
             return this.getDefaultSurvivalProb(currentTicks, targetAdditionalTicks);
         }
@@ -155,7 +155,7 @@ class AccumulatorAnalyzer {
 
     getDefaultSurvivalProb(currentTicks, additionalTicks) {
         const totalTicks = currentTicks + additionalTicks;
-        
+
         if (totalTicks <= 10) return 0.85;
         if (totalTicks <= 15) return 0.78;
         if (totalTicks <= 20) return 0.70;
@@ -163,7 +163,7 @@ class AccumulatorAnalyzer {
         if (totalTicks <= 30) return 0.54;
         if (totalTicks <= 35) return 0.45;
         if (totalTicks <= 40) return 0.36;
-        
+
         return Math.max(0.15, 0.45 * Math.exp(-0.04 * totalTicks));
     }
 
@@ -174,14 +174,14 @@ class AccumulatorAnalyzer {
 
         const last40 = recentDigits.slice(-40);
         const last20 = recentDigits.slice(-20);
-        
+
         let changes40 = 0, changes20 = 0;
-        
+
         for (let i = 1; i < last40.length; i++) {
-            if (last40[i] !== last40[i-1]) changes40++;
+            if (last40[i] !== last40[i - 1]) changes40++;
         }
         for (let i = 1; i < last20.length; i++) {
-            if (last20[i] !== last20[i-1]) changes20++;
+            if (last20[i] !== last20[i - 1]) changes20++;
         }
 
         const changeRate40 = changes40 / 39;
@@ -219,16 +219,16 @@ class AccumulatorAnalyzer {
 
     getMaxStreak(digits) {
         let maxStreak = 1, currentStreak = 1;
-        
+
         for (let i = 1; i < digits.length; i++) {
-            if (digits[i] === digits[i-1]) {
+            if (digits[i] === digits[i - 1]) {
                 currentStreak++;
                 maxStreak = Math.max(maxStreak, currentStreak);
             } else {
                 currentStreak = 1;
             }
         }
-        
+
         return maxStreak;
     }
 
@@ -241,8 +241,8 @@ class AccumulatorAnalyzer {
         let upMoves = 0, downMoves = 0;
 
         for (let i = 1; i < recent.length; i++) {
-            if (recent[i] > recent[i-1]) upMoves++;
-            else if (recent[i] < recent[i-1]) downMoves++;
+            if (recent[i] > recent[i - 1]) upMoves++;
+            else if (recent[i] < recent[i - 1]) downMoves++;
         }
 
         const momentum = Math.abs(upMoves - downMoves) / 49;
@@ -275,9 +275,9 @@ class RiskManager {
 
     isAssetOnCooldown(asset) {
         const cooldown = this.assetCooldowns[asset];
-        
+
         if (!cooldown) return false;
-        
+
         if (Date.now() < cooldown.until) {
             return true;
         }
@@ -291,7 +291,7 @@ class RiskManager {
             until: Date.now() + (durationMinutes * 60 * 1000),
             reason: 'consecutive_loss'
         };
-        
+
         console.log(`🔒 ${asset} on cooldown for ${durationMinutes} minutes`);
     }
 
@@ -321,7 +321,7 @@ class ReliableAccumulatorBot {
         this.ws = null;
         this.connected = false;
         this.wsReady = false;
-        
+
         this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
 
         this.config = {
@@ -331,21 +331,21 @@ class ReliableAccumulatorBot {
             maxDailyLoss: config.maxDailyLoss || 200,
             takeProfit: config.takeProfit || 500,
             growthRate: config.growthRate || 0.05,
-            
+
             // Entry window (ENFORCED)
             minEntryTicks: config.minEntryTicks || 15,
             maxEntryTicks: config.maxEntryTicks || 25,
-            
+
             // Target hold time and profit
             targetHoldTicks: config.targetHoldTicks || 6,
             // Take profit as a multiplier of stake (e.g., 0.5 = 50% profit)
             takeProfitMultiplier: config.takeProfitMultiplier || 0.5,
-            
+
             // Thresholds
             minSurvivalProb: config.minSurvivalProb || 0.65,
             minRegimeScore: config.minRegimeScore || 0.60,
             minOverallScore: config.minOverallScore || 0.72,
-            
+
             requiredHistoryLength: config.requiredHistoryLength || 200,
         };
 
@@ -359,7 +359,7 @@ class ReliableAccumulatorBot {
         this.dailyProfitLoss = 0;
         this.tradeInProgress = false;
         this.endOfDay = false;
-        
+
         // CRITICAL: Active trade tracking
         this.activeTrade = null;
         this.contractSubscriptionId = null;
@@ -401,7 +401,7 @@ class ReliableAccumulatorBot {
         // Telegram
         this.telegramToken = config.telegramToken || '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ';
         this.telegramChatId = config.telegramChatId || '752497117';
-        
+
         if (this.telegramToken && this.telegramChatId) {
             this.telegramBot = new TelegramBot(this.telegramToken, { polling: false });
         }
@@ -541,7 +541,7 @@ class ReliableAccumulatorBot {
         if (this.ws) {
             this.ws.removeAllListeners();
             if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
-                try { this.ws.close(); } catch (e) {}
+                try { this.ws.close(); } catch (e) { }
             }
             this.ws = null;
         }
@@ -598,7 +598,7 @@ class ReliableAccumulatorBot {
 
     initializeSubscriptions() {
         console.log('📡 Initializing subscriptions...');
-        
+
         this.assets.forEach(asset => {
             this.sendRequest({
                 ticks_history: asset,
@@ -617,10 +617,10 @@ class ReliableAccumulatorBot {
     }
 
     handleTickHistory(asset, history) {
-        this.tickHistories[asset] = history.prices.map(price => 
+        this.tickHistories[asset] = history.prices.map(price =>
             this.getLastDigit(price, asset)
         );
-        
+
         console.log(`📊 ${asset}: Loaded ${this.tickHistories[asset].length} historical ticks`);
     }
 
@@ -635,7 +635,7 @@ class ReliableAccumulatorBot {
         }
 
         // Only request proposals if ready and not trading
-        if (this.tickHistories[asset].length >= this.config.requiredHistoryLength && 
+        if (this.tickHistories[asset].length >= this.config.requiredHistoryLength &&
             !this.tradeInProgress) {
             this.requestProposal(asset);
         }
@@ -650,7 +650,7 @@ class ReliableAccumulatorBot {
         } else if (['R_10', 'R_25', 'R_100'].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
         }
-        
+
         return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
     }
 
@@ -661,7 +661,7 @@ class ReliableAccumulatorBot {
     requestProposal(asset) {
         // Calculate take profit amount based on stake and multiplier
         const takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
-        
+
         this.sendRequest({
             proposal: 1,
             amount: this.currentStake.toFixed(2),
@@ -687,16 +687,16 @@ class ReliableAccumulatorBot {
 
         const asset = message.echo_req.symbol;
         const proposal = message.proposal;
-        
+
         if (!proposal.contract_details || !proposal.contract_details.ticks_stayed_in) {
             return;
         }
-        
+
         this.assetStates[asset].currentProposalId = proposal.id;
-        
+
         const stayedInArray = proposal.contract_details.ticks_stayed_in;
         this.assetStates[asset].lastStayedInArray = stayedInArray;
-        
+
         const currentTicks = stayedInArray[stayedInArray.length - 1] + 1;
 
         // Record run completion for learning
@@ -704,7 +704,7 @@ class ReliableAccumulatorBot {
         if (prevTicks >= 8 && currentTicks < 3) {
             this.analyzer.recordRun(asset, prevTicks, 'natural_exit');
         }
-        
+
         this.assetStates[asset].lastTicks = currentTicks;
 
         // Don't analyze if trade in progress
@@ -722,12 +722,12 @@ class ReliableAccumulatorBot {
     }
 
     logAnalysis(asset, currentTicks, decision) {
-        const inWindow = currentTicks >= this.config.minEntryTicks && 
-                        currentTicks <= this.config.maxEntryTicks;
-        
+        const inWindow = currentTicks >= this.config.minEntryTicks &&
+            currentTicks <= this.config.maxEntryTicks;
+
         console.log(`\n🔍 Analyzing ${asset} @ ${currentTicks} ticks (target ${currentTicks + this.config.targetHoldTicks})`);
         console.log(`   Entry Window: ${inWindow ? '✅' : '❌'} (${this.config.minEntryTicks}-${this.config.maxEntryTicks})`);
-        
+
         if (decision.survivalProb !== undefined) {
             console.log(`   Survival: ${(decision.survivalProb * 100).toFixed(1)}%`);
         }
@@ -745,49 +745,49 @@ class ReliableAccumulatorBot {
      */
     analyzeTradeOpportunity(asset, currentTicks, stayedInArray) {
         // 1. ENFORCED Entry window check (CRITICAL FIX)
-        // if (currentTicks < this.config.minEntryTicks) {
-        //     return { 
-        //         shouldTrade: false, 
-        //         reason: `too_early (${currentTicks} < ${this.config.minEntryTicks})`,
-        //         currentTicks 
-        //     };
-        // }
-        
-        // if (currentTicks > this.config.maxEntryTicks) {
-        //     return { 
-        //         shouldTrade: false, 
-        //         reason: `too_late (${currentTicks} > ${this.config.maxEntryTicks})`,
-        //         currentTicks 
-        //     };
-        // }
+        if (currentTicks < this.config.minEntryTicks) {
+            return {
+                shouldTrade: false,
+                reason: `too_early (${currentTicks} < ${this.config.minEntryTicks})`,
+                currentTicks
+            };
+        }
+
+        if (currentTicks > this.config.maxEntryTicks) {
+            return {
+                shouldTrade: false,
+                reason: `too_late (${currentTicks} > ${this.config.maxEntryTicks})`,
+                currentTicks
+            };
+        }
 
         // 2. Risk management check
         const riskCheck = this.riskManager.canTrade(
-            asset, 
-            this.dailyProfitLoss, 
+            asset,
+            this.dailyProfitLoss,
             this.consecutiveLosses
         );
-        
+
         if (!riskCheck.allowed) {
-            return { 
-                shouldTrade: false, 
+            return {
+                shouldTrade: false,
                 reason: riskCheck.reason,
-                currentTicks 
+                currentTicks
             };
         }
 
         // 3. Volatility regime analysis
         const recentDigits = this.tickHistories[asset].slice(-60);
         const regimeAnalysis = this.analyzer.detectVolatilityRegime(recentDigits);
-        
-        // if (regimeAnalysis.score < this.config.minRegimeScore) {
-        //     return { 
-        //         shouldTrade: false, 
-        //         reason: `poor_regime (${regimeAnalysis.regime})`,
-        //         regimeAnalysis,
-        //         currentTicks
-        //     };
-        // }
+
+        if (regimeAnalysis.score < this.config.minRegimeScore) {
+            return {
+                shouldTrade: false,
+                reason: `poor_regime (${regimeAnalysis.regime})`,
+                regimeAnalysis,
+                currentTicks
+            };
+        }
 
         // 4. Survival probability calculation
         const survivalProb = this.analyzer.getWeightedSurvivalProbability(
@@ -796,15 +796,15 @@ class ReliableAccumulatorBot {
             this.config.targetHoldTicks
         );
 
-        // if (survivalProb < this.config.minSurvivalProb) {
-        //     return { 
-        //         shouldTrade: false, 
-        //         reason: `low_survival (${(survivalProb * 100).toFixed(1)}%)`,
-        //         survivalProb,
-        //         regimeAnalysis,
-        //         currentTicks
-        //     };
-        // }
+        if (survivalProb < this.config.minSurvivalProb) {
+            return {
+                shouldTrade: false,
+                reason: `low_survival (${(survivalProb * 100).toFixed(1)}%)`,
+                survivalProb,
+                regimeAnalysis,
+                currentTicks
+            };
+        }
 
         // 5. Momentum check
         const momentum = this.analyzer.calculateMomentum(stayedInArray);
@@ -836,7 +836,7 @@ class ReliableAccumulatorBot {
      */
     executeTrade(asset, decision) {
         const proposalId = this.assetStates[asset].currentProposalId;
-        
+
         if (!proposalId) {
             console.error(`❌ No proposal ID for ${asset}`);
             return;
@@ -866,7 +866,7 @@ class ReliableAccumulatorBot {
         });
 
         this.tradeInProgress = true;
-        
+
         // Store active trade info
         this.activeTrade = {
             asset,
@@ -882,7 +882,7 @@ class ReliableAccumulatorBot {
 
         // Telegram notification
         this.sendTelegramMessage(
-            `🚀 <b>TRADE OPENED</b>\n\n` +
+            `🚀 <b>TRADE OPENED 2</b>\n\n` +
             `Asset: ${asset}\n` +
             `Entry: ${decision.currentTicks} ticks\n` +
             `Target: ${decision.targetTicks} ticks\n` +
@@ -901,9 +901,9 @@ class ReliableAccumulatorBot {
         }
 
         console.log('✅ Trade placed successfully');
-        
+
         const contractId = message.buy.contract_id;
-        
+
         if (this.activeTrade) {
             this.activeTrade.contractId = contractId;
         }
@@ -930,7 +930,7 @@ class ReliableAccumulatorBot {
         const currentProfit = parseFloat(contract.profit || 0);
         const bidPrice = parseFloat(contract.bid_price || 0);
         const tickCount = contract.tick_count || 0;
-        
+
         // Update current ticks
         if (this.activeTrade) {
             this.activeTrade.currentTicks = this.activeTrade.entryTicks + tickCount;
@@ -946,7 +946,7 @@ class ReliableAccumulatorBot {
         if (contract.is_valid_to_sell && this.activeTrade) {
             const ticksHeld = tickCount;
             const targetTicks = this.config.targetHoldTicks;
-            
+
             // Log progress
             if (tickCount > 0 && tickCount % 2 === 0) {
                 console.log(`📊 Active Trade: ${ticksHeld}/${targetTicks} ticks | Profit: $${currentProfit.toFixed(2)} | Bid: $${bidPrice.toFixed(2)}`);
@@ -954,12 +954,12 @@ class ReliableAccumulatorBot {
 
             // CRITICAL: Sell when target is reached or profit threshold met
             const shouldSell = this.shouldSellContract(contract, ticksHeld, currentProfit);
-            
+
             if (shouldSell.sell) {
                 console.log(`\n🎯 SELLING CONTRACT: ${shouldSell.reason}`);
                 console.log(`   Ticks held: ${ticksHeld}`);
                 console.log(`   Current profit: $${currentProfit.toFixed(2)}`);
-                
+
                 this.sellContract(contract.contract_id, bidPrice);
             }
         }
@@ -971,7 +971,7 @@ class ReliableAccumulatorBot {
     shouldSellContract(contract, ticksHeld, currentProfit) {
         const targetTicks = this.config.targetHoldTicks;
         const takeProfitAmount = this.activeTrade?.takeProfitAmount || (this.currentStake * this.config.takeProfitMultiplier);
-        
+
         // 1. Target ticks reached
         if (ticksHeld >= targetTicks) {
             return { sell: true, reason: `target_ticks_reached (${ticksHeld}/${targetTicks})` };
@@ -1005,7 +1005,7 @@ class ReliableAccumulatorBot {
      */
     sellContract(contractId, price) {
         console.log(`📤 Sending sell request for contract ${contractId} at $${price.toFixed(2)}`);
-        
+
         this.sendRequest({
             sell: contractId,
             price: price.toFixed(2)
@@ -1089,9 +1089,9 @@ class ReliableAccumulatorBot {
         // Telegram notification
         const emoji = won ? '✅' : '❌';
         const pnlEmoji = profit >= 0 ? '🟢' : '🔴';
-        
+
         this.sendTelegramMessage(
-            `${emoji} <b>${won ? 'WIN' : 'LOSS'}</b>\n\n` +
+            `${emoji} <b>${won ? 'WIN' : 'LOSS'} (Bot 2)</b>\n\n` +
             `Asset: ${asset}\n` +
             `${pnlEmoji} P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}\n` +
             `Ticks: ${this.activeTrade.entryTicks} → ${exitTicks} (held: ${ticksHeld})\n\n` +
@@ -1134,10 +1134,10 @@ class ReliableAccumulatorBot {
 
     async sendTelegramMessage(message) {
         if (!this.telegramBot) return;
-        
+
         try {
-            await this.telegramBot.sendMessage(this.telegramChatId, message, { 
-                parse_mode: 'HTML' 
+            await this.telegramBot.sendMessage(this.telegramChatId, message, {
+                parse_mode: 'HTML'
             });
         } catch (error) {
             console.error(`Telegram error: ${error.message}`);
@@ -1172,9 +1172,9 @@ class ReliableAccumulatorBot {
         console.log(`\n🛑 Shutting down... Reason: ${reason}`);
         StatePersistence.saveState(this);
         this.endOfDay = true;
-        
+
         this.sendTelegramMessage(
-            `🛑 <b>BOT SHUTDOWN</b>\n\n` +
+            `🛑 <b>BOT SHUTDOWN 2</b>\n\n` +
             `Reason: ${reason}\n\n` +
             `Final Stats:\n` +
             `Trades: ${this.totalTrades}\n` +
@@ -1199,25 +1199,25 @@ const token = 'Dz2V2KvRf4Uukt3';
 
 const bot = new ReliableAccumulatorBot(token, {
     initialStake: 1,
-    multiplier: 2.1,
+    multiplier: 2.5,
     maxConsecutiveLosses: 4,
     maxDailyLoss: 200,
     takeProfit: 500,
     growthRate: 0.05,
-    
+
     // Entry window (ENFORCED)
     minEntryTicks: 15,
     maxEntryTicks: 25,
-    
+
     // Target hold and profit
     targetHoldTicks: 6,
     takeProfitMultiplier: 0.50, // 50% of stake
-    
+
     // Thresholds
     minSurvivalProb: 0.65,
     minRegimeScore: 0.60,
     minOverallScore: 0.72,
-    
+
     // Telegram (optional)
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ', //process.env.TELEGRAM_TOKEN || 
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
