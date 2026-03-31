@@ -882,7 +882,7 @@ class ReliableAccumulatorBot {
 
         // Telegram notification
         this.sendTelegramMessage(
-            `🚀 <b>TRADE OPENED 2</b>\n\n` +
+            `🚀 <b>TRADE OPENED 3b</b>\n\n` +
             `Asset: ${asset}\n` +
             `Entry: ${decision.currentTicks} ticks\n` +
             `Target: ${decision.targetTicks} ticks\n` +
@@ -1091,7 +1091,7 @@ class ReliableAccumulatorBot {
         const pnlEmoji = profit >= 0 ? '🟢' : '🔴';
 
         this.sendTelegramMessage(
-            `${emoji} <b>${won ? 'WIN' : 'LOSS'} (Bot 2)</b>\n\n` +
+            `${emoji} <b>${won ? 'WIN' : 'LOSS'} (Bot 3b)</b>\n\n` +
             `Asset: ${asset}\n` +
             `${pnlEmoji} P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}\n` +
             `Ticks: ${this.activeTrade.entryTicks} → ${exitTicks} (held: ${ticksHeld})\n\n` +
@@ -1174,7 +1174,7 @@ class ReliableAccumulatorBot {
         this.endOfDay = true;
 
         this.sendTelegramMessage(
-            `🛑 <b>BOT SHUTDOWN 2</b>\n\n` +
+            `🛑 <b>BOT SHUTDOWN 3b</b>\n\n` +
             `Reason: ${reason}\n\n` +
             `Final Stats:\n` +
             `Trades: ${this.totalTrades}\n` +
