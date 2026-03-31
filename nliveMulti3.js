@@ -39,7 +39,7 @@ const CONFIG = {
     maxStake: 21.00,   // never exceed this
 
     // Growth rates
-    growthRateDefault: 0.05,   // 1% — widest barriers, safest
+    growthRateDefault: 0.02,   // 1% — widest barriers, safest
     growthRateBoost: 0.05,   // 2% — only on strong squeeze + RSI centred
 
     // Entry window (ENFORCED): only enter when active accumulator is this young
@@ -69,10 +69,10 @@ const CONFIG = {
     requiredHistory: 60,
 
     // Risk management
-    maxConsecutiveLosses: 3,
+    maxConsecutiveLosses: 4,
     consecutiveLossCooldownMs: 1800000, // 30 min pause after 3 consec losses
     assetCooldownMs: 2700000, // 45 min asset cooldown on loss
-    maxDailyLoss: 50,     // stop bot for the day
+    maxDailyLoss: 500,     // stop bot for the day
     takeProfitSession: 20000,    // stop bot after reaching this profit
 
     // Proposal throttle: min ms between proposal requests per asset
@@ -83,7 +83,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-bot01-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-bot001-state.json'),
     stateSaveMs: 5000,
 };
 
@@ -306,6 +306,11 @@ class VolatilityAnalyzer {
         const growthRate = (strongSqueeze && rsiCentred && shouldEnter)
             ? CONFIG.growthRateBoost
             : CONFIG.growthRateDefault;
+
+        //Trade only High GrowthRate
+        // if (!strongSqueeze || rsiCentred || shouldEnter) {
+        //     shouldEnter = false;
+        // }
 
         // ── Regime label ─────────────────────────────────────────────────────
         let regime = 'neutral';
@@ -788,7 +793,7 @@ class ReliableAccumulatorBot {
             const sell = this._shouldSell(contract, tickCount, profit);
             if (sell.yes) {
                 console.log(`\n🎯 MANUAL SELL trigger: ${sell.reason}`);
-                this._send({ sell: contract.contract_id, price: bid.toFixed(2) });
+                // this._send({ sell: contract.contract_id, price: bid.toFixed(2) });
             }
         }
     }
