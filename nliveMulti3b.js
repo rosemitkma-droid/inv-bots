@@ -18,7 +18,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot01-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot201-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -960,7 +960,7 @@ class ReliableAccumulatorBot {
                 console.log(`   Ticks held: ${ticksHeld}`);
                 console.log(`   Current profit: $${currentProfit.toFixed(2)}`);
 
-                this.sellContract(contract.contract_id, bidPrice);
+                // this.sellContract(contract.contract_id, bidPrice);
             }
         }
     }
