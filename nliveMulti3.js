@@ -617,6 +617,7 @@ class ReliableAccumulatorBot {
         // Volatility pre-check — run analysis before requesting proposal
         const signal = this.analyzer.analyze(asset, this.tickPrices[asset]);
         if (!signal.shouldEnter) return; // don't even request proposal if signal is bad
+        if (signal.growthRate < 0.05) return; // Only trade Very Good signal
 
         // All checks passed — request proposal
         this.assetStates[asset].lastProposalAt = now;
