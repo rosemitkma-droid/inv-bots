@@ -36,15 +36,15 @@ const CONFIG = {
 
     // Staking  (FLAT — no Martingale)
     initialStake: 1.00,   // USD per trade
-    maxStake: 10.00,   // never exceed this
+    maxStake: 21.00,   // never exceed this
 
     // Growth rates
-    growthRateDefault: 0.01,   // 1% — widest barriers, safest
-    growthRateBoost: 0.02,   // 2% — only on strong squeeze + RSI centred
+    growthRateDefault: 0.05,   // 1% — widest barriers, safest
+    growthRateBoost: 0.05,   // 2% — only on strong squeeze + RSI centred
 
     // Entry window (ENFORCED): only enter when active accumulator is this young
-    minEntryTick: 0,
-    maxEntryTick: 8,
+    minEntryTick: 3,
+    maxEntryTick: 10,
 
     // Take-profit (contract level): sell when profit ≥ X% of stake
     takeProfitPct: 0.40,   // 40% of stake
@@ -73,7 +73,7 @@ const CONFIG = {
     consecutiveLossCooldownMs: 1800000, // 30 min pause after 3 consec losses
     assetCooldownMs: 2700000, // 45 min asset cooldown on loss
     maxDailyLoss: 50,     // stop bot for the day
-    takeProfitSession: 200,    // stop bot after reaching this profit
+    takeProfitSession: 20000,    // stop bot after reaching this profit
 
     // Proposal throttle: min ms between proposal requests per asset
     proposalThrottleMs: 8000,
@@ -83,7 +83,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-bot-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-bot01-state.json'),
     stateSaveMs: 5000,
 };
 
@@ -720,7 +720,7 @@ class ReliableAccumulatorBot {
         };
 
         this.notify(
-            `🚀 <b>TRADE OPENED</b>\n\n` +
+            `🚀 <b>TRADE OPENED 3</b>\n\n` +
             `Asset: <b>${asset}</b>\n` +
             `Entry tick: ${currentTick}\n` +
             `Stake: $${stake.toFixed(2)}\n` +
@@ -885,7 +885,7 @@ class ReliableAccumulatorBot {
         console.log('═'.repeat(56));
 
         this.notify(
-            `${won ? '✅' : '❌'} <b>${won ? 'WIN' : 'LOSS'}</b>\n\n` +
+            `${won ? '✅' : '❌'} <b>${won ? 'WIN' : 'LOSS'} (Bot 3)</b>\n\n` +
             `Asset: <b>${asset}</b>  |  Ticks: ${tickCount}\n` +
             `${profit >= 0 ? '🟢' : '🔴'} P&amp;L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}\n\n` +
             `📊 Session: ${this.totalTrades} trades | ` +
@@ -977,7 +977,7 @@ class ReliableAccumulatorBot {
         this.connect();
 
         this.notify(
-            `🤖 <b>Accumulator Bot v4.0 Started</b>\n\n` +
+            `🤖 <b>Accumulator Bot v4.0 Started 3</b>\n\n` +
             `Assets: ${CONFIG.assets.join(', ')}\n` +
             `Stake: $${CONFIG.initialStake.toFixed(2)} | Growth: ${(CONFIG.growthRateDefault * 100).toFixed(0)}%–${(CONFIG.growthRateBoost * 100).toFixed(0)}%\n` +
             `Entry window: ticks ${CONFIG.minEntryTick}–${CONFIG.maxEntryTick}\n` +
@@ -996,7 +996,7 @@ class ReliableAccumulatorBot {
             : '0.0';
 
         this.notify(
-            `🛑 <b>Bot Shutdown</b>\n\n` +
+            `🛑 <b>Bot Shutdown 3</b>\n\n` +
             `Reason: ${reason}\n\n` +
             `Final Stats:\n` +
             `Trades: ${this.totalTrades} | WR: ${winRate}%\n` +
