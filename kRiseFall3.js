@@ -2729,7 +2729,7 @@ class DerivBot {
             // Daily reconnection at SYDNEY_START AM GMT+1 (to catch TOKYO session start)
             if (
                 !state.session.isActive &&
-                currentHours === CONFIG.SYDNEY_START &&
+                currentHours === CONFIG.TOKYO_START &&
                 currentMinutes >= 0
             ) {
                 LOGGER.info(
