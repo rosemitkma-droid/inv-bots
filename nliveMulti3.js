@@ -47,7 +47,7 @@ const CONFIG = {
     maxEntryTick: 3,
 
     // Take-profit (contract level): sell when profit ≥ X% of stake
-    takeProfitPct: 0.40,   // 40% of stake
+    takeProfitPct: 0.20,   // 40% of stake
     // Hard hold limit: never hold longer than this after take-profit window opens
     maxHoldTicks: 20,
 
@@ -83,7 +83,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-bot001-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-bot002-state.json'),
     stateSaveMs: 5000,
 };
 
@@ -393,6 +393,8 @@ class ReliableAccumulatorBot {
         this.reconnectAttempts = 0;
         this.maxReconnects = 50;
         this.shutdownFlag = false;
+        this.endOfDay = false;
+        this.isWinTrade = false;
 
         // Price history  (raw float prices — used for BB/RSI)
         this.tickPrices = {};  // { asset: [price, price, ...] }
@@ -479,7 +481,7 @@ class ReliableAccumulatorBot {
         this.connected = false;
         this.wsReady = false;
 
-        if (this.shutdownFlag) return;
+        if (this.shutdownFlag || this.endOfDay) return;
 
         this.reconnectAttempts++;
         if (this.reconnectAttempts > this.maxReconnects) {
@@ -863,6 +865,7 @@ class ReliableAccumulatorBot {
         if (won) {
             this.totalWins++;
             this.consecutiveLosses = 0;
+            this.isWinTrade = true;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
         } else {
             this.totalLosses++;
@@ -946,6 +949,86 @@ class ReliableAccumulatorBot {
         }
     }
 
+    async sendHourlySummary() {
+        const winRate = this.totalTrades > 0
+            ? (this.totalWins / this.totalTrades * 100).toFixed(1)
+            : '0.0';
+        const pnlEmoji = this.totalPnl >= 0 ? '🟢' : '🔴';
+        const pnlStr = (this.totalPnl >= 0 ? '+' : '') + '$' + Math.abs(this.totalPnl).toFixed(2);
+
+        await this.notify(
+            `📊 <b>Session Summary (Bot 3)</b>\n\n` +
+            `Trades: ${this.totalTrades}\n` +
+            `W/L: ${this.totalWins}/${this.totalLosses}\n` +
+            `Win Rate: ${winRate}%\n` +
+            `${pnlEmoji} Total P&amp;L: ${pnlStr}\n` +
+            `Daily P&amp;L: ${this.dailyPnl >= 0 ? '+' : ''}$${this.dailyPnl.toFixed(2)}\n\n` +
+            `⏰ ${new Date().toLocaleTimeString()}`
+        );
+    }
+
+    // ── Time-Based Disconnect / Reconnect ─────────────────────────────────────
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Weekend logic: Saturday 11pm to Monday 2am GMT+1 -> Disconnect and stay disconnected
+            const isWeekend = (currentDay === 0) || // Sunday
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+                (currentDay === 1 && currentHours < 8);    // Monday before 8am
+
+            // if (isWeekend) {
+            //     if (!this.endOfDay) {
+            //         console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
+            //         this.sendHourlySummary();
+            //         this.disconnect();
+            //         this.endOfDay = true;
+            //     }
+            //     return; // Prevent any reconnection logic during the weekend
+            // }
+
+            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
+                console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
+                this.resetForNewDay();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 23 && currentMinutes >= 30) {
+                    console.log("It's past 11:30 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.sendHourlySummary();
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+        }, 20000);
+    }
+
+    disconnect() {
+        console.log('🛑 Disconnecting bot (time-based)...');
+        StatePersistence.save(this);
+        this.endOfDay = true;
+        this._cleanup();
+        console.log('✅ Bot disconnected successfully');
+    }
+
+    resetForNewDay() {
+        console.log('🌅 Resetting for new day...');
+        this.dailyPnl = 0;
+        this.consecutiveLosses = 0;
+        this.tradeInProgress = false;
+        this.activeTrade = null;
+        this.shutdownFlag = false;
+        this.reconnectAttempts = 0;
+        this.riskManager = new RiskManager();
+        console.log('✅ New day reset complete');
+    }
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     start() {
         const bar = '═'.repeat(56);
@@ -981,6 +1064,7 @@ class ReliableAccumulatorBot {
         });
 
         this.connect();
+        this.checkTimeForDisconnectReconnect();
 
         this.notify(
             `🤖 <b>Accumulator Bot v4.0 Started 3</b>\n\n` +
