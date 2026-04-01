@@ -83,7 +83,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-botB01-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-botB001-state.json'),
     stateSaveMs: 5000,
 };
 
@@ -401,6 +401,7 @@ class ReliableAccumulatorBot {
         this.endOfDay = false;
         this.isWinTrade = false;
         this.currentStake = CONFIG.initialStake;
+        this.multiplier = CONFIG.multiplier;
 
         // Price history  (raw float prices — used for BB/RSI)
         this.tickPrices = {};  // { asset: [price, price, ...] }
@@ -786,7 +787,7 @@ class ReliableAccumulatorBot {
             return;
         }
 
-        const stake = CONFIG.initialStake;  // FLAT STAKING
+        const stake = this.currentStake;  // FLAT STAKING
         const takeProfitAmt = parseFloat((stake * CONFIG.takeProfitPct).toFixed(2));
         const growthLabel = `${(signal.growthRate * 100).toFixed(0)}%`;
 
@@ -962,7 +963,7 @@ class ReliableAccumulatorBot {
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
-            this.currentStake = Math.ceil(this.currentStake * CONFIG.multiplier * 100) / 100;
+            this.currentStake = Math.ceil(this.currentStake * this.multiplier * 100) / 100;
 
             if (this.assetMetrics[asset]) this.assetMetrics[asset].losses++;
 
@@ -990,9 +991,11 @@ class ReliableAccumulatorBot {
         this.notify(
             `${won ? '✅' : '❌'} <b>${won ? 'WIN' : 'LOSS'} (Bot 3b)</b>\n\n` +
             `Asset: <b>${asset}</b>  |  Ticks: ${tickCount}\n` +
-            `${profit >= 0 ? '🟢' : '🔴'} P&amp;L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}\n\n` +
-            `📊 Session: ${this.totalTrades} trades | ` +
-            `${this.totalWins}W/${this.totalLosses}L | ` +
+            `${profit >= 0 ? '🟢' : '🔴'} P&amp;L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}\n` +
+            `📊 Session:\n` +
+            `trades: ${this.totalTrades} | ${this.totalWins}W/${this.totalLosses}L \n` +
+            `Losses x2-x5: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5}\n` +
+            `Stake: $${this.currentStake.toFixed(2)} \n` +
             `WR: ${winRate}%\n` +
             `Total P&amp;L: $${this.totalPnl.toFixed(2)}`
         );
@@ -1139,7 +1142,7 @@ class ReliableAccumulatorBot {
         console.log('  DERIV RELIABLE ACCUMULATOR BOT  v4.0');
         console.log(bar);
         console.log(`  Assets:        ${CONFIG.assets.join(', ')}`);
-        console.log(`  Stake:         $${CONFIG.initialStake.toFixed(2)} (FLAT)`);
+        console.log(`  Stake:         $${CONFIG.initialStake.toFixed(2)}`);
         console.log(`  Growth Rate:   ${(CONFIG.growthRateDefault * 100).toFixed(0)}% → ${(CONFIG.growthRateBoost * 100).toFixed(0)}% adaptive`);
         console.log(`  Entry Window:  ticks ${CONFIG.minEntryTick}–${CONFIG.maxEntryTick}`);
         console.log(`  Take-Profit:   ${(CONFIG.takeProfitPct * 100).toFixed(0)}% of stake (limit order)`);
