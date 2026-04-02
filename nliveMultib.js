@@ -21,7 +21,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti_b001-state001.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti_b0001-state001.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -522,6 +522,7 @@ class EnhancedAccumulatorBot {
             initialStake: config.initialStake || 1,
             initialStake2: config.initialStake2 || 5,
             multiplier: config.multiplier || 21,
+            multiplier2: config.multiplier2 || 100,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
             stopLoss: config.stopLoss || 400,
             takeProfit: config.takeProfit || 5000,
@@ -1567,7 +1568,7 @@ class EnhancedAccumulatorBot {
             if (this.sys2) {
                 this.currentStake = this.config.initialStake2;
                 this.sys2WinCount++;
-                if (this.sys2WinCount === 50) {
+                if (this.sys2WinCount === 10) {
                     this.currentStake = this.config.initialStake;
                     this.sys2WinCount = 0;
                     this.sys2 = false;
@@ -1600,9 +1601,13 @@ class EnhancedAccumulatorBot {
                     this.consecutiveLosses = 4
                 };
                 this.sys2 = true
-                this.currentStake = this.config.initialStake2;
+                // this.currentStake = this.config.initialStake2;
             } else {
-                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+                if (this.sys2) {
+                    this.currentStake = Math.ceil(this.currentStake * this.config.multiplier2 * 100) / 100;
+                } else {
+                    this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+                }
             }
             // this.suspendAsset(asset);
         }
@@ -1896,13 +1901,40 @@ class EnhancedAccumulatorBot {
                 this.connect();
             }
 
+            //New York Session Pause trading
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 30) {
-                    console.log("It's past 11:30 PM GMT+1 after a win trade, disconnecting the bot.");
+                if (currentHours >= 13 && currentMinutes >= 0) {
+                    console.log("It's past 1:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendHourlySummary();
                     this.disconnect();
                     this.endOfDay = true;
                 }
+            }
+
+            //New York Session Trade Resumption
+            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
+                console.log("It's 3:00 PM GMT+1, reconnecting the bot.");
+                this.resetForNewDay();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            //Sydny Session trade Pause
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 23 && currentMinutes >= 0) {
+                    console.log("It's past 11:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.sendHourlySummary();
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+
+            //Tokoy Session Trade Resumption
+            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
+                console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
+                this.resetForNewDay();
+                this.endOfDay = false;
+                this.connect();
             }
         }, 20000);
     }
@@ -2060,6 +2092,7 @@ const bot = new EnhancedAccumulatorBot(token, {
     initialStake: 1,
     initialStake2: 10,
     multiplier: 21,
+    multiplier2: 100,
     stopLoss: 242,
     takeProfit: 50000,
     growthRate: 0.05,
