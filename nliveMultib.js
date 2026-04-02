@@ -21,7 +21,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti_b0001-state002.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti_b0001-state003.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -1566,7 +1566,7 @@ class EnhancedAccumulatorBot {
             // }
 
             if (this.sys2) {
-                this.currentStake = this.config.initialStake2;
+                this.currentStake = this.config.initialStake;
                 this.sys2WinCount++;
                 if (this.sys2WinCount === 10) {
                     this.currentStake = this.config.initialStake;
