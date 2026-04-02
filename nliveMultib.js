@@ -21,7 +21,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti_b0001-state001.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti_b0001-state002.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -1903,11 +1903,11 @@ class EnhancedAccumulatorBot {
 
             //New York Session Pause trading
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 13 && currentMinutes >= 0) {
+                if (currentHours >= 13 && currentMinutes >= 0 && currentHours < 15) {
                     console.log("It's past 1:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.endOfDay = true;
                     this.sendHourlySummary();
                     this.disconnect();
-                    this.endOfDay = true;
                 }
             }
 
@@ -1923,9 +1923,9 @@ class EnhancedAccumulatorBot {
             if (this.isWinTrade && !this.endOfDay) {
                 if (currentHours >= 23 && currentMinutes >= 0) {
                     console.log("It's past 11:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.endOfDay = true;
                     this.sendHourlySummary();
                     this.disconnect();
-                    this.endOfDay = true;
                 }
             }
 
