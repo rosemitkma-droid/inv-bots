@@ -21,7 +21,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti_bot2_01-state.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti_bot2_001-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -1551,18 +1551,33 @@ class EnhancedAccumulatorBot {
         if (won) {
             this.totalWins++;
             this.isWinTrade = true;
+            this.consecutiveLosses = 0;
 
-            if (this.consecutiveLosses > 0) {
+            // if (this.sys === 2) {
+            //     if (this.sysCount === 5) {
+            //         this.sys = 1;
+            //         this.sysCount = 0;
+            //     }
+            // } else if (this.sys === 3) {
+            //     if (this.sysCount === 2) {
+            //         this.sys = 1;
+            //         this.sysCount = 0;
+            //     }
+            // }
+
+            if (this.sys2) {
+                this.currentStake = this.config.initialStake2;
                 this.sys2WinCount++;
                 if (this.sys2WinCount === 10) {
                     this.currentStake = this.config.initialStake;
                     this.sys2WinCount = 0;
-                    this.consecutiveLosses = 0;
                     this.sys2 = false;
                 }
             } else {
                 this.currentStake = this.config.initialStake;
             }
+
+            this.consecutiveLosses = 0;
 
             // if (assetState) {
             //     assetState.consecutiveLosses = 0;
@@ -1571,8 +1586,6 @@ class EnhancedAccumulatorBot {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.isWinTrade = false;
-            this.sys2WinCount = 0;
-            this.sys2 = true;
 
             if (assetState) {
                 assetState.consecutiveLosses++;
@@ -1583,11 +1596,20 @@ class EnhancedAccumulatorBot {
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
-            if (this.consecutiveLosses < 4) {
-                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            if (this.consecutiveLosses === 2) {
+                if (this.sys2) {
+                    this.consecutiveLosses = 4
+                };
+                this.sys2 = true
+                // this.currentStake = this.config.initialStake2;
             } else {
-                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier2 * 100) / 100;
+                if (this.sys2) {
+                    this.currentStake = Math.ceil(this.currentStake * this.config.multiplier2 * 100) / 100;
+                } else {
+                    this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+                }
             }
+            // this.suspendAsset(asset);
         }
 
         this.totalProfitLoss += profit;
@@ -2048,9 +2070,9 @@ const token = 'DMylfkyce6VyZt7'; //|| process.env.DERIV_TOKEN;
 const bot = new EnhancedAccumulatorBot(token, {
     initialStake: 1,
     initialStake2: 10,
-    multiplier: 3,
-    multiplier2: 3.5,
-    maxConsecutiveLosses: 5,
+    multiplier: 21,
+    multiplier2: 100,
+    maxConsecutiveLosses: 4,
     stopLoss: 242,
     takeProfit: 50000,
     growthRate: 0.05,
