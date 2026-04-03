@@ -21,7 +21,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti_01-state.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti_b00001-state003.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -165,73 +165,91 @@ class StatePersistence {
 // ============================================================================
 class StatisticalEngine {
     constructor() {
-        this.runHistory = {};           // All completed runs
-        this.conditionalSurvivalCache = {};
+        this.runHistory = {};           // Completed run lengths
         this.regimeHistory = {};
     }
 
     recordCompletedRun(asset, runLength) {
         if (!this.runHistory[asset]) this.runHistory[asset] = [];
+
         this.runHistory[asset].push(runLength);
-        
-        // Keep last 800 runs
-        if (this.runHistory[asset].length > 800) this.runHistory[asset].shift();
+        if (this.runHistory[asset].length > 1000) {
+            this.runHistory[asset].shift();
+        }
     }
 
-    /**
-     * P(Survive additional M ticks | Already survived K ticks)
-     */
     getConditionalSurvivalProbability(asset, currentStayedIn, additionalTicks = 5) {
         const runs = this.runHistory[asset] || [];
-        if (runs.length < 60) return 0.65;
 
-        const survivedAtLeastK = runs.filter(r => r >= currentStayedIn);
-        if (survivedAtLeastK.length < 30) return 0.6;
+        if (runs.length < 50) {
+            // More realistic fallback based on currentStayedIn
+            return Math.max(0.58, 0.92 - (currentStayedIn * 0.008));
+        }
 
-        const survivedAtLeastKPlusM = survivedAtLeastK.filter(r => r >= currentStayedIn + additionalTicks);
+        const survivedK = runs.filter(r => r >= currentStayedIn);
+        if (survivedK.length < 25) {
+            return Math.max(0.60, 0.88 - (currentStayedIn * 0.006));
+        }
 
-        return survivedAtLeastKPlusM.length / survivedAtLeastK.length;
+        const survivedKM = survivedK.filter(r => r >= currentStayedIn + additionalTicks);
+
+        let prob = survivedKM.length / survivedK.length;
+
+        // Smooth the probability
+        prob = Math.min(0.98, Math.max(0.55, prob));
+
+        return prob;
     }
 
     calculateRegimeScore(asset, recentDigits) {
-        if (recentDigits.length < 40) return 0.5;
+        if (recentDigits.length < 30) return 0.5;
 
-        const changes = recentDigits.slice(-40).reduce((count, digit, i, arr) => 
-            count + (i > 0 && digit !== arr[i-1] ? 1 : 0), 0);
+        const slice = recentDigits.slice(-40);
+        let changes = 0;
 
-        const changeRate = changes / 39;
-        
-        // Ideal range for accumulators: moderate stability
-        if (changeRate < 0.35) return 0.3;           // Too flat (traps)
-        if (changeRate > 0.78) return 0.25;          // Too chaotic
-        
+        for (let i = 1; i < slice.length; i++) {
+            if (slice[i] !== slice[i - 1]) changes++;
+        }
+
+        const changeRate = changes / (slice.length - 1); // Fixed denominator
+
+        // Asset-specific tuning
+        const isHighVolAsset = ['R_75', 'R_100'].includes(asset);
+        const idealLow = isHighVolAsset ? 0.42 : 0.38;
+        const idealHigh = isHighVolAsset ? 0.68 : 0.62;
+
+        if (changeRate < idealLow) return 0.45;           // Too quiet
+        if (changeRate > idealHigh) return 0.35;          // Too chaotic
+
         // Sweet spot
-        return Math.max(0.65, 1 - Math.abs(changeRate - 0.52) * 2.8);
+        const distanceFromIdeal = Math.abs(changeRate - ((idealLow + idealHigh) / 2));
+        const score = Math.max(0.65, 1 - distanceFromIdeal * 4.5);
+
+        return Number(score.toFixed(3));
     }
 
     getLastDigitHealth(recentDigits) {
-        if (recentDigits.length < 15) return 0.5;
-        
-        const last10 = recentDigits.slice(-10);
-        const uniqueDigits = new Set(last10).size;
-        
-        // Too many repeating same digit = danger
-        const sameDigitStreak = this.getStreak(last10);
-        
-        if (sameDigitStreak >= 4) return 0.2;
-        if (uniqueDigits <= 3) return 0.4;
-        
-        return 0.85;
+        if (recentDigits.length < 12) return 0.5;
+
+        const last15 = recentDigits.slice(-15);
+        const streak = this.getMaxStreak(last15);
+        const uniqueCount = new Set(last15).size;
+
+        if (streak >= 5) return 0.25;
+        if (streak >= 4) return 0.45;
+        if (uniqueCount <= 3) return 0.55;
+
+        return 0.82;
     }
 
-    getStreak(digits) {
-        let maxStreak = 1, current = 1;
+    getMaxStreak(digits) {
+        let max = 1, current = 1;
         for (let i = 1; i < digits.length; i++) {
-            if (digits[i] === digits[i-1]) current++;
+            if (digits[i] === digits[i - 1]) current++;
             else current = 1;
-            maxStreak = Math.max(maxStreak, current);
+            max = Math.max(max, current);
         }
-        return maxStreak;
+        return max;
     }
 }
 
@@ -504,6 +522,7 @@ class EnhancedAccumulatorBot {
             initialStake: config.initialStake || 1,
             initialStake2: config.initialStake2 || 5,
             multiplier: config.multiplier || 21,
+            multiplier2: config.multiplier2 || 100,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
             stopLoss: config.stopLoss || 400,
             takeProfit: config.takeProfit || 5000,
@@ -1198,7 +1217,7 @@ class EnhancedAccumulatorBot {
         this.learningSystem.volatilityScores[asset] = volatility;
 
 
-        return { changeRate: volatility};
+        return { changeRate: volatility };
     }
 
     /**
@@ -1306,9 +1325,9 @@ class EnhancedAccumulatorBot {
         if (!this.tradeInProgress) {
             const decision = this.makeTradeDecision(asset, stayedInArray);
 
-            console.log(`[${asset}] Stayed: ${currentStayed} | Score: ${(decision.score*100).toFixed(1)}% | Survival: ${(decision.survival*100).toFixed(1)}% | Regime: ${(decision.regimeScore*100).toFixed(1)}% | Confidence: ${(decision.confidence*100).toFixed(1)}%`);
+            console.log(`[${asset}] Stayed: ${currentStayed} | Score: ${(decision.score * 100).toFixed(1)}% | Survival: ${(decision.survival * 100).toFixed(1)}% | Regime: ${(decision.regimeScore * 100).toFixed(1)}% | Confidence: ${(decision.confidence * 100).toFixed(1)}%`);
 
-            if (decision.shouldTrade && decision.confidence >= 1.0) {
+            if (decision.shouldTrade) { // && decision.confidence >= 1.0
                 console.log(`✅ STRONG SIGNAL - Entering ${asset} at ${currentStayed} ticks`);
                 this.placeTrade(asset, decision);
             }
@@ -1316,10 +1335,15 @@ class EnhancedAccumulatorBot {
     }
 
     updateRunHistory(asset, stayedInArray) {
+        const current = stayedInArray[99] + 1;
         const prev = this.previousStayedIn[asset];
-        if (prev && stayedInArray[99] === 0 && prev[99] > 8) {
-            this.statisticalEngine.recordCompletedRun(asset, prev[99] + 1);
+
+        if (prev && prev[99] >= 8 && stayedInArray[99] === 0) {
+            const completedRun = prev[99] + 1;
+            this.statisticalEngine.recordCompletedRun(asset, completedRun);
+            console.log(`[${asset}] Recorded completed run: ${completedRun} ticks`);
         }
+
         this.previousStayedIn[asset] = [...stayedInArray];
     }
 
@@ -1328,9 +1352,8 @@ class EnhancedAccumulatorBot {
      */
     makeTradeDecision(asset, stayedInArray) {
         const currentStayed = stayedInArray[99] + 1;
-        const recentDigits = this.tickHistories[asset].slice(-50);
+        const recentDigits = this.tickHistories[asset].slice(-60);
 
-        // === HARD FILTERS ===
         if (currentStayed < 9) {
             return { shouldTrade: false, reason: 'too_early', survival: 0 };
         }
@@ -1347,23 +1370,35 @@ class EnhancedAccumulatorBot {
         const digitHealth = this.statisticalEngine.getLastDigitHealth(recentDigits);
 
         const finalScore = (
-            survivalProb * 0.60 +
-            regimeScore * 0.25 +
+            survivalProb * 0.55 +
+            regimeScore * 0.30 +
             digitHealth * 0.15
         );
 
-        const confidence = Math.min(1, (currentStayed - 8) / 25);
+        const confidence = Math.min(1.0, (currentStayed - 8) / 28);
 
-        const shouldTrade = finalScore >= 0.58 && survivalProb >= 0.65 && confidence >= 0.25;
+        const shouldTrade = finalScore >= 0.20 && //0.60
+            survivalProb >= 0.83 &&  //0.60
+            // regimeScore >= 0.45 &&
+            confidence >= 0.10; //0.70
+
+        // === DEBUG LOGGING ===
+        console.log(`[${asset}] Stayed:${currentStayed} | ` +
+            `Survival:${(survivalProb * 100).toFixed(1)}% | ` +
+            `Regime:${(regimeScore * 100).toFixed(1)}% | ` +
+            `DigitHealth:${(digitHealth * 100).toFixed(1)}% | ` +
+            `FinalScore:${(finalScore * 100).toFixed(1)}% | ` +
+            `Conf:${(confidence * 100).toFixed(1)}% | ` +
+            `TRADE:${shouldTrade ? 'YES' : 'no'}`);
 
         return {
             shouldTrade,
             score: finalScore,
             survival: survivalProb,
             regimeScore,
+            digitHealth,
             confidence,
-            currentStayed,
-            reason: shouldTrade ? 'strong_signal' : 'below_threshold'
+            currentStayed
         };
     }
 
@@ -1466,12 +1501,12 @@ class EnhancedAccumulatorBot {
 
         const telegramMsg = `
             🚀 <b>Placing trade for Asset ${asset}</b>
-            <b>SIGNAL: ${(decision.score*100).toFixed(1)}%</b>
+            <b>SIGNAL: ${(decision.score * 100).toFixed(1)}%</b>
 
             <b>DECISION:</b> ${decision.shouldTrade ? '✅ STRONG SIGNAL - Entering Trade' : '❌ Signal below threshold, not trading'}
-            <b>Regime Score: ${(decision.regimeScore*100).toFixed(1)}%</b>
+            <b>Regime Score: ${(decision.regimeScore * 100).toFixed(1)}%</b>
             <b>Confidence: ${decision.confidence.toFixed(2)}%</b> 
-            <b>SurvivalProb: ${(decision.survival*100).toFixed(1)}%</b>
+            <b>SurvivalProb: ${(decision.survival * 100).toFixed(1)}%</b>
             <b>currentStayed: ${decision.currentStayed}</b>
 
             <b>Current Stake:</b> $${this.currentStake.toFixed(2)}
@@ -1531,13 +1566,13 @@ class EnhancedAccumulatorBot {
             // }
 
             if (this.sys2) {
-                this.currentStake = this.config.initialStake2;
-                this.sys2WinCount++;
-                if (this.sys2WinCount === 50) {
-                    this.currentStake = this.config.initialStake;
-                    this.sys2WinCount = 0;
-                    this.sys2 = false;
-                }
+                this.currentStake = this.config.initialStake;
+                // this.sys2WinCount++;
+                // if (this.sys2WinCount === 10) {
+                //     this.currentStake = this.config.initialStake;
+                //     this.sys2WinCount = 0;
+                //     this.sys2 = false;
+                // }
             } else {
                 this.currentStake = this.config.initialStake;
             }
@@ -1566,9 +1601,18 @@ class EnhancedAccumulatorBot {
                     this.consecutiveLosses = 4
                 };
                 this.sys2 = true
-                this.currentStake = this.config.initialStake2;
+                // this.currentStake = this.config.initialStake2;
             } else {
-                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+                if (this.sys2) {
+                    this.currentStake = Math.ceil(this.currentStake * this.config.multiplier2 * 100) / 100;
+                    this.sys2WinCount++;
+                    if (this.sys2WinCount === 10) {
+                        this.sys2WinCount = 0;
+                        this.sys2 = false;
+                    }
+                } else {
+                    this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+                }
             }
             // this.suspendAsset(asset);
         }
@@ -1855,6 +1899,7 @@ class EnhancedAccumulatorBot {
             //     return; // Prevent any reconnection logic during the weekend
             // }
 
+            //New Day trade Resumption
             if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
                 console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
                 this.resetForNewDay();
@@ -1862,12 +1907,31 @@ class EnhancedAccumulatorBot {
                 this.connect();
             }
 
-            if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 30) {
-                    console.log("It's past 11:30 PM GMT+1 after a win trade, disconnecting the bot.");
+            //New York Session Pause trading
+            if (this.isWinTrade && !this.sys2 && !this.endOfDay) {
+                if (currentHours >= 13 && currentMinutes >= 0 && currentHours < 15) {
+                    console.log("It's past 1:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.endOfDay = true;
                     this.sendHourlySummary();
                     this.disconnect();
+                }
+            }
+
+            //New York Session Trade Resumption
+            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
+                console.log("It's 3:00 PM GMT+1, reconnecting the bot.");
+                // this.resetForNewDay();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            //End of Day trade Pause
+            if (this.isWinTrade && !this.sys2 && !this.endOfDay) {
+                if (currentHours >= 23 && currentMinutes >= 0) {
+                    console.log("It's past 11:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.endOfDay = true;
+                    this.sendHourlySummary();
+                    this.disconnect();
                 }
             }
         }, 20000);
@@ -2020,12 +2084,13 @@ class EnhancedAccumulatorBot {
 // RUN THE BOT
 // ============================================================================
 
-const token = 'rgNedekYXvCaPeP'; //|| process.env.DERIV_TOKEN;
+const token = 'DMylfkyce6VyZt7'; //|| process.env.DERIV_TOKEN;
 
 const bot = new EnhancedAccumulatorBot(token, {
     initialStake: 1,
     initialStake2: 10,
     multiplier: 21,
+    multiplier2: 100,
     stopLoss: 242,
     takeProfit: 50000,
     growthRate: 0.05,
@@ -2046,4 +2111,3 @@ module.exports = {
     StatisticalEngine,
     PatternEngine,
 };
- 
