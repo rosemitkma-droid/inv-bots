@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot-v40003-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_01-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -386,7 +386,7 @@ class AccumulatorAnalyzer {
         // DETERMINE OPTIMAL GROWTH RATE
         // ═══════════════════════════════════════════
         let recommendedGrowthRate;
-        if (overallScore >= 0.85) recommendedGrowthRate = 0.03;    // High confidence → 3%
+        if (overallScore >= 0.85) recommendedGrowthRate = 0.02;    // High confidence → 3%
         else if (overallScore >= 0.75) recommendedGrowthRate = 0.02; // Good → 2%
         else if (overallScore >= 0.65) recommendedGrowthRate = 0.01; // Moderate → safest 1%
         else recommendedGrowthRate = 0.01;                          // Default safest
@@ -471,11 +471,11 @@ class RiskManager {
         let stake = accountBalance * this.riskPerTrade;
 
         // Reduce stake after consecutive losses (defensive)
-        if (consecutiveLosses >= 3) {
-            stake *= 0.5; // Half stake after 3 losses
-        } else if (consecutiveLosses >= 2) {
-            stake *= 0.75;
-        }
+        // if (consecutiveLosses >= 3) {
+        //     stake *= 0.5; // Half stake after 3 losses
+        // } else if (consecutiveLosses >= 2) {
+        //     stake *= 0.75;
+        // }
 
         // Enforce Deriv min/max
         stake = Math.max(1, Math.min(100, stake));
@@ -604,6 +604,9 @@ class AccumulatorBotV4 {
 
         // Load saved state
         this.loadSavedState();
+
+        // Start hourly summaries
+        this.startTelegramTimer();
 
         // Reconnection
         this.reconnectAttempts = 0;
@@ -818,6 +821,26 @@ class AccumulatorBotV4 {
                 subscribe: 1
             });
         });
+    }
+
+    startTelegramTimer() {
+        const now = new Date();
+        const nextHour = new Date(now);
+        nextHour.setHours(nextHour.getHours() + 1);
+        nextHour.setMinutes(0);
+        nextHour.setSeconds(0);
+        nextHour.setMilliseconds(0);
+
+        const timeUntilNextHour = nextHour.getTime() - now.getTime();
+
+        setTimeout(() => {
+            this.sendHourlySummary();
+            setInterval(() => {
+                this.sendHourlySummary();
+            }, 60 * 60 * 1000);
+        }, timeUntilNextHour);
+
+        console.log(`📱 Hourly summaries scheduled. First in ${Math.ceil(timeUntilNextHour / 60000)} minutes.`);
     }
 
     handleTickHistory(message) {
@@ -1187,6 +1210,7 @@ class AccumulatorBotV4 {
             this.consecutiveLosses = 0;
             this.isWinTrade = true;
             this.config.riskPerTrade = 0.01;
+            this.riskManager = new RiskManager(this.config);
             this.hourlyStats.wins++;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
         } else {
@@ -1194,7 +1218,8 @@ class AccumulatorBotV4 {
             this.consecutiveLosses++;
             this.hourlyStats.losses++;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].losses++;
-            this.config.riskPerTrade = 0.20;
+            this.config.riskPerTrade = 1.00;
+            this.riskManager = new RiskManager(this.config);
 
             // Cooldown on loss
             this.riskManager.cooldownAsset(asset, 10);
@@ -1292,6 +1317,7 @@ class AccumulatorBotV4 {
                 (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
                 (currentDay === 1 && currentHours < 8);    // Monday before 8am
 
+            //New Day Start 
             if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
                 console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
                 this.resetForNewDay();
@@ -1299,6 +1325,25 @@ class AccumulatorBotV4 {
                 this.connect();
             }
 
+            //New York Session Pause trading
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 13 && currentMinutes >= 0 && currentHours < 15) {
+                    console.log("It's past 1:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.endOfDay = true;
+                    this.sendHourlySummary();
+                    this.disconnect();
+                }
+            }
+
+            //New York Session Trade Resumption
+            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
+                console.log("It's 3:00 PM GMT+1, reconnecting the bot.");
+                // this.resetForNewDay();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            //End of Day Reset
             if (this.isWinTrade && !this.endOfDay) {
                 if (currentHours >= 23 && currentMinutes >= 30) {
                     console.log("It's past 11:30 PM GMT+1 after a win trade, disconnecting the bot.");
@@ -1412,7 +1457,7 @@ const bot = new AccumulatorBotV4(token, {
     // Money management
     initialBalance: 100,
     riskPerTrade: 0.01,        // 3% of balance per trade
-    maxConsecutiveLosses: 6,
+    maxConsecutiveLosses: 2,
     maxDailyLoss: 100,
     dailyTakeProfit: 200,
 
