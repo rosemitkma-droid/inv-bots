@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_01-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_002-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -478,7 +478,7 @@ class RiskManager {
         // }
 
         // Enforce Deriv min/max
-        stake = Math.max(1, Math.min(100, stake));
+        // stake = Math.max(1, Math.min(100, stake));
 
         // Round to 2 decimal places
         return Math.round(stake * 100) / 100;
@@ -604,9 +604,6 @@ class AccumulatorBotV4 {
 
         // Load saved state
         this.loadSavedState();
-
-        // Start hourly summaries
-        this.startTelegramTimer();
 
         // Reconnection
         this.reconnectAttempts = 0;
@@ -1209,8 +1206,15 @@ class AccumulatorBotV4 {
             this.totalWins++;
             this.consecutiveLosses = 0;
             this.isWinTrade = true;
-            this.config.riskPerTrade = 0.01;
-            this.riskManager = new RiskManager(this.config);
+            if (this.accountBalance > (this.config.initialBalance * 2)) {
+                this.config.riskPerTrade = 0.005; // Trade 0.5% of balance after win trade when Balance is > 2x initial Investment
+            } else {
+                this.config.riskPerTrade = 0.01; // Trade 1% of balance after win trade
+            }
+            if (this.losttrades > 0 && profit > 20) {
+                this.riskManager = new RiskManager(this.config);
+                this.losttrades = 0;
+            }
             this.hourlyStats.wins++;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
         } else {
@@ -1218,8 +1222,13 @@ class AccumulatorBotV4 {
             this.consecutiveLosses++;
             this.hourlyStats.losses++;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].losses++;
-            this.config.riskPerTrade = 1.00;
+            if (this.accountBalance > (this.config.initialBalance * 2)) {
+                this.config.riskPerTrade = 0.50; // Trade 50% of balance after loss trade
+            } else {
+                this.config.riskPerTrade = 1.00; // Trade 100% of balance after loss trade
+            }
             this.riskManager = new RiskManager(this.config);
+            this.losttrades++;
 
             // Cooldown on loss
             this.riskManager.cooldownAsset(asset, 10);
@@ -1345,7 +1354,7 @@ class AccumulatorBotV4 {
 
             //End of Day Reset
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 30) {
+                if (currentHours >= 23 && currentMinutes >= 0) {
                     console.log("It's past 11:30 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.sendHourlySummary();
                     this.disconnect();
@@ -1389,9 +1398,11 @@ class AccumulatorBotV4 {
         console.log('');
 
         StatePersistence.startAutoSave(this);
-        this.startHourlyReport();
         this.connect();
         this.checkTimeForDisconnectReconnect();
+        // Start hourly summaries
+        this.startHourlyReport();
+        this.startTelegramTimer();
     }
 
     startHourlyReport() {
@@ -1451,7 +1462,7 @@ class AccumulatorBotV4 {
 // RUN BOT
 // ============================================================================
 
-const token = 'hsj0tA0XJoIzJG5';
+const token = 'Dz2V2KvRf4Uukt3';
 
 const bot = new AccumulatorBotV4(token, {
     // Money management
@@ -1459,7 +1470,7 @@ const bot = new AccumulatorBotV4(token, {
     riskPerTrade: 0.01,        // 3% of balance per trade
     maxConsecutiveLosses: 2,
     maxDailyLoss: 100,
-    dailyTakeProfit: 200,
+    dailyTakeProfit: 1000,
 
     // Accumulator strategy
     defaultGrowthRate: 0.01,   // 1% — widest barrier, highest survival
