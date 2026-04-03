@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot-v4003-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot-v40003-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1186,6 +1186,7 @@ class AccumulatorBotV4 {
             this.totalWins++;
             this.consecutiveLosses = 0;
             this.isWinTrade = true;
+            this.config.riskPerTrade = 0.01;
             this.hourlyStats.wins++;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
         } else {
@@ -1193,6 +1194,8 @@ class AccumulatorBotV4 {
             this.consecutiveLosses++;
             this.hourlyStats.losses++;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].losses++;
+            this.config.riskPerTrade = 0.20;
+
             // Cooldown on loss
             this.riskManager.cooldownAsset(asset, 10);
         }
@@ -1408,7 +1411,7 @@ const token = 'hsj0tA0XJoIzJG5';
 const bot = new AccumulatorBotV4(token, {
     // Money management
     initialBalance: 100,
-    riskPerTrade: 0.03,        // 3% of balance per trade
+    riskPerTrade: 0.01,        // 3% of balance per trade
     maxConsecutiveLosses: 6,
     maxDailyLoss: 100,
     dailyTakeProfit: 200,
