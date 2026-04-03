@@ -21,7 +21,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'nliveMulti_b0001-state003.json');
+const STATE_FILE = path.join(__dirname, 'nliveMulti_b00001-state003.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -1567,12 +1567,12 @@ class EnhancedAccumulatorBot {
 
             if (this.sys2) {
                 this.currentStake = this.config.initialStake;
-                this.sys2WinCount++;
-                if (this.sys2WinCount === 10) {
-                    this.currentStake = this.config.initialStake;
-                    this.sys2WinCount = 0;
-                    this.sys2 = false;
-                }
+                // this.sys2WinCount++;
+                // if (this.sys2WinCount === 10) {
+                //     this.currentStake = this.config.initialStake;
+                //     this.sys2WinCount = 0;
+                //     this.sys2 = false;
+                // }
             } else {
                 this.currentStake = this.config.initialStake;
             }
@@ -1605,6 +1605,11 @@ class EnhancedAccumulatorBot {
             } else {
                 if (this.sys2) {
                     this.currentStake = Math.ceil(this.currentStake * this.config.multiplier2 * 100) / 100;
+                    this.sys2WinCount++;
+                    if (this.sys2WinCount === 10) {
+                        this.sys2WinCount = 0;
+                        this.sys2 = false;
+                    }
                 } else {
                     this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
                 }
