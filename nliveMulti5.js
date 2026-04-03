@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot-v4002-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot-v4003-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -565,6 +565,7 @@ class AccumulatorBotV4 {
         this.totalProfitLoss = 0;
         this.dailyProfitLoss = 0;
         this.endOfDay = false;
+        this.isWinTrade = false;
 
         // Active trades — ONE PER ASSET (Deriv rule)
         this.activeTrades = {}; // { asset: { contractId, ... } }
@@ -1184,6 +1185,7 @@ class AccumulatorBotV4 {
         if (won) {
             this.totalWins++;
             this.consecutiveLosses = 0;
+            this.isWinTrade = true;
             this.hourlyStats.wins++;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
         } else {
@@ -1253,6 +1255,67 @@ class AccumulatorBotV4 {
         }
     }
 
+    async sendHourlySummary() {
+        const winRate = this.totalTrades > 0
+            ? (this.totalWins / this.totalTrades * 100).toFixed(1)
+            : '0.0';
+        const pnlEmoji = this.totalProfitLoss >= 0 ? '🟢' : '🔴';
+        const pnlStr = (this.totalProfitLoss >= 0 ? '+' : '') + '$' + Math.abs(this.totalProfitLoss).toFixed(2);
+
+        await this.sendTelegramMessage(
+            `📊 <b>Session Summary (Bot 5)</b>\n\n` +
+            `Trades: ${this.totalTrades}\n` +
+            `W/L: ${this.totalWins}/${this.totalLosses}\n` +
+            `Win Rate: ${winRate}%\n` +
+            `${pnlEmoji} Total P&amp;L: ${pnlStr}\n` +
+            `Daily P&amp;L: ${this.dailyProfitLoss >= 0 ? '+' : ''}$${this.dailyProfitLoss.toFixed(2)}\n\n` +
+            `⏰ ${new Date().toLocaleTimeString()}`
+        );
+    }
+
+    // ========================================================================
+    // Time-Based Disconnect / Reconnect
+    // ========================================================================
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Weekend logic: Saturday 11pm to Monday 2am GMT+1 -> Disconnect and stay disconnected
+            const isWeekend = (currentDay === 0) || // Sunday
+                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+                (currentDay === 1 && currentHours < 8);    // Monday before 8am
+
+            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
+                console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
+                this.resetForNewDay();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 23 && currentMinutes >= 30) {
+                    console.log("It's past 11:30 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.sendHourlySummary();
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+        }, 20000);
+    }
+
+    resetForNewDay() {
+        console.log('🌅 Resetting for new day...');
+        this.dailyProfitLoss = 0;
+        this.consecutiveLosses = 0;
+        this.reconnectAttempts = 0;
+        this.riskManager = new RiskManager(this.config);
+        console.log('✅ New day reset complete');
+    }
+
     // ========================================================================
     // LIFECYCLE
     // ========================================================================
@@ -1280,6 +1343,7 @@ class AccumulatorBotV4 {
         StatePersistence.startAutoSave(this);
         this.startHourlyReport();
         this.connect();
+        this.checkTimeForDisconnectReconnect();
     }
 
     startHourlyReport() {
