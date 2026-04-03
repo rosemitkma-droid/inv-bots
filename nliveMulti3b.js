@@ -83,7 +83,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-botB001-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-botB0001-state.json'),
     stateSaveMs: 5000,
 };
 
@@ -963,7 +963,9 @@ class ReliableAccumulatorBot {
             else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
 
-            this.currentStake = Math.ceil(this.currentStake * this.multiplier * 100) / 100;
+            if (this.consecutiveLosses >= 2) {
+                this.currentStake = Math.ceil(this.currentStake * this.multiplier * 100) / 100;
+            }
 
             if (this.assetMetrics[asset]) this.assetMetrics[asset].losses++;
 
@@ -1097,6 +1099,7 @@ class ReliableAccumulatorBot {
             //     return; // Prevent any reconnection logic during the weekend
             // }
 
+            //New Day trade Resumption
             if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
                 console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
                 this.resetForNewDay();
@@ -1104,12 +1107,31 @@ class ReliableAccumulatorBot {
                 this.connect();
             }
 
+            //New York Session Pause trading
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 23 && currentMinutes >= 0) {
-                    console.log("It's past 11:30 PM GMT+1 after a win trade, disconnecting the bot.");
+                if (currentHours >= 13 && currentMinutes >= 0 && currentHours < 15) {
+                    console.log("It's past 1:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                    this.endOfDay = true;
                     this.sendHourlySummary();
                     this.disconnect();
+                }
+            }
+
+            //New York Session Trade Resumption
+            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
+                console.log("It's 3:00 PM GMT+1, reconnecting the bot.");
+                // this.resetForNewDay();
+                this.endOfDay = false;
+                this.connect();
+            }
+
+            //End of Day trade Pause
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 23 && currentMinutes >= 0) {
+                    console.log("It's past 11:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.endOfDay = true;
+                    this.sendHourlySummary();
+                    this.disconnect();
                 }
             }
         }, 20000);
