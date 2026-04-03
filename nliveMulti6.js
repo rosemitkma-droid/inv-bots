@@ -105,7 +105,7 @@ const CONFIG = {
     analysisIntervalMs: 1500,
 
     // --- State persistence ---
-    stateFile: path.join(__dirname, 'accumulator-bot-v4-state_01.json'),
+    stateFile: path.join(__dirname, 'accumulator-bot-v4-state_002.json'),
     stateSaveIntervalMs: 5000,
 
     // --- Reconnection ---
@@ -129,6 +129,8 @@ class StatePersistence {
                     totalTrades: bot.riskManager.totalTrades,
                     totalWins: bot.riskManager.totalWins,
                     globalConsecutiveLosses: bot.riskManager.globalConsecutiveLosses,
+                    isWinTrade: bot.isWinTrade,
+                    endOfDay: bot.endOfDay,
                 },
                 laneStats: {},
             };
@@ -988,6 +990,9 @@ class AccumulatorBotV4 {
         // Reconnection
         this.reconnectAttempts = 0;
 
+        this.endOfDay = false;
+        this.isWinTrade = false;
+
         // Restore saved state
         this._restoreState();
     }
@@ -1017,6 +1022,8 @@ class AccumulatorBotV4 {
         this._hourlyTimer = setInterval(() => {
             this._logHourlySummary();
         }, 60 * 60 * 1000);
+
+        this.checkTimeForDisconnectReconnect();
     }
 
     shutdown(reason = 'manual') {
@@ -1099,7 +1106,7 @@ class AccumulatorBotV4 {
         this.connected = false;
         this.authenticated = false;
 
-        if (this._shuttingDown) return;
+        if (this._shuttingDown || this.endOfDay) return;
 
         StatePersistence.saveState(this);
 
@@ -1252,7 +1259,13 @@ class AccumulatorBotV4 {
         // Get volatility-based signal
         const signal = this.volatilityEngine.getSignal(asset);
 
-        if (signal.signal !== 'GO') {
+        // console.log(`Signal:  ⏳ [${asset}] ${signal.signal || 'NO_TRADE'}`);
+        // console.log(`Confidence:  ⏳ [${asset}] ${signal.confidence || 'undefined'}`);
+        // console.log(`Tier:  ⏳ [${asset}] ${signal.tier || 'undefined'}`);
+        // console.log(`Reason:  ⏳ [${asset}] ${signal.reason || 'undefined'}`);
+        // console.log(`Details:  ⏳ [${asset}] ${JSON.stringify(signal.details)}`);
+
+        if (signal.signal !== 'GO' || signal.confidence < 0.6) {
             // Sparse logging for NO_TRADE
             if (Math.random() < 0.01) {
                 console.log(`  ⏳ [${asset}] ${signal.reason}`);
@@ -1294,6 +1307,7 @@ class AccumulatorBotV4 {
 
         // Update global risk
         this.riskManager.recordResult(won, profit);
+        if (won) this.isWinTrade = true;
 
         // Log to file
         this.tradeLogger.log({
@@ -1396,6 +1410,74 @@ class AccumulatorBotV4 {
             }
             console.log('  ✅ Lane stats restored');
         }
+
+        if (saved.riskManager) {
+            this.isWinTrade = saved.riskManager.isWinTrade || false;
+            this.endOfDay = saved.riskManager.endOfDay || false;
+        }
+    }
+
+    // ────────────────────────────────────
+    //  TIME-BASED CONTROLS (v4 Port)
+    // ────────────────────────────────────
+
+    checkTimeForDisconnectReconnect() {
+        setInterval(() => {
+            const now = new Date();
+            const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+            const currentDay = gmtPlus1Time.getUTCDay();
+            const currentHours = gmtPlus1Time.getUTCHours();
+            const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+            // Reconnect at 2 AM
+            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0 && currentMinutes < 2) {
+                console.log("\n🌅 It's 2:00 AM GMT+1, resetting for new day and reconnecting...");
+                this.resetForNewDay();
+                this.endOfDay = false;
+                this._connect();
+            }
+
+            // Disconnect at 11:30 PM after a win
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 23 && currentMinutes >= 30) {
+                    console.log("\n🌙 It's past 11:30 PM GMT+1 after a win trade, securing profits and disconnecting.");
+                    this.notifier.send(`🌙 <b>END OF DAY SUSPENSION</b>\n\nProfit secured. Reconnecting at 2:00 AM.`);
+                    this._logHourlySummary(); // Send final report
+                    this.endOfDay = true;
+                    this._cleanup();
+                }
+            }
+
+            // Also support mid-day pauses if nliveMultib logic is strictly followed
+            // New York Session Pause (1 PM - 3 PM)
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 13 && currentMinutes >= 0 && currentHours < 15) {
+                    console.log("\n⏸️ New York session pause (1 PM GMT+1). Disconnecting...");
+                    this.notifier.send(`⏸️ <b>SESSION PAUSE</b>\n\nNew York overlap pause. Resuming at 3 PM.`);
+                    this.endOfDay = true;
+                    this._cleanup();
+                }
+            }
+
+            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0 && currentMinutes < 2) {
+                 console.log("\n▶️ Resuming after New York pause...");
+                 this.endOfDay = false;
+                 this._connect();
+            }
+
+        }, 20000);
+    }
+
+    resetForNewDay() {
+        console.log('🌅 Resetting daily metrics...');
+        this.isWinTrade = false;
+        if (this.riskManager) {
+            this.riskManager.dailyProfitLoss = 0;
+            this.riskManager.globalConsecutiveLosses = 0;
+            // Optionally reset bankroll reference if needed, but usually we just keep cumulative
+        }
+        this.reconnectAttempts = 0;
+        console.log('✅ Daily reset complete');
     }
 }
 
