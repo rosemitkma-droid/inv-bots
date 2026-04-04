@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_0001-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_0002-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -567,6 +567,7 @@ class AccumulatorBotV4 {
         this.endOfDay = false;
         this.isWinTrade = false;
         this.losttrades = 0;
+        this.tradeInProgress = false;
 
         // Active trades — ONE PER ASSET (Deriv rule)
         this.activeTrades = {}; // { asset: { contractId, ... } }
@@ -910,7 +911,9 @@ class AccumulatorBotV4 {
 
         if (analysis.macd.isConverging) return;
 
-        if (analysis.overallScore < 0.85) return;
+        if (analysis.overallScore < 0.8) return;
+
+        if (this.tradeInProgress) return;
 
         // 5. Calculate stake
         this.currentStake = this.riskManager.calculateStake(
@@ -921,6 +924,8 @@ class AccumulatorBotV4 {
         // 6. Request proposal with appropriate growth rate
         const growthRate = analysis.recommendedGrowthRate || this.config.defaultGrowthRate;
         const takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
+
+        this.tradeInProgress = true;
 
         console.log(`\n🎯 ENTRY SIGNAL: ${asset}`);
         console.log(`   Score: ${(analysis.overallScore * 100).toFixed(1)}%`);
@@ -1234,6 +1239,8 @@ class AccumulatorBotV4 {
             // Cooldown on loss
             this.riskManager.cooldownAsset(asset, 10);
         }
+
+        this.tradeInProgress = false;
 
         // Record for learning
         this.analyzer.recordTradeResult(asset, {
