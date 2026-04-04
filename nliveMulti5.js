@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_003-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_004-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -566,6 +566,7 @@ class AccumulatorBotV4 {
         this.dailyProfitLoss = 0;
         this.endOfDay = false;
         this.isWinTrade = false;
+        this.losttrades = 0;
 
         // Active trades — ONE PER ASSET (Deriv rule)
         this.activeTrades = {}; // { asset: { contractId, ... } }
@@ -909,7 +910,7 @@ class AccumulatorBotV4 {
 
         if (analysis.macd.isConverging) return;
 
-        if (analysis.overallScore < 0.8) return;
+        if (analysis.overallScore < 0.85) return;
 
         // 5. Calculate stake
         this.currentStake = this.riskManager.calculateStake(
@@ -1211,7 +1212,7 @@ class AccumulatorBotV4 {
             } else {
                 this.config.riskPerTrade = 0.01; // Trade 1% of balance after win trade
             }
-            if (this.losttrades > 0 && this.currentStake >= (this.accountBalance * 0.25)) {
+            if (this.losttrades > 0 && trade.stake >= (this.accountBalance * 0.25)) {
                 this.riskManager = new RiskManager(this.config);
                 this.losttrades = 0;
             }
