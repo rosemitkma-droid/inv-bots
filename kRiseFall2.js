@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2_001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_001-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2_002-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_002-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1097,7 +1097,7 @@ const CONFIG = {
     MAX_CANDLES_STORED: 50,
     CANDLES_TO_LOAD: 50,
 
-    CANDLE_PATTERN_LOOKBACK: 8, // Number of previous candles to analyze for pattern detection (user configurable)
+    CANDLE_PATTERN_LOOKBACK: 7, // Number of previous candles to analyze for pattern detection (user configurable)
 
     // Default Trade Duration Settings (used if asset has no specific config)
     DURATION: 58,
@@ -2535,11 +2535,11 @@ class DerivBot {
             const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
 
             if (candleType === 'BULLISH') {
-                direction = 'CALLE';
-                signalReason = `Recovery (${symbol} Prev LOSS on FALL → ALTERNATE RISE)`;
-            } else {
                 direction = 'PUTE';
-                signalReason = `Recovery (${symbol} Prev LOSS on RISE → ALTERNATE FALL)`;
+                signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
+            } else {
+                direction = 'CALLE';
+                signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
             }
 
             LOGGER.trade(`🔄 [${symbol}] RECOVERY MODE: ${signalReason} (Martingale Level: ${assetState.martingaleLevel})`);
