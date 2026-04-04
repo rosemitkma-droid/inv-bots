@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_004-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_0001-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -910,7 +910,7 @@ class AccumulatorBotV4 {
 
         if (analysis.macd.isConverging) return;
 
-        if (analysis.overallScore < 0.85) return;
+        if (analysis.overallScore < 0.9) return;
 
         // 5. Calculate stake
         this.currentStake = this.riskManager.calculateStake(
