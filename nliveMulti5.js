@@ -910,7 +910,7 @@ class AccumulatorBotV4 {
 
         if (analysis.macd.isConverging) return;
 
-        if (analysis.overallScore < 0.9) return;
+        if (analysis.overallScore < 0.85) return;
 
         // 5. Calculate stake
         this.currentStake = this.riskManager.calculateStake(
@@ -1469,7 +1469,7 @@ const bot = new AccumulatorBotV4(token, {
     // Money management
     initialBalance: 100,
     riskPerTrade: 0.01,        // 3% of balance per trade
-    maxConsecutiveLosses: 2,
+    maxConsecutiveLosses: 3,
     maxDailyLoss: 100,
     dailyTakeProfit: 1000,
 
