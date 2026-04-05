@@ -84,7 +84,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-botB00001-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-botB000001-state.json'),
     stateSaveMs: 5000,
 };
 
@@ -1112,7 +1112,7 @@ class ReliableAccumulatorBot {
             }
 
             //London Session Pause trading
-            if (this.isWinTrade && !this.endOfDay) {
+            if (this.isWinTrade && !this.endOfDay && currentHours < 10) {
                 if (currentHours >= 6 && currentMinutes >= 0) {
                     console.log("It's past 6:00 AM GMT+1 after a win trade, disconnecting the bot.");
                     this.endOfDay = true;
@@ -1130,7 +1130,7 @@ class ReliableAccumulatorBot {
             }
 
             //New York Session Pause trading
-            if (this.isWinTrade && !this.endOfDay) {
+            if (this.isWinTrade && !this.endOfDay && currentHours < 15) {
                 if (currentHours >= 13 && currentMinutes >= 0) {
                     console.log("It's past 1:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.endOfDay = true;
