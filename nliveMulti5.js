@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_0002-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_00001-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1342,9 +1342,27 @@ class AccumulatorBotV4 {
                 this.connect();
             }
 
+            //London Session Pause trading
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 6 && currentMinutes >= 0) {
+                    console.log("It's past 6:00 AM GMT+1 after a win trade, disconnecting the bot.");
+                    this.endOfDay = true;
+                    this.sendHourlySummary();
+                    this.disconnect();
+                }
+            }
+
+            //London Session Trade Resumption
+            if (this.endOfDay && currentHours === 10 && currentMinutes >= 0) {
+                console.log("It's 10:00 AM GMT+1, reconnecting the bot.");
+                // this.resetForNewDay();
+                this.endOfDay = false;
+                this.connect();
+            }
+
             //New York Session Pause trading
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 13 && currentMinutes >= 0 && currentHours < 15) {
+                if (currentHours >= 13 && currentMinutes >= 0) {
                     console.log("It's past 1:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.endOfDay = true;
                     this.sendHourlySummary();
@@ -1353,8 +1371,8 @@ class AccumulatorBotV4 {
             }
 
             //New York Session Trade Resumption
-            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
-                console.log("It's 3:00 PM GMT+1, reconnecting the bot.");
+            if (this.endOfDay && currentHours === 17 && currentMinutes >= 0) {
+                console.log("It's 5:00 PM GMT+1, reconnecting the bot.");
                 // this.resetForNewDay();
                 this.endOfDay = false;
                 this.connect();
