@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3_0003-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3_0003-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3_00001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3_00001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -944,7 +944,7 @@ class TelegramService {
 
             try {
                 await this.sendMessage(message);
-                LOGGER.info('📱 Telegram: Hourly Summary sent 3');
+                LOGGER.info('📱 Telegram: Hourly Summary sent');
                 LOGGER.info(
                     `   📊 Hour Stats: ${statsSnapshot.trades} trades, ${statsSnapshot.wins}W/${statsSnapshot.losses}L, ${pnlStr}`
                 );
@@ -1097,7 +1097,7 @@ const CONFIG = {
     MAX_CANDLES_STORED: 50,
     CANDLES_TO_LOAD: 50,
 
-    CANDLE_PATTERN_LOOKBACK: 5, // Number of previous candles to analyze for pattern detection (user configurable)
+    CANDLE_PATTERN_LOOKBACK: 8, // Number of previous candles to analyze for pattern detection (user configurable)
 
     // Default Trade Duration Settings (used if asset has no specific config)
     DURATION: 58,
@@ -1110,7 +1110,7 @@ const CONFIG = {
     MARTINGALE_MULTIPLIER2: 1.8,
     MARTINGALE_MULTIPLIER3: 2.1,
     // MARTINGALE_MULTIPLIER4: 2.1,
-    // MARTINGALE_MULTIPLIER5: 2.1,
+    // MARTINGALE_MULTIPLIER5: 2.2,
     // MARTINGALE_MULTIPLIER6: 3.0,
     MAX_MARTINGALE_STEPS: 9,
     System: 1,
@@ -2261,7 +2261,7 @@ class ConnectionManager {
             );
 
             TelegramService.sendMessage(
-                `⚠️ <b>CONNECTION LOST - RECONNECTING</b>\n📊 Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n⏱️ Retrying in ${(delay / 1000).toFixed(1)}s\n💾 State preserved: ${state.session.tradesCount} trades, $${state.session.netPL.toFixed(2)} P&L`
+                `⚠️ <b>CONNECTION LOST - RECONNECTING 3</b>\n📊 Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n⏱️ Retrying in ${(delay / 1000).toFixed(1)}s\n💾 State preserved: ${state.session.tradesCount} trades, $${state.session.netPL.toFixed(2)} P&L`
             );
 
             setTimeout(() => {
@@ -2271,7 +2271,7 @@ class ConnectionManager {
         } else {
             LOGGER.error('Max reconnection attempts reached.');
             TelegramService.sendMessage(
-                `🛑 <b>BOT STOPPED</b>\nMax reconnection attempts reached.\nFinal P&L: $${state.session.netPL.toFixed(2)}`
+                `🛑 <b>BOT STOPPED 3</b>\nMax reconnection attempts reached.\nFinal P&L: $${state.session.netPL.toFixed(2)}`
             );
             process.exit(1);
         }
@@ -2523,25 +2523,26 @@ class DerivBot {
 
         if (isRecoveryMode) {
             // RECOVERY MODE: After a loss, continue in the SAME direction
-            // // This is a martingale continuation strategy - not a new breakout signal
-            // if (assetState.lastTradeDirection === 'CALLE') {
-            //     direction = 'PUTE';
-            //     signalReason = `Recovery (${symbol} Prev LOSS on RISE → ALTERNATE FALL)`;
-            // } else {
-            //     direction = 'CALLE';
-            //     signalReason = `Recovery (${symbol} Prev LOSS on FALL → ALTERNATE RISE)`;
-            // }
-
-            const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
-
-            if (candleType === 'BULLISH') {
-                direction = 'PUTE';
-                signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
-            } else {
+            // This is a martingale continuation strategy - not a new breakout signal
+            if (assetState.lastTradeDirection === 'CALLE') {
                 direction = 'CALLE';
                 signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
+            } else {
+                direction = 'PUTE';
+                signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
             }
-            LOGGER.trade(`🔄 [${symbol}] RECOVERY MODE: ${signalReason} (Martingale Level: ${assetState.martingaleLevel})`);
+
+            // const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
+
+            // if (candleType === 'BULLISH') {
+            //     direction = 'PUTE';
+            //     signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
+            // } else {
+            //     direction = 'CALLE';
+            //     signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
+            // }
+
+            // LOGGER.trade(`🔄 [${symbol}] RECOVERY MODE: ${signalReason} (Martingale Level: ${assetState.martingaleLevel})`);
 
         } else {
             // ── NORMAL MODE: Candle-pattern signal
@@ -2729,7 +2730,7 @@ class DerivBot {
             // Daily reconnection at SYDNEY_START AM GMT+1 (to catch TOKYO session start)
             if (
                 !state.session.isActive &&
-                currentHours === CONFIG.SYDNEY_START &&
+                currentHours === CONFIG.TOKYO_START &&
                 currentMinutes >= 0
             ) {
                 LOGGER.info(
@@ -2756,7 +2757,8 @@ class DerivBot {
                 if (
                     allAssetsRecovered &&
                     anyAssetTradedWin &&
-                    currentHours >= CONFIG.SYDNEY_END
+                    currentHours >= CONFIG.SYDNEY_END &&
+                    currentMinutes >= 0
                 ) {
                     LOGGER.info(
                         `It's past ${CONFIG.SYDNEY_END}:30 GMT+1, all assets recovered, disconnecting.`
