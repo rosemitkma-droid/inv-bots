@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_00001-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000001-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1343,7 +1343,7 @@ class AccumulatorBotV4 {
             }
 
             //London Session Pause trading
-            if (this.isWinTrade && !this.endOfDay) {
+            if (this.isWinTrade && !this.endOfDay && currentHours < 10) {
                 if (currentHours >= 6 && currentMinutes >= 0) {
                     console.log("It's past 6:00 AM GMT+1 after a win trade, disconnecting the bot.");
                     this.endOfDay = true;
@@ -1361,7 +1361,7 @@ class AccumulatorBotV4 {
             }
 
             //New York Session Pause trading
-            if (this.isWinTrade && !this.endOfDay) {
+            if (this.isWinTrade && !this.endOfDay && currentHours < 15) {
                 if (currentHours >= 13 && currentMinutes >= 0) {
                     console.log("It's past 1:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.endOfDay = true;
