@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2_002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_002-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2_0001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_0001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -2523,24 +2523,24 @@ class DerivBot {
 
         if (isRecoveryMode) {
             // RECOVERY MODE: After a loss, continue in the SAME direction
-            // // // This is a martingale continuation strategy - not a new breakout signal
-            // if (assetState.lastTradeDirection === 'CALLE') {
-            //     direction = 'PUTE';
-            //     signalReason = `Recovery (${symbol} Prev LOSS on RISE → ALTERNATE FALL)`;
-            // } else {
-            //     direction = 'CALLE';
-            //     signalReason = `Recovery (${symbol} Prev LOSS on FALL → ALTERNATE RISE)`;
-            // }
-
-            const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
-
-            if (candleType === 'BULLISH') {
-                direction = 'PUTE';
-                signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
-            } else {
+            // // This is a martingale continuation strategy - not a new breakout signal
+            if (assetState.lastTradeDirection === 'CALLE') {
                 direction = 'CALLE';
                 signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
+            } else {
+                direction = 'PUTE';
+                signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
             }
+
+            // const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
+
+            // if (candleType === 'BULLISH') {
+            //     direction = 'PUTE';
+            //     signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
+            // } else {
+            //     direction = 'CALLE';
+            //     signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
+            // }
 
             LOGGER.trade(`🔄 [${symbol}] RECOVERY MODE: ${signalReason} (Martingale Level: ${assetState.martingaleLevel})`);
 
