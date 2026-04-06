@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000004-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000005-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -388,8 +388,8 @@ class AccumulatorAnalyzer {
         let recommendedGrowthRate;
         if (overallScore >= 0.85) recommendedGrowthRate = 0.02;    // High confidence → 3%
         else if (overallScore >= 0.75) recommendedGrowthRate = 0.02; // Good → 2%
-        else if (overallScore >= 0.65) recommendedGrowthRate = 0.01; // Moderate → safest 1%
-        else recommendedGrowthRate = 0.01;                          // Default safest
+        else if (overallScore >= 0.65) recommendedGrowthRate = 0.02; // Moderate → safest 1%
+        else recommendedGrowthRate = 0.02;                          // Default safest
 
         // ═══════════════════════════════════════════
         // HARD REJECTION FILTERS
@@ -913,12 +913,14 @@ class AccumulatorBotV4 {
 
         // if (analysis.overallScore < 0.95) return;
 
-        const shouldTrade = analysis.overallScore >= 0.96 &&
-            analysis.scores.bandWidth >= 1 &&
-            analysis.scores.macdFlat >= 1 &&
-            analysis.scores.pricePosition >= 1 &&
-            analysis.scores.tickStability >= 1 &&
-            analysis.reason === 'conditions_favorable'
+        const shouldTrade =
+            analysis.overallScore < 0.5 &&
+            analysis.scores.bandWidth < 1 &&
+            analysis.scores.macdFlat < 1 &&
+            analysis.scores.pricePosition < 1 &&
+            analysis.scores.tickStability < 1
+        // &&
+        // analysis.reason === 'conditions_favorable'
 
 
         if (!shouldTrade) return;
@@ -1231,6 +1233,8 @@ class AccumulatorBotV4 {
             }
             this.hourlyStats.wins++;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
+
+            this.assets = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V']
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
@@ -1243,6 +1247,12 @@ class AccumulatorBotV4 {
             }
             this.riskManager = new RiskManager(this.config);
             this.losttrades++;
+
+            if (asset === 'R_10' || asset === 'R_25' || asset === 'R_50' || asset === 'R_75' || asset === 'R_100') {
+                this.assets = ['1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
+            } else {
+                this.assets = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
+            }
 
             // Cooldown on loss
             this.riskManager.cooldownAsset(asset, 10);
@@ -1351,22 +1361,22 @@ class AccumulatorBotV4 {
             }
 
             //London Session Pause trading
-            if (this.isWinTrade && !this.endOfDay && currentHours < 10) {
-                if (currentHours >= 6 && currentMinutes >= 0) {
-                    console.log("It's past 6:00 AM GMT+1 after a win trade, disconnecting the bot.");
-                    this.endOfDay = true;
-                    this.sendHourlySummary();
-                    this.disconnect();
-                }
-            }
+            // if (this.isWinTrade && !this.endOfDay && currentHours < 10) {
+            //     if (currentHours >= 6 && currentMinutes >= 0) {
+            //         console.log("It's past 6:00 AM GMT+1 after a win trade, disconnecting the bot.");
+            //         this.endOfDay = true;
+            //         this.sendHourlySummary();
+            //         this.disconnect();
+            //     }
+            // }
 
             //London Session Trade Resumption
-            if (this.endOfDay && currentHours === 10 && currentMinutes >= 0) {
-                console.log("It's 10:00 AM GMT+1, reconnecting the bot.");
-                // this.resetForNewDay();
-                this.endOfDay = false;
-                this.connect();
-            }
+            // if (this.endOfDay && currentHours === 10 && currentMinutes >= 0) {
+            //     console.log("It's 10:00 AM GMT+1, reconnecting the bot.");
+            //     // this.resetForNewDay();
+            //     this.endOfDay = false;
+            //     this.connect();
+            // }
 
             //New York Session Pause trading
             if (this.isWinTrade && !this.endOfDay && currentHours < 15) {
@@ -1507,7 +1517,7 @@ const bot = new AccumulatorBotV4(token, {
     dailyTakeProfit: 1000,
 
     // Accumulator strategy
-    defaultGrowthRate: 0.01,   // 1% — widest barrier, highest survival
+    defaultGrowthRate: 0.02,   // 1% — widest barrier, highest survival
     targetProfitTicks: 5,      // Quick profit after 5 ticks
     takeProfitMultiplier: 0.10, // 10% of stake as TP (limit order backup)
 
@@ -1517,7 +1527,7 @@ const bot = new AccumulatorBotV4(token, {
     minTimeBetweenTrades: 10000,
 
     // Assets (lower volatility indices preferred)
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'],
 
     // Telegram (use env vars or fill in)
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
