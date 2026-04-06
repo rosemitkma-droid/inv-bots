@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000006-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000008-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -52,6 +52,7 @@ class StatePersistence {
                     consecutiveLosses3: bot.consecutiveLosses3,
                     consecutiveLosses4: bot.consecutiveLosses4,
                     consecutiveLosses5: bot.consecutiveLosses5,
+                    tradeSystem: bot.tradeSystem,
                 },
                 assetMetrics: bot.assetMetrics,
                 hourlyStats: bot.hourlyStats,
@@ -540,6 +541,7 @@ class AccumulatorBotV4 {
             maxConsecutiveLosses: config.maxConsecutiveLosses || 6,
             maxDailyLoss: config.maxDailyLoss || 100,
             dailyTakeProfit: config.dailyTakeProfit || 200,
+            tradeSystem: config.tradeSystem || 1,
 
             // Accumulator settings
             defaultGrowthRate: config.defaultGrowthRate || 0.01,  // 1% — safest, widest range
@@ -565,6 +567,10 @@ class AccumulatorBotV4 {
         this.currentStake = this.config.initialStake;
         this.accountBalance = this.config.initialBalance;
         this.consecutiveLosses = 0;
+        this.consecutiveLosses2 = 0;
+        this.consecutiveLosses3 = 0;
+        this.consecutiveLosses4 = 0;
+        this.consecutiveLosses5 = 0;
         this.totalTrades = 0;
         this.totalWins = 0;
         this.totalLosses = 0;
@@ -574,6 +580,8 @@ class AccumulatorBotV4 {
         this.isWinTrade = false;
         this.losttrades = 0;
         this.tradeInProgress = false;
+        this.ticksHeld = 0;
+        this.Sys = config.tradeSystem;
 
         // Active trades — ONE PER ASSET (Deriv rule)
         this.activeTrades = {}; // { asset: { contractId, ... } }
@@ -905,19 +913,21 @@ class AccumulatorBotV4 {
         }
 
         // 4. Decision
-        // if (!analysis.shouldTrade) return;
+        if (this.Sys === 1) {
+            if (!analysis.shouldTrade) return;
 
-        // if (analysis.maxTickMove > 0.001) return;
+            if (analysis.maxTickMove > 0.001) return;
 
-        // if (analysis.tickStability < 0.3) return;
+            if (analysis.tickStability < 0.3) return;
 
-        // if (analysis.bb.percentB < 0.3 || analysis.bb.percentB > 0.7) return;
+            if (analysis.bb.percentB < 0.3 || analysis.bb.percentB > 0.7) return;
 
-        // if (analysis.macd.histogram > 0) return;
+            if (analysis.macd.histogram > 0) return;
 
-        // if (analysis.macd.isConverging) return;
+            if (analysis.macd.isConverging) return;
 
-        // if (analysis.overallScore < 0.95) return;
+            if (analysis.overallScore < 0.85) return;
+        }
 
         const shouldTrade =
             analysis.overallScore < 0.5 &&
@@ -925,11 +935,9 @@ class AccumulatorBotV4 {
             analysis.scores.macdFlat < 1 &&
             analysis.scores.pricePosition < 1 &&
             analysis.scores.tickStability < 1
-        // &&
-        // analysis.reason === 'conditions_favorable'
 
 
-        if (!shouldTrade) return;
+        if (this.Sys === 2 && !shouldTrade) return;
 
         if (this.tradeInProgress) return;
 
@@ -1066,6 +1074,7 @@ class AccumulatorBotV4 {
             `Stake: $${trade.stake.toFixed(2)}\n` +
             `Growth Rate: ${(trade.growthRate * 100).toFixed(0)}%\n` +
             `Score: ${(trade.analysis.overallScore * 100).toFixed(1)}%\n` +
+            `Trade System: ${this.Sys}\n` +
             `Take Profit: $${trade.takeProfitAmount.toFixed(2)}`
         );
     }
@@ -1094,8 +1103,12 @@ class AccumulatorBotV4 {
             this.contractSubscriptions[asset] = message.subscription.id;
         }
 
+        if (this.tradeInProgress) {
+            this.ticksHeld++;
+        }
+
         const currentProfit = parseFloat(contract.profit || 0);
-        const tickCount = contract.tick_count || 0;
+        const tickCount = this.ticksHeld || 0;
         const bidPrice = parseFloat(contract.bid_price || 0);
 
         trade.ticksHeld = tickCount;
@@ -1197,7 +1210,7 @@ class AccumulatorBotV4 {
 
         const won = contract.status === 'won';
         const profit = parseFloat(contract.profit);
-        const tickCount = contract.tick_count || 0;
+        const tickCount = trade.ticksHeld || 0;
 
         // Unsubscribe from contract
         if (this.contractSubscriptions[asset]) {
@@ -1228,43 +1241,49 @@ class AccumulatorBotV4 {
             this.totalWins++;
             this.consecutiveLosses = 0;
             this.isWinTrade = true;
+
             if (this.accountBalance > (this.config.initialBalance * 2)) {
                 this.config.riskPerTrade = 0.005; // Trade 0.5% of balance after win trade when Balance is > 2x initial Investment
             } else {
                 this.config.riskPerTrade = 0.01; // Trade 1% of balance after win trade
             }
-            if (this.losttrades > 0 && trade.stake >= (this.accountBalance * 0.25)) {
-                this.riskManager = new RiskManager(this.config);
-                this.losttrades = 0;
-            }
+
             this.hourlyStats.wins++;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
 
-            this.assets = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V']
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.hourlyStats.losses++;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].losses++;
+
+            if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
+            else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
+            else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
+            else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
+
             if (this.accountBalance > (this.config.initialBalance * 2)) {
-                this.config.riskPerTrade = 0.50; // Trade 50% of balance after loss trade
+                if (this.consecutiveLosses > 1) {
+                    this.config.riskPerTrade = 0.50; // Trade 50% of balance after loss trade
+                } else {
+                    this.config.riskPerTrade = 0.05; // Trade 5% of balance after loss trade
+                }
             } else {
-                this.config.riskPerTrade = 1.00; // Trade 100% of balance after loss trade
+                if (this.consecutiveLosses > 1) {
+                    this.config.riskPerTrade = 1.00; // Trade 100% of balance after loss trade
+                } else {
+                    this.config.riskPerTrade = 0.10; // Trade 10% of balance after loss trade
+                }
             }
             this.riskManager = new RiskManager(this.config);
             this.losttrades++;
-
-            if (asset === 'R_10' || asset === 'R_25' || asset === 'R_50' || asset === 'R_75' || asset === 'R_100') {
-                this.assets = ['1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
-            } else {
-                this.assets = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
-            }
 
             // Cooldown on loss
             this.riskManager.cooldownAsset(asset, 10);
         }
 
         this.tradeInProgress = false;
+        this.ticksHeld = 0;
 
         // Record for learning
         this.analyzer.recordTradeResult(asset, {
@@ -1285,12 +1304,22 @@ class AccumulatorBotV4 {
             `Asset: ${asset}\n` +
             `P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(3)}\n` +
             `Ticks: ${tickCount} | Growth: ${(trade.growthRate * 100).toFixed(0)}%\n\n` +
+            `Trade System: ${this.Sys}\n` +
             `📊 Session:\n` +
             `Trades: ${this.totalTrades} (${this.totalWins}W/${this.totalLosses}L)\n` +
+            `Losses x2-x5: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5}\n` +
             `Win Rate: ${winRate}%\n` +
             `Balance: $${this.accountBalance.toFixed(2)}\n` +
             `Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}`
         );
+
+        if (!won) {
+            if (this.Sys === 1) {
+                this.Sys = 2;
+            } else {
+                this.Sys = 1;
+            }
+        }
 
         // Clean up active trade
         delete this.activeTrades[asset];
@@ -1335,6 +1364,7 @@ class AccumulatorBotV4 {
             `📊 <b>Session Summary (Bot 5)</b>\n\n` +
             `Trades: ${this.totalTrades}\n` +
             `W/L: ${this.totalWins}/${this.totalLosses}\n` +
+            `Losses x2-x5: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5}\n` +
             `Win Rate: ${winRate}%\n` +
             `${pnlEmoji} Total P&amp;L: ${pnlStr}\n` +
             `Daily P&amp;L: ${this.dailyProfitLoss >= 0 ? '+' : ''}$${this.dailyProfitLoss.toFixed(2)}\n\n` +
@@ -1493,6 +1523,7 @@ class AccumulatorBotV4 {
             `Reason: ${reason}\n\n` +
             `Final Stats:\n` +
             `Trades: ${this.totalTrades} (${this.totalWins}W/${this.totalLosses}L)\n` +
+            `Losses x2-x5: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5}\n` +
             `Win Rate: ${(this.totalWins / Math.max(1, this.totalTrades) * 100).toFixed(1)}%\n` +
             `Balance: $${this.accountBalance.toFixed(2)}\n` +
             `Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}`
@@ -1521,6 +1552,7 @@ const bot = new AccumulatorBotV4(token, {
     maxConsecutiveLosses: 3,
     maxDailyLoss: 100,
     dailyTakeProfit: 1000,
+    tradeSystem: 1,
 
     // Accumulator strategy
     defaultGrowthRate: 0.02,   // 1% — widest barrier, highest survival
@@ -1533,7 +1565,7 @@ const bot = new AccumulatorBotV4(token, {
     minTimeBetweenTrades: 10000,
 
     // Assets (lower volatility indices preferred)
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'],
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'], //, '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'
 
     // Telegram (use env vars or fill in)
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
