@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000005-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000006-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -46,6 +46,12 @@ class StatePersistence {
                     totalLosses: bot.totalLosses,
                     totalProfitLoss: bot.totalProfitLoss,
                     dailyProfitLoss: bot.dailyProfitLoss,
+                    accountBalance: bot.accountBalance,
+                    currentStake: bot.currentStake,
+                    consecutiveLosses2: bot.consecutiveLosses2,
+                    consecutiveLosses3: bot.consecutiveLosses3,
+                    consecutiveLosses4: bot.consecutiveLosses4,
+                    consecutiveLosses5: bot.consecutiveLosses5,
                 },
                 assetMetrics: bot.assetMetrics,
                 hourlyStats: bot.hourlyStats,
