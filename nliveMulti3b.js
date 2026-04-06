@@ -29,10 +29,10 @@ const CONFIG = {
     // Deriv API
     token: '0P94g4WdSrSrzir', //process.env.DERIV_TOKEN || 
     appId: 1089, //process.env.DERIV_APP_ID || 
-    wsUrl: 'wss://ws.binaryws.com/websockets/v3',
+    wsUrl: 'wss://ws.derivws.com/websockets/v3',
 
     // Assets to trade (ordered by preference — lowest volatility first)
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'],
 
     // Staking  (FLAT — no Martingale)
     initialStake: 1.00,   // USD per trade
@@ -84,7 +84,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-botB000003-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-botB000004-state.json'),
     stateSaveMs: 5000,
 };
 
@@ -702,7 +702,6 @@ class ReliableAccumulatorBot {
         // Volatility pre-check — run analysis before requesting proposal
         const signal = this.analyzer.analyze(asset, this.tickPrices[asset]);
         if (!signal.shouldEnter) return; // don't even request proposal if signal is bad
-        if (signal.growthRate < 0.05) return; // Only trade Very Good signal
 
         // All checks passed — request proposal
         this.assetStates[asset].lastProposalAt = now;
@@ -746,6 +745,11 @@ class ReliableAccumulatorBot {
         const currentTick = (stayedIn[stayedIn.length - 1] || 0) + 1;
         this.assetStates[asset].lastTicks = currentTick;
 
+        // ── VOLATILITY SIGNAL ─────────────────────────────────────────────────
+        const signal = this.analyzer.analyze(asset, this.tickPrices[asset]);
+
+        this._logAnalysis(asset, currentTick, signal, proposal);
+
         // Don't trade if already trading
         if (this.tradeInProgress) return;
 
@@ -766,11 +770,9 @@ class ReliableAccumulatorBot {
             return;
         }
 
-        // ── VOLATILITY SIGNAL ─────────────────────────────────────────────────
-        const signal = this.analyzer.analyze(asset, this.tickPrices[asset]);
+        if (signal.growthRate < CONFIG.growthRateBoost) return; // Only trade Very Good signal
 
-        this._logAnalysis(asset, currentTick, signal, proposal);
-
+        //Execute Trade
         if (signal.shouldEnter) {
             this._executeTrade(asset, proposal, signal, currentTick);
         }
