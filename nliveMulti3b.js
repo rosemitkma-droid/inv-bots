@@ -32,12 +32,12 @@ const CONFIG = {
     wsUrl: 'wss://ws.derivws.com/websockets/v3',
 
     // Assets to trade (ordered by preference — lowest volatility first)
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'],
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'], // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'
 
     // Staking  (FLAT — no Martingale)
     initialStake: 1.00,   // USD per trade
     multiplier: 6.00,   // never exceed this
-    multiplier2: 10.00,   // never exceed this
+    multiplier2: 7.00,   // never exceed this
 
     // Growth rates
     growthRateDefault: 0.01,   // 1% — widest barriers, safest
@@ -84,7 +84,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-botB000004-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-botB000005-state.json'),
     stateSaveMs: 5000,
 };
 
