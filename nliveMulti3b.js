@@ -72,7 +72,7 @@ const CONFIG = {
     // Risk management
     maxConsecutiveLosses: 3,
     consecutiveLossCooldownMs: 1800000, // 30 min pause after 3 consec losses
-    assetCooldownMs: 2700000, // 45 min asset cooldown on loss
+    assetCooldownMs: 1800000, // 30 min asset cooldown on loss
     maxDailyLoss: 500,     // stop bot for the day
     takeProfitSession: 50000,    // stop bot after reaching this profit
 
@@ -953,6 +953,9 @@ class ReliableAccumulatorBot {
             this.isWinTrade = true;
             this.currentStake = CONFIG.initialStake;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
+
+            // Asset-level cooldown
+            this.riskManager.setAssetCooldown(asset);
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
@@ -970,8 +973,8 @@ class ReliableAccumulatorBot {
 
             if (this.assetMetrics[asset]) this.assetMetrics[asset].losses++;
 
-            // Asset-level cooldown
-            this.riskManager.setAssetCooldown(asset);
+            // // Asset-level cooldown
+            // this.riskManager.setAssetCooldown(asset);
 
             // Global pause if consecutive loss limit hit
             if (this.consecutiveLosses >= CONFIG.maxConsecutiveLosses) {
