@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000012-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000013-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -930,7 +930,7 @@ class AccumulatorBotV4 {
         }
 
         const shouldTrade =
-            analysis.overallScore < 0.5 &&
+            analysis.overallScore < 0.4 &&
             analysis.scores.bandWidth < 1 &&
             analysis.scores.macdFlat < 1 &&
             analysis.scores.pricePosition < 1 &&
