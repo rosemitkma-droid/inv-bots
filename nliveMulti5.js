@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000012-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000013-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -934,7 +934,7 @@ class AccumulatorBotV4 {
             analysis.scores.bandWidth < 1 &&
             analysis.scores.macdFlat < 1 &&
             analysis.scores.pricePosition < 1 &&
-            analysis.scores.tickStability < 1
+            analysis.scores.tickStability >= 1
 
 
         if (this.Sys === 2 && !shouldTrade) return;
@@ -1158,9 +1158,9 @@ class AccumulatorBotV4 {
         const takeProfitAmount = trade.takeProfitAmount;
 
         // 1. TARGET TICKS REACHED — primary exit
-        if (ticksHeld >= targetTicks && currentProfit > 0) {
-            return { sell: true, reason: `target_ticks (${ticksHeld}/${targetTicks}) with profit $${currentProfit.toFixed(3)}` };
-        }
+        // if (ticksHeld >= targetTicks && currentProfit > 0) {
+        //     return { sell: true, reason: `target_ticks (${ticksHeld}/${targetTicks}) with profit $${currentProfit.toFixed(3)}` };
+        // }
 
         // 2. PROFIT TARGET HIT (backup for limit order)
         if (currentProfit >= takeProfitAmount) {
@@ -1173,14 +1173,14 @@ class AccumulatorBotV4 {
         // }
 
         // 4. EXTENDED HOLD — any profit after 2x target ticks
-        if (ticksHeld >= targetTicks * 2 && currentProfit > 0) {
-            return { sell: true, reason: 'extended_hold_exit' };
-        }
+        // if (ticksHeld >= targetTicks * 2 && currentProfit > 0) {
+        //     return { sell: true, reason: 'extended_hold_exit' };
+        // }
 
         // 5. MAX HOLD TIME — exit regardless after 3x target (safety)
-        if (ticksHeld >= targetTicks * 3) {
-            return { sell: true, reason: 'max_hold_safety_exit' };
-        }
+        // if (ticksHeld >= targetTicks * 3) {
+        //     return { sell: true, reason: 'max_hold_safety_exit' };
+        // }
 
         return { sell: false, reason: null };
     }
