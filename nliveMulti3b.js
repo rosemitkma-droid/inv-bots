@@ -37,7 +37,7 @@ const CONFIG = {
     // Staking  (FLAT — no Martingale)
     initialStake: 1.00,   // USD per trade
     multiplier: 6.00,   // never exceed this
-    multiplier2: 7.00,   // never exceed this
+    multiplier2: 8.00,   // never exceed this
 
     // Growth rates
     growthRateDefault: 0.01,   // 1% — widest barriers, safest
@@ -74,7 +74,7 @@ const CONFIG = {
     consecutiveLossCooldownMs: 1800000, // 30 min pause after 3 consec losses
     assetCooldownMs: 2700000, // 45 min asset cooldown on loss
     maxDailyLoss: 500,     // stop bot for the day
-    takeProfitSession: 20000,    // stop bot after reaching this profit
+    takeProfitSession: 5,    // stop bot after reaching this profit
 
     // Proposal throttle: min ms between proposal requests per asset
     proposalThrottleMs: 10000,
@@ -84,7 +84,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-botB000006-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-botB000007-state.json'),
     stateSaveMs: 5000,
 };
 
