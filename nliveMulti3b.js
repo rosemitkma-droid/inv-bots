@@ -84,7 +84,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-botB000005-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-botB000006-state.json'),
     stateSaveMs: 5000,
 };
 
@@ -1109,22 +1109,22 @@ class ReliableAccumulatorBot {
             }
 
             //London Session Pause trading
-            if (this.isWinTrade && !this.endOfDay && currentHours < 10) {
-                if (currentHours >= 6 && currentMinutes >= 0) {
-                    console.log("It's past 6:00 AM GMT+1 after a win trade, disconnecting the bot.");
-                    this.endOfDay = true;
-                    this.sendHourlySummary();
-                    this.disconnect();
-                }
-            }
+            // if (this.isWinTrade && !this.endOfDay && currentHours < 10) {
+            //     if (currentHours >= 6 && currentMinutes >= 0) {
+            //         console.log("It's past 6:00 AM GMT+1 after a win trade, disconnecting the bot.");
+            //         this.endOfDay = true;
+            //         this.sendHourlySummary();
+            //         this.disconnect();
+            //     }
+            // }
 
-            //London Session Trade Resumption
-            if (this.endOfDay && currentHours === 10 && currentMinutes >= 0) {
-                console.log("It's 10:00 AM GMT+1, reconnecting the bot.");
-                // this.resetForNewDay();
-                this.endOfDay = false;
-                this.connect();
-            }
+            // //London Session Trade Resumption
+            // if (this.endOfDay && currentHours === 10 && currentMinutes >= 0) {
+            //     console.log("It's 10:00 AM GMT+1, reconnecting the bot.");
+            //     // this.resetForNewDay();
+            //     this.endOfDay = false;
+            //     this.connect();
+            // }
 
             //New York Session Pause trading
             if (this.isWinTrade && !this.endOfDay && currentHours < 15) {
