@@ -1254,7 +1254,7 @@ class AccumulatorBotV4 {
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
 
             // Cooldown on loss
-            this.riskManager.cooldownAsset(asset, 10);
+            this.riskManager.cooldownAsset(asset, 30);
 
         } else {
             this.totalLosses++;
