@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000011-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000012-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1315,13 +1315,13 @@ class AccumulatorBotV4 {
             `Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}`
         );
 
-        if (!won) {
-            if (this.Sys === 1) {
-                this.Sys = 2;
-            } else {
-                this.Sys = 1;
-            }
-        }
+        // if (!won) {
+        //     if (this.Sys === 1) {
+        //         this.Sys = 2;
+        //     } else {
+        //         this.Sys = 1;
+        //     }
+        // }
 
         // Clean up active trade
         delete this.activeTrades[asset];
@@ -1554,7 +1554,7 @@ const bot = new AccumulatorBotV4(token, {
     maxConsecutiveLosses: 3,
     maxDailyLoss: 100,
     dailyTakeProfit: 5,
-    tradeSystem: 1,
+    tradeSystem: 2,
 
     // Accumulator strategy
     defaultGrowthRate: 0.02,   // 1% — widest barrier, highest survival
