@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000010-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000011-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1553,7 +1553,7 @@ const bot = new AccumulatorBotV4(token, {
     riskPerTrade: 0.01,        // 3% of balance per trade
     maxConsecutiveLosses: 3,
     maxDailyLoss: 100,
-    dailyTakeProfit: 1000,
+    dailyTakeProfit: 5,
     tradeSystem: 1,
 
     // Accumulator strategy
