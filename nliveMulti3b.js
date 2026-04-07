@@ -84,7 +84,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-botB000007-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-botB000008-state.json'),
     stateSaveMs: 5000,
 };
 
