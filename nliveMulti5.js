@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000013-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator-bot5_000012-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1168,9 +1168,9 @@ class AccumulatorBotV4 {
         }
 
         // 3. GOOD PROFIT EARLY — secure it (70% of target after 3+ ticks)
-        if (ticksHeld >= 3 && currentProfit >= takeProfitAmount * 0.7) {
-            return { sell: true, reason: `early_profit_lock ($${currentProfit.toFixed(3)})` };
-        }
+        // if (ticksHeld >= 3 && currentProfit >= takeProfitAmount * 0.7) {
+        //     return { sell: true, reason: `early_profit_lock ($${currentProfit.toFixed(3)})` };
+        // }
 
         // 4. EXTENDED HOLD — any profit after 2x target ticks
         if (ticksHeld >= targetTicks * 2 && currentProfit > 0) {
