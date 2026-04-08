@@ -84,7 +84,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-botB000010-state.json'),
+    stateFile: path.join(__dirname, 'accumulator_botB01_state.json'),
     stateSaveMs: 5000,
 };
 
@@ -432,6 +432,10 @@ class ReliableAccumulatorBot {
         this.analyzer = new VolatilityAnalyzer();
         this.riskManager = new RiskManager();
 
+        // Asset suspension state
+        this.suspendedAssets = new Set();  // Assets that are suspended
+        this.focusAsset = null;            // The asset to focus on after a loss
+
         // Telegram
         this.telegram = (CONFIG.telegramToken && CONFIG.telegramChatId)
             ? new TelegramBot(CONFIG.telegramToken, { polling: false })
@@ -448,6 +452,52 @@ class ReliableAccumulatorBot {
         this._loadState();
 
         this._startTelegramTimer();
+    }
+
+    // ── Asset Suspension Logic ────────────────────────────────────────────────
+    /**
+     * Suspend all assets except the one that just had a loss
+     * Focus only on the loss asset until a win occurs
+     */
+    suspendOtherAssets(lossAsset) {
+        this.focusAsset = lossAsset;
+        CONFIG.assets.forEach(asset => {
+            if (asset !== lossAsset) {
+                this.suspendedAssets.add(asset);
+            }
+        });
+        console.log(`🔒 SUSPENDED: All assets except ${lossAsset}. Focusing on loss asset.`);
+        this.notify(
+            `🔒 <b>Asset Suspension (Bot 3b)</b>\n\n` +
+            `Loss on: <b>${lossAsset}</b>\n` +
+            `Suspended: ${CONFIG.assets.filter(a => a !== lossAsset).join(', ')}\n` +
+            `Focusing on ${lossAsset} until win`
+        );
+    }
+
+    /**
+     * Resume all assets after a win on the focus asset
+     */
+    resumeAllAssets() {
+        const prevFocus = this.focusAsset;
+        this.suspendedAssets.clear();
+        this.focusAsset = null;
+        console.log(`✅ RESUMED: All assets active again (was focused on ${prevFocus})`);
+        this.notify(
+            `✅ <b>All Assets Resumed (Bot 3b)</b>\n\n` +
+            `Won on: <b>${prevFocus}</b>\n` +
+            `All assets now active for trading`
+        );
+    }
+
+    /**
+     * Check if an asset is allowed to trade (respects suspension)
+     */
+    isAssetAllowed(asset) {
+        // If no focus asset, all assets are allowed
+        if (!this.focusAsset) return true;
+        // Only the focus asset is allowed
+        return asset === this.focusAsset;
     }
 
     // ── State ─────────────────────────────────────────────────────────────────
@@ -686,6 +736,9 @@ class ReliableAccumulatorBot {
         if (this.tradeInProgress) return;
         if (!this.wsReady) return;
         if (this.shutdownFlag) return;
+
+        // Check if asset is suspended
+        if (!this.isAssetAllowed(asset)) return;
 
         const now = Date.now();
         const lastAt = this.assetStates[asset].lastProposalAt || 0;
@@ -956,6 +1009,11 @@ class ReliableAccumulatorBot {
 
             // Asset-level cooldown
             this.riskManager.setAssetCooldown(asset);
+
+            // If we were focused on a loss asset, resume all assets
+            if (this.focusAsset) {
+                this.resumeAllAssets();
+            }
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
@@ -972,6 +1030,9 @@ class ReliableAccumulatorBot {
             }
 
             if (this.assetMetrics[asset]) this.assetMetrics[asset].losses++;
+
+            // Suspend all other assets and focus on this loss asset
+            this.suspendOtherAssets(asset);
 
             // // Asset-level cooldown
             // this.riskManager.setAssetCooldown(asset);
@@ -1140,7 +1201,7 @@ class ReliableAccumulatorBot {
             }
 
             //New York Session Trade Resumption
-            if (this.endOfDay && currentHours === 13 && currentMinutes >= 0) {
+            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
                 console.log("It's 3:00 PM GMT+1, reconnecting the bot.");
                 // this.resetForNewDay();
                 this.endOfDay = false;
@@ -1176,6 +1237,9 @@ class ReliableAccumulatorBot {
         this.shutdownFlag = false;
         this.reconnectAttempts = 0;
         this.riskManager = new RiskManager();
+        // Clear asset suspension
+        this.suspendedAssets.clear();
+        this.focusAsset = null;
         console.log('✅ New day reset complete');
     }
 
