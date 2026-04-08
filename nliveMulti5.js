@@ -1430,7 +1430,7 @@ class AccumulatorBotV4 {
             }
 
             //New York Session Trade Resumption
-            if (this.endOfDay && currentHours === 13 && currentMinutes >= 0) {
+            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
                 console.log("It's 3:00 PM GMT+1, reconnecting the bot.");
                 // this.resetForNewDay();
                 this.endOfDay = false;
