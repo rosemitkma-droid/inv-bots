@@ -56,7 +56,7 @@ const CONFIG = {
     bbPeriod: 20,
     bbMultiplier: 2.0,
     // BB width percentile threshold — enter only when market is calm
-    bbSqueezePctile: 30,     // below 40th percentile = squeeze (good to enter)
+    bbSqueezePctile: 20,     // below 40th percentile = squeeze (good to enter)
 
     // RSI parameters
     rsiPeriod: 14,
@@ -84,7 +84,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator-botB000009-state.json'),
+    stateFile: path.join(__dirname, 'accumulator-botB000010-state.json'),
     stateSaveMs: 5000,
 };
 
@@ -977,11 +977,11 @@ class ReliableAccumulatorBot {
             // this.riskManager.setAssetCooldown(asset);
 
             // Global pause if consecutive loss limit hit
-            if (this.consecutiveLosses >= CONFIG.maxConsecutiveLosses) {
-                this.riskManager.setGlobalPause();
-                // Reset counter so after pause we start clean
-                this.consecutiveLosses = 0;
-            }
+            // if (this.consecutiveLosses >= CONFIG.maxConsecutiveLosses) {
+            //     this.riskManager.setGlobalPause();
+            //     // Reset counter so after pause we start clean
+            //     this.consecutiveLosses = 0;
+            // }
         }
 
         const winRate = this.totalTrades > 0
@@ -1007,7 +1007,7 @@ class ReliableAccumulatorBot {
         );
 
         // ── Stop conditions ───────────────────────────────────────────────────
-        if (this.dailyPnl <= -CONFIG.maxDailyLoss) {
+        if (this.dailyPnl <= -CONFIG.maxDailyLoss || this.consecutiveLosses >= CONFIG.maxConsecutiveLosses) {
             this.shutdown(`daily_loss_limit ($${CONFIG.maxDailyLoss})`);
             this.sendHourlySummary();
             this.disconnect();
