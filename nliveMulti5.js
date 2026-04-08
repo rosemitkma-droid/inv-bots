@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator-bot5-01-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator_bot5_01-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -600,6 +600,10 @@ class AccumulatorBotV4 {
         this.analyzer = new AccumulatorAnalyzer();
         this.riskManager = new RiskManager(this.config);
 
+        // Asset suspension state
+        this.suspendedAssets = new Set();  // Assets that are suspended
+        this.focusAsset = null;            // The asset to focus on after a loss
+
         // Initialize per-asset data
         this.assets.forEach(asset => {
             this.priceHistories[asset] = [];
@@ -628,6 +632,54 @@ class AccumulatorBotV4 {
 
         // Ping interval handle
         this.pingInterval = null;
+    }
+
+    // ========================================================================
+    // ASSET SUSPENSION LOGIC
+    // ========================================================================
+    /**
+     * Suspend all assets except the one that just had a loss
+     * Focus only on the loss asset until a win occurs
+     */
+    suspendOtherAssets(lossAsset) {
+        this.focusAsset = lossAsset;
+        this.assets.forEach(asset => {
+            if (asset !== lossAsset) {
+                this.suspendedAssets.add(asset);
+            }
+        });
+        console.log(`🔒 SUSPENDED: All assets except ${lossAsset}. Focusing on loss asset.`);
+        this.sendTelegramMessage(
+            `🔒 <b>Asset Suspension (Bot 5)</b>\n\n` +
+            `Loss on: <b>${lossAsset}</b>\n` +
+            `Suspended: ${this.assets.filter(a => a !== lossAsset).join(', ')}\n` +
+            `Focusing on ${lossAsset} until win`
+        );
+    }
+
+    /**
+     * Resume all assets after a win on the focus asset
+     */
+    resumeAllAssets() {
+        const prevFocus = this.focusAsset;
+        this.suspendedAssets.clear();
+        this.focusAsset = null;
+        console.log(`✅ RESUMED: All assets active again (was focused on ${prevFocus})`);
+        this.sendTelegramMessage(
+            `✅ <b>All Assets Resumed (Bot 5)</b>\n\n` +
+            `Won on: <b>${prevFocus}</b>\n` +
+            `All assets now active for trading`
+        );
+    }
+
+    /**
+     * Check if an asset is allowed to trade (respects suspension)
+     */
+    isAssetAllowed(asset) {
+        // If no focus asset, all assets are allowed
+        if (!this.focusAsset) return true;
+        // Only the focus asset is allowed
+        return asset === this.focusAsset;
     }
 
     // ========================================================================
@@ -897,6 +949,9 @@ class AccumulatorBotV4 {
     // TRADE ANALYSIS & EXECUTION — Bollinger + MACD Strategy
     // ========================================================================
     evaluateAndTrade(asset) {
+        // Check if asset is suspended
+        if (!this.isAssetAllowed(asset)) return;
+
         // 1. Risk check
         const riskCheck = this.riskManager.canTrade(asset, this.dailyProfitLoss, this.consecutiveLosses);
         if (!riskCheck.allowed) {
@@ -1256,6 +1311,10 @@ class AccumulatorBotV4 {
             // Cooldown on loss
             this.riskManager.cooldownAsset(asset, 30);
 
+            // If we were focused on a loss asset, resume all assets
+            if (this.focusAsset) {
+                this.resumeAllAssets();
+            }
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
@@ -1282,6 +1341,9 @@ class AccumulatorBotV4 {
             }
             this.riskManager = new RiskManager(this.config);
             this.losttrades++;
+
+            // Suspend all other assets and focus on this loss asset
+            this.suspendOtherAssets(asset);
 
             // // Cooldown on loss
             // this.riskManager.cooldownAsset(asset, 10);
@@ -1455,6 +1517,9 @@ class AccumulatorBotV4 {
         this.consecutiveLosses = 0;
         this.reconnectAttempts = 0;
         this.riskManager = new RiskManager(this.config);
+        // Clear asset suspension
+        this.suspendedAssets.clear();
+        this.focusAsset = null;
         console.log('✅ New day reset complete');
     }
 
