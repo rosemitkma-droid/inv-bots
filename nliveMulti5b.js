@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_05-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_09-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1109,15 +1109,15 @@ class AccumulatorBotV4 {
             return;
         }
 
-        // if (currentTick > this.config.maxEntryTick && this.consecutiveLosses < 1) {
-        //     console.log(`❌ Proposal rejected for ${asset}: Too late (tick ${currentTick} > ${this.config.maxEntryTick})`);
-        //     if (proposal.id) {
-        //         this.sendRequest({ forget: proposal.id });
-        //     }
-        //     delete this.activeTrades[asset];
-        //     this.tradeInProgress = false;
-        //     return;
-        // }
+        if (currentTick > this.config.maxEntryTick && this.consecutiveLosses < 1) {
+            console.log(`❌ Proposal rejected for ${asset}: Too late (tick ${currentTick} > ${this.config.maxEntryTick})`);
+            if (proposal.id) {
+                this.sendRequest({ forget: proposal.id });
+            }
+            delete this.activeTrades[asset];
+            this.tradeInProgress = false;
+            return;
+        }
 
         const trade = this.activeTrades[asset];
 
@@ -1944,7 +1944,7 @@ const bot = new AccumulatorBotV4(token, {
     dailyTakeProfit: 500000,
     tradeSystem: 1,
     minEntryTick: 0,
-    maxEntryTick: 5,
+    maxEntryTick: 15,
 
     // Accumulator strategy
     defaultGrowthRate: 0.02,   // 1% — widest barrier, highest survival
