@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_03-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_05-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1957,7 +1957,7 @@ const bot = new AccumulatorBotV4(token, {
     minTimeBetweenTrades: 5000, // Reduced from 10s for faster re-entry
 
     // Assets (lower volatility indices preferred)
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'], //, '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'], //, '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'
 
     // Telegram (use env vars or fill in)
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
