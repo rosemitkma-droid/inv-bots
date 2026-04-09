@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator_bot5_04-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator_bot5_05-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
