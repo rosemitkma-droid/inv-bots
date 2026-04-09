@@ -604,6 +604,7 @@ class AccumulatorBotV4 {
         this.lastTradeTime = {}; // Per-asset trade timing
         // Per-asset state
         this.assetStates = {};  // { asset: { proposalId, lastProposalAt, lastTicks } }
+        this.currentTick = null;
 
         // Asset metrics
         this.assetMetrics = {};
@@ -1087,7 +1088,7 @@ class AccumulatorBotV4 {
 
         // Current tick count of the running accumulator
         const currentTick = (stayedIn[stayedIn.length - 1] || 0) + 1;
-        this.assetStates[asset].lastTicks = currentTick;
+        this.currentTick = currentTick;
 
         // Only buy if we initiated this proposal
         if (!this.activeTrades[asset] || this.activeTrades[asset].status !== 'requesting_proposal') {
@@ -1098,14 +1099,14 @@ class AccumulatorBotV4 {
             return;
         }
 
-        // if (currentTick > this.config.maxEntryTick) {
-        //     console.log(`❌ Proposal rejected for ${asset}: Too late (tick ${currentTick} > ${this.config.maxEntryTick})`);
-        //     if (proposal.id) {
-        //         this.sendRequest({ forget: proposal.id });
-        //     }
-        //     delete this.activeTrades[asset];
-        //     return;
-        // }
+        if (currentTick > this.config.maxEntryTick) {
+            console.log(`❌ Proposal rejected for ${asset}: Too late (tick ${currentTick} > ${this.config.maxEntryTick})`);
+            if (proposal.id) {
+                this.sendRequest({ forget: proposal.id });
+            }
+            delete this.activeTrades[asset];
+            return;
+        }
 
         const trade = this.activeTrades[asset];
 
@@ -1159,8 +1160,6 @@ class AccumulatorBotV4 {
             subscribe: 1
         });
 
-        const currentTick = this.assetStates[asset].lastTicks;
-
         // Record trade start time and start watchdog
         this.tradeStartTime = Date.now();
         this._startTradeWatchdog(contractId);
@@ -1170,7 +1169,7 @@ class AccumulatorBotV4 {
         this.sendTelegramMessage(
             `🚀 <b>TRADE OPENED 5</b>\n\n` +
             `Asset: ${asset}\n` +
-            `Entry tick: ${currentTick}\n` +
+            `Entry tick: ${this.currentTick}\n` +
             `Stake: $${trade.stake.toFixed(2)}\n` +
             `Growth Rate: ${(trade.growthRate * 100).toFixed(0)}%\n` +
             `Score: ${(trade.analysis.overallScore * 100).toFixed(1)}%\n` +
@@ -1567,6 +1566,7 @@ class AccumulatorBotV4 {
 
         this.tradeInProgress = false;
         this.ticksHeld = 0;
+        this.currentTick = null;
 
         // Record for learning
         this.analyzer.recordTradeResult(asset, {
