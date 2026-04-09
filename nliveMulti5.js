@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator_bot5_02-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator_bot5_03-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -317,11 +317,11 @@ class AccumulatorAnalyzer {
             else scores.bandWidth = 0.15;                             // Very wide — avoid
         } else {
             // Fallback: use raw width
-            if (bb.width < 0.003) scores.bandWidth = 1.0;
-            else if (bb.width < 0.006) scores.bandWidth = 0.80;
-            else if (bb.width < 0.010) scores.bandWidth = 0.55;
-            else if (bb.width < 0.015) scores.bandWidth = 0.30;
-            else scores.bandWidth = 0.10;
+            if (bb.width < 0.003) scores.bandWidth = 0.0;
+            else if (bb.width < 0.006) scores.bandWidth = 0.00;
+            else if (bb.width < 0.010) scores.bandWidth = 0.00;
+            else if (bb.width < 0.015) scores.bandWidth = 0.00;
+            else scores.bandWidth = 0.00;
         }
 
         // 2. MACD HISTOGRAM — Flat/near-zero histogram = no momentum = GOOD
@@ -543,6 +543,10 @@ class AccumulatorBotV4 {
             dailyTakeProfit: config.dailyTakeProfit || 200,
             tradeSystem: config.tradeSystem || 1,
 
+            // Entry window (ENFORCED): only enter when active accumulator is this young
+            minEntryTick: config.minEntryTick || 0,
+            maxEntryTick: config.maxEntryTick || 20,
+
             // Accumulator settings
             defaultGrowthRate: config.defaultGrowthRate || 0.01,  // 1% — safest, widest range
 
@@ -598,6 +602,8 @@ class AccumulatorBotV4 {
         this.tickCounts = {};  // Count ticks per asset for analysis throttling
         this.tickSubscriptionIds = {};
         this.lastTradeTime = {}; // Per-asset trade timing
+        // Per-asset state
+        this.assetStates = {};  // { asset: { proposalId, lastProposalAt, lastTicks } }
 
         // Asset metrics
         this.assetMetrics = {};
@@ -975,30 +981,34 @@ class AccumulatorBotV4 {
 
         // 4. Decision
         if (this.Sys === 1) {
-            if (!analysis.shouldTrade) return;
+            if (this.consecutiveLosses < 1) {
+                if (!analysis.shouldTrade) return;
 
-            if (analysis.maxTickMove > 0.001) return;
+                if (analysis.maxTickMove > 0.001) return;
 
-            if (analysis.tickStability < 0.3) return;
+                if (analysis.tickStability < 0.3) return;
 
-            if (analysis.bb.percentB < 0.3 || analysis.bb.percentB > 0.7) return;
+                if (analysis.bb.percentB < 0.3 || analysis.bb.percentB > 0.7) return;
 
-            if (analysis.macd.histogram > 0) return;
+                if (analysis.macd.histogram > 0) return;
 
-            if (analysis.macd.isConverging) return;
+                if (analysis.macd.isConverging) return;
 
-            if (analysis.overallScore < 0.85) return;
+                if (analysis.overallScore < 0.85) return;
+            }
+        } else {
+            if (this.consecutiveLosses < 1) {
+                const shouldTrade =
+                    analysis.overallScore < 0.46 &&
+                    analysis.scores.bandWidth < 1 &&
+                    analysis.scores.macdFlat < 1 &&
+                    analysis.scores.pricePosition < 1 &&
+                    analysis.scores.tickStability >= 1
+
+
+                if (this.Sys === 2 && !shouldTrade) return;
+            }
         }
-
-        const shouldTrade =
-            analysis.overallScore < 0.46 &&
-            analysis.scores.bandWidth < 1 &&
-            analysis.scores.macdFlat < 1 &&
-            analysis.scores.pricePosition < 1 &&
-            analysis.scores.tickStability >= 1
-
-
-        if (this.Sys === 2 && !shouldTrade) return;
 
         if (this.tradeInProgress) return;
 
@@ -1070,6 +1080,15 @@ class AccumulatorBotV4 {
         const asset = message.echo_req.symbol;
         const proposal = message.proposal;
 
+        if (!proposal.contract_details || !proposal.contract_details.ticks_stayed_in) return;
+
+        const stayedIn = proposal.contract_details.ticks_stayed_in;
+        this.assetStates[asset].proposalId = proposal.id;
+
+        // Current tick count of the running accumulator
+        const currentTick = (stayedIn[stayedIn.length - 1] || 0) + 1;
+        this.assetStates[asset].lastTicks = currentTick;
+
         // Only buy if we initiated this proposal
         if (!this.activeTrades[asset] || this.activeTrades[asset].status !== 'requesting_proposal') {
             // Stale proposal — ignore or forget
@@ -1079,10 +1098,20 @@ class AccumulatorBotV4 {
             return;
         }
 
+        if (currentTick > this.config.maxEntryTick) {
+            console.log(`❌ Proposal rejected for ${asset}: Too late (tick ${currentTick} > ${this.config.maxEntryTick})`);
+            if (proposal.id) {
+                this.sendRequest({ forget: proposal.id });
+            }
+            delete this.activeTrades[asset];
+            return;
+        }
+
         const trade = this.activeTrades[asset];
 
         console.log(`\n🚀 BUYING ACCUMULATOR: ${asset}`);
         console.log(`   Proposal ID: ${proposal.id}`);
+        console.log(`   Current Tick: ${currentTick}`);
         console.log(`   Stake: $${trade.stake.toFixed(2)} | Growth: ${(trade.growthRate * 100).toFixed(0)}%`);
 
         this.sendRequest({
@@ -1130,6 +1159,8 @@ class AccumulatorBotV4 {
             subscribe: 1
         });
 
+        const currentTick = this.assetStates[asset].lastTicks;
+
         // Record trade start time and start watchdog
         this.tradeStartTime = Date.now();
         this._startTradeWatchdog(contractId);
@@ -1139,6 +1170,7 @@ class AccumulatorBotV4 {
         this.sendTelegramMessage(
             `🚀 <b>TRADE OPENED 5</b>\n\n` +
             `Asset: ${asset}\n` +
+            `Entry tick: ${currentTick}\n` +
             `Stake: $${trade.stake.toFixed(2)}\n` +
             `Growth Rate: ${(trade.growthRate * 100).toFixed(0)}%\n` +
             `Score: ${(trade.analysis.overallScore * 100).toFixed(1)}%\n` +
@@ -1411,6 +1443,8 @@ class AccumulatorBotV4 {
         // this.hourlyStats.losses++;
         this.hourlyStats.pnl -= stake;
         this.accountBalance -= stake;
+
+        this.consecutiveLosses = 0;
 
         // Focus on the loss asset
         // this.suspendOtherAssets(stuckAsset);
@@ -1806,6 +1840,8 @@ const bot = new AccumulatorBotV4(token, {
     maxDailyLoss: 100,
     dailyTakeProfit: 500000,
     tradeSystem: 2,
+    minEntryTick: 0,
+    maxEntryTick: 15,
 
     // Accumulator strategy
     defaultGrowthRate: 0.02,   // 1% — widest barrier, highest survival
