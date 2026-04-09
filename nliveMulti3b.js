@@ -1,6 +1,6 @@
 /**
  * ╔══════════════════════════════════════════════════════════════╗
- * ║        DERIV RELIABLE ACCUMULATOR BOT  v4.0                 ║
+ * ║        DERIV RELIABLE ACCUMULATOR BOT  v4.1                 ║
  * ╠══════════════════════════════════════════════════════════════╣
  * ║  STRATEGY:                                                   ║
  * ║  • Bollinger Band Squeeze Detection on real tick prices      ║
@@ -11,6 +11,16 @@
  * ║  • FLAT STAKING — no Martingale (knockout = 100% loss)      ║
  * ║  • Per-asset cooldowns after losses                          ║
  * ║  • Multi-asset rotation with single active trade             ║
+ * ║                                                              ║
+ * ║  v4.1 CHANGES:                                              ║
+ * ║  • Instant recovery proposal — pre-fetched BEFORE trade      ║
+ * ║    settles using a shadow proposal pipeline                  ║
+ * ║  • Trade lock released immediately on is_sold detection      ║
+ * ║  • Recovery bypass: skips throttle + signal gate on          ║
+ * ║    first recovery trade after a loss                         ║
+ * ║  • Proposal cache: stores ready proposals per asset          ║
+ * ║  • Tick-independent recovery: fires on ws message receipt    ║
+ * ║    not on the next tick arrival                              ║
  * ╚══════════════════════════════════════════════════════════════╝
  */
 
@@ -23,68 +33,73 @@ const fs = require('fs');
 const path = require('path');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CONFIGURATION — edit values here or override via environment
+// CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
 const CONFIG = {
     // Deriv API
-    token: '0P94g4WdSrSrzir', //process.env.DERIV_TOKEN || 
-    appId: 1089, //process.env.DERIV_APP_ID || 
+    token: '0P94g4WdSrSrzir',
+    appId: 1089,
     wsUrl: 'wss://ws.derivws.com/websockets/v3',
 
-    // Assets to trade (ordered by preference — lowest volatility first)
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'], // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'
+    // Assets to trade (ordered by preference)
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
 
-    // Staking  (FLAT — no Martingale)
-    initialStake: 1.00,   // USD per trade
-    multiplier: 6.00,   // never exceed this
-    multiplier2: 8.00,   // never exceed this
+    // Staking (FLAT — no Martingale)
+    initialStake: 1.00,
+    multiplier: 6.00,
+    multiplier2: 8.00,
 
     // Growth rates
-    growthRateDefault: 0.01,   // 1% — widest barriers, safest
-    growthRateBoost: 0.02,   // 2% — only on strong squeeze + RSI centred
+    growthRateDefault: 0.01,
+    growthRateBoost: 0.02,
 
-    // Entry window (ENFORCED): only enter when active accumulator is this young
+    // Entry window
     minEntryTick: 0,
-    maxEntryTick: 20,
+    maxEntryTick: 10,
 
-    // Take-profit (contract level): sell when profit ≥ X% of stake
-    takeProfitPct: 0.20,   // 40% of stake
-    // Hard hold limit: never hold longer than this after take-profit window opens
+    // Take-profit
+    takeProfitPct: 0.20,
     maxHoldTicks: 20,
 
-    // Bollinger Bands parameters
+    // Bollinger Bands
     bbPeriod: 20,
     bbMultiplier: 2.0,
-    // BB width percentile threshold — enter only when market is calm
-    bbSqueezePctile: 20,     // below 40th percentile = squeeze (good to enter)
+    bbSqueezePctile: 20,
 
-    // RSI parameters
+    // RSI
     rsiPeriod: 14,
-    rsiLow: 40,     // don't enter if RSI < 35 (trending down hard)
-    rsiHigh: 60,     // don't enter if RSI > 65 (trending up hard)
+    rsiLow: 40,
+    rsiHigh: 60,
 
-    // Price stability: max average absolute change over last 10 ticks (as % of price)
-    maxPriceChangePct: 0.002,  // 0.2%
+    // Momentum
+    maxPriceChangePct: 0.002,
 
     // Min history required before analysis
     requiredHistory: 60,
 
     // Risk management
     maxConsecutiveLosses: 3,
-    consecutiveLossCooldownMs: 1800000, // 30 min pause after 3 consec losses
-    assetCooldownMs: 1800000, // 30 min asset cooldown on loss
-    maxDailyLoss: 500,     // stop bot for the day
-    takeProfitSession: 50000,    // stop bot after reaching this profit
+    consecutiveLossCooldownMs: 1800000,
+    assetCooldownMs: 1800000,
+    maxDailyLoss: 500,
+    takeProfitSession: 50000,
 
-    // Proposal throttle: min ms between proposal requests per asset
-    proposalThrottleMs: 10000,
+    // ── v4.1: Recovery settings ───────────────────────────────────────────────
+    // Throttle is bypassed for the FIRST recovery trade after a loss.
+    // After that, normal throttle resumes.
+    proposalThrottleMs: 10000,          // normal throttle (ms)
+    recoveryProposalThrottleMs: 500,    // ultra-fast throttle during recovery
+    recoveryMode: true,                 // enable instant recovery
+    recoveryBypassSignalGate: true,     // bypass BB/RSI gate on recovery trade
+    // Shadow proposal: prefetch proposals for focus asset while trade is live
+    shadowProposalIntervalMs: 3000,     // how often to refresh shadow proposal
 
     // Telegram
-    telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ', //process.env.TELEGRAM_TOKEN || 
-    telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
+    telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
+    telegramChatId: '752497117',
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator_botB02_state.json'),
+    stateFile: path.join(__dirname, 'accumulator_botB07_state.json'),
     stateSaveMs: 5000,
 };
 
@@ -140,104 +155,64 @@ class StatePersistence {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// VOLATILITY ANALYZER — Bollinger Bands + RSI + Momentum on real prices
+// VOLATILITY ANALYZER
 // ─────────────────────────────────────────────────────────────────────────────
 class VolatilityAnalyzer {
     constructor() {
-        this.bbWidthHistory = {}; // last 100 BB widths per asset
+        this.bbWidthHistory = {};
     }
 
-    // ── Bollinger Bands ───────────────────────────────────────────────────────
     computeBB(prices, period = CONFIG.bbPeriod, mult = CONFIG.bbMultiplier) {
         if (prices.length < period) return null;
-
         const slice = prices.slice(-period);
         const mean = slice.reduce((s, v) => s + v, 0) / period;
         const variance = slice.reduce((s, v) => s + (v - mean) ** 2, 0) / period;
         const sigma = Math.sqrt(variance);
-
         return {
             upper: mean + mult * sigma,
             middle: mean,
             lower: mean - mult * sigma,
-            width: (2 * mult * sigma) / mean, // normalised width
+            width: (2 * mult * sigma) / mean,
             sigma,
             mean,
         };
     }
 
-    // ── RSI ───────────────────────────────────────────────────────────────────
     computeRSI(prices, period = CONFIG.rsiPeriod) {
         if (prices.length < period + 1) return null;
-
         const changes = [];
-        for (let i = 1; i < prices.length; i++) {
-            changes.push(prices[i] - prices[i - 1]);
-        }
-
+        for (let i = 1; i < prices.length; i++) changes.push(prices[i] - prices[i - 1]);
         const recent = changes.slice(-period);
         let gains = 0, losses = 0;
-
-        // First average
-        recent.forEach(c => {
-            if (c > 0) gains += c;
-            else losses -= c;
-        });
-
+        recent.forEach(c => { if (c > 0) gains += c; else losses -= c; });
         let avgGain = gains / period;
         let avgLoss = losses / period;
-
         if (avgLoss === 0) return 100;
-
         const rs = avgGain / avgLoss;
         return 100 - 100 / (1 + rs);
     }
 
-    // ── Price Momentum (avg absolute % change over last N ticks) ─────────────
     computeMomentum(prices, lookback = 10) {
         if (prices.length < lookback + 1) return null;
-
         const slice = prices.slice(-lookback - 1);
         let sumAbsPctChange = 0;
-
         for (let i = 1; i < slice.length; i++) {
             sumAbsPctChange += Math.abs((slice[i] - slice[i - 1]) / slice[i - 1]);
         }
-
-        return sumAbsPctChange / lookback; // avg absolute % change per tick
+        return sumAbsPctChange / lookback;
     }
 
-    // ── BB Width Percentile (squeeze detection) ───────────────────────────────
     getBBWidthPercentile(asset, currentWidth) {
-        if (!this.bbWidthHistory[asset]) {
-            this.bbWidthHistory[asset] = [];
-        }
-
+        if (!this.bbWidthHistory[asset]) this.bbWidthHistory[asset] = [];
         const history = this.bbWidthHistory[asset];
         history.push(currentWidth);
         if (history.length > 100) history.shift();
-
-        if (history.length < 20) return 50; // not enough data, assume neutral
-
+        if (history.length < 20) return 50;
         const sorted = [...history].sort((a, b) => a - b);
         const rank = sorted.filter(w => w <= currentWidth).length;
         return (rank / sorted.length) * 100;
     }
 
-    // ── Composite Entry Signal ────────────────────────────────────────────────
-    /**
-     * @returns {{
-     *   score: number,        0–1 (higher = better entry)
-     *   shouldEnter: boolean,
-     *   growthRate: number,   0.01 or 0.02
-     *   reason: string,
-     *   bb: object|null,
-     *   rsi: number|null,
-     *   momentum: number|null,
-     *   bbWidthPctile: number,
-     *   regime: string
-     * }}
-     */
     analyze(asset, prices) {
         if (prices.length < CONFIG.requiredHistory) {
             return {
@@ -262,28 +237,18 @@ class VolatilityAnalyzer {
 
         const bbWidthPctile = this.getBBWidthPercentile(asset, bb.width);
 
-        // ── Scoring ──────────────────────────────────────────────────────────
-        // 1. Bollinger Band Squeeze Score (lower percentile = better, max at 0)
-        let bbScore = 1 - (bbWidthPctile / 100); // 0–1
-        bbScore = Math.pow(bbScore, 0.7);     // smooth the curve
+        let bbScore = 1 - (bbWidthPctile / 100);
+        bbScore = Math.pow(bbScore, 0.7);
 
-        // 2. RSI Score — peak at 50, drops toward 0 and 100
         const rsiCentre = 50;
         const rsiDist = Math.abs(rsi - rsiCentre);
-        const rsiScore = Math.max(0, 1 - rsiDist / 40); // 1 at RSI=50, 0 at RSI=10 or 90
+        const rsiScore = Math.max(0, 1 - rsiDist / 40);
 
-        // 3. Momentum Score (lower momentum = better for accumulators)
         const momentumThreshold = CONFIG.maxPriceChangePct;
         const momentumScore = Math.max(0, 1 - momentum / (momentumThreshold * 3));
 
-        // ── Weighted composite ───────────────────────────────────────────────
-        const score = (
-            bbScore * 0.55 +
-            rsiScore * 0.30 +
-            momentumScore * 0.15
-        );
+        const score = (bbScore * 0.55 + rsiScore * 0.30 + momentumScore * 0.15);
 
-        // ── Hard gates ───────────────────────────────────────────────────────
         let reason = '';
         let shouldEnter = true;
 
@@ -306,14 +271,12 @@ class VolatilityAnalyzer {
             reason = 'conditions_met';
         }
 
-        // ── Growth rate selection ─────────────────────────────────────────────
         const strongSqueeze = bbWidthPctile < 20;
         const rsiCentred = rsi >= 44 && rsi <= 56;
         const growthRate = (strongSqueeze && rsiCentred && shouldEnter)
             ? CONFIG.growthRateBoost
             : CONFIG.growthRateDefault;
 
-        // ── Regime label ─────────────────────────────────────────────────────
         let regime = 'neutral';
         if (bbWidthPctile < 20 && rsi >= 44 && rsi <= 56) regime = 'ideal_squeeze';
         else if (bbWidthPctile < 40) regime = 'squeeze';
@@ -333,7 +296,7 @@ class VolatilityAnalyzer {
 // ─────────────────────────────────────────────────────────────────────────────
 class RiskManager {
     constructor() {
-        this.assetCooldowns = {}; // { asset: untilTimestamp }
+        this.assetCooldowns = {};
         this.globalPausedUntil = 0;
     }
 
@@ -344,19 +307,17 @@ class RiskManager {
     }
 
     isAssetOnCooldown(asset) {
-        const until = this.assetCooldowns[asset] || 0;
-        return Date.now() < until;
+        return Date.now() < (this.assetCooldowns[asset] || 0);
     }
 
     assetCooldownRemaining(asset) {
-        const until = this.assetCooldowns[asset] || 0;
-        return Math.max(0, until - Date.now());
+        return Math.max(0, (this.assetCooldowns[asset] || 0) - Date.now());
     }
 
     setGlobalPause() {
         this.globalPausedUntil = Date.now() + CONFIG.consecutiveLossCooldownMs;
         const mins = (CONFIG.consecutiveLossCooldownMs / 60000).toFixed(0);
-        console.log(`⏸️  Global pause for ${mins} min (consecutive loss limit hit)`);
+        console.log(`⏸️  Global pause for ${mins} min`);
     }
 
     isGloballyPaused() {
@@ -364,21 +325,64 @@ class RiskManager {
     }
 
     canTrade(asset, dailyPnl, consecutiveLosses) {
-        if (dailyPnl <= -CONFIG.maxDailyLoss) {
+        if (dailyPnl <= -CONFIG.maxDailyLoss)
             return { allowed: false, reason: `daily_loss_limit ($${CONFIG.maxDailyLoss})` };
-        }
         if (this.isGloballyPaused()) {
             const remMin = ((this.globalPausedUntil - Date.now()) / 60000).toFixed(0);
             return { allowed: false, reason: `global_pause (${remMin}m remaining)` };
         }
-        if (consecutiveLosses >= CONFIG.maxConsecutiveLosses) {
+        if (consecutiveLosses >= CONFIG.maxConsecutiveLosses)
             return { allowed: false, reason: `consecutive_loss_limit (${consecutiveLosses}/${CONFIG.maxConsecutiveLosses})` };
-        }
         if (this.isAssetOnCooldown(asset)) {
             const remMin = (this.assetCooldownRemaining(asset) / 60000).toFixed(0);
             return { allowed: false, reason: `asset_cooldown (${remMin}m remaining)` };
         }
         return { allowed: true };
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROPOSAL CACHE — stores ready proposals keyed by asset
+// ─────────────────────────────────────────────────────────────────────────────
+class ProposalCache {
+    constructor() {
+        // { asset: { proposalId, proposal, signal, cachedAt, ticks } }
+        this.cache = {};
+        // Max age of a cached proposal before it's considered stale (ms)
+        // Deriv proposals expire after ~60s; keep it well under that
+        this.maxAgeMs = 25000;
+    }
+
+    set(asset, proposalId, proposal, signal, ticks) {
+        this.cache[asset] = {
+            proposalId,
+            proposal,
+            signal,
+            ticks,
+            cachedAt: Date.now(),
+        };
+    }
+
+    get(asset) {
+        const entry = this.cache[asset];
+        if (!entry) return null;
+        if (Date.now() - entry.cachedAt > this.maxAgeMs) {
+            delete this.cache[asset];
+            return null;
+        }
+        return entry;
+    }
+
+    invalidate(asset) {
+        delete this.cache[asset];
+    }
+
+    invalidateAll() {
+        this.cache = {};
+    }
+
+    isValid(asset) {
+        return this.get(asset) !== null;
     }
 }
 
@@ -400,25 +404,38 @@ class ReliableAccumulatorBot {
         this.multiplier = CONFIG.multiplier;
         this.multiplier2 = CONFIG.multiplier2;
 
-        // Price history  (raw float prices — used for BB/RSI)
-        this.tickPrices = {};  // { asset: [price, price, ...] }
+        // Price history
+        this.tickPrices = {};
         this.tickSubscriptionIds = {};
 
         // Per-asset state
-        this.assetStates = {};  // { asset: { proposalId, lastProposalAt, lastTicks } }
-
-        // Proposal throttle
-        this.lastProposalAt = {};  // { asset: timestamp }
+        this.assetStates = {};
+        this.lastProposalAt = {};
 
         // Active trade tracking
         this.tradeInProgress = false;
         this.activeTrade = null;
         this.contractSubscriptionId = null;
 
-        // Trade Watchdog — detects and recovers stuck trades
+        // ── v4.1: Recovery pipeline ───────────────────────────────────────────
+        // Tracks whether the NEXT trade is a recovery trade (first after a loss)
+        this.isRecoveryMode = false;
+        // Proposal cache — stores ready-to-fire proposals
+        this.proposalCache = new ProposalCache();
+        // Shadow proposal timer — refreshes proposals for focus asset while
+        // a live trade is running, so recovery can fire instantly on settlement
+        this.shadowProposalTimer = null;
+        // Pending recovery execution — set when a result arrives and we have
+        // a cached proposal ready to fire immediately
+        this.pendingRecovery = null;
+        // Tracks proposals currently in-flight (to prevent duplicate requests)
+        this.proposalInFlight = {};
+        // ─────────────────────────────────────────────────────────────────────
+
+        // Trade Watchdog
         this.tradeWatchdogTimer = null;
         this.tradeWatchdogPollTimer = null;
-        this.tradeWatchdogMs = 120000; // 2 minutes — Accumulator contracts should settle well before this
+        this.tradeWatchdogMs = 120000;
         this.tradeStartTime = null;
 
         // Session stats
@@ -439,8 +456,8 @@ class ReliableAccumulatorBot {
         this.riskManager = new RiskManager();
 
         // Asset suspension state
-        this.suspendedAssets = new Set();  // Assets that are suspended
-        this.focusAsset = null;            // The asset to focus on after a loss
+        this.suspendedAssets = new Set();
+        this.focusAsset = null;
 
         // Telegram
         this.telegram = (CONFIG.telegramToken && CONFIG.telegramChatId)
@@ -452,25 +469,18 @@ class ReliableAccumulatorBot {
             this.tickPrices[asset] = [];
             this.assetStates[asset] = { proposalId: null, lastTicks: 0, lastProposalAt: 0 };
             this.assetMetrics[asset] = { trades: 0, wins: 0, losses: 0, pnl: 0 };
+            this.proposalInFlight[asset] = false;
         });
 
-        // Restore previous state
         this._loadState();
-
         this._startTelegramTimer();
     }
 
     // ── Asset Suspension Logic ────────────────────────────────────────────────
-    /**
-     * Suspend all assets except the one that just had a loss
-     * Focus only on the loss asset until a win occurs
-     */
     suspendOtherAssets(lossAsset) {
         this.focusAsset = lossAsset;
         CONFIG.assets.forEach(asset => {
-            if (asset !== lossAsset) {
-                this.suspendedAssets.add(asset);
-            }
+            if (asset !== lossAsset) this.suspendedAssets.add(asset);
         });
         console.log(`🔒 SUSPENDED: All assets except ${lossAsset}. Focusing on loss asset.`);
         this.notify(
@@ -481,9 +491,6 @@ class ReliableAccumulatorBot {
         );
     }
 
-    /**
-     * Resume all assets after a win on the focus asset
-     */
     resumeAllAssets() {
         const prevFocus = this.focusAsset;
         this.suspendedAssets.clear();
@@ -496,13 +503,8 @@ class ReliableAccumulatorBot {
         );
     }
 
-    /**
-     * Check if an asset is allowed to trade (respects suspension)
-     */
     isAssetAllowed(asset) {
-        // If no focus asset, all assets are allowed
         if (!this.focusAsset) return true;
-        // Only the focus asset is allowed
         return asset === this.focusAsset;
     }
 
@@ -529,11 +531,9 @@ class ReliableAccumulatorBot {
     connect() {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
         this._cleanup();
-
         const url = `${CONFIG.wsUrl}?app_id=${CONFIG.appId}`;
         console.log(`🔌 Connecting to ${url}...`);
         this.ws = new WebSocket(url);
-
         this.ws.on('open', () => this._onOpen());
         this.ws.on('message', (data) => this._onMessage(data));
         this.ws.on('error', (err) => console.error('WS error:', err.message));
@@ -551,21 +551,19 @@ class ReliableAccumulatorBot {
         console.log('⚡ WebSocket closed');
         this.connected = false;
         this.wsReady = false;
-
         if (this.shutdownFlag || this.endOfDay) return;
-
         this.reconnectAttempts++;
         if (this.reconnectAttempts > this.maxReconnects) {
             console.error('❌ Max reconnects reached. Exiting.');
             process.exit(1);
         }
-
         const delay = Math.min(5000 * this.reconnectAttempts, 30000);
         console.log(`🔄 Reconnecting in ${(delay / 1000).toFixed(0)}s (attempt ${this.reconnectAttempts})`);
         setTimeout(() => this.connect(), delay);
     }
 
     _cleanup() {
+        this._stopShadowProposalTimer();
         if (this.ws) {
             this.ws.removeAllListeners();
             try { this.ws.close(); } catch (_) { }
@@ -624,9 +622,7 @@ class ReliableAccumulatorBot {
     // ── Subscriptions ─────────────────────────────────────────────────────────
     _initSubscriptions() {
         console.log(`📡 Subscribing to ${CONFIG.assets.length} assets...`);
-
         CONFIG.assets.forEach(asset => {
-            // Load historical prices
             this._send({
                 ticks_history: asset,
                 adjust_start_time: 1,
@@ -635,77 +631,11 @@ class ReliableAccumulatorBot {
                 start: 1,
                 style: 'ticks',
             });
-
-            // Live tick subscription
             this._send({ ticks: asset, subscribe: 1 });
         });
     }
 
-    _startTelegramTimer() {
-        const now = new Date();
-        const nextHour = new Date(now);
-        nextHour.setHours(nextHour.getHours() + 1);
-        nextHour.setMinutes(0);
-        nextHour.setSeconds(0);
-        nextHour.setMilliseconds(0);
-
-        const timeUntilNextHour = nextHour.getTime() - now.getTime();
-
-        setTimeout(() => {
-            this.sendHourlySummary();
-            setInterval(() => {
-                this.sendHourlySummary();
-            }, 60 * 60 * 1000);
-        }, timeUntilNextHour);
-
-        console.log(`📱 Hourly summaries scheduled. First in ${Math.ceil(timeUntilNextHour / 60000)} minutes.`);
-    }
-
-    _getLastDigit(quote, asset) {
-        const quoteString = quote.toString();
-        const [, fractionalPart = ''] = quoteString.split('.');
-
-        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
-            return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
-        } else if (['R_10', 'R_25', '1HZ15V', '1HZ30V', '1HZ90V',].includes(asset)) {
-            return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
-        } else {
-            return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
-        }
-    }
-
-    // _handleHistory(msg) {
-    //     if (msg.error) return;
-    //     const asset = msg.echo_req.ticks_history;
-    //     const prices = (msg.history.prices || []).map(price => this._getLastDigit(price, asset));
-    //     this.tickPrices[asset] = prices;
-    //     console.log(`📊 ${asset}: Loaded ${prices.length} price ticks`);
-    // }
-
-    // ── Live Tick ─────────────────────────────────────────────────────────────
-    // _handleTick(msg) {
-    //     if (msg.subscription) {
-    //         const asset = msg.tick.symbol;
-    //         this.tickSubscriptionIds[asset] = msg.subscription.id;
-    //     }
-
-    //     const { symbol, quote } = msg.tick;
-    //     const price = this._getLastDigit(quote, symbol);
-    //     const prices = this.tickPrices[symbol];
-
-    //     if (!prices) return;
-    //     prices.push(price);
-    //     this.tickPrices[symbol] = prices;
-
-    //     console.log(`📊 ${symbol}: ${prices.slice(-10)} | ${price} (${prices.length})`);
-
-    //     // Keep rolling window of 300 prices
-    //     while (prices.length > 300) prices.shift();
-
-    //     // Attempt to request a proposal for this asset
-    //     this._maybeRequestProposal(symbol);
-    // }
-
+    // ── History ───────────────────────────────────────────────────────────────
     _handleHistory(msg) {
         if (msg.error) return;
         const asset = msg.echo_req.ticks_history;
@@ -717,58 +647,141 @@ class ReliableAccumulatorBot {
     // ── Live Tick ─────────────────────────────────────────────────────────────
     _handleTick(msg) {
         if (msg.subscription) {
-            const asset = msg.tick.symbol;
-            this.tickSubscriptionIds[asset] = msg.subscription.id;
+            this.tickSubscriptionIds[msg.tick.symbol] = msg.subscription.id;
         }
 
         const { symbol, quote } = msg.tick;
         const price = Number(quote);
         const prices = this.tickPrices[symbol];
-
         if (!prices) return;
+
         prices.push(price);
-
-        const asset = msg.tick.symbol;
-        this.tickPrices[asset] = prices;
-
-        // Keep rolling window of 300 prices
         while (prices.length > 300) prices.shift();
 
-        // Attempt to request a proposal for this asset
+        // Normal proposal request (throttled)
         this._maybeRequestProposal(symbol);
     }
 
-    // ── Proposal Request (throttled + gated) ──────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════════════════
+    // v4.1 — SHADOW PROPOSAL PIPELINE
+    //
+    // While a trade is LIVE, we silently prefetch and refresh proposals for
+    // the focus asset (or best available asset). When the live trade settles,
+    // _handleTradeResult releases the lock and IMMEDIATELY calls
+    // _fireRecoveryTrade() which executes the pre-cached proposal without
+    // waiting for the next tick or throttle.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Start fetching shadow proposals for a given asset while a trade is live.
+     * The shadow proposals are stored in the proposal cache so they are
+     * immediately available when the live trade ends.
+     */
+    _startShadowProposalTimer(asset) {
+        this._stopShadowProposalTimer();
+
+        console.log(`🌑 Shadow proposal pipeline started for ${asset}`);
+
+        // Fire immediately then repeat
+        this._fetchShadowProposal(asset);
+
+        this.shadowProposalTimer = setInterval(() => {
+            // Stop if trade is no longer in progress (settled)
+            if (!this.tradeInProgress) {
+                this._stopShadowProposalTimer();
+                return;
+            }
+            this._fetchShadowProposal(asset);
+        }, CONFIG.shadowProposalIntervalMs);
+    }
+
+    _stopShadowProposalTimer() {
+        if (this.shadowProposalTimer) {
+            clearInterval(this.shadowProposalTimer);
+            this.shadowProposalTimer = null;
+        }
+    }
+
+    /**
+     * Request a shadow proposal for an asset.
+     * Tagged with shadow: true in the passthrough so _handleProposal knows
+     * to cache it rather than immediately executing a trade.
+     */
+    _fetchShadowProposal(asset) {
+        if (!this.wsReady || !this.connected) return;
+        if (this.proposalInFlight[asset]) return; // don't stack requests
+
+        const prices = this.tickPrices[asset];
+        if (!prices || prices.length < CONFIG.requiredHistory) return;
+
+        // Analyze signal — even for recovery we want a rough picture
+        const signal = this.analyzer.analyze(asset, prices);
+        const growthRate = signal.growthRate || CONFIG.growthRateDefault;
+        const takeProfitAmount = parseFloat(
+            (this.currentStake * CONFIG.takeProfitPct).toFixed(2)
+        );
+
+        this.proposalInFlight[asset] = true;
+
+        const sent = this._send({
+            proposal: 1,
+            amount: this.currentStake.toFixed(2),
+            basis: 'stake',
+            contract_type: 'ACCU',
+            currency: 'USD',
+            symbol: asset,
+            growth_rate: growthRate,
+            limit_order: {
+                take_profit: takeProfitAmount.toFixed(2),
+            },
+            // passthrough is echoed back in the response — we use it to
+            // identify shadow proposals vs. normal proposals
+            passthrough: { shadow: true, shadowAsset: asset },
+        });
+
+        if (!sent) this.proposalInFlight[asset] = false;
+    }
+
+    /**
+     * Main proposal request — throttled, gated by signal analysis.
+     * Used during normal (non-recovery) trading.
+     */
     _maybeRequestProposal(asset) {
         if (this.tradeInProgress) return;
         if (!this.wsReady) return;
         if (this.shutdownFlag) return;
-
-        // Check if asset is suspended
         if (!this.isAssetAllowed(asset)) return;
 
         const now = Date.now();
         const lastAt = this.assetStates[asset].lastProposalAt || 0;
-        const throttled = (now - lastAt) < CONFIG.proposalThrottleMs;
-        if (throttled) return;
 
-        // Quick pre-check — only request if history is long enough
+        // Use fast throttle during recovery, normal throttle otherwise
+        const throttleMs = this.isRecoveryMode
+            ? CONFIG.recoveryProposalThrottleMs
+            : CONFIG.proposalThrottleMs;
+
+        if ((now - lastAt) < throttleMs) return;
         if (this.tickPrices[asset].length < CONFIG.requiredHistory) return;
 
-        // Risk pre-check (no point requesting if we can't trade anyway)
         const risk = this.riskManager.canTrade(asset, this.dailyPnl, this.consecutiveLosses);
         if (!risk.allowed) return;
 
-        // Volatility pre-check — run analysis before requesting proposal
+        // Signal gate — bypassed for recovery if configured
         const signal = this.analyzer.analyze(asset, this.tickPrices[asset]);
-        if (!signal.shouldEnter) return; // don't even request proposal if signal is bad
+        const bypassSignal = this.isRecoveryMode && CONFIG.recoveryBypassSignalGate;
 
-        // All checks passed — request proposal
+        if (!bypassSignal && !signal.shouldEnter) return;
+
+        if (this.proposalInFlight[asset]) return;
+
         this.assetStates[asset].lastProposalAt = now;
+        this.proposalInFlight[asset] = true;
 
-        const takeProfitAmount = parseFloat((this.currentStake * CONFIG.takeProfitPct).toFixed(2));
+        const takeProfitAmount = parseFloat(
+            (this.currentStake * CONFIG.takeProfitPct).toFixed(2)
+        );
 
-        this._send({
+        const sent = this._send({
             proposal: 1,
             amount: this.currentStake.toFixed(2),
             basis: 'stake',
@@ -779,42 +792,83 @@ class ReliableAccumulatorBot {
             limit_order: {
                 take_profit: takeProfitAmount.toFixed(2),
             },
+            passthrough: { shadow: false, shadowAsset: asset },
         });
+
+        if (!sent) this.proposalInFlight[asset] = false;
     }
 
     // ── Proposal Handler ──────────────────────────────────────────────────────
     _handleProposal(msg) {
+        // Always clear in-flight flag
+        const asset = msg.echo_req?.symbol || msg.echo_req?.passthrough?.shadowAsset;
+        if (asset) this.proposalInFlight[asset] = false;
+
         if (msg.error) {
             if (msg.error.code !== 'ContractBuyValidationError') {
-                console.log(`Proposal error [${msg.echo_req?.symbol}]: ${msg.error.message}`);
+                console.log(`Proposal error [${asset}]: ${msg.error.message}`);
             }
             return;
         }
 
         if (!msg.proposal) return;
 
-        const asset = msg.echo_req.symbol;
         const proposal = msg.proposal;
+        const isShadow = msg.echo_req?.passthrough?.shadow === true;
 
+        // Validate proposal has required fields
         if (!proposal.contract_details || !proposal.contract_details.ticks_stayed_in) return;
 
         const stayedIn = proposal.contract_details.ticks_stayed_in;
+        const currentTick = (stayedIn[stayedIn.length - 1] || 0) + 1;
+
+        // Re-run signal analysis with latest prices
+        const prices = this.tickPrices[asset] || [];
+        const signal = this.analyzer.analyze(asset, prices);
+
+        // ── SHADOW PROPOSAL: store in cache only ─────────────────────────────
+        if (isShadow) {
+            this.proposalCache.set(asset, proposal.id, proposal, signal, currentTick);
+            console.log(
+                `🌑 Shadow proposal cached for ${asset} ` +
+                `(tick=${currentTick}, id=${proposal.id.substring(0, 8)}…)`
+            );
+
+            // If we have a pending recovery waiting for a proposal, fire it now
+            if (this.pendingRecovery && this.pendingRecovery.asset === asset) {
+                console.log(`⚡ Pending recovery found — firing immediately from shadow cache`);
+                const recovery = this.pendingRecovery;
+                this.pendingRecovery = null;
+                setImmediate(() => this._fireRecoveryTrade(recovery.asset));
+            }
+            return;
+        }
+
+        // ── NORMAL PROPOSAL ──────────────────────────────────────────────────
         this.assetStates[asset].proposalId = proposal.id;
 
-        // Current tick count of the running accumulator
-        const currentTick = (stayedIn[stayedIn.length - 1] || 0) + 1;
-        this.assetStates[asset].lastTicks = currentTick;
-
-        // ── VOLATILITY SIGNAL ─────────────────────────────────────────────────
-        const signal = this.analyzer.analyze(asset, this.tickPrices[asset]);
+        // Also cache normal proposals (they can serve as recovery proposals too)
+        this.proposalCache.set(asset, proposal.id, proposal, signal, currentTick);
 
         this._logAnalysis(asset, currentTick, signal, proposal);
 
         // Don't trade if already trading
         if (this.tradeInProgress) return;
 
+        // ── Recovery mode: use relaxed gating ────────────────────────────────
+        if (this.isRecoveryMode) {
+            const risk = this.riskManager.canTrade(asset, this.dailyPnl, this.consecutiveLosses);
+            if (!risk.allowed) {
+                this._log(asset, currentTick, `🚫 Risk block: ${risk.reason}`);
+                return;
+            }
+            console.log(`⚡ RECOVERY MODE — executing immediately on ${asset} tick=${currentTick}`);
+            this._executeTrade(asset, proposal, signal, currentTick);
+            return;
+        }
+
+        // ── Normal mode gating ────────────────────────────────────────────────
         if (this.consecutiveLosses < 1) {
-            // ── ENTRY WINDOW CHECK (ENFORCED) ────────────────────────────────────
             if (currentTick < CONFIG.minEntryTick) {
                 this._log(asset, currentTick, `⏳ Too early (${currentTick}<${CONFIG.minEntryTick})`);
                 return;
@@ -824,16 +878,14 @@ class ReliableAccumulatorBot {
                 return;
             }
 
-            // ── RISK CHECK ────────────────────────────────────────────────────────
             const risk = this.riskManager.canTrade(asset, this.dailyPnl, this.consecutiveLosses);
             if (!risk.allowed) {
                 this._log(asset, currentTick, `🚫 Risk block: ${risk.reason}`);
                 return;
             }
 
-            if (signal.growthRate < CONFIG.growthRateBoost) return; // Only trade Very Good signal
+            if (signal.growthRate < CONFIG.growthRateBoost) return;
 
-            //Execute Trade
             if (signal.shouldEnter) {
                 this._executeTrade(asset, proposal, signal, currentTick);
             }
@@ -842,31 +894,114 @@ class ReliableAccumulatorBot {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // v4.1 — INSTANT RECOVERY TRADE EXECUTOR
+    //
+    // Called by _handleTradeResult after a LOSS. Attempts to fire a trade
+    // immediately using a pre-cached proposal. If no cached proposal is
+    // available yet, sets a pendingRecovery so the next shadow proposal
+    // response triggers it.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Attempt to fire a recovery trade immediately using the proposal cache.
+     * If cache is empty, registers a pending recovery so the next shadow
+     * proposal response fires it.
+     *
+     * @param {string} asset - The focus asset to recover on
+     */
+    _fireRecoveryTrade(asset) {
+        if (this.tradeInProgress) return;
+        if (this.shutdownFlag) return;
+        if (!this.wsReady || !this.connected) return;
+
+        const risk = this.riskManager.canTrade(asset, this.dailyPnl, this.consecutiveLosses);
+        if (!risk.allowed) {
+            console.log(`🚫 Recovery blocked by risk: ${risk.reason}`);
+            this.isRecoveryMode = false;
+            return;
+        }
+
+        const cached = this.proposalCache.get(asset);
+
+        if (cached) {
+            console.log(
+                `\n⚡ INSTANT RECOVERY TRADE` +
+                `\n   Asset: ${asset}` +
+                `\n   Proposal: ${cached.proposalId.substring(0, 12)}…` +
+                `\n   Cached: ${((Date.now() - cached.cachedAt) / 1000).toFixed(1)}s ago` +
+                `\n   Tick: ${cached.ticks}`
+            );
+
+            // Invalidate cache entry so it's not reused
+            this.proposalCache.invalidate(asset);
+
+            // Execute immediately
+            this._executeTrade(asset, cached.proposal, cached.signal, cached.ticks);
+
+        } else {
+            // No cached proposal yet — register pending recovery and request one now
+            console.log(
+                `⚡ Recovery: no cached proposal for ${asset} — ` +
+                `registering pending recovery and requesting fresh proposal`
+            );
+
+            this.pendingRecovery = { asset, requestedAt: Date.now() };
+
+            // Request a shadow proposal immediately (bypass throttle)
+            this.proposalInFlight[asset] = false; // clear any stale in-flight flag
+            this._fetchShadowProposal(asset);
+
+            // Fallback: if shadow proposal takes too long, force a direct request
+            setTimeout(() => {
+                if (!this.pendingRecovery) return; // already handled
+                if (this.tradeInProgress) {
+                    this.pendingRecovery = null;
+                    return;
+                }
+                console.log(`⚡ Recovery fallback — forcing direct proposal request for ${asset}`);
+                this.pendingRecovery = null;
+                this.isRecoveryMode = true;
+                // Reset throttle timestamp so _maybeRequestProposal fires immediately
+                this.assetStates[asset].lastProposalAt = 0;
+                this.proposalInFlight[asset] = false;
+                this._maybeRequestProposal(asset);
+            }, 2000); // 2 second fallback window
+        }
+    }
+
     // ── Trade Execution ───────────────────────────────────────────────────────
     _executeTrade(asset, proposal, signal, currentTick) {
-        const proposalId = this.assetStates[asset].proposalId;
+        const proposalId = proposal.id || this.assetStates[asset].proposalId;
         if (!proposalId) {
             console.error(`❌ No proposal ID for ${asset}`);
             return;
         }
 
-        const stake = this.currentStake;  // FLAT STAKING
+        // Double-check we're not already in a trade (race condition guard)
+        if (this.tradeInProgress) {
+            console.warn(`⚠️  _executeTrade called but trade already in progress — skipping`);
+            return;
+        }
+
+        const stake = this.currentStake;
         const takeProfitAmt = parseFloat((stake * CONFIG.takeProfitPct).toFixed(2));
         const growthLabel = `${(signal.growthRate * 100).toFixed(0)}%`;
+        const modeLabel = this.isRecoveryMode ? '⚡ RECOVERY' : '🚀 TRADE';
 
         console.log('\n' + '═'.repeat(56));
-        console.log(`  🚀 OPENING TRADE`);
+        console.log(`  ${modeLabel} OPENED`);
         console.log(`     Asset:       ${asset}`);
-        console.log(`     Tick:        ${currentTick} (window: ${CONFIG.minEntryTick}–${CONFIG.maxEntryTick})`);
+        console.log(`     Tick:        ${currentTick}`);
         console.log(`     Stake:       $${stake.toFixed(2)}`);
         console.log(`     Growth:      ${growthLabel}`);
         console.log(`     Take-Profit: $${takeProfitAmt.toFixed(2)} (${(CONFIG.takeProfitPct * 100).toFixed(0)}%)`);
         console.log(`     Regime:      ${signal.regime} | Score: ${(signal.score * 100).toFixed(1)}%`);
         console.log(`     RSI:         ${signal.rsi ? signal.rsi.toFixed(1) : 'N/A'} | BB pctile: ${signal.bbWidthPctile.toFixed(0)}`);
+        if (this.isRecoveryMode) console.log(`     Mode:        ⚡ INSTANT RECOVERY`);
         console.log('═'.repeat(56));
 
-        this._send({ buy: proposalId, price: stake.toFixed(2) });
-
+        // Set trade lock BEFORE sending buy to prevent race conditions
         this.tradeInProgress = true;
         this.activeTrade = {
             asset, currentTick, stake,
@@ -874,10 +1009,17 @@ class ReliableAccumulatorBot {
             contractId: null,
             entryTime: Date.now(),
             growthRate: signal.growthRate,
+            isRecovery: this.isRecoveryMode,
         };
 
+        // Clear recovery mode now that we're entering
+        this.isRecoveryMode = false;
+        this.pendingRecovery = null;
+
+        this._send({ buy: proposalId, price: stake.toFixed(2) });
+
         this.notify(
-            `🚀 <b>TRADE OPENED 3b</b>\n\n` +
+            `${this.activeTrade.isRecovery ? '⚡' : '🚀'} <b>${this.activeTrade.isRecovery ? 'RECOVERY TRADE' : 'TRADE OPENED'} 3b</b>\n\n` +
             `Asset: <b>${asset}</b>\n` +
             `Entry tick: ${currentTick}\n` +
             `Stake: $${stake.toFixed(2)}\n` +
@@ -892,9 +1034,24 @@ class ReliableAccumulatorBot {
     _handleBuy(msg) {
         if (msg.error) {
             console.error('❌ Buy error:', msg.error.message);
+
+            // ── v4.1: If buy fails during recovery, release lock and retry ──
+            const wasRecovery = this.activeTrade?.isRecovery || false;
+            const asset = this.activeTrade?.asset;
+
             this.tradeInProgress = false;
             this.activeTrade = null;
             this._clearWatchdogTimers();
+
+            // If the buy error is a stale proposal, immediately fetch a new one
+            if (wasRecovery && asset) {
+                console.log(`⚡ Recovery buy failed — requesting fresh proposal for ${asset}`);
+                this.isRecoveryMode = true;
+                this.proposalInFlight[asset] = false;
+                this.assetStates[asset].lastProposalAt = 0;
+                // Small delay to avoid hammering the API
+                setTimeout(() => this._maybeRequestProposal(asset), 300);
+            }
             return;
         }
 
@@ -903,21 +1060,26 @@ class ReliableAccumulatorBot {
 
         if (this.activeTrade) this.activeTrade.contractId = cid;
 
-        // Subscribe to live contract updates
         this._send({
             proposal_open_contract: 1,
             contract_id: cid,
             subscribe: 1,
         });
 
-        // Record trade start time and start watchdog
         this.tradeStartTime = Date.now();
         if (this.activeTrade) this.activeTrade.entryTime = this.tradeStartTime;
         this._startTradeWatchdog(cid);
-        console.log(`⏱️  Trade watchdog started (${(this.tradeWatchdogMs / 1000).toFixed(0)}s timeout)`);
+
+        // ── v4.1: Start shadow proposal pipeline for focus/current asset ────
+        // This ensures that while this trade is live, we are already
+        // prefetching the next proposal so recovery is instant.
+        const shadowAsset = this.focusAsset || this.activeTrade?.asset;
+        if (shadowAsset && CONFIG.recoveryMode) {
+            this._startShadowProposalTimer(shadowAsset);
+        }
     }
 
-    // ── Contract Update (live monitoring) ─────────────────────────────────────
+    // ── Contract Update ───────────────────────────────────────────────────────
     _handleContractUpdate(msg) {
         if (msg.error) {
             console.error('Contract update error:', msg.error.message);
@@ -927,12 +1089,13 @@ class ReliableAccumulatorBot {
         const contract = msg.proposal_open_contract;
         if (!contract || !this.activeTrade) return;
 
-        // Save subscription ID for cleanup
         if (contract.id && !this.contractSubscriptionId) {
             this.contractSubscriptionId = contract.id;
         }
 
-        // Contract settled?
+        // ── v4.1: Release lock IMMEDIATELY on is_sold ────────────────────────
+        // Previously this called _handleTradeResult which did stats + notify
+        // BEFORE releasing the lock. Now we release first, then do bookkeeping.
         if (contract.is_sold) {
             this._handleTradeResult(contract);
             return;
@@ -942,12 +1105,13 @@ class ReliableAccumulatorBot {
         const bid = parseFloat(contract.bid_price || 0);
         const tickCount = contract.tick_count || 0;
 
-        // Progress log every 2 ticks
         if (tickCount > 0 && tickCount % 2 === 0) {
-            console.log(`📈 [${this.activeTrade.asset}] tick=${tickCount} | profit=$${profit.toFixed(3)} | bid=$${bid.toFixed(2)}`);
+            console.log(
+                `📈 [${this.activeTrade.asset}] tick=${tickCount} | ` +
+                `profit=$${profit.toFixed(3)} | bid=$${bid.toFixed(2)}`
+            );
         }
 
-        // Manual sell checks (in addition to the limit_order)
         if (contract.is_valid_to_sell) {
             const sell = this._shouldSell(contract, tickCount, profit);
             if (sell.yes) {
@@ -959,38 +1123,22 @@ class ReliableAccumulatorBot {
 
     _shouldSell(contract, tickCount, profit) {
         const tp = this.activeTrade?.takeProfitAmt || (CONFIG.initialStake * CONFIG.takeProfitPct);
-        const stake = this.activeTrade?.stake || CONFIG.initialStake;
 
-        // 1. Take profit fully reached (redundant with limit_order, but safe)
         if (profit >= tp)
             return { yes: true, reason: `take_profit_hit ($${profit.toFixed(3)})` };
-
-        // 2. Early partial take at 70% of TP after 5 ticks
         if (tickCount >= 5 && profit >= tp * 0.70)
             return { yes: true, reason: `early_tp_70pct at tick ${tickCount}` };
-
-        // 3. Hard stop on max hold ticks (rescue any remaining value)
         if (tickCount >= CONFIG.maxHoldTicks && profit > 0)
             return { yes: true, reason: `max_hold_ticks (${tickCount}) with profit` };
-
-        // 4. Absolute max hold — exit regardless
         if (tickCount >= CONFIG.maxHoldTicks + 5)
             return { yes: true, reason: `absolute_max_hold (${tickCount})` };
 
         return { yes: false };
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // TRADE WATCHDOG — DETECT AND RECOVER STUCK ACCUMULATOR CONTRACTS
-    // ══════════════════════════════════════════════════════════════════════════
-    // Accumulator contracts can sometimes get stuck (not settling after barrier
-    // breach or not responding to sell orders). This watchdog monitors active
-    // trades and forces recovery if they remain open beyond a reasonable time.
-
+    // ── Trade Watchdog ────────────────────────────────────────────────────────
     _startTradeWatchdog(contractId) {
         this._clearWatchdogTimers();
-
-        const timeoutMs = this.tradeWatchdogMs;
 
         this.tradeWatchdogTimer = setTimeout(() => {
             if (!this.tradeInProgress || !this.activeTrade) {
@@ -1000,36 +1148,28 @@ class ReliableAccumulatorBot {
 
             console.warn(
                 `⏰ WATCHDOG FIRED — Contract ${contractId || 'unknown'} has been open for ` +
-                `${(timeoutMs / 1000).toFixed(0)}s with no settlement`
+                `${(this.tradeWatchdogMs / 1000).toFixed(0)}s with no settlement`
             );
 
-            // Poll the contract to check its current status
             if (contractId && this.connected && this.wsReady) {
-                console.log(`🔍 Polling contract ${contractId} for current status…`);
                 this._send({
                     proposal_open_contract: 1,
                     contract_id: contractId,
                     subscribe: 1,
                 });
 
-                // Set a poll timeout — if we don't get a response, force recovery
                 this.tradeWatchdogPollTimer = setTimeout(() => {
                     if (!this.tradeInProgress) {
                         this._clearWatchdogTimers();
                         return;
                     }
-                    console.error(
-                        `🚨 WATCHDOG: Poll timed out — contract ${contractId} still unresolved, ` +
-                        `force-releasing lock`
-                    );
+                    console.error(`🚨 WATCHDOG: Poll timed out — force-releasing lock`);
                     this._recoverStuckTrade('watchdog-force');
-                }, 15000); // 15 seconds for poll response
-
+                }, 15000);
             } else {
-                // WebSocket not connected — can't query, force recovery
                 this._recoverStuckTrade('watchdog-offline');
             }
-        }, timeoutMs);
+        }, this.tradeWatchdogMs);
     }
 
     _clearWatchdogTimers() {
@@ -1043,15 +1183,9 @@ class ReliableAccumulatorBot {
         }
     }
 
-    /**
-     * Recover from a stuck trade — release the lock so the bot can trade again.
-     * For Accumulator contracts, this handles scenarios where:
-     *  - Contract never settles after barrier breach
-     *  - Sell order never executes
-     *  - proposal_open_contract stream stops responding
-     */
     _recoverStuckTrade(reason) {
         this._clearWatchdogTimers();
+        this._stopShadowProposalTimer();
 
         const contractId = this.activeTrade?.contractId || 'unknown';
         const asset = this.activeTrade?.asset || 'unknown';
@@ -1067,48 +1201,28 @@ class ReliableAccumulatorBot {
             `\n   Open for: ${openSeconds}s`
         );
 
-        // Attempt to sell the contract if it's still valid (last-resort salvage)
-        if (contractId && contractId !== 'unknown' && this.connected && this.wsReady) {
-            console.log(`🔄 Attempting emergency sell of contract ${contractId}…`);
-            this._send({
-                sell: contractId,
-                price: '0', // Sell at any available price
-            });
+        if (contractId !== 'unknown' && this.connected && this.wsReady) {
+            this._send({ sell: contractId, price: '0' });
         }
 
-        // Forget contract subscription if it exists
         if (this.contractSubscriptionId) {
             this._send({ forget: this.contractSubscriptionId });
             this.contractSubscriptionId = null;
         }
 
-        // Clear trade state so bot is not stuck
+        // Release lock immediately
         this.tradeInProgress = false;
         this.activeTrade = null;
         this.tradeStartTime = null;
-
-        // Record as a loss (conservative — stake is likely lost)
-        // this.totalLosses++;
-        // this.consecutiveLosses++;
-        // this.consecutiveLosses2++;
-        // this.losttrades++;
 
         if (this.assetMetrics[asset]) {
             this.assetMetrics[asset].losses++;
             this.assetMetrics[asset].pnl -= stake;
         }
-
         this.totalPnl -= stake;
         this.dailyPnl -= stake;
 
-
-        // Focus on the loss asset
-        // this.suspendOtherAssets(asset);
-
-        console.log(
-            `\n   Trade lock released — bot can now trade again` +
-            `\n   Stake $${stake.toFixed(2)} recorded as loss`
-        );
+        console.log(`\n   Trade lock released — bot can now trade again`);
 
         this.notify(
             `🚨 <b>STUCK TRADE RECOVERED [${reason}]</b>\n\n` +
@@ -1122,7 +1236,7 @@ class ReliableAccumulatorBot {
         StatePersistence.save(this);
     }
 
-    // ── Sell Response ────────────────────────────────────────────────────────
+    // ── Sell Response ─────────────────────────────────────────────────────────
     _handleSell(msg) {
         if (msg.error) {
             console.error('❌ Sell error:', msg.error.message);
@@ -1140,19 +1254,29 @@ class ReliableAccumulatorBot {
             return;
         }
 
-        // Clear watchdog — trade is settling normally
+        // ── v4.1: RELEASE TRADE LOCK IMMEDIATELY ─────────────────────────────
+        // This is the critical fix — we capture all trade data first, then
+        // release the lock so the bot can accept new proposals/buy commands
+        // while we do bookkeeping (stats, Telegram) asynchronously.
+        const tradeSnapshot = { ...this.activeTrade };
+        const asset = contract.underlying || tradeSnapshot.asset;
+        const won = contract.status === 'won';
+        const profit = parseFloat(contract.profit);
+        const tickCount = contract.tick_count || 0;
+
+        // ⬇️ LOCK RELEASED HERE — before any async work
+        this.tradeInProgress = false;
+        this.activeTrade = null;
+
+        // Clear timers
         this._clearWatchdogTimers();
+        this._stopShadowProposalTimer();
 
         // Unsubscribe from contract
         if (this.contractSubscriptionId) {
             this._send({ forget: this.contractSubscriptionId });
             this.contractSubscriptionId = null;
         }
-
-        const asset = contract.underlying || this.activeTrade.asset;
-        const won = contract.status === 'won';
-        const profit = parseFloat(contract.profit);
-        const tickCount = contract.tick_count || 0;
 
         // ── Update Stats ──────────────────────────────────────────────────────
         this.totalTrades++;
@@ -1169,16 +1293,14 @@ class ReliableAccumulatorBot {
             this.consecutiveLosses = 0;
             this.isWinTrade = true;
             this.currentStake = CONFIG.initialStake;
+            this.isRecoveryMode = false;
+            this.pendingRecovery = null;
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
-
-            // Asset-level cooldown
             this.riskManager.setAssetCooldown(asset);
+            if (this.focusAsset) this.resumeAllAssets();
 
-            // If we were focused on a loss asset, resume all assets
-            if (this.focusAsset) {
-                this.resumeAllAssets();
-            }
         } else {
+            // ── LOSS HANDLING ─────────────────────────────────────────────────
             this.totalLosses++;
             this.consecutiveLosses++;
 
@@ -1195,18 +1317,19 @@ class ReliableAccumulatorBot {
 
             if (this.assetMetrics[asset]) this.assetMetrics[asset].losses++;
 
-            // Suspend all other assets and focus on this loss asset
+            // Suspend other assets and focus on the loss asset
             this.suspendOtherAssets(asset);
 
-            // // Asset-level cooldown
-            // this.riskManager.setAssetCooldown(asset);
-
-            // Global pause if consecutive loss limit hit
-            // if (this.consecutiveLosses >= CONFIG.maxConsecutiveLosses) {
-            //     this.riskManager.setGlobalPause();
-            //     // Reset counter so after pause we start clean
-            //     this.consecutiveLosses = 0;
-            // }
+            // ── v4.1: TRIGGER INSTANT RECOVERY ───────────────────────────────
+            // Set recovery mode flag BEFORE calling _fireRecoveryTrade so that
+            // any proposal handler that fires knows to bypass signal gates.
+            if (CONFIG.recoveryMode) {
+                this.isRecoveryMode = true;
+                // Use setImmediate to ensure lock is fully released before
+                // we attempt to enter a new trade (prevents same-tick re-entry
+                // on win condition false-positives)
+                setImmediate(() => this._fireRecoveryTrade(asset));
+            }
         }
 
         const winRate = this.totalTrades > 0
@@ -1217,8 +1340,10 @@ class ReliableAccumulatorBot {
         console.log(`  ${won ? '✅ WIN' : '❌ LOSS'}  |  ${asset}  |  ${tickCount} ticks`);
         console.log(`  P&L:  ${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}`);
         console.log(`  Total P&L: $${this.totalPnl.toFixed(2)}  |  Win rate: ${winRate}%`);
+        if (!won) console.log(`  ⚡ Recovery trade queued for ${asset}`);
         console.log('═'.repeat(56));
 
+        // Telegram notify (async — does not block trade execution)
         this.notify(
             `${won ? '✅' : '❌'} <b>${won ? 'WIN' : 'LOSS'} (Bot 3b)</b>\n\n` +
             `Asset: <b>${asset}</b>  |  Ticks: ${tickCount}\n` +
@@ -1228,7 +1353,8 @@ class ReliableAccumulatorBot {
             `Losses x2-x5: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5}\n` +
             `Stake: $${this.currentStake.toFixed(2)} \n` +
             `WR: ${winRate}%\n` +
-            `Total P&amp;L: $${this.totalPnl.toFixed(2)}`
+            `Total P&amp;L: $${this.totalPnl.toFixed(2)}` +
+            (!won ? `\n⚡ Recovery trade queued` : '')
         );
 
         // ── Stop conditions ───────────────────────────────────────────────────
@@ -1245,16 +1371,11 @@ class ReliableAccumulatorBot {
             return;
         }
 
-        // ── Reset for next trade ──────────────────────────────────────────────
-        this.tradeInProgress = false;
-        this.activeTrade = null;
-
         StatePersistence.save(this);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     _log(asset, tick, msg) {
-        // Compact single-line log for rejected proposals
         console.log(`  [${asset}] t=${tick} | ${msg}`);
     }
 
@@ -1304,31 +1425,29 @@ class ReliableAccumulatorBot {
         );
     }
 
+    _startTelegramTimer() {
+        const now = new Date();
+        const nextHour = new Date(now);
+        nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+        const timeUntilNextHour = nextHour.getTime() - now.getTime();
+
+        setTimeout(() => {
+            this.sendHourlySummary();
+            setInterval(() => this.sendHourlySummary(), 60 * 60 * 1000);
+        }, timeUntilNextHour);
+
+        console.log(`📱 Hourly summaries scheduled. First in ${Math.ceil(timeUntilNextHour / 60000)} minutes.`);
+    }
+
     // ── Time-Based Disconnect / Reconnect ─────────────────────────────────────
     checkTimeForDisconnectReconnect() {
         setInterval(() => {
             const now = new Date();
             const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
-            const currentDay = gmtPlus1Time.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+            const currentDay = gmtPlus1Time.getUTCDay();
             const currentHours = gmtPlus1Time.getUTCHours();
             const currentMinutes = gmtPlus1Time.getUTCMinutes();
 
-            // Weekend logic: Saturday 11pm to Monday 2am GMT+1 -> Disconnect and stay disconnected
-            const isWeekend = (currentDay === 0) || // Sunday
-                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
-                (currentDay === 1 && currentHours < 8);    // Monday before 8am
-
-            // if (isWeekend) {
-            //     if (!this.endOfDay) {
-            //         console.log("Weekend trading suspension (Saturday 11pm - Monday 8am). Disconnecting...");
-            //         this.sendHourlySummary();
-            //         this.disconnect();
-            //         this.endOfDay = true;
-            //     }
-            //     return; // Prevent any reconnection logic during the weekend
-            // }
-
-            //New Day trade Resumption
             if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
                 console.log("It's 2:00 AM GMT+1, reconnecting the bot.");
                 this.resetForNewDay();
@@ -1336,25 +1455,6 @@ class ReliableAccumulatorBot {
                 this.connect();
             }
 
-            //London Session Pause trading
-            // if (this.isWinTrade && !this.endOfDay && currentHours < 10) {
-            //     if (currentHours >= 6 && currentMinutes >= 0) {
-            //         console.log("It's past 6:00 AM GMT+1 after a win trade, disconnecting the bot.");
-            //         this.endOfDay = true;
-            //         this.sendHourlySummary();
-            //         this.disconnect();
-            //     }
-            // }
-
-            // //London Session Trade Resumption
-            // if (this.endOfDay && currentHours === 10 && currentMinutes >= 0) {
-            //     console.log("It's 10:00 AM GMT+1, reconnecting the bot.");
-            //     // this.resetForNewDay();
-            //     this.endOfDay = false;
-            //     this.connect();
-            // }
-
-            //New York Session Pause trading
             if (this.isWinTrade && !this.endOfDay && currentHours < 15) {
                 if (currentHours >= 13 && currentMinutes >= 0) {
                     console.log("It's past 1:00 PM GMT+1 after a win trade, disconnecting the bot.");
@@ -1364,15 +1464,12 @@ class ReliableAccumulatorBot {
                 }
             }
 
-            //New York Session Trade Resumption
             if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
                 console.log("It's 3:00 PM GMT+1, reconnecting the bot.");
-                // this.resetForNewDay();
                 this.endOfDay = false;
                 this.connect();
             }
 
-            //End of Day trade Pause
             if (this.isWinTrade && !this.endOfDay) {
                 if (currentHours >= 23 && currentMinutes >= 0) {
                     console.log("It's past 11:00 PM GMT+1 after a win trade, disconnecting the bot.");
@@ -1385,7 +1482,7 @@ class ReliableAccumulatorBot {
     }
 
     disconnect() {
-        console.log('🛑 Disconnecting bot (time-based)...');
+        console.log('🛑 Disconnecting bot...');
         StatePersistence.save(this);
         this.endOfDay = true;
         this._cleanup();
@@ -1400,11 +1497,15 @@ class ReliableAccumulatorBot {
         this.activeTrade = null;
         this.shutdownFlag = false;
         this.reconnectAttempts = 0;
+        this.isRecoveryMode = false;
+        this.pendingRecovery = null;
+        this.proposalCache.invalidateAll();
         this.riskManager = new RiskManager();
         this._clearWatchdogTimers();
-        // Clear asset suspension
+        this._stopShadowProposalTimer();
         this.suspendedAssets.clear();
         this.focusAsset = null;
+        CONFIG.assets.forEach(a => { this.proposalInFlight[a] = false; });
         console.log('✅ New day reset complete');
     }
 
@@ -1412,23 +1513,23 @@ class ReliableAccumulatorBot {
     start() {
         const bar = '═'.repeat(56);
         console.log(`\n${bar}`);
-        console.log('  DERIV RELIABLE ACCUMULATOR BOT  v4.0');
+        console.log('  DERIV RELIABLE ACCUMULATOR BOT  v4.1');
         console.log(bar);
         console.log(`  Assets:        ${CONFIG.assets.join(', ')}`);
         console.log(`  Stake:         $${CONFIG.initialStake.toFixed(2)}`);
         console.log(`  Growth Rate:   ${(CONFIG.growthRateDefault * 100).toFixed(0)}% → ${(CONFIG.growthRateBoost * 100).toFixed(0)}% adaptive`);
         console.log(`  Entry Window:  ticks ${CONFIG.minEntryTick}–${CONFIG.maxEntryTick}`);
-        console.log(`  Take-Profit:   ${(CONFIG.takeProfitPct * 100).toFixed(0)}% of stake (limit order)`);
+        console.log(`  Take-Profit:   ${(CONFIG.takeProfitPct * 100).toFixed(0)}% of stake`);
         console.log(`  BB Squeeze:    < ${CONFIG.bbSqueezePctile}th percentile`);
         console.log(`  RSI Filter:    ${CONFIG.rsiLow}–${CONFIG.rsiHigh}`);
         console.log(`  Max Daily Loss: $${CONFIG.maxDailyLoss}`);
         console.log(`  Session TP:    $${CONFIG.takeProfitSession}`);
+        console.log(`  Recovery Mode: ${CONFIG.recoveryMode ? '✅ ENABLED' : '❌ DISABLED'}`);
+        console.log(`  Shadow Pipeline: every ${CONFIG.shadowProposalIntervalMs / 1000}s`);
         console.log(`${bar}\n`);
 
-        // Auto-save state
         this._saveInterval = StatePersistence.autoSave(this);
 
-        // Graceful shutdown hooks
         const exit = () => {
             console.log('\n🛑 Shutdown requested...');
             StatePersistence.save(this);
@@ -1446,17 +1547,19 @@ class ReliableAccumulatorBot {
         this.checkTimeForDisconnectReconnect();
 
         this.notify(
-            `🤖 <b>Accumulator Bot v4.0 Started 3b</b>\n\n` +
+            `🤖 <b>Accumulator Bot v4.1 Started 3b</b>\n\n` +
             `Assets: ${CONFIG.assets.join(', ')}\n` +
             `Stake: $${CONFIG.initialStake.toFixed(2)} | Growth: ${(CONFIG.growthRateDefault * 100).toFixed(0)}%–${(CONFIG.growthRateBoost * 100).toFixed(0)}%\n` +
             `Entry window: ticks ${CONFIG.minEntryTick}–${CONFIG.maxEntryTick}\n` +
-            `Strategy: BB Squeeze + RSI Filter`
+            `Strategy: BB Squeeze + RSI Filter\n` +
+            `⚡ Instant recovery pipeline: ACTIVE`
         );
     }
 
     shutdown(reason = 'manual') {
         console.log(`\n🛑 Shutting down — ${reason}`);
         this.shutdownFlag = true;
+        this._stopShadowProposalTimer();
         if (this._saveInterval) clearInterval(this._saveInterval);
         StatePersistence.save(this);
 
