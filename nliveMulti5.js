@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator_bot5_09-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator_bot5_010-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1005,7 +1005,7 @@ class AccumulatorBotV4 {
                 // analysis.scores.tickStability >= 1
 
 
-                if (this.Sys === 2 && !shouldTrade) return;
+                if (!shouldTrade) return;
             }
         }
 
@@ -1595,14 +1595,6 @@ class AccumulatorBotV4 {
             `Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}`
         );
 
-        // if (!won) {
-        //     if (this.Sys === 1) {
-        //         this.Sys = 2;
-        //     } else {
-        //         this.Sys = 1;
-        //     }
-        // }
-
         // Clean up active trade
         delete this.activeTrades[asset];
 
@@ -1622,13 +1614,15 @@ class AccumulatorBotV4 {
 
         StatePersistence.saveState(this);
 
-        // ═══════════════════════════════════════════════════════════════════
-        // IMMEDIATE RE-EVALUATION — Don't wait for the next tick to enter
-        // the next trade. After a trade closes (especially after a loss),
-        // the market regime may have shifted — we need to catch the new
-        // trend immediately for effective recovery trading.
-        // ═══════════════════════════════════════════════════════════════════
-        this._evaluateAllAssetsImmediately();
+        if (!won) {
+            // ═══════════════════════════════════════════════════════════════════
+            // IMMEDIATE RE-EVALUATION — Don't wait for the next tick to enter
+            // the next trade. After a trade closes (especially after a loss),
+            // the market regime may have shifted — we need to catch the new
+            // trend immediately for effective recovery trading.
+            // ═══════════════════════════════════════════════════════════════════
+            this._evaluateAllAssetsImmediately();
+        }
     }
 
     /**
@@ -1663,22 +1657,22 @@ class AccumulatorBotV4 {
             const analysis = this.analyzer.analyzeEntry(prices);
 
             // Apply same entry criteria as evaluateAndTrade
-            let shouldProceed = false;
-            if (this.Sys === 1) {
-                if (this.consecutiveLosses >= 1) {
-                    shouldProceed = analysis.shouldTrade;
-                } else {
-                    shouldProceed = true;
-                }
-            } else if (this.Sys === 2) {
-                if (this.consecutiveLosses >= 1) {
-                    shouldProceed = analysis.shouldTrade;
-                } else {
-                    shouldProceed = true;
-                }
-            }
+            // let shouldProceed = false;
+            // if (this.Sys === 1) {
+            //     if (this.consecutiveLosses >= 1) {
+            //         shouldProceed = analysis.shouldTrade;
+            //     } else {
+            //         shouldProceed = true;
+            //     }
+            // } else if (this.Sys === 2) {
+            //     if (this.consecutiveLosses >= 1) {
+            //         shouldProceed = analysis.shouldTrade;
+            //     } else {
+            //         shouldProceed = true;
+            //     }
+            // }
 
-            if (!shouldProceed) continue;
+            // if (!shouldProceed) continue;
 
             // Double-check no trade in progress
             if (this.tradeInProgress) break;
