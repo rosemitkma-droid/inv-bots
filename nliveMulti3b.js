@@ -84,7 +84,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator_botB01_state.json'),
+    stateFile: path.join(__dirname, 'accumulator_botB001_state.json'),
     stateSaveMs: 5000,
 };
 
@@ -806,27 +806,31 @@ class ReliableAccumulatorBot {
         // Don't trade if already trading
         if (this.tradeInProgress) return;
 
-        // ── ENTRY WINDOW CHECK (ENFORCED) ────────────────────────────────────
-        if (currentTick < CONFIG.minEntryTick) {
-            this._log(asset, currentTick, `⏳ Too early (${currentTick}<${CONFIG.minEntryTick})`);
-            return;
-        }
-        if (currentTick > CONFIG.maxEntryTick) {
-            this._log(asset, currentTick, `⏰ Too late (${currentTick}>${CONFIG.maxEntryTick})`);
-            return;
-        }
-
-        // ── RISK CHECK ────────────────────────────────────────────────────────
-        const risk = this.riskManager.canTrade(asset, this.dailyPnl, this.consecutiveLosses);
-        if (!risk.allowed) {
-            this._log(asset, currentTick, `🚫 Risk block: ${risk.reason}`);
-            return;
-        }
-
-        if (signal.growthRate < CONFIG.growthRateBoost) return; // Only trade Very Good signal
-
-        //Execute Trade
-        if (signal.shouldEnter) {
+        if (this.consecutiveLosses < 1) {
+            // ── ENTRY WINDOW CHECK (ENFORCED) ────────────────────────────────────
+            if (currentTick < CONFIG.minEntryTick) {
+                this._log(asset, currentTick, `⏳ Too early (${currentTick}<${CONFIG.minEntryTick})`);
+                return;
+            }
+            if (currentTick > CONFIG.maxEntryTick) {
+                this._log(asset, currentTick, `⏰ Too late (${currentTick}>${CONFIG.maxEntryTick})`);
+                return;
+            }
+    
+            // ── RISK CHECK ────────────────────────────────────────────────────────
+            const risk = this.riskManager.canTrade(asset, this.dailyPnl, this.consecutiveLosses);
+            if (!risk.allowed) {
+                this._log(asset, currentTick, `🚫 Risk block: ${risk.reason}`);
+                return;
+            }
+    
+            if (signal.growthRate < CONFIG.growthRateBoost) return; // Only trade Very Good signal
+    
+            //Execute Trade
+            if (signal.shouldEnter) {
+                this._executeTrade(asset, proposal, signal, currentTick);
+            }
+        } else {
             this._executeTrade(asset, proposal, signal, currentTick);
         }
     }
