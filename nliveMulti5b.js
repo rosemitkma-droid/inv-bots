@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_01-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_02-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -982,19 +982,19 @@ class AccumulatorBotV4 {
             if (this.consecutiveLosses < 1) {
                 if (!analysis.shouldTrade) return;
 
-                if (analysis.overallScore < 0.85) return;
+                if (analysis.overallScore < 0.65) return;
 
                 if (analysis.scores.bandWidth < 1) return;
 
                 if (analysis.scores.macdFlat < 1) return;
 
-                if (analysis.scores.pricePosition < 1) return;
+                if (analysis.scores.pricePosition < 0.8) return;
 
-                if (analysis.scores.macdConverging < 1) return;
+                if (analysis.scores.tickStability < 0.8) return;
 
-                if (analysis.scores.tickStability < 1) return;
+                if (analysis.scores.macdConverging < 0.8) return;
 
-                if (analysis.scores.volTrend < 1) return;
+                if (analysis.scores.volTrend < 0.06) return;
 
             }
         } else {
@@ -1033,6 +1033,12 @@ class AccumulatorBotV4 {
         console.log(`   Growth Rate: ${(growthRate * 100).toFixed(0)}% | Stake: $${this.currentStake.toFixed(2)}`);
         console.log(`   Max Tick Move: ${(analysis.maxTickMove * 100).toFixed(2)}%`);
         console.log(`   Tick Stability: ${(analysis.tickStability * 100).toFixed(1)}%`);
+
+        console.log(`   BB Width: ${(analysis.scores.bandWidth * 100).toFixed(1)}%`);
+        console.log(`   MACD Flat: ${(analysis.scores.macdFlat * 100).toFixed(1)}%`);
+        console.log(`   Price Position: ${(analysis.scores.pricePosition * 100).toFixed(1)}%`);
+        console.log(`   MACD Converging: ${(analysis.scores.macdConverging * 100).toFixed(1)}%`);
+        console.log(`   Vol Trend: ${(analysis.scores.volTrend * 100).toFixed(1)}%`);
         console.log(`   Reason: ${analysis.reason}`);
         console.log(`   Take Profit: $${takeProfitAmount.toFixed(2)}`);
 
@@ -1066,6 +1072,8 @@ class AccumulatorBotV4 {
             `📈 ${asset} | Score: ${(analysis.overallScore * 100 || 0).toFixed(0)}% | ` +
             `BW:${(s.bandWidth * 100 || 0).toFixed(0)} MACD:${(s.macdFlat * 100 || 0).toFixed(0)} ` +
             `Pos:${(s.pricePosition * 100 || 0).toFixed(0)} Stab:${(s.tickStability * 100 || 0).toFixed(0)} ` +
+            `Conv:${(s.macdConverging * 100 || 0).toFixed(0)} Vol:${(s.volTrend * 100 || 0).toFixed(0)} ` +
+            `Ticks: ${this.currentTick} | ` +
             `| ${analysis.shouldTrade ? '✅' : '❌'} ${analysis.reason}`
         );
     }
