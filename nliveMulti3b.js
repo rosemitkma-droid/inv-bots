@@ -84,7 +84,7 @@ const CONFIG = {
     telegramChatId: '752497117', //process.env.TELEGRAM_CHAT_ID || 
 
     // State persistence
-    stateFile: path.join(__dirname, 'accumulator_botB001_state.json'),
+    stateFile: path.join(__dirname, 'accumulator_botB02_state.json'),
     stateSaveMs: 5000,
 };
 
@@ -415,6 +415,12 @@ class ReliableAccumulatorBot {
         this.activeTrade = null;
         this.contractSubscriptionId = null;
 
+        // Trade Watchdog — detects and recovers stuck trades
+        this.tradeWatchdogTimer = null;
+        this.tradeWatchdogPollTimer = null;
+        this.tradeWatchdogMs = 120000; // 2 minutes — Accumulator contracts should settle well before this
+        this.tradeStartTime = null;
+
         // Session stats
         this.totalTrades = 0;
         this.totalWins = 0;
@@ -567,6 +573,7 @@ class ReliableAccumulatorBot {
         }
         this.connected = false;
         this.wsReady = false;
+        this._clearWatchdogTimers();
     }
 
     _send(req) {
@@ -816,16 +823,16 @@ class ReliableAccumulatorBot {
                 this._log(asset, currentTick, `⏰ Too late (${currentTick}>${CONFIG.maxEntryTick})`);
                 return;
             }
-    
+
             // ── RISK CHECK ────────────────────────────────────────────────────────
             const risk = this.riskManager.canTrade(asset, this.dailyPnl, this.consecutiveLosses);
             if (!risk.allowed) {
                 this._log(asset, currentTick, `🚫 Risk block: ${risk.reason}`);
                 return;
             }
-    
+
             if (signal.growthRate < CONFIG.growthRateBoost) return; // Only trade Very Good signal
-    
+
             //Execute Trade
             if (signal.shouldEnter) {
                 this._executeTrade(asset, proposal, signal, currentTick);
@@ -887,6 +894,7 @@ class ReliableAccumulatorBot {
             console.error('❌ Buy error:', msg.error.message);
             this.tradeInProgress = false;
             this.activeTrade = null;
+            this._clearWatchdogTimers();
             return;
         }
 
@@ -901,6 +909,12 @@ class ReliableAccumulatorBot {
             contract_id: cid,
             subscribe: 1,
         });
+
+        // Record trade start time and start watchdog
+        this.tradeStartTime = Date.now();
+        if (this.activeTrade) this.activeTrade.entryTime = this.tradeStartTime;
+        this._startTradeWatchdog(cid);
+        console.log(`⏱️  Trade watchdog started (${(this.tradeWatchdogMs / 1000).toFixed(0)}s timeout)`);
     }
 
     // ── Contract Update (live monitoring) ─────────────────────────────────────
@@ -966,6 +980,148 @@ class ReliableAccumulatorBot {
         return { yes: false };
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // TRADE WATCHDOG — DETECT AND RECOVER STUCK ACCUMULATOR CONTRACTS
+    // ══════════════════════════════════════════════════════════════════════════
+    // Accumulator contracts can sometimes get stuck (not settling after barrier
+    // breach or not responding to sell orders). This watchdog monitors active
+    // trades and forces recovery if they remain open beyond a reasonable time.
+
+    _startTradeWatchdog(contractId) {
+        this._clearWatchdogTimers();
+
+        const timeoutMs = this.tradeWatchdogMs;
+
+        this.tradeWatchdogTimer = setTimeout(() => {
+            if (!this.tradeInProgress || !this.activeTrade) {
+                this._clearWatchdogTimers();
+                return;
+            }
+
+            console.warn(
+                `⏰ WATCHDOG FIRED — Contract ${contractId || 'unknown'} has been open for ` +
+                `${(timeoutMs / 1000).toFixed(0)}s with no settlement`
+            );
+
+            // Poll the contract to check its current status
+            if (contractId && this.connected && this.wsReady) {
+                console.log(`🔍 Polling contract ${contractId} for current status…`);
+                this._send({
+                    proposal_open_contract: 1,
+                    contract_id: contractId,
+                    subscribe: 1,
+                });
+
+                // Set a poll timeout — if we don't get a response, force recovery
+                this.tradeWatchdogPollTimer = setTimeout(() => {
+                    if (!this.tradeInProgress) {
+                        this._clearWatchdogTimers();
+                        return;
+                    }
+                    console.error(
+                        `🚨 WATCHDOG: Poll timed out — contract ${contractId} still unresolved, ` +
+                        `force-releasing lock`
+                    );
+                    this._recoverStuckTrade('watchdog-force');
+                }, 15000); // 15 seconds for poll response
+
+            } else {
+                // WebSocket not connected — can't query, force recovery
+                this._recoverStuckTrade('watchdog-offline');
+            }
+        }, timeoutMs);
+    }
+
+    _clearWatchdogTimers() {
+        if (this.tradeWatchdogTimer) {
+            clearTimeout(this.tradeWatchdogTimer);
+            this.tradeWatchdogTimer = null;
+        }
+        if (this.tradeWatchdogPollTimer) {
+            clearTimeout(this.tradeWatchdogPollTimer);
+            this.tradeWatchdogPollTimer = null;
+        }
+    }
+
+    /**
+     * Recover from a stuck trade — release the lock so the bot can trade again.
+     * For Accumulator contracts, this handles scenarios where:
+     *  - Contract never settles after barrier breach
+     *  - Sell order never executes
+     *  - proposal_open_contract stream stops responding
+     */
+    _recoverStuckTrade(reason) {
+        this._clearWatchdogTimers();
+
+        const contractId = this.activeTrade?.contractId || 'unknown';
+        const asset = this.activeTrade?.asset || 'unknown';
+        const stake = this.activeTrade?.stake || 0;
+        const entryTime = this.activeTrade?.entryTime || this.tradeStartTime || Date.now();
+        const openSeconds = Math.round((Date.now() - entryTime) / 1000);
+
+        console.error(
+            `\n🚨 STUCK TRADE RECOVERY [${reason}]` +
+            `\n   Contract: ${contractId}` +
+            `\n   Asset: ${asset}` +
+            `\n   Stake: $${stake.toFixed(2)}` +
+            `\n   Open for: ${openSeconds}s`
+        );
+
+        // Attempt to sell the contract if it's still valid (last-resort salvage)
+        if (contractId && contractId !== 'unknown' && this.connected && this.wsReady) {
+            console.log(`🔄 Attempting emergency sell of contract ${contractId}…`);
+            this._send({
+                sell: contractId,
+                price: '0', // Sell at any available price
+            });
+        }
+
+        // Forget contract subscription if it exists
+        if (this.contractSubscriptionId) {
+            this._send({ forget: this.contractSubscriptionId });
+            this.contractSubscriptionId = null;
+        }
+
+        // Clear trade state so bot is not stuck
+        this.tradeInProgress = false;
+        this.activeTrade = null;
+        this.tradeStartTime = null;
+
+        // Record as a loss (conservative — stake is likely lost)
+        // this.totalLosses++;
+        // this.consecutiveLosses++;
+        // this.consecutiveLosses2++;
+        // this.losttrades++;
+
+        if (this.assetMetrics[asset]) {
+            this.assetMetrics[asset].losses++;
+            this.assetMetrics[asset].pnl -= stake;
+        }
+
+        this.totalPnl -= stake;
+        this.dailyPnl -= stake;
+
+
+        // Focus on the loss asset
+        // this.suspendOtherAssets(asset);
+
+        console.log(
+            `\n   Trade lock released — bot can now trade again` +
+            `\n   Stake $${stake.toFixed(2)} recorded as loss`
+        );
+
+        this.notify(
+            `🚨 <b>STUCK TRADE RECOVERED [${reason}]</b>\n\n` +
+            `Contract: ${contractId}\n` +
+            `Asset: ${asset}\n` +
+            `Stake: $${stake.toFixed(2)}\n` +
+            `Open for: ${openSeconds}s\n` +
+            `Action: Emergency sell attempted, trade lock released`
+        );
+
+        StatePersistence.save(this);
+    }
+
     // ── Sell Response ────────────────────────────────────────────────────────
     _handleSell(msg) {
         if (msg.error) {
@@ -980,8 +1136,12 @@ class ReliableAccumulatorBot {
     _handleTradeResult(contract) {
         if (!this.activeTrade) {
             console.warn('Trade result received but no active trade!');
+            this._clearWatchdogTimers();
             return;
         }
+
+        // Clear watchdog — trade is settling normally
+        this._clearWatchdogTimers();
 
         // Unsubscribe from contract
         if (this.contractSubscriptionId) {
@@ -1241,6 +1401,7 @@ class ReliableAccumulatorBot {
         this.shutdownFlag = false;
         this.reconnectAttempts = 0;
         this.riskManager = new RiskManager();
+        this._clearWatchdogTimers();
         // Clear asset suspension
         this.suspendedAssets.clear();
         this.focusAsset = null;
