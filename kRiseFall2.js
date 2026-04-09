@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2_00002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_00002-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2_00003-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_00003-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -2532,37 +2532,53 @@ class DerivBot {
                     direction = 'PUTE';
                     signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
                 }
-            } else if (this.consecutiveLosses >= 4 && this.consecutiveLosses <= 5) {
+            } else if (this.consecutiveLosses === 4) {
                 if (assetState.lastTradeDirection === 'CALLE') {
                     direction = 'PUTE';
                     signalReason = `Recovery (${symbol} Prev LOSS on RISE → Reverse to FALL)`;
                 } else {
                     direction = 'CALLE';
                     signalReason = `Recovery (${symbol} Prev LOSS on FALL → Reverse to RISE)`;
+                }
+            } else if (this.consecutiveLosses === 5) {
+                if (assetState.lastTradeDirection === 'CALLE') {
+                    direction = 'CALLE';
+                    signalReason = `Recovery (${symbol} Prev LOSS on FALL → Reverse to RISE)`;
+                } else {
+                    direction = 'PUTE';
+                    signalReason = `Recovery (${symbol} Prev LOSS on RISE → Reverse to FALL)`;
                 }
             } else if (this.consecutiveLosses === 6) {
                 if (assetState.lastTradeDirection === 'CALLE') {
-                    direction = 'CALLE';
-                    signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
-                } else {
                     direction = 'PUTE';
                     signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
+                } else {
+                    direction = 'CALLE';
+                    signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
                 }
             } else if (this.consecutiveLosses === 7) {
                 if (assetState.lastTradeDirection === 'CALLE') {
-                    direction = 'PUTE';
-                    signalReason = `Recovery (${symbol} Prev LOSS on RISE → Reverse to FALL)`;
-                } else {
                     direction = 'CALLE';
                     signalReason = `Recovery (${symbol} Prev LOSS on FALL → Reverse to RISE)`;
+                } else {
+                    direction = 'PUTE';
+                    signalReason = `Recovery (${symbol} Prev LOSS on RISE → Reverse to FALL)`;
+                }
+            } else if (this.consecutiveLosses === 8) {
+                if (assetState.lastTradeDirection === 'CALLE') {
+                    direction = 'PUTE';
+                    signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
+                } else {
+                    direction = 'CALLE';
+                    signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
                 }
             } else {
                 if (assetState.lastTradeDirection === 'CALLE') {
                     direction = 'CALLE';
-                    signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
+                    signalReason = `Recovery (${symbol} Prev LOSS on FALL → Reverse to RISE)`;
                 } else {
                     direction = 'PUTE';
-                    signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
+                    signalReason = `Recovery (${symbol} Prev LOSS on RISE → Reverse to FALL)`;
                 }
             }
 
