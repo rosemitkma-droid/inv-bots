@@ -1071,9 +1071,9 @@ class AccumulatorBotV4 {
             const asset = message.echo_req?.symbol;
             if (asset && this.activeTrades[asset]?.status === 'requesting_proposal') {
                 console.log(`❌ Proposal rejected for ${asset}: ${message.error.message}`);
-                delete this.activeTrades[asset];
-                this.tradeInProgress = false;
             }
+            delete this.activeTrades[asset];
+            this.tradeInProgress = false;
             return;
         }
 
@@ -1102,7 +1102,7 @@ class AccumulatorBotV4 {
             if (proposal.id) {
                 this.sendRequest({ forget: proposal.id });
             }
-            // delete this.activeTrades[asset];
+            delete this.activeTrades[asset];
             this.tradeInProgress = false;
             return;
         }
