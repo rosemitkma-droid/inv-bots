@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator_bot5_05-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator_bot5_07-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1104,8 +1104,8 @@ class AccumulatorBotV4 {
             if (proposal.id) {
                 this.sendRequest({ forget: proposal.id });
             }
-            delete this.activeTrades[asset];
-            return;
+            // delete this.activeTrades[asset];
+            // return;
         }
 
         const trade = this.activeTrades[asset];
