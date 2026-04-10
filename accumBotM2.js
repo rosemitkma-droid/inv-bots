@@ -182,7 +182,7 @@ class EnhancedDerivTradingBot {
         this.tradedDigitArray2 = [];
         this.filteredArray = [];
         this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
-        this.filterNum = 6;//6
+        this.filterNum = 4;//6
         this.Percentage = 0;
         this.predictedDigit = null;
         this.entryTick = null;
