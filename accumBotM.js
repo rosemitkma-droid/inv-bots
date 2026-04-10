@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM_01_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -166,7 +166,6 @@ class EnhancedDerivTradingBot {
         this.totalProfitLoss = 0;
         this.dailyProfitLoss = 0;
         this.Pause = false;
-        this.RestartTrading = true;
         this.endOfDay = false;
         this.kCount = false;
         this.kCountNum = 0;
@@ -1046,19 +1045,7 @@ class EnhancedDerivTradingBot {
         if (won) {
             this.totalWins++;
             this.isWinTrade = true;
-
-            // Original k-count recovery logic
-            if (this.consecutiveLosses >= 1) {
-                this.kCountNum++;
-                if (this.kCountNum === 6) {
-                    this.currentStake = this.config.initialStake;
-                    this.consecutiveLosses = 0;
-                    this.kCountNum = 0;
-                }
-            }
-
-            this.kLoss = 0.01;
-            this.RestartTrading = true;
+            this.consecutiveLosses = 0;
 
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
             this.hourlyStats.wins++;
@@ -1094,7 +1081,6 @@ class EnhancedDerivTradingBot {
             this.tradedDigitArray.shift();
         }
 
-        this.RestartTrading = true;
         this.Sys1 = 0;
 
         this.tradeInProgress = false;
@@ -1189,7 +1175,6 @@ class EnhancedDerivTradingBot {
                 this.endOfDay = false;
                 this.Pause = false;
                 this.tradeInProgress = false;
-                this.RestartTrading = true;
                 this.tradedDigitArray = [];
                 this.tradedDigitArray2 = [];
                 this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
@@ -1259,7 +1244,7 @@ const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     multiplier2: 8,
     maxConsecutiveLosses: 3,
     stopLoss: 100,
-    takeProfit: 100,
+    takeProfit: 10000,
     growthRate: 0.02,
     takeProfitMultiplier: 0.20,
     assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
