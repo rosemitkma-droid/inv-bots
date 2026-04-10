@@ -14,7 +14,7 @@ const TOKEN = "rgNedekYXvCaPeP";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'ghost92-000013-state.json');
+const STATE_FILE = path.join(__dirname, 'ghost92-000015-state.json');
 
 class RomanianGhostUltimate {
     constructor() {
@@ -919,8 +919,8 @@ class RomanianGhostUltimate {
             }
 
             if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 19 && currentMinutes >= 0) {
-                    console.log("It's past 7:00 PM GMT+1 after a win trade, disconnecting the bot.");
+                if (currentHours >= 11 && currentMinutes >= 0) {
+                    console.log("It's past 11:00 PM GMT+1 after a win trade, disconnecting the bot.");
                     this.disconnect();
                     this.endOfDay = true;
                 }
