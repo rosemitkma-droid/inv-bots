@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_1_002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_1_002-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_1_00001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_1_00001-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1100,7 +1100,7 @@ const CONFIG = {
     CANDLE_PATTERN_LOOKBACK: 9, // Number of previous candles to analyze for pattern detection (user configurable)
 
     // Default Trade Duration Settings (used if asset has no specific config)
-    DURATION: 58,
+    DURATION: 60,
     DURATION_UNIT: 's',
 
     // Trade Settings — NOW PER ASSET
@@ -1209,8 +1209,8 @@ function getAssetConfig(symbol) {
     };
 }
 
-// let ACTIVE_ASSETS = ['R_10', 'R_75', 'R_100', '1HZ50V', 'stpRNG', 'stpRNG2'];
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
+// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
