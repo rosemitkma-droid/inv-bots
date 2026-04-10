@@ -14,7 +14,7 @@ const TOKEN = "rgNedekYXvCaPeP";
 const TELEGRAM_TOKEN = "8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8";
 const CHAT_ID = "752497117";
 
-const STATE_FILE = path.join(__dirname, 'ghost92-000011-state.json');
+const STATE_FILE = path.join(__dirname, 'ghost92-000013-state.json');
 
 class RomanianGhostUltimate {
     constructor() {
@@ -60,12 +60,12 @@ class RomanianGhostUltimate {
 
             // Asset-specific Z-Score overrides (Recommended)
             assetSpecific: {
-                'R_10': { minAvgZScore: 2.76 },
-                'R_25': { minAvgZScore: 2.88 },
-                'R_50': { minAvgZScore: 2.97 },
-                'R_75': { minAvgZScore: 3.05 },
-                'RDBULL': { minAvgZScore: 2.83 },
-                'RDBEAR': { minAvgZScore: 2.84 }
+                'R_10': { minAvgZScore: 3.05 },
+                'R_25': { minAvgZScore: 3.1 },
+                'R_50': { minAvgZScore: 3.2 },
+                'R_75': { minAvgZScore: 3.3 },
+                'RDBULL': { minAvgZScore: 3.15 },
+                'RDBEAR': { minAvgZScore: 3.15 }
             }
         };
 
