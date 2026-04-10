@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM2_07_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM2_09_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -683,7 +683,7 @@ class EnhancedDerivTradingBot {
         if (!stayedInArray) return;
 
         // Current digit count of the running accumulator
-        const currentDigitCount = stayedInArray[99] + 10;
+        const currentDigitCount = stayedInArray[99] + 1;
 
         console.log(`📋 Proposal for ${asset}: Current StayIN Digit Count: ${stayedInArray[99]} (${currentDigitCount})`);
         console.log(`   Filter Number: ${this.filterNum}`);
@@ -709,7 +709,7 @@ class EnhancedDerivTradingBot {
         // and not already traded, and stayedIn value >= 0
         const condition = appearedOnceArray.includes(currentDigitCount)
             && !this.tradedDigitArray.includes(stayedInArray[99])
-            && stayedInArray[99] >= 0;
+            && stayedInArray[99] >= 4;
 
         console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
 
@@ -1241,14 +1241,14 @@ class EnhancedDerivTradingBot {
 // BOT INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
 const bot = new EnhancedDerivTradingBot('DMylfkyce6VyZt7', {
-    initialStake: 1,
-    multiplier: 6,
+    initialStake: 2,
+    multiplier: 50,
     multiplier2: 8,
-    maxConsecutiveLosses: 3,
-    stopLoss: 100,
+    maxConsecutiveLosses: 2,
+    stopLoss: 250,
     takeProfit: 10000,
     growthRate: 0.02,
-    takeProfitMultiplier: 0.20,
+    takeProfitMultiplier: 0.02,
     assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     telegramChatId: '752497117',
