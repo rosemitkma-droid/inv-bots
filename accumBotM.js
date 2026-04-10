@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM2_03_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM2_05_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -716,7 +716,7 @@ class EnhancedDerivTradingBot {
         // Check if we should place trade
         if (!this.tradeInProgress) {
             if (condition) {
-                this.tradedDigitArray.push(currentDigitCount);
+                this.tradedDigitArray.push(stayedInArray[99]);
                 this.filteredArray = appearedOnceArray;
                 this.entryTick = stayedInArray[99];
                 console.log(`   Traded Digit Array: [${this.tradedDigitArray.join(', ')}]`);
