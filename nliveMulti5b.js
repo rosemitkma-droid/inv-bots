@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_10-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_11-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -496,7 +496,7 @@ class RiskManager {
         return false;
     }
 
-    cooldownAsset(asset, durationMinutes = 15) {
+    cooldownAsset(asset, durationMinutes) {
         this.assetCooldowns[asset] = {
             until: Date.now() + (durationMinutes * 60 * 1000),
             reason: 'loss_cooldown'
@@ -1538,9 +1538,9 @@ class AccumulatorBotV4 {
             this.riskManager.cooldownAsset(asset, 30);
 
             // If we were focused on a loss asset, resume all assets
-            if (this.focusAsset) {
-                this.resumeAllAssets();
-            }
+            // if (this.focusAsset) {
+            //     this.resumeAllAssets();
+            // }
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
@@ -1569,10 +1569,10 @@ class AccumulatorBotV4 {
             this.losttrades++;
 
             // Suspend all other assets and focus on this loss asset
-            this.suspendOtherAssets(asset);
+            // this.suspendOtherAssets(asset);
 
             // // Cooldown on loss
-            // this.riskManager.cooldownAsset(asset, 10);
+            this.riskManager.cooldownAsset(asset, 30);
         }
 
         this.tradeInProgress = false;
