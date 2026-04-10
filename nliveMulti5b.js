@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_11-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_13-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1109,7 +1109,7 @@ class AccumulatorBotV4 {
             return;
         }
 
-        if (currentTick > this.config.maxEntryTick && this.consecutiveLosses < 1) {
+        if (currentTick > this.config.maxEntryTick) {
             console.log(`❌ Proposal rejected for ${asset}: Too late (tick ${currentTick} > ${this.config.maxEntryTick})`);
             if (proposal.id) {
                 this.sendRequest({ forget: proposal.id });
