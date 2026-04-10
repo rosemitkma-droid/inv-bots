@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM2_05_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM2_07_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1046,6 +1046,7 @@ class EnhancedDerivTradingBot {
         if (won) {
             this.totalWins++;
             this.isWinTrade = true;
+            this.currentStake = this.config.initialStake;
             this.consecutiveLosses = 0;
 
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
@@ -1078,7 +1079,7 @@ class EnhancedDerivTradingBot {
         }
 
         // Keep traded digit array trimmed
-        if (this.tradedDigitArray.length > 2) {
+        if (this.tradedDigitArray.length > 3) {
             this.tradedDigitArray.shift();
         }
 
