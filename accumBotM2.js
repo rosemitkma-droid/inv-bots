@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM2_09_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM2_11_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -709,7 +709,7 @@ class EnhancedDerivTradingBot {
         // and not already traded, and stayedIn value >= 0
         const condition = appearedOnceArray.includes(currentDigitCount)
             && !this.tradedDigitArray.includes(stayedInArray[99])
-            && stayedInArray[99] >= 4;
+            && stayedInArray[99] > 20;
 
         console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
 
@@ -1048,20 +1048,23 @@ class EnhancedDerivTradingBot {
             this.isWinTrade = true;
             this.currentStake = this.config.initialStake;
             this.consecutiveLosses = 0;
+            this.filterNum = 4;
 
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
             this.hourlyStats.wins++;
 
             // Resume all assets after win
-            // if (this.focusAsset) {
-            //     this.resumeAllAssets();
-            // }
+            if (this.focusAsset) {
+                this.resumeAllAssets();
+            }
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
             this.kCountNum = 0;
             this.isWinTrade = false;
             this.hourlyStats.losses++;
+
+            this.filterNum++;
 
             if (this.assetMetrics[asset]) this.assetMetrics[asset].losses++;
 
@@ -1075,7 +1078,7 @@ class EnhancedDerivTradingBot {
             this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
 
             // Suspend all other assets, focus on loss asset
-            // this.suspendOtherAssets(asset);
+            this.suspendOtherAssets(asset);
         }
 
         // Keep traded digit array trimmed
