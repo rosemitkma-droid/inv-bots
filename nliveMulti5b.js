@@ -29,7 +29,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_09-v4-state.json');
+const STATE_FILE = path.join(__dirname, 'accumulator_bot5b_10-v4-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1633,7 +1633,7 @@ class AccumulatorBotV4 {
             // the market regime may have shifted — we need to catch the new
             // trend immediately for effective recovery trading.
             // ═══════════════════════════════════════════════════════════════════
-            this._evaluateAllAssetsImmediately();
+            // this._evaluateAllAssetsImmediately();
         }
     }
 
