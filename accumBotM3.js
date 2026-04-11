@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM3_02_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM3_03_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1081,15 +1081,17 @@ class EnhancedDerivTradingBot {
 
         // if (analysis.overallScore < 0.65) return;
 
-        // if (analysis.scores.bandWidth < 0.5) return;
+        if (analysis.scores.bandWidth < 1) return;
 
-        if (analysis.scores.macdFlat < 1) return;
+        if (analysis.scores.macdFlat < 0.5) return;
 
-        // if (analysis.scores.pricePosition < 0.5) return;
+        if (analysis.scores.pricePosition < 0.5) return;
 
         if (!analysis.tickStability || analysis.tickStability === 'undefined' || analysis.tickStability === 'NaN' || analysis.tickStability < 0.5) return;
 
-        // if (analysis.scores.macdConverging < 1) return;
+        if (analysis.scores.macdConverging < 1) return;
+
+        if (analysis.maxTickMove < 0.002) return;
 
         if (analysis.scores.volTrend < 0.5) return;
 
@@ -1688,7 +1690,7 @@ const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
     takeProfit: 10000,
     growthRate: 0.05,
     takeProfitMultiplier: 0.05,
-    filterNum: 5,
+    filterNum: 4,
     assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     telegramChatId: '752497117',
