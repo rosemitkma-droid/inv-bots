@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM_000001_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM_000003_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -963,7 +963,7 @@ class EnhancedDerivTradingBot {
         this.tickCounts[asset] = (this.tickCounts[asset] || 0) + 1;
 
         // Throttle analysis
-        if (this.tickCounts[asset] % this.config.analysisInterval !== 0) return;
+        // if (this.tickCounts[asset] % this.config.analysisInterval !== 0) return;
 
         // Don't analyze if not ready or if asset already has active trade
         if (!this.wsReady) return;
@@ -983,6 +983,8 @@ class EnhancedDerivTradingBot {
     evaluateAndTrade(asset) {
         // Check if asset is suspended
         if (!this.isAssetAllowed(asset)) return;
+
+        if (this.tradeInProgress) return;
 
         // 1. Technical analysis
         const prices = this.priceHistories[asset];
@@ -1006,7 +1008,7 @@ class EnhancedDerivTradingBot {
 
                 if (analysis.scores.pricePosition < 1) return;
 
-                if (analysis.scores.tickStability < 0.8) return;
+                if (analysis.tickStability < 0.8) return;
 
                 if (analysis.scores.macdConverging < 0.8) return;
 
@@ -1014,10 +1016,6 @@ class EnhancedDerivTradingBot {
 
             }
         }
-
-        if (this.tradeInProgress) return;
-
-        // this.tradeInProgress = true;
 
         // 6. Request proposal with appropriate growth rate
         const growthRate = analysis.recommendedGrowthRate || this.config.defaultGrowthRate;
