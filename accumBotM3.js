@@ -1076,6 +1076,19 @@ class EnhancedDerivTradingBot {
         this.logAnalysis(asset, analysis);
         // }
 
+        this.overallScore = (analysis.overallScore * 100).toFixed(1);
+        this.bbWidth = analysis.bb.width.toFixed(6);
+        this.percentB = (analysis.bb.percentB * 100).toFixed(1);
+        this.macdHist = analysis.macd.histogram.toFixed(6);
+        this.macdConverging = analysis.macd.isConverging;
+        this.maxTickMove = (analysis.maxTickMove * 100).toFixed(2);
+        this.tickStability = (analysis.tickStability * 100).toFixed(1);
+        this.bbWidth = (analysis.scores.bandWidth * 100).toFixed(1);
+        this.macdFlat = (analysis.scores.macdFlat * 100).toFixed(1);
+        this.pricePosition = (analysis.scores.pricePosition * 100).toFixed(1);
+        this.macdConverging = (analysis.scores.macdConverging * 100).toFixed(1);
+        this.volTrend = (analysis.scores.volTrend * 100).toFixed(1);
+
         // 3. Decision
         // if (!analysis.shouldTrade) return;
 
@@ -1087,16 +1100,16 @@ class EnhancedDerivTradingBot {
 
         if (analysis.scores.pricePosition < 0.5) return;
 
-        if (!analysis.tickStability || analysis.tickStability === 'undefined' || analysis.tickStability === 'NaN' || analysis.tickStability < 0.5) return;
+        if (!analysis.tickStability || analysis.tickStability === 'undefined' || analysis.tickStability === 'NaN' || analysis.tickStability < 1) return;
 
         if (analysis.scores.macdConverging < 1) return;
 
-        if (analysis.maxTickMove < 0.002) return;
+        if (this.maxTickMove < 0.03) return;
 
         if (analysis.scores.volTrend < 0.5) return;
 
         // Check if we should place trade
-        if (condition) {
+        if (condition || this.overallScore >= 100) {
             this.tradedDigitArray.push(stayedInArray[99]);
             this.filteredArray = appearedOnceArray;
             this.entryTick = stayedInArray[99];
@@ -1105,19 +1118,6 @@ class EnhancedDerivTradingBot {
             // 6. Request proposal with appropriate growth rate
             const growthRate = this.config.growthRate;
             const takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
-
-            this.overallScore = (analysis.overallScore * 100).toFixed(1);
-            this.bbWidth = analysis.bb.width.toFixed(6);
-            this.percentB = (analysis.bb.percentB * 100).toFixed(1);
-            this.macdHist = analysis.macd.histogram.toFixed(6);
-            this.macdConverging = analysis.macd.isConverging;
-            this.maxTickMove = (analysis.maxTickMove * 100).toFixed(2);
-            this.tickStability = (analysis.tickStability * 100).toFixed(1);
-            this.bbWidth = (analysis.scores.bandWidth * 100).toFixed(1);
-            this.macdFlat = (analysis.scores.macdFlat * 100).toFixed(1);
-            this.pricePosition = (analysis.scores.pricePosition * 100).toFixed(1);
-            this.macdConverging = (analysis.scores.macdConverging * 100).toFixed(1);
-            this.volTrend = (analysis.scores.volTrend * 100).toFixed(1);
 
             console.log(`\n🎯 ENTRY SIGNAL: ${asset}`);
             console.log(`   Score: ${(analysis.overallScore * 100).toFixed(1)}%`);
