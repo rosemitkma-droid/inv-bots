@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2a_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2a_01-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2a_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2a_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1369,8 +1369,8 @@ const CONFIG = {
     // Default Candle Settings (used if asset has no specific config)
     GRANULARITY: 120,
     TIMEFRAME_LABEL: '2m',
-    MAX_CANDLES_STORED: 5000,
-    CANDLES_TO_LOAD: 5000,
+    MAX_CANDLES_STORED: 500,
+    CANDLES_TO_LOAD: 500,
 
     CANDLE_PATTERN_LOOKBACK: 4, // Number of previous candles to analyze for pattern detection (user configurable)
 
