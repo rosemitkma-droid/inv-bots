@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2_00007-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_00007-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2_00009-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_00009-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1092,15 +1092,15 @@ const CONFIG = {
     SESSION_STOP_LOSS: -5000,
 
     // Default Candle Settings (used if asset has no specific config)
-    GRANULARITY: 60,
-    TIMEFRAME_LABEL: '1m',
-    MAX_CANDLES_STORED: 50,
-    CANDLES_TO_LOAD: 50,
+    GRANULARITY: 120,
+    TIMEFRAME_LABEL: '2m',
+    MAX_CANDLES_STORED: 5000,
+    CANDLES_TO_LOAD: 5000,
 
-    CANDLE_PATTERN_LOOKBACK: 8, // Number of previous candles to analyze for pattern detection (user configurable)
+    CANDLE_PATTERN_LOOKBACK: 4, // Number of previous candles to analyze for pattern detection (user configurable)
 
     // Default Trade Duration Settings (used if asset has no specific config)
-    DURATION: 58,
+    DURATION: 118,
     DURATION_UNIT: 's',
 
     // Trade Settings — NOW PER ASSET
@@ -1209,8 +1209,9 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
-// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -2550,19 +2551,19 @@ class DerivBot {
                 }
             } else if (assetState.martingaleLevel === 5) {
                 if (assetState.lastTradeDirection === 'CALLE') {
-                    direction = 'PUTE';
-                    signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
-                } else {
-                    direction = 'CALLE';
-                    signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
-                }
-            } else if (assetState.martingaleLevel === 6) {
-                if (assetState.lastTradeDirection === 'CALLE') {
                     direction = 'CALLE';
                     signalReason = `Recovery (${symbol} Prev LOSS on FALL → Reverse to RISE)`;
                 } else {
                     direction = 'PUTE';
                     signalReason = `Recovery (${symbol} Prev LOSS on RISE → Reverse to FALL)`;
+                }
+            } else if (assetState.martingaleLevel === 6) {
+                if (assetState.lastTradeDirection === 'CALLE') {
+                    direction = 'PUTE';
+                    signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
+                } else {
+                    direction = 'CALLE';
+                    signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
                 }
             } else if (assetState.martingaleLevel === 7) {
                 if (assetState.lastTradeDirection === 'CALLE') {
