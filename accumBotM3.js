@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM3_03_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM3_05_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1109,7 +1109,7 @@ class EnhancedDerivTradingBot {
         if (analysis.scores.volTrend < 0.5) return;
 
         // Check if we should place trade
-        if (condition || this.overallScore >= 100) {
+        if (condition) {
             this.tradedDigitArray.push(stayedInArray[99]);
             this.filteredArray = appearedOnceArray;
             this.entryTick = stayedInArray[99];
