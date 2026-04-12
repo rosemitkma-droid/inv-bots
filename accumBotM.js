@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM_00000003_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM_00000005_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -390,10 +390,10 @@ class AccumulatorAnalyzer {
         // DETERMINE OPTIMAL GROWTH RATE
         // ═══════════════════════════════════════════
         let recommendedGrowthRate;
-        if (overallScore >= 0.85) recommendedGrowthRate = 0.05;    // High confidence → 3%
-        else if (overallScore >= 0.75) recommendedGrowthRate = 0.05; // Good → 2%
-        else if (overallScore >= 0.65) recommendedGrowthRate = 0.05; // Moderate → safest 1%
-        else recommendedGrowthRate = 0.05;                          // Default safest
+        if (overallScore >= 0.85) recommendedGrowthRate = 0.03;    // High confidence → 3%
+        else if (overallScore >= 0.75) recommendedGrowthRate = 0.03; // Good → 2%
+        else if (overallScore >= 0.65) recommendedGrowthRate = 0.03; // Moderate → safest 1%
+        else recommendedGrowthRate = 0.03;                          // Default safest
 
         // ═══════════════════════════════════════════
         // HARD REJECTION FILTERS
@@ -1071,7 +1071,7 @@ class EnhancedDerivTradingBot {
 
         const condition3 = appearedOnceArray.includes(currentDigitCount3)
             && !this.tradedDigitArray.includes(stayedInArray[99])
-            && stayedInArray[99] > 0;
+            && stayedInArray[99] > 20;
 
         console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
 
@@ -1104,19 +1104,19 @@ class EnhancedDerivTradingBot {
 
         // if (analysis.overallScore < 0.65) return;
 
-        if (analysis.scores.bandWidth < 1) return;
+        // if (analysis.scores.bandWidth < 1) return;
 
-        if (analysis.scores.macdFlat < 0.5) return;
+        // if (analysis.scores.macdFlat < 0.5) return;
 
-        if (analysis.scores.pricePosition < 0.5) return;
+        // if (analysis.scores.pricePosition < 0.5) return;
 
-        if (!analysis.tickStability || analysis.tickStability === 'undefined' || analysis.tickStability === 'NaN' || analysis.tickStability < 1) return;
+        // if (!analysis.tickStability || analysis.tickStability === 'undefined' || analysis.tickStability === 'NaN' || analysis.tickStability < 1) return;
 
-        if (analysis.scores.macdConverging < 1) return;
+        // if (analysis.scores.macdConverging < 1) return;
 
-        if (this.maxTickMove < 0.03) return;
+        // if (this.maxTickMove < 0.03) return;
 
-        if (analysis.scores.volTrend < 0.5) return;
+        // if (analysis.scores.volTrend < 0.5) return;
 
         // Check if we should place trade
         if ((condition && this.overallScore >= 100) || (condition2 && this.overallScore >= 100) || (condition3 && this.overallScore >= 100)) {
@@ -1692,15 +1692,15 @@ class EnhancedDerivTradingBot {
 // BOT INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
 const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
-    initialStake: 1,
-    multiplier: 6,
-    multiplier2: 8,
-    maxConsecutiveLosses: 3,
+    initialStake: 5,
+    multiplier: 1,
+    multiplier2: 1,
+    maxConsecutiveLosses: 5,
     stopLoss: 100,
     takeProfit: 10000,
-    growthRate: 0.05,
-    takeProfitMultiplier: 0.20,
-    filterNum: 4,
+    growthRate: 0.03,
+    takeProfitMultiplier: 0.05,
+    filterNum: 3,
     assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     telegramChatId: '752497117',
