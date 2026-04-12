@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_1_00001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_1_00001-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_1_00003-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_1_00003-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1100,7 +1100,7 @@ const CONFIG = {
     CANDLE_PATTERN_LOOKBACK: 9, // Number of previous candles to analyze for pattern detection (user configurable)
 
     // Default Trade Duration Settings (used if asset has no specific config)
-    DURATION: 60,
+    DURATION: 58,
     DURATION_UNIT: 's',
 
     // Trade Settings — NOW PER ASSET
@@ -2524,23 +2524,23 @@ class DerivBot {
         if (isRecoveryMode) {
             // RECOVERY MODE: After a loss, continue in the SAME direction
             // // This is a martingale continuation strategy - not a new breakout signal
-            // if (assetState.lastTradeDirection === 'CALLE') {
-            //     direction = 'CALLE';
-            //     signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
-            // } else {
-            //     direction = 'PUTE';
-            //     signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
-            // }
-
-            const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
-
-            if (candleType === 'BULLISH') {
-                direction = 'PUTE';
-                signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continuing FALL)`;
-            } else {
+            if (assetState.lastTradeDirection === 'CALLE') {
                 direction = 'CALLE';
-                signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continuing RISE)`;
+                signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
+            } else {
+                direction = 'PUTE';
+                signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
             }
+
+            // const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
+
+            // if (candleType === 'BULLISH') {
+            //     direction = 'PUTE';
+            //     signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continuing FALL)`;
+            // } else {
+            //     direction = 'CALLE';
+            //     signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continuing RISE)`;
+            // }
             LOGGER.trade(`🔄 [${symbol}] RECOVERY MODE: ${signalReason} (Martingale Level: ${assetState.martingaleLevel})`);
 
         } else {
