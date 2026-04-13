@@ -1283,10 +1283,10 @@ class CandlePatternMatcher {
         let confidence;
 
         if (bullFollowCount > bearFollowCount) {
-            recommendedDirection = 'CALLE';
+            recommendedDirection = 'PUTE';
             confidence = (bullFollowCount / totalMatches) * 100;
         } else if (bearFollowCount > bullFollowCount) {
-            recommendedDirection = 'PUTE';
+            recommendedDirection = 'CALLE';
             confidence = (bearFollowCount / totalMatches) * 100;
         } else {
             // Exact tie — default to CALLE (conservative bull bias)
