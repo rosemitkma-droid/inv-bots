@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2_00009-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_00009-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2_000009-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_000009-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1094,8 +1094,8 @@ const CONFIG = {
     // Default Candle Settings (used if asset has no specific config)
     GRANULARITY: 120,
     TIMEFRAME_LABEL: '2m',
-    MAX_CANDLES_STORED: 5000,
-    CANDLES_TO_LOAD: 5000,
+    MAX_CANDLES_STORED: 50,
+    CANDLES_TO_LOAD: 50,
 
     CANDLE_PATTERN_LOOKBACK: 4, // Number of previous candles to analyze for pattern detection (user configurable)
 
@@ -1209,9 +1209,9 @@ function getAssetConfig(symbol) {
     };
 }
 
-// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
