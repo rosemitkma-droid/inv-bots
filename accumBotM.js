@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM_00000005_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM_00000006_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1034,8 +1034,7 @@ class EnhancedDerivTradingBot {
 
         // Current digit count of the running accumulator
         const currentDigitCount = stayedInArray[99] + 1;
-        const currentDigitCount2 = stayedInArray[99] + 2;
-        const currentDigitCount3 = stayedInArray[99] - 1;
+        const currentDigitCount2 = stayedInArray[99] - 1;
 
         this.currentTick = stayedInArray[99];
 
@@ -1063,15 +1062,12 @@ class EnhancedDerivTradingBot {
         // and not already traded, and stayedIn value >= 0
         const condition = appearedOnceArray.includes(currentDigitCount)
             && !this.tradedDigitArray.includes(stayedInArray[99])
-            && stayedInArray[99] > 0;
+            && stayedInArray[99] > 15;
 
         const condition2 = appearedOnceArray.includes(currentDigitCount2)
             && !this.tradedDigitArray.includes(stayedInArray[99])
-            && stayedInArray[99] > 0;
+            && stayedInArray[99] > 15;
 
-        const condition3 = appearedOnceArray.includes(currentDigitCount3)
-            && !this.tradedDigitArray.includes(stayedInArray[99])
-            && stayedInArray[99] > 20;
 
         console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
 
@@ -1119,7 +1115,7 @@ class EnhancedDerivTradingBot {
         // if (analysis.scores.volTrend < 0.5) return;
 
         // Check if we should place trade
-        if ((condition && this.overallScore >= 100) || (condition2 && this.overallScore >= 100) || (condition3 && this.overallScore >= 100)) {
+        if ((condition && this.overallScore >= 100) || (condition2 && this.overallScore >= 100)) {
             this.tradedDigitArray.push(stayedInArray[99]);
             this.filteredArray = appearedOnceArray;
             this.entryTick = stayedInArray[99];
@@ -1692,14 +1688,14 @@ class EnhancedDerivTradingBot {
 // BOT INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
 const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
-    initialStake: 5,
-    multiplier: 1,
+    initialStake: 3,
+    multiplier: 33.5,
     multiplier2: 1,
-    maxConsecutiveLosses: 5,
+    maxConsecutiveLosses: 2,
     stopLoss: 100,
     takeProfit: 10000,
     growthRate: 0.03,
-    takeProfitMultiplier: 0.05,
+    takeProfitMultiplier: 0.03,
     filterNum: 3,
     assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
