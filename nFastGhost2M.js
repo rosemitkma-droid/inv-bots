@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti0007-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti00001-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -68,7 +68,7 @@ const CONFIG = {
     api_token: '0P94g4WdSrSrzir',
 
     // Multi-Asset Configuration
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'],
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'], //['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR']
 
     // Contract Configuration
     contract_type: 'DIGITDIFF',
@@ -653,28 +653,28 @@ class RepeatCycleAnalyzer {
             : 0;
         const meaningfulDecline = declineFraction >= 0.15;
         const notCollapsed = currentVal >= this.nonRepMaxRepeat;
-        const last3 = recent.slice(-3);
-        const declining = last3.length >= 3
-            && last3[0] > last3[1]
-            && last3[1] > last3[2]
+        const last2 = recent.slice(-2);
+        const declining = last2.length >= 2
+            && last2[0] > last2[1]
+        // && last3[1] > last3[2]
         // && last3[2] > last3[3]
         // && last3[3] > last3[4];
 
         const exhaustion = peakReachedSat && meaningfulDecline && notCollapsed && declining;
 
-        if (!exhaustion) {
-            return {
-                active: false,
-                score: 0,
-                details: {
-                    ...baseDetails,
-                    reason: 'no_exhaustion',
-                    peakInWindow: peakInWindow.toFixed(4),
-                    declineFraction: declineFraction.toFixed(3),
-                    declining,
-                },
-            };
-        }
+        // if (!exhaustion) {
+        //     return {
+        //         active: false,
+        //         score: 0,
+        //         details: {
+        //             ...baseDetails,
+        //             reason: 'no_exhaustion',
+        //             peakInWindow: peakInWindow.toFixed(4),
+        //             declineFraction: declineFraction.toFixed(3),
+        //             declining,
+        //         },
+        //     };
+        // }
 
         const peakExcess = Math.max(0, peakInWindow - sat);
         const normPeak = Math.min(1, peakExcess / 0.15);
@@ -745,6 +745,7 @@ class MultiAssetGhostBot {
         this.sys2 = false;
         this.sys2WinCount = 0;
         this.sysCount = 0;
+        this.startTrade = false;
 
         // Contract tracking
         this.contractSubscription = null;
@@ -1119,7 +1120,7 @@ class MultiAssetGhostBot {
         const shortRepeat = snapshot ? (snapshot.shortRepeat * 100).toFixed(1) : '---';
 
         const now = Date.now();
-        if (!this.tradeInProgress && now - (this.lastTickLogTime[asset] || 0) >= 30000) {
+        if (!this.tradeInProgress && now - (this.lastTickLogTime[asset] || 0) >= 30000) { // && now - (this.lastTickLogTime[asset] || 0) >= 30000
             console.log(
                 `[${asset}] ${tick.quote}: ${recent.join(',')}` +
                 ` | ShortR: ${shortRepeat}%` +
@@ -1181,7 +1182,7 @@ class MultiAssetGhostBot {
         // Generate signal for this asset
         const signal = this.generateSignal(asset);
 
-        if (signal && signal.tradeSignal && signal.confidence > 0.5) {
+        if (signal) { // && signal.tradeSignal && signal.confidence > 0.5
             const sat = this.cycleAnalyzers[asset].learnedSaturation;
             const satHotDigit = this.cycleAnalyzers[asset].saturationHotDigit;
 
@@ -1189,25 +1190,44 @@ class MultiAssetGhostBot {
             const recentTicks = analyzer.getRecentTicks(10);
             const last10 = recentTicks.map(t => t.digit).join(',');
 
-            console.log(
-                `🎯 Trade Signal [${asset}]:` +
-                ` SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'}` +
-                ` | WindowHot: ${signal.windowHotDigit}` +
-                ` | TradeDigit: ${signal.digit}` +
-                ` | Conf: ${(signal.confidence * 100).toFixed(0)}%` +
-                ` | ShortR: ${(signal.shortRepeat * 100).toFixed(1)}%` +
-                ` | PeakSat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}`
-            );
-
             // Only trade when saturation has been learned and is meaningful
-            if (sat && signal.shortRepeat > 0.1 && sat > signal.shortRepeat && satHotDigit != null && satHotDigit !== signal.windowHotDigit) {
+            // if (sat && signal.shortRepeat > 0.1 && sat > signal.shortRepeat && satHotDigit != null && satHotDigit !== signal.windowHotDigit) {
+            //     this.placeTrade(asset, signal);
+            // } else {
+            //     console.log(
+            //         `[${asset}] Waiting for saturation learning...` +
+            //         ` Last10: ${last10}` +
+            //         ` | Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : 'not learned'}` +
+            //         ` | SatHot: ${satHotDigit != null ? satHotDigit : 'not identified'}`
+            //     );
+            // }
+
+            if (sat && sat >= 0.16 && signal.shortRepeat > sat && signal.shortRepeat >= 0.20) {
+                this.startTrade = true;
+            }
+
+            if (signal.shortRepeat <= 0.14) {
+                this.startTrade = false;
+            }
+
+
+            if (sat >= 0.16 && signal.shortRepeat >= 0.14 && signal.confidence >= 0.4) { //this.startTrade
+                console.log(
+                    `🎯 Trade Signal [${asset}]:` +
+                    ` Last10: ${last10}` +
+                    ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
+                    ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
+                    ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
+                );
+
                 this.placeTrade(asset, signal);
             } else {
                 console.log(
                     `[${asset}] Waiting for saturation learning...` +
                     ` Last10: ${last10}` +
-                    ` | Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : 'not learned'}` +
-                    ` | SatHot: ${satHotDigit != null ? satHotDigit : 'not identified'}`
+                    ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
+                    ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
+                    ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
                 );
             }
         }
@@ -1260,15 +1280,15 @@ class MultiAssetGhostBot {
 
         return {
             asset,
-            digit: tradeDigit,
+            digit: lastDigit,
             digitFrequency: hotDigitInfo.frequency,
             digitCount: hotDigitInfo.count,
             confidence,
             cycleScore: cycleSignal.score,
             cycleDetails: cycleSignal.details,
             shortRepeat: cycleSignal.details ? cycleSignal.details.shortRepeat : 0,
-            tradeSignal,
             hotDigit: tradeDigit,
+            tradeSignal,
             saturationHotDigit,
             windowHotDigit: hotDigitInfo.digit,
         };
@@ -1496,7 +1516,7 @@ class MultiAssetGhostBot {
             }
 
             // Suspend asset after loss
-            this.suspendAsset(asset);
+            // this.suspendAsset(asset);
         }
 
         this.totalProfitLoss += profit;
