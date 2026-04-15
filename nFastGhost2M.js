@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti00001-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti00003-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -1118,14 +1118,15 @@ class MultiAssetGhostBot {
         const satHotDigit = cycleAnalyzer.saturationHotDigit;
         const snapshot = cycleAnalyzer.lastSnapshot;
         const shortRepeat = snapshot ? (snapshot.shortRepeat * 100).toFixed(1) : '---';
+        const signal = this.generateSignal(asset);
 
         const now = Date.now();
         if (!this.tradeInProgress && now - (this.lastTickLogTime[asset] || 0) >= 30000) { // && now - (this.lastTickLogTime[asset] || 0) >= 30000
             console.log(
                 `[${asset}] ${tick.quote}: ${recent.join(',')}` +
-                ` | ShortR: ${shortRepeat}%` +
-                ` | PeakSat: ${sat != null ? (sat * 100).toFixed(1) + '%' : '---'}` +
-                ` | SatHot: ${satHotDigit != null ? satHotDigit : '---'}`
+                ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
+                ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
+                ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
             );
             this.lastTickLogTime[asset] = now;
         } else if (this.tradeInProgress) {
@@ -1211,7 +1212,12 @@ class MultiAssetGhostBot {
             }
 
 
-            if (sat >= 0.16 && signal.shortRepeat >= 0.14 && signal.confidence >= 0.4) { //this.startTrade
+            if (sat >= 0.18 && signal.shortRepeat >= 0.16 && signal.confidence >= 0.4) { //this.startTrade
+                if (asset === 'RDBEAR' || asset === 'RDBULL') {
+                    if (sat < 0.18 || signal.shortRepeat < 0.28) {
+                        return;
+                    }
+                }
                 console.log(
                     `🎯 Trade Signal [${asset}]:` +
                     ` Last10: ${last10}` +
@@ -1222,13 +1228,13 @@ class MultiAssetGhostBot {
 
                 this.placeTrade(asset, signal);
             } else {
-                console.log(
-                    `[${asset}] Waiting for saturation learning...` +
-                    ` Last10: ${last10}` +
-                    ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
-                    ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
-                    ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
-                );
+                // console.log(
+                //     `[${asset}] Waiting for saturation learning...` +
+                //     ` Last10: ${last10}` +
+                //     ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
+                //     ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
+                //     ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
+                // );
             }
         }
     }
