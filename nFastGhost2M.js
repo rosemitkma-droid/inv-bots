@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti00003-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti00005-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -1203,16 +1203,16 @@ class MultiAssetGhostBot {
             //     );
             // }
 
-            if (sat && sat >= 0.16 && signal.shortRepeat > sat && signal.shortRepeat >= 0.20) {
-                this.startTrade = true;
-            }
+            // if (sat && sat >= 0.16 && signal.shortRepeat > sat && signal.shortRepeat >= 0.20) {
+            //     this.startTrade = true;
+            // }
 
-            if (signal.shortRepeat <= 0.14) {
-                this.startTrade = false;
-            }
+            // if (signal.shortRepeat <= 0.14) {
+            //     this.startTrade = false;
+            // }
 
 
-            if (sat >= 0.18 && signal.shortRepeat >= 0.16 && signal.confidence >= 0.4) { //this.startTrade
+            if (sat >= 0.16 && signal.shortRepeat >= 0.18 && signal.confidence >= 0.4) { //this.startTrade
                 if (asset === 'RDBEAR' || asset === 'RDBULL') {
                     if (sat < 0.18 || signal.shortRepeat < 0.28) {
                         return;
@@ -1837,7 +1837,7 @@ class MultiAssetGhostBot {
             // }
 
             // Reconnect only at 07:00 GMT+1
-            if (this.endOfDay && currentHours === 7 && currentMinutes >= 0) {
+            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
                 console.log("It's 07:00 AM GMT+1, reconnecting the bot.");
                 this.resetDailyStats();
                 this.endOfDay = false;
@@ -1846,7 +1846,7 @@ class MultiAssetGhostBot {
             }
 
             // Disconnect at or after 19:00 GMT+1 (stop trading for the night)
-            if (!this.endOfDay && this.isWinTrade && currentHours >= 19) {
+            if (!this.endOfDay && this.isWinTrade && currentHours >= 11) {
                 console.log("It's past 19:00 (07:00 PM) GMT+1, disconnecting the bot.");
                 this.sendHourlySummary();
                 this.disconnect();
