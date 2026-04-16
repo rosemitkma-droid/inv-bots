@@ -1129,8 +1129,8 @@ class MultiAssetGhostBot {
             console.log(
                 `[${asset}] ${tick.quote}: ${recent.join(',')}` +
                 ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
-                ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
                 ` | Peak in Window: ${peakWindow}` +
+                ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
                 ` | Decline Fraction: ${declineFrac}` +
                 ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
             );
@@ -1233,8 +1233,8 @@ class MultiAssetGhostBot {
                     `🎯 Trade Signal [${asset}]:` +
                     ` Last10: ${last10}` +
                     ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
-                    ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
                     ` | Peak in Window: ${peakWindow}` +
+                    ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
                     ` | Decline Fraction: ${declineFrac}` +
                     ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
                 );
