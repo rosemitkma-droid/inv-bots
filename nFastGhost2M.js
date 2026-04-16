@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti00005-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti00007-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -1191,6 +1191,10 @@ class MultiAssetGhostBot {
             const recentTicks = analyzer.getRecentTicks(10);
             const last10 = recentTicks.map(t => t.digit).join(',');
 
+            const d = signal.cycleDetails || {};
+            const peakWindow = d.peakInWindow || '---';
+            const declineFrac = d.declineFraction || '---';
+
             // Only trade when saturation has been learned and is meaningful
             // if (sat && signal.shortRepeat > 0.1 && sat > signal.shortRepeat && satHotDigit != null && satHotDigit !== signal.windowHotDigit) {
             //     this.placeTrade(asset, signal);
@@ -1212,17 +1216,20 @@ class MultiAssetGhostBot {
             // }
 
 
-            if (sat >= 0.16 && signal.shortRepeat >= 0.18 && signal.confidence >= 0.4) { //this.startTrade
-                if (asset === 'RDBEAR' || asset === 'RDBULL') {
-                    if (sat < 0.18 || signal.shortRepeat < 0.28) {
-                        return;
-                    }
-                }
+            if (sat >= 0.16 && signal.shortRepeat >= 0.18 && signal.confidence >= 0.4 && declineFrac >= 0.1) { //this.startTrade
+                // if (asset === 'RDBEAR' || asset === 'RDBULL') {
+                //     if (sat < 0.18 || signal.shortRepeat < 0.28) {
+                //         return;
+                //     }
+                // }
+
                 console.log(
                     `🎯 Trade Signal [${asset}]:` +
                     ` Last10: ${last10}` +
                     ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
                     ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
+                    ` | Peak in Window: ${peakWindow}` +
+                    ` | Decline Fraction: ${declineFrac}` +
                     ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
                 );
 
