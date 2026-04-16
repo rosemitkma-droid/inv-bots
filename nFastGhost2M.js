@@ -1119,6 +1119,9 @@ class MultiAssetGhostBot {
         const snapshot = cycleAnalyzer.lastSnapshot;
         const shortRepeat = snapshot ? (snapshot.shortRepeat * 100).toFixed(1) : '---';
         const signal = this.generateSignal(asset);
+        const d = signal.cycleDetails || {};
+        const peakWindow = d.peakInWindow || '---';
+        const declineFrac = d.declineFraction || '---';
 
         const now = Date.now();
         if (!this.tradeInProgress && now - (this.lastTickLogTime[asset] || 0) >= 30000) { // && now - (this.lastTickLogTime[asset] || 0) >= 30000
@@ -1126,6 +1129,8 @@ class MultiAssetGhostBot {
                 `[${asset}] ${tick.quote}: ${recent.join(',')}` +
                 ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
                 ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
+                ` | Peak in Window: ${peakWindow}` +
+                ` | Decline Fraction: ${declineFrac}` +
                 ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
             );
             this.lastTickLogTime[asset] = now;
