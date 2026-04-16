@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3_000005-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3_000005-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3_000007-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3_000007-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1209,7 +1209,8 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
