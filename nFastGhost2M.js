@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti00009-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhostMMulti000001-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -1851,7 +1851,7 @@ class MultiAssetGhostBot {
 
             // Reconnect only at 07:00 GMT+1
             if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
-                console.log("It's 07:00 AM GMT+1, reconnecting the bot.");
+                console.log("It's 02:00 AM GMT+1, reconnecting the bot.");
                 this.resetDailyStats();
                 this.endOfDay = false;
                 this.connect();
@@ -1859,7 +1859,7 @@ class MultiAssetGhostBot {
             }
 
             // Disconnect at or after 19:00 GMT+1 (stop trading for the night)
-            if (!this.endOfDay && this.isWinTrade && currentHours >= 11) {
+            if (!this.endOfDay && this.isWinTrade && currentHours >= 23) {
                 console.log("It's past 19:00 (07:00 PM) GMT+1, disconnecting the bot.");
                 this.sendHourlySummary();
                 this.disconnect();
