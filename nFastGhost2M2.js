@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhost2M2-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhost2M2_01-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -1214,7 +1214,7 @@ class MultiAssetGhostBot {
             // }
 
 
-            const tradeNow = sat <= 0.14 && signal.shortRepeat <= 0.14 && peakWindow <= 0.14 && signal.digit !== signal.windowHotDigit && signal.digit !== satHotDigit
+            const tradeNow = sat <= 0.14 && signal.shortRepeat <= 0.14 && signal.shortRepeat <= sat && peakWindow <= 0.14 && peakWindow <= sat && signal.shortRepeat <= peakWindow && signal.digit !== signal.windowHotDigit && signal.digit !== satHotDigit
 
             if (//sat >= 0.16
                 // && signal.shortRepeat >= 0.18
