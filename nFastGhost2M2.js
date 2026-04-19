@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhost2M2_01-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhost2M2_02-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -68,7 +68,8 @@ const CONFIG = {
     api_token: 'Dz2V2KvRf4Uukt3',
 
     // Multi-Asset Configuration
-    assets: ['R_10', 'R_25', 'R_50', 'R_75'], //['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR']
+    // assets: ['R_10', 'R_25', 'R_50', 'R_75'], 
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'],
 
     // Contract Configuration
     contract_type: 'DIGITDIFF',
@@ -1129,9 +1130,9 @@ class MultiAssetGhostBot {
             console.log(
                 `[${asset}] ${tick.quote}: ${recent.join(',')}` +
                 ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
-                ` | Peak in Window: ${peakWindow}` +
+                ` | Peak in Window: ${(peakWindow * 100).toFixed(1)}%` +
                 ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
-                ` | Decline Fraction: ${declineFrac}` +
+                ` | Decline Fraction: ${(declineFrac * 100).toFixed(3)}%` +
                 ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
             );
             this.lastTickLogTime[asset] = now;
@@ -1201,41 +1202,17 @@ class MultiAssetGhostBot {
             const peakWindow = d.peakInWindow || '---';
             const declineFrac = d.declineFraction || '---';
 
-            // Only trade when saturation has been learned and is meaningful
-            // if (sat && signal.shortRepeat > 0.1 && sat > signal.shortRepeat && satHotDigit != null && satHotDigit !== signal.windowHotDigit) {
-            //     this.placeTrade(asset, signal);
-            // } else {
-            //     console.log(
-            //         `[${asset}] Waiting for saturation learning...` +
-            //         ` Last10: ${last10}` +
-            //         ` | Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : 'not learned'}` +
-            //         ` | SatHot: ${satHotDigit != null ? satHotDigit : 'not identified'}`
-            //     );
-            // }
+            // const tradeNow = sat <= 0.14 && signal.shortRepeat <= 0.14 && signal.shortRepeat <= sat && peakWindow <= 0.14 && peakWindow <= sat && signal.shortRepeat <= peakWindow && signal.digit !== signal.windowHotDigit && signal.digit !== satHotDigit
+            const tradeNow = sat <= 0.14 && signal.shortRepeat <= 0.14 && peakWindow <= 0.14 && signal.digit !== signal.windowHotDigit && signal.digit !== satHotDigit && declineFrac <= 0.14 && signal.shortRepeat <= peakWindow
 
-
-            const tradeNow = sat <= 0.14 && signal.shortRepeat <= 0.14 && signal.shortRepeat <= sat && peakWindow <= 0.14 && peakWindow <= sat && signal.shortRepeat <= peakWindow && signal.digit !== signal.windowHotDigit && signal.digit !== satHotDigit
-
-            if (//sat >= 0.16
-                // && signal.shortRepeat >= 0.18
-                // && signal.confidence >= 0.4
-                // && declineFrac >= 0.1
-                // && signal.digit === signal.windowHotDigit
-                tradeNow
-            ) { //this.startTrade
-                // if (asset === 'RDBEAR' || asset === 'RDBULL') {
-                //     if (sat < 0.18 || signal.shortRepeat < 0.28) {
-                //         return;
-                //     }
-                // }
-
+            if (tradeNow) {
                 console.log(
                     `🎯 Trade Signal [${asset}]:` +
                     ` Last10: ${last10}` +
                     ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
                     ` | Peak in Window: ${(peakWindow * 100).toFixed(1)}%` +
                     ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
-                    ` | Decline Fraction: ${(declineFrac * 100).toFixed(1)}%` +
+                    ` | Decline Fraction: ${(declineFrac * 100).toFixed(3)}%` +
                     ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
                 );
 
@@ -1248,7 +1225,7 @@ class MultiAssetGhostBot {
                 //     ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
                 //     ` | Peak in Window: ${(peakWindow * 100).toFixed(1)}%` +
                 //     ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
-                //     ` | Decline Fraction: ${(declineFrac * 100).toFixed(1)}%` +
+                //     ` | Decline Fraction: ${(declineFrac * 100).toFixed(3)}%` +
                 //     ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
                 // );
             }
@@ -1390,8 +1367,8 @@ class MultiAssetGhostBot {
             🔬 <b>Repeat-Cycle Analysis</b>
             ├ Short Repeat: ${sh}%
             ├ Peak Saturation: ${th}%
-            ├ Peak in Window: ${peakWindow}
-            ├ Decline Fraction: ${declineFrac}
+            ├ Peak in Window: ${(peakWindow * 100).toFixed(1)}%
+            ├ Decline Fraction: ${(declineFrac * 100).toFixed(3)}%
             └ Score: ${signal.cycleScore}
         `.trim();
         this.sendTelegramMessage(message);
