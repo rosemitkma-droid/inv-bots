@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhost2M2_03-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhost2M2_05-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -1202,32 +1202,59 @@ class MultiAssetGhostBot {
             const peakWindow = d.peakInWindow || '---';
             const declineFrac = d.declineFraction || '---';
 
-            // const tradeNow = sat <= 0.14 && signal.shortRepeat <= 0.14 && signal.shortRepeat <= sat && peakWindow <= 0.14 && peakWindow <= sat && signal.shortRepeat <= peakWindow && signal.digit !== signal.windowHotDigit && signal.digit !== satHotDigit
             const tradeNow = sat <= 0.14 && signal.shortRepeat <= 0.14 && peakWindow <= 0.14 && signal.digit !== signal.windowHotDigit && signal.digit !== satHotDigit && declineFrac <= 0.14 && signal.shortRepeat <= peakWindow
+            const tradeNow2 = sat >= 0.16 && signal.shortRepeat >= 0.18 && signal.confidence >= 0.4 && declineFrac >= 0.1 && signal.digit === signal.windowHotDigit
 
-            if (tradeNow) {
-                console.log(
-                    `🎯 Trade Signal [${asset}]:` +
-                    ` Last10: ${last10}` +
-                    ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
-                    ` | Peak in Window: ${(peakWindow * 100).toFixed(1)}%` +
-                    ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
-                    ` | Decline Fraction: ${(declineFrac * 100).toFixed(3)}%` +
-                    ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
-                );
+            if (this.consecutiveLosses >= 1) {
+                if (tradeNow2) {
+                    console.log(
+                        `🎯 Trade Signal [${asset}]:` +
+                        ` Last10: ${last10}` +
+                        ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
+                        ` | Peak in Window: ${(peakWindow * 100).toFixed(1)}%` +
+                        ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
+                        ` | Decline Fraction: ${(declineFrac * 100).toFixed(3)}%` +
+                        ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
+                    );
 
-                this.placeTrade(asset, signal);
+                    this.placeTrade(asset, signal);
+                } else {
+                    // console.log(
+                    //     `[${asset}] Waiting...` +
+                    //     ` Last10: ${last10}` +
+                    //     ` | Trade Now: ${tradeNow}` +
+                    //     ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
+                    //     ` | Peak in Window: ${(peakWindow * 100).toFixed(1)}%` +
+                    //     ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
+                    //     ` | Decline Fraction: ${(declineFrac * 100).toFixed(3)}%` +
+                    //     ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
+                    // );
+                }
             } else {
-                // console.log(
-                //     `[${asset}] Waiting...` +
-                //     ` Last10: ${last10}` +
-                //     ` | Trade Now: ${tradeNow}` +
-                //     ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
-                //     ` | Peak in Window: ${(peakWindow * 100).toFixed(1)}%` +
-                //     ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
-                //     ` | Decline Fraction: ${(declineFrac * 100).toFixed(3)}%` +
-                //     ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
-                // );
+                if (tradeNow) {
+                    console.log(
+                        `🎯 Trade Signal [${asset}]:` +
+                        ` Last10: ${last10}` +
+                        ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
+                        ` | Peak in Window: ${(peakWindow * 100).toFixed(1)}%` +
+                        ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
+                        ` | Decline Fraction: ${(declineFrac * 100).toFixed(3)}%` +
+                        ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
+                    );
+
+                    this.placeTrade(asset, signal);
+                } else {
+                    // console.log(
+                    //     `[${asset}] Waiting...` +
+                    //     ` Last10: ${last10}` +
+                    //     ` | Trade Now: ${tradeNow}` +
+                    //     ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
+                    //     ` | Peak in Window: ${(peakWindow * 100).toFixed(1)}%` +
+                    //     ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
+                    //     ` | Decline Fraction: ${(declineFrac * 100).toFixed(3)}%` +
+                    //     ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
+                    // );
+                }
             }
         }
     }
@@ -1515,7 +1542,7 @@ class MultiAssetGhostBot {
             // }
 
             // Suspend asset after loss
-            this.suspendAsset(asset);
+            // this.suspendAsset(asset);
         }
 
         this.totalProfitLoss += profit;
