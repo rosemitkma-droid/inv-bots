@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhost2M2_02-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhost2M2_03-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -68,8 +68,8 @@ const CONFIG = {
     api_token: 'Dz2V2KvRf4Uukt3',
 
     // Multi-Asset Configuration
-    // assets: ['R_10', 'R_25', 'R_50', 'R_75'], 
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'],
+    assets: ['R_10', 'R_25', 'R_50', 'R_75'],
+    // assets: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'],
 
     // Contract Configuration
     contract_type: 'DIGITDIFF',
