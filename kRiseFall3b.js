@@ -1097,13 +1097,13 @@ const CONFIG = {
     MAX_CANDLES_STORED: 50,
     CANDLES_TO_LOAD: 50,
 
-    CANDLE_PATTERN_LOOKBACK: 3, // Number of previous candles to analyze for pattern detection (user configurable)
+    CANDLE_PATTERN_LOOKBACK: 8, // Number of previous candles to analyze for pattern detection (user configurable)
 
     ALTERNATING_PATTERN_THRESHOLD: 60,   // % probability to trigger TRADE_SYSTEM 1
     CANDLES_DEEP: 5000,                  // Deep history size
     CANDLES_SHALLOW: 50,                 // Shallow (pattern trading) size
-    LOOKBACK_SHALLOW: 3,                 // Lookback for TRADE_SYSTEM 1
-    LOOKBACK_DEEP: 5,                    // Lookback for TRADE_SYSTEM 2
+    LOOKBACK_SHALLOW: 8,                 // Lookback for TRADE_SYSTEM 1
+    LOOKBACK_DEEP: 4,                    // Lookback for TRADE_SYSTEM 2
 
     tradeInProgress: false,
 
