@@ -33,7 +33,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'digitDifferBotV2_01_state.json');
+const STATE_FILE = path.join(__dirname, 'digitDifferBotV2_1_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1340,17 +1340,17 @@ class DigitDifferBotV2 {
             // Place trade
             this.placeDigitTrade(asset, digitBias, analysis, monteCarloResult, adaptiveThreshold);
         } else {
-            console.log(`Analysis Stats:
-                Overall Score: ${analysis.overallScore.toFixed(2)}
-                Volatility Regime: ${this.volatilityRegime}
-                Band Width: ${analysis.scores.bandWidth.toFixed(2)}
-                MACD Flat: ${analysis.scores.macdFlat.toFixed(2)}
-                Price Position: ${analysis.scores.pricePosition.toFixed(2)}
-                Tick Stability: ${analysis.scores.tickStability.toFixed(2)}
-                Vol Trend: ${analysis.scores.volTrend.toFixed(2)}
-                Digit Bias: ${digitBias.biasStrength.toFixed(2)} | ${adaptiveThreshold.toFixed(2)}
-                Current Digit: ${this.currentDigit} | Predicted Digit: ${digitBias.mostFrequent}
-                `);
+            // console.log(`Analysis Stats:
+            //     Overall Score: ${analysis.overallScore.toFixed(2)}
+            //     Volatility Regime: ${this.volatilityRegime}
+            //     Band Width: ${analysis.scores.bandWidth.toFixed(2)}
+            //     MACD Flat: ${analysis.scores.macdFlat.toFixed(2)}
+            //     Price Position: ${analysis.scores.pricePosition.toFixed(2)}
+            //     Tick Stability: ${analysis.scores.tickStability.toFixed(2)}
+            //     Vol Trend: ${analysis.scores.volTrend.toFixed(2)}
+            //     Digit Bias: ${digitBias.biasStrength.toFixed(2)} | ${adaptiveThreshold.toFixed(2)}
+            //     Current Digit: ${this.currentDigit} | Predicted Digit: ${digitBias.mostFrequent}
+            // `);
         }
     }
 
