@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhost2M2_05-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhost2M2_07-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -68,7 +68,7 @@ const CONFIG = {
     api_token: 'Dz2V2KvRf4Uukt3',
 
     // Multi-Asset Configuration
-    assets: ['R_10', 'R_25', 'R_50', 'R_75'],
+    assets: ['R_10', 'R_25', 'R_50'],
     // assets: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'],
 
     // Contract Configuration
@@ -94,7 +94,7 @@ const CONFIG = {
 
     // Multiplier-based Stake Management
     stake: {
-        initial_stake: 1.07,
+        initial_stake: 0.62,
         initial_stake2: 10.3,
         multiplier: 11.3,
         multiplier2: 11.3,
@@ -1202,11 +1202,9 @@ class MultiAssetGhostBot {
             const peakWindow = d.peakInWindow || '---';
             const declineFrac = d.declineFraction || '---';
 
-            const tradeNow = sat <= 0.14 && signal.shortRepeat <= 0.14 && peakWindow <= 0.14 && signal.digit !== signal.windowHotDigit && signal.digit !== satHotDigit && declineFrac <= 0.14 && signal.shortRepeat <= peakWindow
-            const tradeNow2 = sat >= 0.16 && signal.shortRepeat >= 0.18 && signal.confidence >= 0.4 && declineFrac >= 0.1 && signal.digit === signal.windowHotDigit
-
+            //Execute trade
             if (this.consecutiveLosses >= 1) {
-                if (tradeNow2) {
+                if (sat >= 0.16 && signal.shortRepeat >= 0.18 && signal.confidence >= 0.4 && declineFrac >= 0.1 && signal.digit === signal.windowHotDigit) {
                     console.log(
                         `🎯 Trade Signal [${asset}]:` +
                         ` Last10: ${last10}` +
@@ -1231,7 +1229,7 @@ class MultiAssetGhostBot {
                     // );
                 }
             } else {
-                if (tradeNow) {
+                if (sat <= 0.14 && signal.shortRepeat <= 0.14 && peakWindow <= 0.14 && signal.digit !== signal.windowHotDigit && signal.digit !== satHotDigit && declineFrac <= 0.14 && signal.shortRepeat <= peakWindow) {
                     console.log(
                         `🎯 Trade Signal [${asset}]:` +
                         ` Last10: ${last10}` +
@@ -1501,6 +1499,9 @@ class MultiAssetGhostBot {
             // }
 
             this.currentStake = CONFIG.stake.initial_stake;
+
+            //Better Assets
+            CONFIG.assets = ['R_10', 'R_25', 'R_50']
         } else {
             this.totalLosses++;
             this.hourlyStats.losses++;
@@ -1523,6 +1524,9 @@ class MultiAssetGhostBot {
             //     this.currentStake = CONFIG.stake.initial_stake2;
             // } else {
             this.currentStake = Math.ceil(this.currentStake * CONFIG.stake.multiplier * 100) / 100;
+
+            // Full Assets
+            CONFIG.assets = ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'];
             // }
 
             // Cap stake at maximum
