@@ -53,7 +53,7 @@ try {
     // node-telegram-bot-api not installed
 }
 
-const STATE_FILE = path.join(__dirname, 'nFastGhost2M2_07-state.json');
+const STATE_FILE = path.join(__dirname, 'nFastGhost2M2Multi1-state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================================
@@ -68,8 +68,7 @@ const CONFIG = {
     api_token: 'Dz2V2KvRf4Uukt3',
 
     // Multi-Asset Configuration
-    assets: ['R_10', 'R_25', 'R_50'],
-    // assets: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'],
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'], //['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR']
 
     // Contract Configuration
     contract_type: 'DIGITDIFF',
@@ -94,7 +93,7 @@ const CONFIG = {
 
     // Multiplier-based Stake Management
     stake: {
-        initial_stake: 0.62,
+        initial_stake: 2.2,
         initial_stake2: 10.3,
         multiplier: 11.3,
         multiplier2: 11.3,
@@ -1003,7 +1002,7 @@ class MultiAssetGhostBot {
         if (message.msg_type === 'authorize') {
             if (message.error) {
                 console.error('Authentication failed:', message.error.message);
-                this.sendTelegramMessage(`❌ <b>Authentication Failed 2:</b> ${message.error.message}`);
+                this.sendTelegramMessage(`❌ <b>Authentication Failed2:</b> ${message.error.message}`);
                 return;
             }
             console.log('✅ Authenticated successfully');
@@ -1031,7 +1030,7 @@ class MultiAssetGhostBot {
         } else if (message.msg_type === 'buy') {
             if (message.error) {
                 console.error('Error placing trade:', message.error.message);
-                this.sendTelegramMessage(`❌ <b>Trade Error 2:</b> ${message.error.message}`);
+                this.sendTelegramMessage(`❌ <b>Trade Error2:</b> ${message.error.message}`);
                 this.tradeInProgress = false;
                 return;
             }
@@ -1130,9 +1129,9 @@ class MultiAssetGhostBot {
             console.log(
                 `[${asset}] ${tick.quote}: ${recent.join(',')}` +
                 ` | WindowHot: ${signal.windowHotDigit} (${(signal.shortRepeat * 100).toFixed(1)}%)` +
-                ` | Peak in Window: ${(peakWindow * 100).toFixed(1)}%` +
+                ` | Peak in Window: ${peakWindow}` +
                 ` | SatHotDigit: ${satHotDigit != null ? satHotDigit : '?'} (${sat != null ? (sat * 100).toFixed(1) + '%' : '---'})` +
-                ` | Decline Fraction: ${(declineFrac * 100).toFixed(3)}%` +
+                ` | Decline Fraction: ${declineFrac}` +
                 ` | Conf: ${(signal.confidence * 100).toFixed(0)}%`
             );
             this.lastTickLogTime[asset] = now;
@@ -1185,7 +1184,7 @@ class MultiAssetGhostBot {
         }
 
         // Rate limiting
-        // if (Date.now() - this.lastTradeTime < this.minTradeCooldown) return;
+        if (Date.now() - this.lastTradeTime < this.minTradeCooldown) return;
 
         // Generate signal for this asset
         const signal = this.generateSignal(asset);
@@ -1202,7 +1201,27 @@ class MultiAssetGhostBot {
             const peakWindow = d.peakInWindow || '---';
             const declineFrac = d.declineFraction || '---';
 
-            //Execute trade
+            // Only trade when saturation has been learned and is meaningful
+            // if (sat && signal.shortRepeat > 0.1 && sat > signal.shortRepeat && satHotDigit != null && satHotDigit !== signal.windowHotDigit) {
+            //     this.placeTrade(asset, signal);
+            // } else {
+            //     console.log(
+            //         `[${asset}] Waiting for saturation learning...` +
+            //         ` Last10: ${last10}` +
+            //         ` | Sat: ${sat != null ? (sat * 100).toFixed(1) + '%' : 'not learned'}` +
+            //         ` | SatHot: ${satHotDigit != null ? satHotDigit : 'not identified'}`
+            //     );
+            // }
+
+            // if (sat && sat >= 0.16 && signal.shortRepeat > sat && signal.shortRepeat >= 0.20) {
+            //     this.startTrade = true;
+            // }
+
+            // if (signal.shortRepeat <= 0.14) {
+            //     this.startTrade = false;
+            // }
+
+
             if (this.consecutiveLosses >= 1) {
                 if (sat >= 0.16 && signal.shortRepeat >= 0.18 && signal.confidence >= 0.4 && declineFrac >= 0.1 && signal.digit === signal.windowHotDigit) {
                     console.log(
@@ -1335,7 +1354,7 @@ class MultiAssetGhostBot {
         if (this.totalProfitLoss <= -CONFIG.risk.max_daily_loss) {
             Logger.warn(`🛑 Daily loss limit reached! Stopping.`);
             this.sendTelegramMessage(
-                `🛑 <b>Stop Loss Reached 2!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`
+                `🛑 <b>Stop Loss Reached2!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`
             );
             this.disconnect();
             return;
@@ -1344,7 +1363,7 @@ class MultiAssetGhostBot {
         if (this.totalProfitLoss >= CONFIG.risk.take_profit) {
             Logger.info(`🎯 Take profit reached! Stopping.`);
             this.sendTelegramMessage(
-                `🎉 <b>Take Profit Reached 2!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`
+                `🎉 <b>Take Profit Reached2!</b>\nFinal P&L: $${this.totalProfitLoss.toFixed(2)}`
             );
             this.disconnect();
             return;
@@ -1379,7 +1398,7 @@ class MultiAssetGhostBot {
         const declineFrac = d.declineFraction || '---';
 
         const message = `
-            🔔 <b>Trade2 Opened (nFastGhostHHF2 Multi-Asset)</b>
+            🔔 <b>Trade Opened (nFastGhostHHF2 Multi-Asset)</b>
 
             📊 <b>${asset}</b>
             🎯 <b>DIGITDIFF Barrier:</b> ${tradeDigit}
@@ -1392,8 +1411,8 @@ class MultiAssetGhostBot {
             🔬 <b>Repeat-Cycle Analysis</b>
             ├ Short Repeat: ${sh}%
             ├ Peak Saturation: ${th}%
-            ├ Peak in Window: ${(peakWindow * 100).toFixed(1)}%
-            ├ Decline Fraction: ${(declineFrac * 100).toFixed(3)}%
+            ├ Peak in Window: ${peakWindow}
+            ├ Decline Fraction: ${declineFrac}
             └ Score: ${signal.cycleScore}
         `.trim();
         this.sendTelegramMessage(message);
@@ -1474,34 +1493,33 @@ class MultiAssetGhostBot {
             this.isWinTrade = true;
 
             // System progression reset
-            // if (this.sys === 2) {
-            //     if (this.sysCount >= 5) {
-            //         this.sys = 1;
-            //         this.sysCount = 0;
-            //     }
-            // } else if (this.sys === 3) {
-            //     if (this.sysCount >= 2) {
-            //         this.sys = 1;
-            //         this.sysCount = 0;
-            //     }
-            // }
+            if (this.sys === 2) {
+                if (this.sysCount >= 5) {
+                    this.sys = 1;
+                    this.sysCount = 0;
+                }
+            } else if (this.sys === 3) {
+                if (this.sysCount >= 2) {
+                    this.sys = 1;
+                    this.sysCount = 0;
+                }
+            }
 
-            // if (this.sys2) {
-            //     this.currentStake = CONFIG.stake.initial_stake2;
-            //     this.sys2WinCount++;
-            //     if (this.sys2WinCount === 30) {
-            //         this.currentStake = CONFIG.stake.initial_stake;
-            //         this.sys2WinCount = 0;
-            //         this.sys2 = false;
-            //     }
-            // } else {
-            //     this.currentStake = CONFIG.stake.initial_stake;
-            // }
+            if (this.sys2) {
+                this.currentStake = CONFIG.stake.initial_stake2;
+                this.sys2WinCount++;
+                if (this.sys2WinCount === 30) {
+                    this.currentStake = CONFIG.stake.initial_stake;
+                    this.sys2WinCount = 0;
+                    this.sys2 = false;
+                }
+            } else {
+                this.currentStake = CONFIG.stake.initial_stake;
+            }
 
-            this.currentStake = CONFIG.stake.initial_stake;
+            // this.currentStake = CONFIG.stake.initial_stake;
 
-            //Better Assets
-            CONFIG.assets = ['R_10', 'R_25', 'R_50']
+            CONFIG.assets = ['R_10', 'R_25', 'R_50'];
         } else {
             this.totalLosses++;
             this.hourlyStats.losses++;
@@ -1516,18 +1534,15 @@ class MultiAssetGhostBot {
             // Apply multiplier
             // this.currentStake = Math.ceil(this.currentStake * CONFIG.stake.multiplier * 100) / 100;
 
-            // if (this.consecutiveLosses === 2) {
-            //     if (this.sys2) {
-            //         this.consecutiveLosses = 4
-            //     };
-            //     this.sys2 = true
-            //     this.currentStake = CONFIG.stake.initial_stake2;
-            // } else {
-            this.currentStake = Math.ceil(this.currentStake * CONFIG.stake.multiplier * 100) / 100;
-
-            // Full Assets
-            CONFIG.assets = ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'];
-            // }
+            if (this.consecutiveLosses === 2) {
+                if (this.sys2) {
+                    this.consecutiveLosses = 4
+                };
+                this.sys2 = true
+                this.currentStake = CONFIG.stake.initial_stake2;
+            } else {
+                this.currentStake = Math.ceil(this.currentStake * CONFIG.stake.multiplier * 100) / 100;
+            }
 
             // Cap stake at maximum
             // if (this.currentStake > CONFIG.stake.max_stake) {
@@ -1536,17 +1551,19 @@ class MultiAssetGhostBot {
             // }
 
             // System progression
-            // if (this.consecutiveLosses >= 2) {
-            //     if (this.sys === 1) {
-            //         this.sys = 2;
-            //     } else if (this.sys === 2) {
-            //         this.sys = 3;
-            //     }
-            //     this.sysCount = 0;
-            // }
+            if (this.consecutiveLosses >= 2) {
+                if (this.sys === 1) {
+                    this.sys = 2;
+                } else if (this.sys === 2) {
+                    this.sys = 3;
+                }
+                this.sysCount = 0;
+            }
 
             // Suspend asset after loss
             // this.suspendAsset(asset);
+
+            CONFIG.assets = ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'];
         }
 
         this.totalProfitLoss += profit;
@@ -1604,7 +1621,7 @@ class MultiAssetGhostBot {
             this.totalProfitLoss <= -CONFIG.risk.max_daily_loss) {
             console.log('🛑 Stop loss reached');
             this.sendTelegramMessage(
-                `🛑 <b>Stop Loss Reached 2!</b>\n` +
+                `🛑 <b>Stop Loss Reached2!</b>\n` +
                 `Final P&L: $${this.totalProfitLoss.toFixed(2)}\n` +
                 `Total Trades: ${this.totalTrades}\n` +
                 `Win Rate: ${winRate}%`
@@ -1614,9 +1631,9 @@ class MultiAssetGhostBot {
         }
 
         if (this.totalProfitLoss >= CONFIG.risk.take_profit) {
-            console.log('🎉 Take profit reached 2');
+            console.log('🎉 Take profit reached');
             this.sendTelegramMessage(
-                `🎉 <b>Take Profit Reached 2!</b>\n` +
+                `🎉 <b>Take Profit Reached2!</b>\n` +
                 `Final P&L: $${this.totalProfitLoss.toFixed(2)}\n` +
                 `Total Trades: ${this.totalTrades}\n` +
                 `Win Rate: ${winRate}%`
@@ -1663,7 +1680,7 @@ class MultiAssetGhostBot {
         const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
 
         const message = `
-            ⏰ <b>nFastGhostHF Multi-Asset Hourly Summary 2</b>
+            ⏰ <b>nFastGhostHF2 Multi-Asset Hourly Summary</b>
 
             📊 <b>Last Hour</b>
             ├ Trades: ${stats.trades}
@@ -1741,7 +1758,7 @@ class MultiAssetGhostBot {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
             console.error('❌ Max reconnection attempts reached');
             this.sendTelegramMessage(
-                `❌ <b>Max Reconnection Attempts Reached 2</b>\n` +
+                `❌ <b>Max Reconnection Attempts Reached2</b>\n` +
                 `Please restart the bot manually.\n` +
                 `Final P&L: $${this.totalProfitLoss.toFixed(2)}`
             );
@@ -1767,7 +1784,7 @@ class MultiAssetGhostBot {
         );
 
         this.sendTelegramMessage(
-            `⚠️ <b>CONNECTION LOST - RECONNECTING 2</b>\n` +
+            `⚠️ <b>CONNECTION LOST - RECONNECTING2</b>\n` +
             `📊 Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n` +
             `⏱️ Retrying in ${(delay / 1000).toFixed(1)}s\n` +
             `💾 State preserved: ${this.totalTrades} trades, $${this.totalProfitLoss.toFixed(2)} P&L`
