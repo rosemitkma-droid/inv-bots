@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_4-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_4-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_5-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_5-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1102,7 +1102,7 @@ const CONFIG = {
     CANDLES_SHALLOW: 50,                 // Shallow (pattern trading) size
     CANDLE_PATTERN_LOOKBACK: 8, // Number of previous candles to analyze for pattern detection (user configurable)
     LOOKBACK_SHALLOW: 8,                 // Lookback for TRADE_SYSTEM 1
-    LOOKBACK_DEEP: 6,                    // Lookback for TRADE_SYSTEM 2
+    LOOKBACK_DEEP: 5,                    // Lookback for TRADE_SYSTEM 2
 
     tradeInProgress: false,
 
@@ -1755,7 +1755,7 @@ class SessionManager {
             }
 
             // LOSS: stay locked on same asset in SYSTEM 2 for martingale recovery
-            bot._switchToSystem2(symbol);
+            // bot._switchToSystem2(symbol);
         }
     }
 }
@@ -2288,6 +2288,12 @@ class ConnectionManager {
 
         this.stopPing();
         StatePersistence.saveState();
+
+        CONFIG.TRADE_SYSTEM = 1;
+        CONFIG.MAX_CANDLES_STORED = CONFIG.CANDLES_SHALLOW;
+        CONFIG.CANDLES_TO_LOAD = CONFIG.CANDLES_SHALLOW;
+        CONFIG.CANDLE_PATTERN_LOOKBACK = CONFIG.LOOKBACK_SHALLOW;
+        state.activeTradeAsset = null;
 
         if (this.isReconnecting) {
             LOGGER.info('Already handling disconnect, skipping...');
@@ -3093,6 +3099,7 @@ class DerivBot {
                     CONFIG.MAX_CANDLES_STORED = CONFIG.CANDLES_SHALLOW;
                     CONFIG.CANDLES_TO_LOAD = CONFIG.CANDLES_SHALLOW;
                     CONFIG.CANDLE_PATTERN_LOOKBACK = CONFIG.LOOKBACK_SHALLOW;
+                    state.activeTradeAsset = null;
                     if (this.connection.ws)
                         this.connection.ws.close();
                     state.session.isActive = false;
