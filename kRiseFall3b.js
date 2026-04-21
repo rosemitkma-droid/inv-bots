@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_6-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_6-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_7-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_7-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1102,7 +1102,7 @@ const CONFIG = {
     CANDLES_SHALLOW: 50,                 // Shallow (pattern trading) size
     CANDLE_PATTERN_LOOKBACK: 8, // Number of previous candles to analyze for pattern detection (user configurable)
     LOOKBACK_SHALLOW: 8,                 // Lookback for TRADE_SYSTEM 1
-    LOOKBACK_DEEP: 5,                    // Lookback for TRADE_SYSTEM 2
+    LOOKBACK_DEEP: 3,                    // Lookback for TRADE_SYSTEM 2
 
     tradeInProgress: false,
 
