@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_2-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_2-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_3-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_3-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1628,18 +1628,18 @@ class SessionManager {
             // If the asset is now in a clean state (martingale reset), run a fresh
             // scan to see if another asset has a stronger pattern
             // const assetState = state.assets[symbol];
-            if (assetState && assetState.martingaleLevel === 0) {
-                const best = AlternatingPatternAnalyzer.findBestAsset();
-                if (best && best.symbol !== symbol && best.probability > (
-                    AlternatingPatternAnalyzer.analyze(assetState.closedCandles).probability
-                )) {
-                    LOGGER.trade(
-                        `🔁 Post-win scan: [${best.symbol}] (${best.probability}%) beats [${symbol}] — switching lock`
-                    );
-                    state.activeTradeAsset = best.symbol;
-                    bot._switchToSystem1(best.symbol);
-                }
-            }
+            // if (assetState && assetState.martingaleLevel === 0) {
+            //     const best = AlternatingPatternAnalyzer.findBestAsset();
+            //     if (best && best.symbol !== symbol && best.probability > (
+            //         AlternatingPatternAnalyzer.analyze(assetState.closedCandles).probability
+            //     )) {
+            //         LOGGER.trade(
+            //             `🔁 Post-win scan: [${best.symbol}] (${best.probability}%) beats [${symbol}] — switching lock`
+            //         );
+            //         state.activeTradeAsset = best.symbol;
+            //         bot._switchToSystem1(best.symbol);
+            //     }
+            // }
         } else {
             // === LOSS ===
             // Global
@@ -3020,6 +3020,10 @@ class DerivBot {
                     // Send end-of-day summary
                     TelegramService.sendDayEndSummary(TradeHistoryManager.getDateKey());
                     TelegramService.sendSessionSummary();
+                    CONFIG.TRADE_SYSTEM = 1;
+                    CONFIG.MAX_CANDLES_STORED = CONFIG.CANDLES_SHALLOW;
+                    CONFIG.CANDLES_TO_LOAD = CONFIG.CANDLES_SHALLOW;
+                    CONFIG.CANDLE_PATTERN_LOOKBACK = CONFIG.LOOKBACK_SHALLOW;
                     if (this.connection.ws)
                         this.connection.ws.close();
                     state.session.isActive = false;
