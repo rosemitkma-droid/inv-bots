@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_1-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_1-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_2-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_2-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1097,13 +1097,12 @@ const CONFIG = {
     MAX_CANDLES_STORED: 50,
     CANDLES_TO_LOAD: 50,
 
-    CANDLE_PATTERN_LOOKBACK: 8, // Number of previous candles to analyze for pattern detection (user configurable)
-
     ALTERNATING_PATTERN_THRESHOLD: 60,   // % probability to trigger TRADE_SYSTEM 1
     CANDLES_DEEP: 5000,                  // Deep history size
     CANDLES_SHALLOW: 50,                 // Shallow (pattern trading) size
+    CANDLE_PATTERN_LOOKBACK: 8, // Number of previous candles to analyze for pattern detection (user configurable)
     LOOKBACK_SHALLOW: 8,                 // Lookback for TRADE_SYSTEM 1
-    LOOKBACK_DEEP: 4,                    // Lookback for TRADE_SYSTEM 2
+    LOOKBACK_DEEP: 6,                    // Lookback for TRADE_SYSTEM 2
 
     tradeInProgress: false,
 
@@ -1217,9 +1216,9 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
-// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -2756,10 +2755,10 @@ class DerivBot {
 
                 // ── Opportunistically scan all assets for the best pattern signal ──
                 // (only when no asset is currently locked)
-                if (!state.activeTradeAsset) {
-                    this._scanAndSelectBestAsset();
-                }
-                return;
+                // if (!state.activeTradeAsset) {
+                //     this._scanAndSelectBestAsset();
+                // }
+                // return;
             }
 
         } else {
@@ -2793,10 +2792,11 @@ class DerivBot {
             } else if (candleType === 'BEARISH') {
                 direction = 'PUTE';
                 signalReason = `SYS2 Recovery: prev candle BEARISH → FALL (Mart lvl ${assetState.martingaleLevel})`;
-            } else {
-                LOGGER.info(`[${symbol}] SYS2: Doji candle — skipping`);
-                return;
             }
+            // else {
+            //     LOGGER.info(`[${symbol}] SYS2: Doji candle — skipping`);
+            //     return;
+            // }
 
             LOGGER.trade(`🔄 [${symbol}] ${signalReason}`);
         }
