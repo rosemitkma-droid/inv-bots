@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_003-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_003-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_005-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_005-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1098,7 +1098,7 @@ const CONFIG = {
     CANDLES_TO_LOAD: 50,
 
     CANDLE_PATTERN_LOOKBACK: 8, //8 Number of previous candles to analyze for pattern detection (user configurable)
-    TREND_CANDLE_LOOKBACK: 7, //7 Number of previous candles to analyze for trend detection (user configurable)
+    TREND_CANDLE_LOOKBACK: 6, //7 Number of previous candles to analyze for trend detection (user configurable)
     TRADE_SYSTEM: 1,
 
     // ============================
@@ -1216,8 +1216,8 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
-// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
