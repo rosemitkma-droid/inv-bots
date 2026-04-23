@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3_0011-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3_0011-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3_0012-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3_0012-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -2581,8 +2581,6 @@ class DerivBot {
 
             if (isAlternating && (lastIsBullish || lastIsBearish)) {
                 CONFIG.TRADE_SYSTEM = 2;
-                CONFIG.MAX_CANDLES_STORED = 5000;
-                CONFIG.CANDLES_TO_LOAD = 5000;
                 LOGGER.trade(`⚡ [${symbol}] ALTERNATING PATTERN DETECTED: ${lookback} candles alternate, SYSTEM changed to ${CONFIG.TRADE_SYSTEM}`);
                 TelegramService.sendMessage(`⚡ [${symbol}] ALTERNATING PATTERN DETECTED: ${lookback} candles alternate, SYSTEM changed to ${CONFIG.TRADE_SYSTEM}`);
                 // ── LOCK THIS ASSET ────────────────────────────────────────────────────
