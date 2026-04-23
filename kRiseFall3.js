@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3_0012-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3_0012-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3_0013-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3_0013-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1098,7 +1098,7 @@ const CONFIG = {
     CANDLES_TO_LOAD: 50,
 
     CANDLE_PATTERN_LOOKBACK: 8, //8 Number of previous candles to analyze for pattern detection (user configurable)
-    TREND_CANDLE_LOOKBACK: 4, //7 Number of previous candles to analyze for trend detection (user configurable)
+    TREND_CANDLE_LOOKBACK: 2, //7 Number of previous candles to analyze for trend detection (user configurable)
     TRADE_SYSTEM: 1,
 
     // ============================
