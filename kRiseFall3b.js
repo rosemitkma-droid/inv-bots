@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_0002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_0002-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_0003-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_0003-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -613,8 +613,8 @@ class TelegramService {
         stake,
         duration,
         durationUnit,
+        details = {},
         regime,
-        details = {}
     ) {
         const emoji =
             type === 'OPEN'
@@ -3151,7 +3151,7 @@ class DerivBot {
 
             if (candleType === 'BULLISH') {
                 direction = 'CALLE';
-                signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`; 
+                signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
             } else {
                 direction = 'PUTE';
                 signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
