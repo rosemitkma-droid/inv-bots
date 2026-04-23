@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_0001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_0001-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3b_0002-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3b_0002-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -639,7 +639,7 @@ class TelegramService {
                 Stake: $${stake.toFixed(2)}
                 Duration: ${duration} (${durationUnit == 't' ? 'Ticks' : durationUnit == 's' ? 'Seconds' : 'Minutes'})
                 Martingale Level: ${assetMartingale}
-                ${type === 'OPEN' ? `\n🔬 [${symbol}] Alternating Candle Pattern Check: ${regime.probability}% (threshold ${CONFIG.ALTERNATING_PATTERN_THRESHOLD}%) | ${regime.reason}` : ''}
+                ${type === 'OPEN' ? `\n🔬 [${symbol}] Alternating Candle Pattern Check: ${regime.probability}% | ${regime.reason} | Details: ${JSON.stringify(regime.details)}` : ''}
                 ${details.profit !== undefined
                 ? `Profit: $${details.profit.toFixed(2)}
 
@@ -1096,8 +1096,8 @@ const CONFIG = {
     // Default Candle Settings (used if asset has no specific config)
     GRANULARITY: 60,
     TIMEFRAME_LABEL: '1m',
-    MAX_CANDLES_STORED: 5000,
-    CANDLES_TO_LOAD: 5000,
+    MAX_CANDLES_STORED: 200,
+    CANDLES_TO_LOAD: 200,
 
     CANDLE_PATTERN_LOOKBACK: 4, //8 Number of previous candles to analyze for pattern detection (user configurable)
     TREND_CANDLE_LOOKBACK: 8, //7 Number of previous candles to analyze for trend detection (user configurable)
@@ -3146,36 +3146,56 @@ class DerivBot {
         if (isRecoveryMode) {
             const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
 
+            // Send message only for recovery mode (not normal mode)
+            TelegramService.sendMessage(`⚡ [${symbol}] RECOVERY MODE: Continuing Trading, Asset has Strong Non-Alternating Pattern`);
+
             if (candleType === 'BULLISH') {
                 direction = 'CALLE';
-                signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`;
+                signalReason = `Recovery (${symbol} Prev LOSS on RISE → Continue RISE)`; 
             } else {
                 direction = 'PUTE';
                 signalReason = `Recovery (${symbol} Prev LOSS on FALL → Continue FALL)`;
             }
 
             LOGGER.trade(`🔄 [${symbol}] RECOVERY MODE: ${signalReason} (Martingale Level: ${assetState.martingaleLevel})`);
-
-            TelegramService.sendMessage(`⚡ [${symbol}] Alternaing Pattern Analyzer found a strong alternating pattern with Probability ${check.probability}% >= ${CONFIG.ALTERNATING_PATTERN_THRESHOLD}%`);
-
         } else {
             //Alternating Regime Pattern Detector Analysis
-            // if (gate.worstCase.shouldAvoidTrade) {
-            LOGGER.warn(`⛔ Multi-window gate fired: ${gate.worstCase.probability}%`);
-            // }
+            if (gate.worstCase.shouldAvoidTrade) {
+                LOGGER.warn(`⛔ Multi-window gate fired: ${gate.worstCase.probability}%`);
+            }
 
-            // if (regime.shouldAvoidTrade) {
-            LOGGER.warn(`⛔ [${symbol}] Trade blocked — ${regime.signal} (${regime.probability}%)`);
-            // }
+            if (regime.shouldAvoidTrade) {
+                LOGGER.warn(`⛔ [${symbol}] Trade blocked — ${regime.signal} (${regime.probability}%)`);
+            }
 
             LOGGER.info(
-                `🔬 [${symbol}] Alternating Candle Pattern Check: ${regime.probability}% (threshold ${CONFIG.ALTERNATING_PATTERN_THRESHOLD}%) | ${regime.reason}`
+                `🔬 [${symbol}] Alternating Candle Pattern Check: ${regime.probability}% | ${regime.reason} | Details: ${JSON.stringify(regime.details)}`
             );
 
-            // Trade signals are generated based on candle patterns
+            // details: {
+            //     alternationRate: +alternationRate.toFixed(4),
+            //     runsZScore: +runsZScore.toFixed(4),
+            //     runsCount: runs,
+            //     expectedRuns: +expectedRuns.toFixed(2),
+            //     runsPValue: +runsPValue.toFixed(4),
+            //     autocorrelation: +autocorrelation.toFixed(4),
+            //     maxStreak,
+            //     maxStreakRatio: +maxStreakRatio.toFixed(4),
+            //     currentStreak,
+            //     momentum: +momentum.toFixed(4),
+            //     sampleSize: lookback,
+            //     regime,
+            //     layerScores,
+            // }
+
+            LOGGER.warn(
+                `🔬 [${symbol}] Checking Details: currentStreak: ${regime.details.currentStreak}, maxStreak: ${regime.details.maxStreak}, maxStreakRatio: ${regime.details.maxStreakRatio}, autocorrelation: ${regime.details.autocorrelation}, momentum: ${regime.details.momentum}, runsPValue: ${regime.details.runsPValue}, runsCount: ${regime.details.runsCount}, expectedRuns: ${regime.details.expectedRuns}, runsZScore: ${regime.details.runsZScore}, alternationRate: ${regime.details.alternationRate}`
+            );
+
+            // Trade signals are generated based on Alternating Regime Analysis and Market Structure candle patterns
             const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
 
-            if (gate.worstCase.probability <= 1 && regime.probability <= 1) {
+            if (gate.worstCase.probability <= 1 && regime.probability <= 1 && regime.details.currentStreak <= 2 && regime.details.autocorrelation >= 0.1) {
                 if (candleType === 'BULLISH') {
                     direction = 'CALLE';
                     signalReason = `Filtered Pattern Trade:  (${symbol})`;
