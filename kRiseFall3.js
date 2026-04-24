@@ -1216,9 +1216,9 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
-// let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -2595,7 +2595,7 @@ class DerivBot {
             }
         } else if (CONFIG.TRADE_SYSTEM === 2) {
             // ── SYSTEM 2: Alternating Candle-pattern Exhaustion Signal
-            const lookback = 2;
+            const lookback = 3;
             const closed = assetState.closedCandles || [];
 
             if (closed.length < lookback) {
@@ -2608,12 +2608,15 @@ class DerivBot {
             // Check for 2 candle Trend
             const lastCandle = recent[recent.length - 1];
             const last2Candle = recent[recent.length - 2];
+            const last3Candle = recent[recent.length - 3];
             const lastIsBullish = CandleAnalyzer.isBullish(lastCandle);
             const lastIsBearish = CandleAnalyzer.isBearish(lastCandle);
             const last2IsBullish = CandleAnalyzer.isBullish(last2Candle);
             const last2IsBearish = CandleAnalyzer.isBearish(last2Candle);
+            const last3IsBullish = CandleAnalyzer.isBullish(last3Candle);
+            const last3IsBearish = CandleAnalyzer.isBearish(last3Candle);
 
-            if ((lastIsBullish && last2IsBullish) || (lastIsBearish && last2IsBearish)) {
+            if ((lastIsBullish && last2IsBullish && last3IsBullish) || (lastIsBearish && last2IsBearish && last3IsBearish)) {
                 CONFIG.TRADE_SYSTEM = 3;
                 TelegramService.sendMessage(`⚡ [${symbol}] TREND PATTERN DETECTED: ${lookback} candles are in same direction, SYSTEM changed to ${CONFIG.TRADE_SYSTEM}`);
                 if (lastIsBullish) {
