@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2_011-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_011-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2_012-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_012-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1238,6 +1238,10 @@ const state = {
     accountBalance: 0,
     currentTradeDay: null, // Track current trading day for day-change detection
     activeTradeAsset: null,
+    candlesToLoad: CONFIG.CANDLES_TO_LOAD,
+    candlesStored: CONFIG.MAX_CANDLES_STORED,
+    alternatingPatternLookback: CONFIG.ALTERNATING_PATTERN_LOOKBACK,
+
     session: {
         profit: 0,
         loss: 0,
@@ -1621,8 +1625,9 @@ class SessionManager {
             assetState.currentStake = CONFIG.STAKE;
 
             // ── RESET LOCK ────────────────────────────────────────────────────
-            CONFIG.MAX_CANDLES_STORED = 4320;
-            CONFIG.CANDLES_TO_LOAD = 4320;
+            state.candlesStored = CONFIG.MAX_CANDLES_STORED;
+            state.candlesToLoad = CONFIG.MAX_CANDLES_STORED;
+            state.alternatingPatternLookback = CONFIG.ALTERNATING_PATTERN_LOOKBACK;
             state.activeTradeAsset = null;
 
             // Record in persistent history
@@ -1634,8 +1639,9 @@ class SessionManager {
         } else {
 
             // When loss happens set to small amount of candles History for fast recovery
-            CONFIG.MAX_CANDLES_STORED = 50;
-            CONFIG.CANDLES_TO_LOAD = 50;
+            state.candlesStored = 100;
+            state.candlesToLoad = 100;
+            state.alternatingPatternLookback = 100;
 
             // === LOSS ===
             // Global
@@ -2005,12 +2011,12 @@ class ConnectionManager {
 
         const regime = AlternatingRegimeDetector.analyze(
             state.assets[foundSymbol].closedCandles,
-            CONFIG.ALTERNATING_PATTERN_LOOKBACK
+            state.alternatingPatternLookback
         );
 
         const gate = AlternatingRegimeDetector.multiWindowScan(
             state.assets[foundSymbol].closedCandles,
-            [50, 100, 200]
+            state.candlesStored === CONFIG.MAX_CANDLES_STORED ? [100, 1000, 5000] : [10, 50, 100]
         );
 
 
@@ -2308,8 +2314,9 @@ class ConnectionManager {
 
             setTimeout(() => {
                 this.isReconnecting = false;
-                CONFIG.MAX_CANDLES_STORED = 4320;
-                CONFIG.CANDLES_TO_LOAD = 4320;
+                state.candlesStored = CONFIG.MAX_CANDLES_STORED;
+                state.candlesToLoad = CONFIG.MAX_CANDLES_STORED;
+                state.alternatingPatternLookback = CONFIG.ALTERNATING_PATTERN_LOOKBACK;
                 state.activeTradeAsset = null;
                 this.connect();
             }, delay);
@@ -2504,7 +2511,7 @@ class AlternatingRegimeDetector {
 
             const result = this.analyze(
                 assetState.closedCandles,
-                CONFIG.ALTERNATING_PATTERN_LOOKBACK ?? 100
+                state.alternatingPatternLookback ?? 100
             );
 
             LOGGER.debug(
@@ -2549,7 +2556,7 @@ class AlternatingRegimeDetector {
 
         const result = this.analyze(
             assetState.closedCandles,
-            CONFIG.ALTERNATING_PATTERN_LOOKBACK ?? 100
+            state.alternatingPatternLookback ?? 100
         );
 
         return {
@@ -3132,8 +3139,9 @@ class DerivBot {
                     state.lastSessionLogTime = now;
                 }
 
-                CONFIG.MAX_CANDLES_STORED = 4320;
-                CONFIG.CANDLES_TO_LOAD = 4320;
+                state.candlesStored = CONFIG.MAX_CANDLES_STORED;
+                state.candlesToLoad = CONFIG.MAX_CANDLES_STORED;
+                state.alternatingPatternLookback = CONFIG.ALTERNATING_PATTERN_LOOKBACK;
                 state.activeTradeAsset = null;
 
                 return;
@@ -3173,7 +3181,7 @@ class DerivBot {
 
         const regime = AlternatingRegimeDetector.analyze(
             state.assets[symbol].closedCandles,
-            CONFIG.ALTERNATING_PATTERN_LOOKBACK
+            state.alternatingPatternLookback
         );
         const check = AlternatingRegimeDetector.checkActiveAsset(symbol);
         if (check.switchToSystem1) {
@@ -3181,14 +3189,14 @@ class DerivBot {
         }
         const gate = AlternatingRegimeDetector.multiWindowScan(
             state.assets[symbol].closedCandles,
-            [100, 1000, 5000] // [50, 100, 200]
+            state.candlesStored === CONFIG.MAX_CANDLES_STORED ? [100, 1000, 5000] : [10, 50, 100]
         );
 
         if (isRecoveryMode) {
             const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
 
             // Send message only for recovery mode (not normal mode)
-            TelegramService.sendMessage(`⚡ [${symbol}] RECOVERY MODE: Continuing Trading, Asset has Strong Non-Alternating Pattern`);
+            TelegramService.sendMessage(`⚡kRISE/FALL2: [${symbol}] RECOVERY MODE: Continuing Trading, Asset has Strong Non-Alternating Pattern`);
 
             if (candleType === 'BULLISH') {
                 direction = 'CALLE';
@@ -3235,6 +3243,9 @@ class DerivBot {
                 // ── LOCK THIS ASSET ────────────────────────────────────────────────────
                 if (!state.activeTradeAsset) {
                     state.activeTradeAsset = symbol;
+                    // state.candlesStored = 100;
+                    // state.candlesToLoad = 100;
+                    // state.alternatingPatternLookback = 100;
                     LOGGER.info(`🔒 [${symbol}] Asset locked as active trade asset`);
                 }
             } else {
@@ -3413,8 +3424,9 @@ class DerivBot {
                     TelegramService.sendDayEndSummary(TradeHistoryManager.getDateKey());
                     TelegramService.sendSessionSummary();
 
-                    CONFIG.MAX_CANDLES_STORED = 4320;
-                    CONFIG.CANDLES_TO_LOAD = 4320;
+                    state.candlesStored = CONFIG.MAX_CANDLES_STORED;
+                    state.candlesToLoad = CONFIG.MAX_CANDLES_STORED;
+                    state.alternatingPatternLookback = CONFIG.ALTERNATING_PATTERN_LOOKBACK;
                     state.activeTradeAsset = null;
 
                     if (this.connection.ws)
