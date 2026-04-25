@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_01-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1156,7 +1156,10 @@ const CONFIG = {
     // Telegram Settings
     TELEGRAM_ENABLED: true,
     TELEGRAM_BOT_TOKEN: '8306232249:AAGMwjFngs68Lcq27oGmqewQgthXTJJRxP0',
-    TELEGRAM_CHAT_ID: '752497117'
+    TELEGRAM_CHAT_ID: '752497117',
+
+    // === TRADE ALL ASSETS AFTER A WIN ===
+    ACTIVE_ASSETS: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5']
 };
 
 // ============================================
@@ -1629,6 +1632,7 @@ class SessionManager {
             state.candlesToLoad = CONFIG.MAX_CANDLES_STORED;
             state.alternatingPatternLookback = CONFIG.ALTERNATING_PATTERN_LOOKBACK;
             state.activeTradeAsset = null;
+            ACTIVE_ASSETS = CONFIG.ACTIVE_ASSETS;
 
             // Record in persistent history
             TradeHistoryManager.recordTrade(symbol, profit, assetState.martingaleLevel);
@@ -1642,6 +1646,9 @@ class SessionManager {
             state.candlesStored = 100;
             state.candlesToLoad = 100;
             state.alternatingPatternLookback = 100;
+
+            // ── FORCE LOCK (Only this asset trades) ────────────────────────────────────────
+            ACTIVE_ASSETS = [symbol];
 
             // === LOSS ===
             // Global
@@ -3207,6 +3214,9 @@ class DerivBot {
             }
 
             LOGGER.trade(`🔄 [${symbol}] RECOVERY MODE: ${signalReason} (Martingale Level: ${assetState.martingaleLevel})`);
+
+            // ── FORCE LOCK (Only this asset trades) ────────────────────────────────────────
+            ACTIVE_ASSETS = [symbol];
         } else {
             //Alternating Regime Pattern Detector Analysis
             if (gate.worstCase.shouldAvoidTrade) {
