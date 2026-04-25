@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2_013-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_013-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2_014-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_014-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1643,9 +1643,9 @@ class SessionManager {
         } else {
 
             // When loss happens set to small amount of candles History for fast recovery
-            state.candlesStored = 100;
-            state.candlesToLoad = 100;
-            state.alternatingPatternLookback = 100;
+            state.candlesStored = 50;
+            state.candlesToLoad = 50;
+            state.alternatingPatternLookback = 50;
 
             // ── FORCE LOCK (Only this asset trades) ────────────────────────────────────────
             ACTIVE_ASSETS = [symbol];
@@ -2023,7 +2023,7 @@ class ConnectionManager {
 
         const gate = AlternatingRegimeDetector.multiWindowScan(
             state.assets[foundSymbol].closedCandles,
-            state.candlesStored === CONFIG.MAX_CANDLES_STORED ? [100, 1000, 5000] : [10, 50, 100]
+            state.candlesStored === CONFIG.MAX_CANDLES_STORED ? [100, 1000, 5000] : [10, 30, 50]
         );
 
 
@@ -3196,7 +3196,7 @@ class DerivBot {
         }
         const gate = AlternatingRegimeDetector.multiWindowScan(
             state.assets[symbol].closedCandles,
-            state.candlesStored === CONFIG.MAX_CANDLES_STORED ? [100, 1000, 5000] : [10, 50, 100]
+            state.candlesStored === CONFIG.MAX_CANDLES_STORED ? [100, 1000, 5000] : [10, 30, 50]
         );
 
         if (isRecoveryMode) {
@@ -3214,9 +3214,6 @@ class DerivBot {
             }
 
             LOGGER.trade(`🔄 [${symbol}] RECOVERY MODE: ${signalReason} (Martingale Level: ${assetState.martingaleLevel})`);
-
-            // ── FORCE LOCK (Only this asset trades) ────────────────────────────────────────
-            ACTIVE_ASSETS = [symbol];
         } else {
             //Alternating Regime Pattern Detector Analysis
             if (gate.worstCase.shouldAvoidTrade) {
@@ -3253,6 +3250,7 @@ class DerivBot {
                 // ── LOCK THIS ASSET ────────────────────────────────────────────────────
                 if (!state.activeTradeAsset) {
                     state.activeTradeAsset = symbol;
+                    ACTIVE_ASSETS = [symbol];
                     // state.candlesStored = 100;
                     // state.candlesToLoad = 100;
                     // state.alternatingPatternLookback = 100;
