@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2_017-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_017-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2_018-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_018-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -760,7 +760,8 @@ const CONFIG = {
     // trade. 500–1500 ms is usually enough for the API to be ready.
     // Never set this to 0 — give the WebSocket a moment to breathe.
     // ─────────────────────────────────────────────────────────────────────────
-    RECOVERY_TRADE_DELAY_MS: 1200,
+    RECOVERY_TRADE_DELAY_MS: 1500,
+    RECOVERY_TRADE_DELAY_MS2: 2000,
 
     DEBUG_MODE: true,
     TELEGRAM_ENABLED: true,
@@ -798,6 +799,7 @@ const state = {
     candlesToLoad: CONFIG.CANDLES_TO_LOAD,
     candlesStored: CONFIG.MAX_CANDLES_STORED,
     alternatingPatternLookback: CONFIG.ALTERNATING_PATTERN_LOOKBACK,
+    lastTradeDirection: null,
 
     session: {
         profit: 0, loss: 0, netPL: 0,
@@ -1300,7 +1302,7 @@ class ConnectionManager {
                 LOGGER.trade(`🔄 [${ownerSymbol}] Loss confirmed — scheduling immediate recovery trade in ${CONFIG.RECOVERY_TRADE_DELAY_MS}ms`);
                 setTimeout(() => {
                     bot.executeRecoveryTrade(ownerSymbol);
-                }, CONFIG.RECOVERY_TRADE_DELAY_MS);
+                }, ownerSymbol === ('1HZ10V' || '1HZ25V' || '1HZ50V' || '1HZ75V' || '1HZ100V') ? CONFIG.RECOVERY_TRADE_DELAY_MS2 : CONFIG.RECOVERY_TRADE_DELAY_MS);
             }
         }
     }
@@ -1867,6 +1869,7 @@ class DerivBot {
 
         assetState.activePositions.push(position);
         assetState.canTrade = false; // prevent normal candle-close from double-trading
+        state.lastTradeDirection = direction;
 
         const tradeRequest = {
             buy: 1,
