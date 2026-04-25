@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2_010-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_010-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2_011-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_011-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1102,8 +1102,8 @@ const CONFIG = {
     // Default Candle Settings (used if asset has no specific config)
     GRANULARITY: 60,
     TIMEFRAME_LABEL: '1m',
-    MAX_CANDLES_STORED: 200,
-    CANDLES_TO_LOAD: 200,
+    MAX_CANDLES_STORED: 4320,
+    CANDLES_TO_LOAD: 4320,
 
     CANDLE_PATTERN_LOOKBACK: 4, //8 Number of previous candles to analyze for pattern detection (user configurable)
     TREND_CANDLE_LOOKBACK: 8, //7 Number of previous candles to analyze for trend detection (user configurable)
@@ -1113,7 +1113,7 @@ const CONFIG = {
     // ALTERNATING PATTERN SWITCHING CONFIGURATION
     // ============================
     ALTERNATING_PATTERN_THRESHOLD: 60, //60 Percentage threshold for switching to TRADE_SYSTEM 1
-    ALTERNATING_PATTERN_LOOKBACK: 100, //100 Number of previous candles to analyze for pattern detection (user configurable)
+    ALTERNATING_PATTERN_LOOKBACK: 4320, //100 Number of previous candles to analyze for pattern detection (user configurable)
 
     // Default Trade Duration Settings (used if asset has no specific config)
     DURATION: 58,
@@ -1621,8 +1621,8 @@ class SessionManager {
             assetState.currentStake = CONFIG.STAKE;
 
             // ── RESET LOCK ────────────────────────────────────────────────────
-            CONFIG.MAX_CANDLES_STORED = 200;
-            CONFIG.CANDLES_TO_LOAD = 200;
+            CONFIG.MAX_CANDLES_STORED = 4320;
+            CONFIG.CANDLES_TO_LOAD = 4320;
             state.activeTradeAsset = null;
 
             // Record in persistent history
@@ -1632,6 +1632,11 @@ class SessionManager {
                 `✅ [${symbol}] WIN: +$${profit.toFixed(2)} | Direction: ${direction} | ${symbol} Martingale Reset | ${symbol} P/L: $${assetState.netPL.toFixed(2)}`
             );
         } else {
+
+            // When loss happens set to small amount of candles History for fast recovery
+            CONFIG.MAX_CANDLES_STORED = 50;
+            CONFIG.CANDLES_TO_LOAD = 50;
+
             // === LOSS ===
             // Global
             state.session.lossesCount++;
@@ -2303,8 +2308,8 @@ class ConnectionManager {
 
             setTimeout(() => {
                 this.isReconnecting = false;
-                CONFIG.MAX_CANDLES_STORED = 200;
-                CONFIG.CANDLES_TO_LOAD = 200;
+                CONFIG.MAX_CANDLES_STORED = 4320;
+                CONFIG.CANDLES_TO_LOAD = 4320;
                 state.activeTradeAsset = null;
                 this.connect();
             }, delay);
@@ -3127,8 +3132,8 @@ class DerivBot {
                     state.lastSessionLogTime = now;
                 }
 
-                CONFIG.MAX_CANDLES_STORED = 200;
-                CONFIG.CANDLES_TO_LOAD = 200;
+                CONFIG.MAX_CANDLES_STORED = 4320;
+                CONFIG.CANDLES_TO_LOAD = 4320;
                 state.activeTradeAsset = null;
 
                 return;
@@ -3176,7 +3181,7 @@ class DerivBot {
         }
         const gate = AlternatingRegimeDetector.multiWindowScan(
             state.assets[symbol].closedCandles,
-            [50, 100, 200]
+            [100, 1000, 5000] // [50, 100, 200]
         );
 
         if (isRecoveryMode) {
@@ -3215,7 +3220,8 @@ class DerivBot {
             // Trade signals are generated based on Alternating Regime Analysis and Market Structure candle patterns
             const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
 
-            if (gate.worstCase.probability <= 1 && regime.probability <= 1 && regime.details.currentStreak <= 1 && regime.details.autocorrelation >= 0.12) {
+            // if (gate.worstCase.probability <= 1 && regime.probability <= 1 && regime.details.currentStreak <= 1 && regime.details.autocorrelation >= 0.12) {
+            if (regime.details.currentStreak >= (regime.details.maxStreak - 5)) {
                 if (candleType === 'BULLISH') {
                     direction = 'CALLE';
                     signalReason = `Filtered Pattern Trade:  (${symbol})`;
@@ -3229,8 +3235,6 @@ class DerivBot {
                 // ── LOCK THIS ASSET ────────────────────────────────────────────────────
                 if (!state.activeTradeAsset) {
                     state.activeTradeAsset = symbol;
-                    CONFIG.MAX_CANDLES_STORED = 50;
-                    CONFIG.CANDLES_TO_LOAD = 50;
                     LOGGER.info(`🔒 [${symbol}] Asset locked as active trade asset`);
                 }
             } else {
@@ -3409,8 +3413,8 @@ class DerivBot {
                     TelegramService.sendDayEndSummary(TradeHistoryManager.getDateKey());
                     TelegramService.sendSessionSummary();
 
-                    CONFIG.MAX_CANDLES_STORED = 200;
-                    CONFIG.CANDLES_TO_LOAD = 200;
+                    CONFIG.MAX_CANDLES_STORED = 4320;
+                    CONFIG.CANDLES_TO_LOAD = 4320;
                     state.activeTradeAsset = null;
 
                     if (this.connection.ws)
