@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_04-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_04-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_05-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_05-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -2204,8 +2204,6 @@ class ConnectionManager {
                 assetState.canTrade = true;
                 if (assetState.currentMartingaleLevel === 0) {
                     bot.executeNextTrade(symbol, closedCandle);
-                } else {
-                    bot.executeRecoveryTrade(symbol, closedCandle);
                 }
             }
         }
