@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2_018-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_018-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2_019-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2_019-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -760,8 +760,8 @@ const CONFIG = {
     // trade. 500–1500 ms is usually enough for the API to be ready.
     // Never set this to 0 — give the WebSocket a moment to breathe.
     // ─────────────────────────────────────────────────────────────────────────
-    RECOVERY_TRADE_DELAY_MS: 1500,
-    RECOVERY_TRADE_DELAY_MS2: 2000,
+    RECOVERY_TRADE_DELAY_MS: 800,
+    RECOVERY_TRADE_DELAY_MS2: 1500,
 
     DEBUG_MODE: true,
     TELEGRAM_ENABLED: true,
@@ -1301,7 +1301,7 @@ class ConnectionManager {
             if (profit < 0 && SessionManager.isSessionActive()) {
                 LOGGER.trade(`🔄 [${ownerSymbol}] Loss confirmed — scheduling immediate recovery trade in ${CONFIG.RECOVERY_TRADE_DELAY_MS}ms`);
                 setTimeout(() => {
-                    bot.executeRecoveryTrade(ownerSymbol);
+                    bot.executeRecoveryTrade(ownerSymbol, assetState.lastClosedCandleForRecovery);
                 }, ownerSymbol === ('1HZ10V' || '1HZ25V' || '1HZ50V' || '1HZ75V' || '1HZ100V') ? CONFIG.RECOVERY_TRADE_DELAY_MS2 : CONFIG.RECOVERY_TRADE_DELAY_MS);
             }
         }
@@ -1773,7 +1773,7 @@ class DerivBot {
     //  closed candle (lastClosedCandleForRecovery) to determine direction.
     //  Bypasses all heavy analysis — recovery is directional persistence.
     // ================================================================
-    executeRecoveryTrade(symbol) {
+    executeRecoveryTrade(symbol, closedCandle) {
         const assetState = state.assets[symbol];
         if (!assetState) return;
 
@@ -1823,26 +1823,33 @@ class DerivBot {
         // ── Determine direction from the last closed candle ──────────
         //   Recovery logic: trade the opposite of the previous trade.
         //   The lastTradeDirection is already set from the failed trade.
-        const lastCandle = CandleAnalyzer.getLastClosedCandle(symbol);// assetState.lastClosedCandleForRecovery
+        // const lastCandle = CandleAnalyzer.getLastClosedCandle(symbol);// assetState.lastClosedCandleForRecovery
 
-        if (!lastCandle) {
-            LOGGER.warn(`[${symbol}] Recovery skipped — no reference candle available yet`);
-            return;
-        }
+        // if (!lastCandle) {
+        //     LOGGER.warn(`[${symbol}] Recovery skipped — no reference candle available yet`);
+        //     return;
+        // }
 
         // Use the saved direction from the lost trade (true martingale persistence)
-        const direction = assetState.lastTradeDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-        if (!direction) {
-            LOGGER.warn(`[${symbol}] Recovery skipped — no previous direction recorded`);
-            return;
-        }
+        // const direction = assetState.lastTradeDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+        // if (!direction) {
+        //     LOGGER.warn(`[${symbol}] Recovery skipped — no previous direction recorded`);
+        //     return;
+        // }
 
         const assetConfig = getAssetConfig(symbol);
-        const candleType = CandleAnalyzer.getCandleDirection(lastCandle);
+        const candleType = CandleAnalyzer.getCandleDirection(closedCandle);
+        let direction;
+
+        if (candleType === 'BULLISH') {
+            direction = 'CALLE';
+        } else {
+            direction = 'PUTE';
+        }
 
         LOGGER.trade(`⚡ [${symbol}] IMMEDIATE RECOVERY TRADE`);
         LOGGER.trade(`   Direction: ${direction === 'CALLE' ? 'RISE' : 'FALL'} | Stake: $${stake.toFixed(2)} | Martingale Level: ${assetState.martingaleLevel}`);
-        LOGGER.trade(`   Reference Candle: ${candleType} | Close: ${lastCandle.close.toFixed(5)}`);
+        LOGGER.trade(`   Reference Candle: ${candleType}`);
         LOGGER.trade(`   Duration: ${assetConfig.DURATION}${assetConfig.DURATION_UNIT} | Asset P/L: $${assetState.netPL.toFixed(2)}`);
 
         // Notify Telegram
