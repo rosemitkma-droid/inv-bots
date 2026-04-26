@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_01002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_01002-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_01003-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_01003-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1361,10 +1361,10 @@ class ConnectionManager {
 
                 // Normal (non-recovery) trade signal on candle close
                 assetState.canTrade = true;
-                if (assetState.currentMartingaleLevel === 0) {
-                    bot.executeNextTrade(symbol, closedCandle);
+                if (assetState.martingaleLevel > 0) {
+                    bot.executeRecoveryTrade(symbol, closedCandle);//recovery trade
                 } else {
-                    bot.executeRecoveryTrade(symbol, closedCandle);
+                    bot.executeNextTrade(symbol, closedCandle);//normal trade 
                 }
             }
         }
@@ -1788,10 +1788,10 @@ class DerivBot {
         }
 
         // ── Guard: must actually be in martingale recovery ───────────
-        // if (assetState.lastTradeWasWin !== false || assetState.martingaleLevel === 0) {
-        //     LOGGER.info(`[${symbol}] Recovery skipped — not in loss recovery (mart=${assetState.martingaleLevel})`);
-        //     return;
-        // }
+        if (assetState.martingaleLevel === 0) {
+            LOGGER.info(`[${symbol}] Recovery skipped — not in loss recovery (mart=${assetState.martingaleLevel})`);
+            return;
+        }
 
         // ── Guard: no positions already open for this asset ──────────
         if (assetState.activePositions.length >= CONFIG.MAX_OPEN_POSITIONS_PER_ASSET) {
