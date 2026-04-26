@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_03-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_03-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_04-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_04-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1643,9 +1643,9 @@ class SessionManager {
         } else {
 
             // When loss happens set to small amount of candles History for fast recovery
-            state.candlesStored = 50;
-            state.candlesToLoad = 50;
-            state.alternatingPatternLookback = 50;
+            state.candlesStored = 20;
+            state.candlesToLoad = 20;
+            state.alternatingPatternLookback = 20;
 
             // ── FORCE LOCK (Only this asset trades) ────────────────────────────────────────
             ACTIVE_ASSETS = [symbol];
@@ -2023,7 +2023,7 @@ class ConnectionManager {
 
         const gate = AlternatingRegimeDetector.multiWindowScan(
             state.assets[foundSymbol].closedCandles,
-            state.candlesStored === CONFIG.MAX_CANDLES_STORED ? [100, 1000, 5000] : [20, 30, 50]
+            state.candlesStored === CONFIG.MAX_CANDLES_STORED ? [100, 1000, 5000] : [5, 10, 20]
         );
 
 
@@ -2202,7 +2202,11 @@ class ConnectionManager {
 
                 // TRIGGER TRADE ANALYSIS FOR THIS SPECIFIC ASSET
                 assetState.canTrade = true;
-                bot.executeNextTrade(symbol, closedCandle);
+                if (assetState.currentMartingaleLevel === 0) {
+                    bot.executeNextTrade(symbol, closedCandle);
+                } else {
+                    bot.executeRecoveryTrade(symbol, closedCandle);
+                }
             }
         }
 
@@ -3196,7 +3200,7 @@ class DerivBot {
         }
         const gate = AlternatingRegimeDetector.multiWindowScan(
             state.assets[symbol].closedCandles,
-            state.candlesStored === CONFIG.MAX_CANDLES_STORED ? [100, 1000, 5000] : [10, 30, 50]
+            state.candlesStored === CONFIG.MAX_CANDLES_STORED ? [100, 1000, 5000] : [5, 10, 20]
         );
 
         if (isRecoveryMode) {
