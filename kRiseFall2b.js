@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_01001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_01001-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_01002-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_01002-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1788,10 +1788,10 @@ class DerivBot {
         }
 
         // ── Guard: must actually be in martingale recovery ───────────
-        if (assetState.lastTradeWasWin !== false || assetState.martingaleLevel === 0) {
-            LOGGER.info(`[${symbol}] Recovery skipped — not in loss recovery (mart=${assetState.martingaleLevel})`);
-            return;
-        }
+        // if (assetState.lastTradeWasWin !== false || assetState.martingaleLevel === 0) {
+        //     LOGGER.info(`[${symbol}] Recovery skipped — not in loss recovery (mart=${assetState.martingaleLevel})`);
+        //     return;
+        // }
 
         // ── Guard: no positions already open for this asset ──────────
         if (assetState.activePositions.length >= CONFIG.MAX_OPEN_POSITIONS_PER_ASSET) {
