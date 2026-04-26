@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_05-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_05-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_06-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_06-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -2202,9 +2202,9 @@ class ConnectionManager {
 
                 // TRIGGER TRADE ANALYSIS FOR THIS SPECIFIC ASSET
                 assetState.canTrade = true;
-                if (assetState.currentMartingaleLevel === 0) {
-                    bot.executeNextTrade(symbol, closedCandle);
-                }
+                // if (assetState.currentMartingaleLevel === 0) {
+                bot.executeNextTrade(symbol, closedCandle);
+                // }
             }
         }
 
