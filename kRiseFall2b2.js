@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_0002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_0002-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b_0002-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_0003-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_0003-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b_0003-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -985,7 +985,7 @@ const CONFIG = {
 
     // ── Autocorrelation trade threshold ──────────────────────────
     // Trade fires when autocorrelation < AUTOCORR_THRESHOLD
-    AUTOCORR_THRESHOLD: -0.1,
+    AUTOCORR_THRESHOLD: -0.25,
     DURATION: 58,
     DURATION_UNIT: 's',
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
