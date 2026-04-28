@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_0004-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_0004-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b_0004-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_0005-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_0005-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b_0005-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -29,7 +29,7 @@ const STATE_SAVE_INTERVAL = 5000;
 class AssetMaxStreakManager {
     constructor() {
         this.data = this._load();
-        this._updateIntervalMs = 1 * 24 * 60 * 60 * 1000; // 30 days
+        this._updateIntervalMs = 7 * 24 * 60 * 60 * 1000; // 30 days
         this._refreshTimer = null;
     }
 
@@ -82,7 +82,7 @@ class AssetMaxStreakManager {
     fetchMaxStreakForAsset(symbol, connection) {
         return new Promise((resolve, reject) => {
             const assetConfig = getAssetConfig(symbol);
-            const BATCH_SIZE = 5000; //5000
+            const BATCH_SIZE = 1440; //5000
             const MAX_BATCHES = 1; // 10 × 5,000 = 50,000
 
             let batchesDone = 0;
