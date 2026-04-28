@@ -860,7 +860,8 @@ const CONFIG = {
 
     // ── Autocorrelation trade threshold ──────────────────────────
     // Trade fires when autocorrelation < AUTOCORR_THRESHOLD
-    AUTOCORR_THRESHOLD: -0.6,
+    AUTOCORR_THRESHOLD: -0.1,
+    AUTOCORR_THRESHOLD2: -0.25,
 
     DURATION: 58,
     DURATION_UNIT: 's',
@@ -1836,7 +1837,7 @@ class DerivBot {
         let direction = null;
         let signalReason = '';
 
-        if (regime.autocorrelation < CONFIG.AUTOCORR_THRESHOLD) {
+        if (regime.autocorrelation < CONFIG.AUTOCORR_THRESHOLD && regime.autocorrelation > CONFIG.AUTOCORR_THRESHOLD2) {
             const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
 
             if (candleType === 'BULLISH') {
