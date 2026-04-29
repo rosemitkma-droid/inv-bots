@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_0009-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_0009-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b_0009-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_00010-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_00010-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b_00010-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1632,11 +1632,11 @@ class ConnectionManager {
                 LOGGER.info(`${symbol} AutoCorr: ${regime.autocorrelation.toFixed(4)} (threshold: ${CONFIG.AUTOCORR_THRESHOLD}) | AssetMaxStreak: ${assetMaxStreak} | Candles: ${assetState.closedCandles.length}`);
 
                 assetState.canTrade = true;
-                // if (assetState.martingaleLevel > 0) {
-                //     bot.executeRecoveryTrade(symbol, closedCandle);
-                // } else {
+                if (assetState.martingaleLevel > 0) {
+                    bot.executeRecoveryTrade(symbol, closedCandle);
+                } else {
                 bot.executeNextTrade(symbol, closedCandle);
-                // }
+                }
             }
         }
 
