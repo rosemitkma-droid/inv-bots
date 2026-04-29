@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // FILE PATHS & CONSTANTS
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_111-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_111-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b_111-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_112-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_112-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b_112-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -68,7 +68,7 @@ class AssetMaxStreakManager {
     fetchMaxStreakForAsset(symbol, connection) {
         return new Promise((resolve, reject) => {
             const assetConfig = getAssetConfig(symbol);
-            const BATCH_SIZE = 5000;
+            const BATCH_SIZE = 1440;
             const MAX_BATCHES = 1;          // 10 × 5 000 = 50 000
 
             let batchesDone = 0;
@@ -855,13 +855,13 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
 
     // ── After assetMaxStreak is computed we only keep 50 live candles ──
-    MAX_CANDLES_STORED: 1440,
-    CANDLES_TO_LOAD: 1440,
+    MAX_CANDLES_STORED: 60,
+    CANDLES_TO_LOAD: 60,
 
     // ── Autocorrelation trade threshold ──────────────────────────
     // Trade fires when autocorrelation < AUTOCORR_THRESHOLD
-    AUTOCORR_THRESHOLD: -0.1,
-    AUTOCORR_THRESHOLD2: -0.25,
+    AUTOCORR_THRESHOLD: -0.70,
+    AUTOCORR_THRESHOLD2: -0.99,
 
     DURATION: 58,
     DURATION_UNIT: 's',
@@ -893,8 +893,8 @@ const CONFIG = {
 
     ACTIVE_ASSETS: [
         'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
-        '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
-        'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'
+        '1HZ10V', '1HZ25V', '1HZ75V', '1HZ100V',
+        'stpRNG', 'stpRNG3', 'stpRNG4', 'stpRNG5'
     ]
 };
 
@@ -1482,7 +1482,7 @@ class ConnectionManager {
                 // if (assetState.martingaleLevel > 0) {
                 //     bot.executeRecoveryTrade(symbol, closedCandle);
                 // } else {
-                    bot.executeNextTrade(symbol, closedCandle);
+                bot.executeNextTrade(symbol, closedCandle);
                 // }
                 // }
             }
@@ -1799,10 +1799,10 @@ class DerivBot {
         }
 
         // Skip if in martingale recovery — handled by executeRecoveryTrade
-        if (assetState.lastTradeWasWin === false && assetState.martingaleLevel > 0) {
-            LOGGER.debug(`  [${symbol}] Normal signal skipped — in recovery (mart=${assetState.martingaleLevel})`);
-            return;
-        }
+        // if (assetState.lastTradeWasWin === false && assetState.martingaleLevel > 0) {
+        //     LOGGER.debug(`  [${symbol}] Normal signal skipped — in recovery (mart=${assetState.martingaleLevel})`);
+        //     return;
+        // }
 
         // Session window check
         let sessionCheck = { inSession: true, sessionName: '24/7', nextSession: null, minutesUntilNext: 0 };
