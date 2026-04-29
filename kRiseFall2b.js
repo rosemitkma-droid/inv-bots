@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // FILE PATHS & CONSTANTS
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_114-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_114-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b_114-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b_115-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b_115-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b_115-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1479,11 +1479,11 @@ class ConnectionManager {
                 //     LOGGER.debug(`[${symbol}] Candle closed but maxStreak not ready yet — buffering`);
                 // } else {
                 assetState.canTrade = true;
-                // if (assetState.martingaleLevel > 0) {
-                //     bot.executeRecoveryTrade(symbol, closedCandle);
-                // } else {
-                bot.executeNextTrade(symbol, closedCandle);
-                // }
+                if (assetState.martingaleLevel > 0) {
+                    bot.executeRecoveryTrade(symbol, closedCandle);
+                } else {
+                    bot.executeNextTrade(symbol, closedCandle);
+                }
                 // }
             }
         }
