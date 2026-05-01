@@ -415,7 +415,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0105.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0106.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -546,7 +546,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0105.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0106.json');
 
 const state = {
   assets: {},
