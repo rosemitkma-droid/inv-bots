@@ -49,7 +49,7 @@ const ACTIVE_ASSETS = [
   // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
   // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
   // 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'
-  'R_25', 'stpRNG', 'R_50'
+  'R_25', 'stpRNG'
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -415,7 +415,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0103.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0104.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -546,7 +546,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0103.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0104.json');
 
 const state = {
   assets: {},
