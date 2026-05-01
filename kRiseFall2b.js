@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_6-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_6-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_6-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_7-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_7-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_7-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -703,7 +703,8 @@ ${details.profit !== undefined
 ${symbol} P&amp;L: $${assetNetPL.toFixed(2)}
 ${symbol} W/L: ${assetWins}/${assetLosses}
 Today P&amp;L: $${(today.netPL || 0).toFixed(2)}
-Today W/L: ${today.winsCount || 0}/${today.lossesCount || 0}
+Today W/L: ${today.winsCount || 0}/${today.lossesCount || 0} 
+${type !== 'OPEN' ? `Loss Stats: x2:${today.x2Losses || 0} | x3:${today.x3Losses || 0} | x4:${today.x4Losses || 0} | x5:${today.x5Losses || 0} | x6:${today.x6Losses || 0} | x7:${today.x7Losses || 0} | x8:${today.x8Losses || 0} | x9:${today.x9Losses || 0}` : ''}
 
 📋 <b>Overall Stats:</b>
 Overall P&amp;L: $${(overall.netPL || 0).toFixed(2)}
@@ -1800,7 +1801,7 @@ class DerivBot {
     constructor() {
         this.connection = new ConnectionManager();
         this._processedContracts = new Set();
-        this.tradeWatchdogMs = 62000; // 62 second watchdog timeout
+        this.tradeWatchdogMs = 75000; // 75 second watchdog timeout
     }
 
     async start() {
