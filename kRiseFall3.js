@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_3_00103-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3_00103-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_3_00101-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_3_00101-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -543,6 +543,8 @@ class StatePersistence {
 // TELEGRAM SERVICE (FIXED VERSION)
 // ============================================
 class TelegramService {
+    static hourlyTimerStarted = false;
+    static dailyTimerStarted = false;
     static async sendMessage(message) {
         if (!CONFIG.TELEGRAM_ENABLED) return;
         try {
@@ -969,6 +971,8 @@ class TelegramService {
     }
 
     static startHourlyTimer() {
+        if (this.hourlyTimerStarted) return;
+        this.hourlyTimerStarted = true;
         const now = new Date();
         const nextHour = new Date(now);
         nextHour.setHours(nextHour.getHours() + 1);
@@ -991,6 +995,8 @@ class TelegramService {
     }
 
     static startDailyTimer() {
+        if (this.dailyTimerStarted) return;
+        this.dailyTimerStarted = true;
         const now = new Date();
         const nextDay = new Date(now);
         nextDay.setDate(nextDay.getDate() + 1);
@@ -1218,7 +1224,7 @@ function getAssetConfig(symbol) {
 
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 
 // ============================================
 // STATE MANAGEMENT
@@ -2322,6 +2328,7 @@ class ConnectionManager {
 class DerivBot {
     constructor() {
         this.connection = new ConnectionManager();
+        this.timeCheckStarted = false;
     }
 
     async start() {
@@ -2605,7 +2612,7 @@ class DerivBot {
 
             const recent = closed.slice(-lookback);
 
-            // Check for 2 candle Trend
+            // Check for 3 candle Trend
             const lastCandle = recent[recent.length - 1];
             const last2Candle = recent[recent.length - 2];
             const last3Candle = recent[recent.length - 3];
@@ -2786,6 +2793,8 @@ class DerivBot {
      * Session time checker
      */
     startSessionTimeChecker() {
+        if (this.timeCheckStarted) return;
+        this.timeCheckStarted = true;
         setInterval(() => {
             const now = new Date();
             const gmtPlus1Time = new Date(
