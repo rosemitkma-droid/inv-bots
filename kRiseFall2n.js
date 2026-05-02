@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2n_1-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2n_1-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2n_1-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2n_010101-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2n_010101-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2n_010101-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -631,6 +631,8 @@ class StatePersistence {
 // TELEGRAM SERVICE
 // ============================================
 class TelegramService {
+    static hourlyTimerStarted = false;
+    static dailyTimerStarted = false;
     static async sendMessage(message) {
         if (!CONFIG.TELEGRAM_ENABLED) return;
         try {
@@ -704,12 +706,15 @@ ${symbol} P&amp;L: $${assetNetPL.toFixed(2)}
 ${symbol} W/L: ${assetWins}/${assetLosses}
 Today P&amp;L: $${(today.netPL || 0).toFixed(2)}
 Today W/L: ${today.winsCount || 0}/${today.lossesCount || 0}
+${type !== 'OPEN' ? `Loss Stats: x2:${today.x2Losses || 0} | x3:${today.x3Losses || 0} | x4:${today.x4Losses || 0} | x5:${today.x5Losses || 0} | x6:${today.x6Losses || 0} | x7:${today.x7Losses || 0} | x8:${today.x8Losses || 0} | x9:${today.x9Losses || 0}` : ''}
 
 📋 <b>Overall Stats:</b>
 Overall P&amp;L: $${(overall.netPL || 0).toFixed(2)}
 Overall W/L: ${overall.winsCount || 0}/${overall.lossesCount || 0}
 Total Trades: ${overall.tradesCount || 0}
-Capital: $${state.capital.toFixed(2)}`
+Capital: $${state.capital.toFixed(2)}
+Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${overall.x4Losses || 0} | x5:${overall.x5Losses || 0} | x6:${overall.x6Losses || 0} | x7:${overall.x7Losses || 0} | x8:${overall.x8Losses || 0} | x9:${overall.x9Losses || 0}
+`
                 : `Signal: currentStreak(${currentStreak}) >= assetMaxStreak(${assetMaxStreak}) - 5`
             }`.trim();
 
@@ -761,12 +766,14 @@ Capital: $${state.capital.toFixed(2)}`
                 `Duration: ${stats.duration}`, `Trades: ${stats.trades}`,
                 `Wins: ${stats.wins} | Losses: ${stats.losses}`,
                 `Win Rate: ${stats.winRate}`,
+                `Loss Stats: x2:${today.x2Losses || 0} | x3:${today.x3Losses || 0} | x4:${today.x4Losses || 0} | x5:${today.x5Losses || 0} | x6:${today.x6Losses || 0} | x7:${today.x7Losses || 0} | x8:${today.x8Losses || 0} | x9:${today.x9Losses || 0}`,
                 `Today P/L: $${(today.netPL || 0).toFixed(2)}`, ``,
                 `📋 <b>Today's Per-Asset:</b>${assetBreakdown || '\n  No trades yet'}`, ``,
                 `📊 <b>Overall Stats:</b>`,
                 `Total Trades: ${overall.tradesCount || 0}`,
                 `Overall Win Rate: ${overallWinRate}`,
                 `Overall P/L: $${(overall.netPL || 0).toFixed(2)}`, ``,
+                `Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${overall.x4Losses || 0} | x5:${overall.x5Losses || 0} | x6:${overall.x6Losses || 0} | x7:${overall.x7Losses || 0} | x8:${overall.x8Losses || 0} | x9:${overall.x9Losses || 0}`,
                 `📋 <b>Overall Per-Asset:</b>${overallAssetBreakdown || '\n  No trades yet'}`, ``,
                 `🗓️ <b>Recent Days:</b>${recentDaysStr || '\n  No history yet'}`, ``,
                 `💰 Current Capital: $${state.capital.toFixed(2)}`
@@ -906,6 +913,8 @@ Capital: $${state.capital.toFixed(2)}`
     }
 
     static startHourlyTimer() {
+        if (this.hourlyTimerStarted) return;
+        this.hourlyTimerStarted = true;
         const now = new Date();
         const nextHour = new Date(now);
         nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
@@ -919,6 +928,8 @@ Capital: $${state.capital.toFixed(2)}`
     }
 
     static startDailyTimer() {
+        if (this.dailyTimerStarted) return;
+        this.dailyTimerStarted = true;
         const now = new Date();
         const nextDay = new Date(now);
         nextDay.setDate(nextDay.getDate() + 1);
@@ -1748,6 +1759,7 @@ class ConnectionManager {
 class DerivBot {
     constructor() {
         this.connection = new ConnectionManager();
+        this.timeCheckStarted = false;
     }
 
     async start() {
@@ -1855,7 +1867,7 @@ class DerivBot {
             LOGGER.info(`[${symbol}] Recovery skipped — session ended`);
             return;
         }
-        if (assetState.lastTradeWasWin !== false || assetState.martingaleLevel === 0) {
+        if (assetState.martingaleLevel === 0) {
             LOGGER.info(`[${symbol}] Recovery skipped — not in loss recovery (mart=${assetState.martingaleLevel})`);
             return;
         }
@@ -2081,6 +2093,8 @@ class DerivBot {
     }
 
     startSessionTimeChecker() {
+        if (this.timeCheckStarted) return;
+        this.timeCheckStarted = true;
         setInterval(() => {
             const now = new Date();
             const gmtPlus1Time = new Date(now.getTime() + 1 * 60 * 60 * 1000);
