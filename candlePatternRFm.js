@@ -60,8 +60,8 @@ const DEFAULT_ASSET_CONFIG = {
   // Candle Settings
   GRANULARITY: 60,
   TIMEFRAME_LABEL: '1m',
-  MAX_CANDLES_STORED: 60,
-  CANDLES_TO_LOAD: 60,
+  MAX_CANDLES_STORED: 4,
+  CANDLES_TO_LOAD: 10,
 
   // Trade Duration
   DURATION: 58,
@@ -87,12 +87,12 @@ const DEFAULT_ASSET_CONFIG = {
   TAKE_PROFIT: 10000,
 
   // Pattern Analysis Settings
-  PATTERN_MIN_CONFIDENCE: 0.5,
-  MIN_AGREEMENT_RATIO_CONFIDENCE: 0.5,
-  MIN_PATTERN_CONFIDENCE: 0.5,
-  MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.5,
-  PATTERN_LENGTHS: [3, 7], //[3, 4, 5, 6, 7, 8]
-  PATTERN_MIN_OCCURRENCES: 5,
+  PATTERN_MIN_CONFIDENCE: 0.1,
+  MIN_AGREEMENT_RATIO_CONFIDENCE: 0.1,
+  MIN_PATTERN_CONFIDENCE: 0.1,
+  MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.1,
+  PATTERN_LENGTHS: [1], //[3, 4, 5, 6, 7, 8]
+  PATTERN_MIN_OCCURRENCES: 1,
   PATTERN_RECENCY_DECAY: 0.9990,
   PATTERN_DOJI_THRESHOLD: 0.00001
 };
@@ -228,7 +228,7 @@ class CandlePatternAnalyzer {
 
   analyze(closedCandles) {
     const maxPatLen = Math.max(...this.patternLengths);
-    if (closedCandles.length < maxPatLen + 20) {
+    if (closedCandles.length < maxPatLen) {
       return {
         shouldTrade: false,
         direction: null,
@@ -335,6 +335,7 @@ class CandlePatternAnalyzer {
     const finalDirection = consensusDirection;
     const finalConfidence = consensusConfidence;
     const decisionMethod = 'CONSENSUS+BEST_AGREE';
+    const patternOccurrence = bestPattern.rawOccurrences;
 
     const shouldTrade = finalConfidence >= this.minConfidence;
 
@@ -351,6 +352,7 @@ class CandlePatternAnalyzer {
       direction: shouldTrade ? finalDirection : null,
       confidence: finalConfidence,
       reason,
+      patternOccurrence: patternOccurrence,
       details: {
         patternResults,
         consensus: {
@@ -415,7 +417,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0106.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0107.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -546,7 +548,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0106.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0107.json');
 
 const state = {
   assets: {},
@@ -564,6 +566,9 @@ const state = {
   isAuthorized: false,
   hourlyStats: { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() },
   requestId: 1,
+  // Time-based control
+  isWinTrade: false,
+  endOfDay: false,
   // Watchdog properties
   tradeWatchdogTimer: null,
   tradeWatchdogPollTimer: null,
@@ -747,6 +752,7 @@ class TelegramService {
         analysisDetails = `
         🧠 <b>PATTERN ANALYSIS:</b>
         📊 Confidence: ${(analysis.confidence * 100).toFixed(1)}%
+        📊 Pattern Occurrence: ${analysis.patternOccurrence}
         🤝 Agreement: ${agreementRatio}%
         📈 Best Pattern: L${bestPattern?.patternLength || 'N/A'} "${bestPattern?.pattern || 'N/A'}" (${(bestPattern?.confidence * 100).toFixed(1)}%)`;
       }
@@ -855,6 +861,9 @@ class TelegramService {
   }
 
   static startHourlyTimer() {
+    if (this.hourlyTimerStarted) return;
+    this.hourlyTimerStarted = true;
+
     const now = new Date();
     const nextHour = new Date(now);
     nextHour.setHours(nextHour.getHours() + 1);
@@ -1019,6 +1028,14 @@ class ConnectionManager {
         });
       }
     });
+  }
+
+  disconnect() {
+    LOGGER.info('🛑 Disconnecting...');
+    StatePersistence.saveState();
+    state.endOfDay = true;
+    this.cleanup();
+    LOGGER.info('✅ Bot disconnected');
   }
 
   cleanup() {
@@ -1235,6 +1252,7 @@ class ConnectionManager {
     bot._clearAllWatchdogTimers();
 
     const isWin = profit > 0;
+    state.isWinTrade = isWin;
     state.capital += profit;
 
     // Global session
@@ -1478,6 +1496,39 @@ class DerivPatternBot {
     this.connection = new ConnectionManager();
     this._processedContracts = new Set();
     this.tradeWatchdogMs = 120000; // 120 second watchdog timeout
+    this.timeCheckStarted = false;
+  }
+
+  checkTimeForDisconnectReconnect() {
+    if (this.timeCheckStarted) return;
+    this.timeCheckStarted = true;
+
+    setInterval(() => {
+      const now = new Date();
+      // GMT+1 calculation from example
+      const gmtPlus1Time = new Date(now.getTime() + (1 * 60 * 60 * 1000));
+      const currentHours = gmtPlus1Time.getUTCHours();
+      const currentMinutes = gmtPlus1Time.getUTCMinutes();
+
+      // Afternoon resume: 2:00 AM
+      if (state.endOfDay && currentHours === 2 && currentMinutes >= 0) {
+        LOGGER.info("It's 2:00 AM, reconnecting the bot.");
+        state.endOfDay = false;
+        state.session.isActive = true;
+        state.tradeInProgress = false;
+        this.connection.connect();
+      }
+
+      // Evening stop: after 11:00 PM following a win
+      if (state.isWinTrade && !state.endOfDay) {
+        if (currentHours >= 23 && currentMinutes >= 0) {
+          LOGGER.info("It's past 11:00 PM after a win trade, disconnecting.");
+          TelegramService.sendSessionSummary();
+          this.connection.disconnect();
+          state.endOfDay = true;
+        }
+      }
+    }, 20000);
   }
 
   async start() {
@@ -1499,6 +1550,9 @@ class DerivPatternBot {
 
     // Start hourly Telegram timer
     TelegramService.startHourlyTimer();
+
+    // Start time-based disconnect/reconnect monitoring
+    this.checkTimeForDisconnectReconnect();
 
     TelegramService.sendMessage(`🤖 <b>MULTI-ASSET PATTERN BOT STARTED</b>\nAssets: ${ACTIVE_ASSETS.length}\nCapital: $${state.capital}\n🔄 Recovery Strategy: ${CONFIG.USE_RECOVERY_STRATEGY ? 'ENABLED' : 'DISABLED'}`);
   }
@@ -1579,7 +1633,7 @@ class DerivPatternBot {
 
       direction = analysis.direction;
       isRecovery = false;
-      LOGGER.trade(`🎯 [${symbol}] PATTERN TRADE - Direction: ${direction} | Confidence: ${(analysis.confidence * 100).toFixed(1)}%`);
+      LOGGER.trade(`🎯 [${symbol}] PATTERN TRADE - Direction: ${direction} | Confidence: ${(analysis.confidence * 100).toFixed(1)}% | Pattern Occurrence: ${analysis.patternOccurrence}`);
     }
 
     const stake = assetState.currentStake;
@@ -1591,7 +1645,7 @@ class DerivPatternBot {
       LOGGER.trade(`   Recovery Mode: ${isRecovery ? 'YES' : 'NO'} | Same direction as loss | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel}`);
     } else {
       const agreementRatio = analysis?.details?.consensus?.agreementRatio ? (analysis.details.consensus.agreementRatio * 100).toFixed(0) : 'N/A';
-      LOGGER.trade(`   Recovery Mode: NO | Confidence: ${(analysis.confidence * 100).toFixed(1)}% | Agreement: ${agreementRatio}% | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel}`);
+      LOGGER.trade(`   Recovery Mode: NO | Confidence: ${(analysis.confidence * 100).toFixed(1)}% | Agreement: ${agreementRatio}% | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel} | Pattern Occurrence: ${analysis.patternOccurrence}`);
     }
 
     // Execute trade
