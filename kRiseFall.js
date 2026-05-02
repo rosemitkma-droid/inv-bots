@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_01_2-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_01_2-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_01_0202-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_01_0202-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -543,6 +543,8 @@ class StatePersistence {
 // TELEGRAM SERVICE (FIXED VERSION)
 // ============================================
 class TelegramService {
+    static hourlyTimerStarted = false;
+    static dailyTimerStarted = false;
     static async sendMessage(message) {
         if (!CONFIG.TELEGRAM_ENABLED) return;
         try {
@@ -969,6 +971,8 @@ Capital: $${state.capital.toFixed(2)}`
     }
 
     static startHourlyTimer() {
+        if (this.hourlyTimerStarted) return;
+        this.hourlyTimerStarted = true;
         const now = new Date();
         const nextHour = new Date(now);
         nextHour.setHours(nextHour.getHours() + 1);
@@ -991,6 +995,8 @@ Capital: $${state.capital.toFixed(2)}`
     }
 
     static startDailyTimer() {
+        if (this.dailyTimerStarted) return;
+        this.dailyTimerStarted = true;
         const now = new Date();
         const nextDay = new Date(now);
         nextDay.setDate(nextDay.getDate() + 1);
@@ -2310,6 +2316,7 @@ class ConnectionManager {
 class DerivBot {
     constructor() {
         this.connection = new ConnectionManager();
+        this.timeCheckStarted = false;
     }
 
     async start() {
@@ -2717,6 +2724,8 @@ class DerivBot {
      * Session time checker
      */
     startSessionTimeChecker() {
+        if (this.timeCheckStarted) return;
+        this.timeCheckStarted = true;
         setInterval(() => {
             const now = new Date();
             const gmtPlus1Time = new Date(
