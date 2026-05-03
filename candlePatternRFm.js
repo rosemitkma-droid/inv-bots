@@ -21,7 +21,7 @@ const path = require('path');
 
 const CONFIG = {
   // API Settings
-  API_TOKEN: 'rgNedekYXvCaPeP',
+  API_TOKEN: 'hsj0tA0XJoIzJG5',
   APP_ID: '1089',
   WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
@@ -61,7 +61,7 @@ const DEFAULT_ASSET_CONFIG = {
   GRANULARITY: 60,
   TIMEFRAME_LABEL: '1m',
   MAX_CANDLES_STORED: 4,
-  CANDLES_TO_LOAD: 10,
+  CANDLES_TO_LOAD: 30,
 
   // Trade Duration
   DURATION: 58,
@@ -91,7 +91,7 @@ const DEFAULT_ASSET_CONFIG = {
   MIN_AGREEMENT_RATIO_CONFIDENCE: 0.91,
   MIN_PATTERN_CONFIDENCE: 0.91,
   MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.91,
-  PATTERN_LENGTHS: [1], //[3, 4, 5, 6, 7, 8]
+  PATTERN_LENGTHS: [2], //[3, 4, 5, 6, 7, 8]
   PATTERN_MIN_OCCURRENCES: 1,
   PATTERN_RECENCY_DECAY: 0.9990,
   PATTERN_DOJI_THRESHOLD: 0.00001
@@ -417,7 +417,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0109.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history01002.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -548,7 +548,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0109.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state01002.json');
 
 const state = {
   assets: {},
@@ -1632,10 +1632,13 @@ class DerivPatternBot {
       LOGGER.trade(`🎯 [${symbol}] PATTERN TRADE - Direction: ${direction} | Confidence: ${(analysis.confidence * 100).toFixed(1)}% | Pattern Occurrence: ${analysis.patternOccurrence}`);
 
       if (analysis.patternOccurrence >= 2) {
-        direction = analysis.direction;
+        const newDirection = analysis.direction
+        direction = newDirection === 'CALLE' ? 'PUTE' : 'CALLE';
         isRecovery = false;
       }
     }
+
+    if (!direction) return;
 
     const stake = assetState.currentStake;
     const duration = assetConfig.DURATION;
