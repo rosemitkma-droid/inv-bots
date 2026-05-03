@@ -1002,7 +1002,7 @@ const CONFIG = {
 
     // ── Autocorrelation trade threshold ──────────────────────────
     // Trade fires when autocorrelation < AUTOCORR_THRESHOLD
-    AUTOCORR_THRESHOLD: 0.20,
+    AUTOCORR_THRESHOLD: 0.25,
     AUTOCORR_THRESHOLD2: 0.99,
     DURATION: 58,
     DURATION_UNIT: 's',
