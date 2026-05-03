@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_0102-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_0102-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_0102-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_0104-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_0104-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_0104-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -825,6 +825,12 @@ Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${ove
                 `├ Total Trades: ${overall.tradesCount || 0}`,
                 `├ Overall Win Rate: ${overallWinRate}`,
                 `└ Overall P/L: $${(overall.netPL || 0).toFixed(2)}`, ``,
+                `📊 <b>Overall Stats (All Time):</b>`,
+                `├ Total Trades: ${overall.tradesCount || 0}`,
+                `├ Overall Win Rate: ${overallWinRate}`,
+                `├ Overall P/L: $${(overall.netPL || 0).toFixed(2)}`,
+                `└ Loss Stats: x2:${overall.x2Losses || 0} x3:${overall.x3Losses || 0} x4:${overall.x4Losses || 0} x5:${overall.x5Losses || 0} x6:${overall.x6Losses || 0} x7:${overall.x7Losses || 0} x8:${overall.x8Losses || 0} x9:${overall.x9Losses || 0}`,
+                ``,
                 `💰 Current Capital: $${state.capital.toFixed(2)}`
             ].join('\n');
 
