@@ -715,7 +715,7 @@ Total Trades: ${overall.tradesCount || 0}
 Capital: $${state.capital.toFixed(2)}
 Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${overall.x4Losses || 0} | x5:${overall.x5Losses || 0} | x6:${overall.x6Losses || 0} | x7:${overall.x7Losses || 0} | x8:${overall.x8Losses || 0} | x9:${overall.x9Losses || 0}
 `
-                : `Signal: autocorrelation(${regime.autocorrelation.toFixed(4)}) &lt; ${CONFIG.AUTOCORR_THRESHOLD}`
+                : `Signal: autocorrelation(${regime.autocorrelation.toFixed(4)}) > ${CONFIG.AUTOCORR_THRESHOLD}`
             }`.trim();
 
         await this.sendMessage(message);
