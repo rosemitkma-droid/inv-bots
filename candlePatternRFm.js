@@ -417,7 +417,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0107.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0108.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -548,7 +548,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0107.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0108.json');
 
 const state = {
   assets: {},
@@ -1444,25 +1444,27 @@ class ConnectionManager {
     this.stopPing();
     StatePersistence.saveState();
 
-    if (this.isReconnecting) return;
+    if (!state.endOfDay) {
+      if (this.isReconnecting) return;
 
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.isReconnecting = true;
-      this.reconnectAttempts++;
-      const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.isReconnecting = true;
+        this.reconnectAttempts++;
+        const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
 
-      LOGGER.info(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+        LOGGER.info(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
-      TelegramService.sendMessage(`⚠️ <b>CONNECTION LOST - RECONNECTING</b>\nAttempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+        TelegramService.sendMessage(`⚠️ <b>CONNECTION LOST - RECONNECTING</b>\nAttempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
 
-      setTimeout(() => {
-        this.isReconnecting = false;
-        this.connect();
-      }, delay);
-    } else {
-      LOGGER.error('Max reconnection attempts reached.');
-      TelegramService.sendMessage(`🛑 <b>BOT STOPPED</b>\nMax reconnection attempts reached.`);
-      process.exit(1);
+        setTimeout(() => {
+          this.isReconnecting = false;
+          this.connect();
+        }, delay);
+      } else {
+        LOGGER.error('Max reconnection attempts reached.');
+        TelegramService.sendMessage(`🛑 <b>BOT STOPPED</b>\nMax reconnection attempts reached.`);
+        process.exit(1);
+      }
     }
   }
 
