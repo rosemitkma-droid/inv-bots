@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b2_03-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b2_03-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b2_03-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b20_04-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b20_04-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b20_04-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -631,6 +631,8 @@ class StatePersistence {
 // TELEGRAM SERVICE
 // ============================================
 class TelegramService {
+    static hourlyTimerStarted = false;
+    static dailyTimerStarted = false;
     static async sendMessage(message) {
         if (!CONFIG.TELEGRAM_ENABLED) return;
         try {
@@ -703,13 +705,16 @@ ${details.profit !== undefined
 ${symbol} P&amp;L: $${assetNetPL.toFixed(2)}
 ${symbol} W/L: ${assetWins}/${assetLosses}
 Today P&amp;L: $${(today.netPL || 0).toFixed(2)}
-Today W/L: ${today.winsCount || 0}/${today.lossesCount || 0}
+Today W/L: ${today.winsCount || 0}/${today.lossesCount || 0} 
+${type !== 'OPEN' ? `Loss Stats: x2:${today.x2Losses || 0} | x3:${today.x3Losses || 0} | x4:${today.x4Losses || 0} | x5:${today.x5Losses || 0} | x6:${today.x6Losses || 0} | x7:${today.x7Losses || 0} | x8:${today.x8Losses || 0} | x9:${today.x9Losses || 0}` : ''}
 
 📋 <b>Overall Stats:</b>
 Overall P&amp;L: $${(overall.netPL || 0).toFixed(2)}
 Overall W/L: ${overall.winsCount || 0}/${overall.lossesCount || 0}
 Total Trades: ${overall.tradesCount || 0}
-Capital: $${state.capital.toFixed(2)}`
+Capital: $${state.capital.toFixed(2)}
+Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${overall.x4Losses || 0} | x5:${overall.x5Losses || 0} | x6:${overall.x6Losses || 0} | x7:${overall.x7Losses || 0} | x8:${overall.x8Losses || 0} | x9:${overall.x9Losses || 0}
+`
                 : `Signal: autocorrelation(${regime.autocorrelation.toFixed(4)}) &lt; ${CONFIG.AUTOCORR_THRESHOLD}`
             }`.trim();
 
@@ -757,7 +762,7 @@ Capital: $${state.capital.toFixed(2)}`
                 : '0.0%';
 
             const message = [
-                `📊 <b>SESSION SUMMARY 2b</b>`, ``,
+                `📊 <b>SESSION SUMMARY 2b2</b>`, ``,
                 `🗓️ <b>Today (${TradeHistoryManager.getDateKey()}):</b>`,
                 `Duration: ${stats.duration}`, `Trades: ${stats.trades}`,
                 `Wins: ${stats.wins} | Losses: ${stats.losses}`,
@@ -815,11 +820,17 @@ Capital: $${state.capital.toFixed(2)}`
                 `├ Net P/L: $${(dayStats.netPL || 0).toFixed(2)}`,
                 `├ Start Capital: $${(dayStats.startCapital || 0).toFixed(2)}`,
                 `└ End Capital: $${(dayStats.endCapital || 0).toFixed(2)}`, ``,
+                ``,
+                `📊 Loss Stats: x2:${dayStats.x2Losses || 0} x3:${dayStats.x3Losses || 0} x4:${dayStats.x4Losses || 0} x5:${dayStats.x5Losses || 0} x6:${dayStats.x6Losses || 0} x7:${dayStats.x7Losses || 0} x8:${dayStats.x8Losses || 0} x9:${dayStats.x9Losses || 0}`,
+                ``,
                 `📋 <b>Per-Asset:</b>${assetBreakdown || '\n  No trades'}`, ``,
+                ``,
                 `📊 <b>Overall Stats (All Time):</b>`,
                 `├ Total Trades: ${overall.tradesCount || 0}`,
                 `├ Overall Win Rate: ${overallWinRate}`,
-                `└ Overall P/L: $${(overall.netPL || 0).toFixed(2)}`, ``,
+                `├ Overall P/L: $${(overall.netPL || 0).toFixed(2)}`,
+                `└ Loss Stats: x2:${overall.x2Losses || 0} x3:${overall.x3Losses || 0} x4:${overall.x4Losses || 0} x5:${overall.x5Losses || 0} x6:${overall.x6Losses || 0} x7:${overall.x7Losses || 0} x8:${overall.x8Losses || 0} x9:${overall.x9Losses || 0}`,
+                ``,
                 `💰 Current Capital: $${state.capital.toFixed(2)}`
             ].join('\n');
 
@@ -910,6 +921,8 @@ Capital: $${state.capital.toFixed(2)}`
     }
 
     static startHourlyTimer() {
+        if (this.hourlyTimerStarted) return;
+        this.hourlyTimerStarted = true;
         const now = new Date();
         const nextHour = new Date(now);
         nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
@@ -923,6 +936,8 @@ Capital: $${state.capital.toFixed(2)}`
     }
 
     static startDailyTimer() {
+        if (this.dailyTimerStarted) return;
+        this.dailyTimerStarted = true;
         const now = new Date();
         const nextDay = new Date(now);
         nextDay.setDate(nextDay.getDate() + 1);
@@ -972,7 +987,7 @@ class CandleAnalyzer {
 // CONFIGURATION
 // ============================================
 const CONFIG = {
-    API_TOKEN: 'rgNedekYXvCaPeP',
+    API_TOKEN: 'DMylfkyce6VyZt7',
     APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
     INITIAL_CAPITAL: 250,
@@ -1800,7 +1815,8 @@ class DerivBot {
     constructor() {
         this.connection = new ConnectionManager();
         this._processedContracts = new Set();
-        this.tradeWatchdogMs = 62000; // 62 second watchdog timeout
+        this.tradeWatchdogMs = 75000; // 75 second watchdog timeout
+        this.timeCheckStarted = false;
     }
 
     async start() {
@@ -2261,6 +2277,8 @@ class DerivBot {
     }
 
     startSessionTimeChecker() {
+        if (this.timeCheckStarted) return;
+        this.timeCheckStarted = true;
         setInterval(() => {
             const now = new Date();
             const gmtPlus1Time = new Date(now.getTime() + 1 * 60 * 60 * 1000);
