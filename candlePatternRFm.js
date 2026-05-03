@@ -87,10 +87,10 @@ const DEFAULT_ASSET_CONFIG = {
   TAKE_PROFIT: 10000,
 
   // Pattern Analysis Settings
-  PATTERN_MIN_CONFIDENCE: 0.1,
-  MIN_AGREEMENT_RATIO_CONFIDENCE: 0.1,
-  MIN_PATTERN_CONFIDENCE: 0.1,
-  MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.1,
+  PATTERN_MIN_CONFIDENCE: 0.91,
+  MIN_AGREEMENT_RATIO_CONFIDENCE: 0.91,
+  MIN_PATTERN_CONFIDENCE: 0.91,
+  MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.91,
   PATTERN_LENGTHS: [1], //[3, 4, 5, 6, 7, 8]
   PATTERN_MIN_OCCURRENCES: 1,
   PATTERN_RECENCY_DECAY: 0.9990,
@@ -417,7 +417,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0108.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history0109.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -548,7 +548,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0108.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state0109.json');
 
 const state = {
   assets: {},
@@ -1629,13 +1629,12 @@ class DerivPatternBot {
         }
       }
 
-      // const newDirection = analysis.direction;
-
-      // direction = newDirection === 'CALLE' ? 'PUTE' : 'CALLE';
-
-      direction = analysis.direction;
-      isRecovery = false;
       LOGGER.trade(`🎯 [${symbol}] PATTERN TRADE - Direction: ${direction} | Confidence: ${(analysis.confidence * 100).toFixed(1)}% | Pattern Occurrence: ${analysis.patternOccurrence}`);
+
+      if (analysis.patternOccurrence >= 2) {
+        direction = analysis.direction;
+        isRecovery = false;
+      }
     }
 
     const stake = assetState.currentStake;
