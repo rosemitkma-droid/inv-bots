@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2a_00201-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2a_00201-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2a_00203-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2a_00203-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1124,8 +1124,8 @@ const CONFIG = {
     // ============================
     ALTERNATING_PATTERN_THRESHOLD: 60, //60 Percentage threshold for switching to TRADE_SYSTEM 1
     ALTERNATING_PATTERN_LOOKBACK: 60, //100 Number of previous candles to analyze for pattern detection (user configurable)
-    AUTOCORR_THRESHOLD: 0.25,
-    AUTOCORR_THRESHOLD2: 0.99,
+    AUTOCORR_THRESHOLD: 0.0000,
+    AUTOCORR_THRESHOLD2: 0.0000,
 
     // Default Trade Duration Settings (used if asset has no specific config)
     DURATION: 58,
@@ -2253,11 +2253,11 @@ class ConnectionManager {
                 // TRIGGER TRADE ANALYSIS FOR THIS SPECIFIC ASSET
                 assetState.canTrade = true;
 
-                // if (assetState.martingaleLevel > 0) {
-                //     bot.executeRecoveryTrade(symbol, closedCandle);
-                // } else {
+                if (assetState.martingaleLevel > 0) {
+                    bot.executeRecoveryTrade(symbol, closedCandle);
+                } else {
                     bot.executeNextTrade(symbol, closedCandle);
-                // }
+                }
             }
         }
 
@@ -3371,7 +3371,7 @@ class DerivBot {
         // Trade signals are generated based on Alternating Regime Analysis and Market Structure candle patterns
         const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
 
-        if (regime.details.autocorrelation >= CONFIG.AUTOCORR_THRESHOLD && regime.details.autocorrelation < CONFIG.AUTOCORR_THRESHOLD2) {
+        if (regime.details.autocorrelation >= CONFIG.AUTOCORR_THRESHOLD && regime.details.autocorrelation <= CONFIG.AUTOCORR_THRESHOLD2) {
 
             if (candleType === 'BULLISH') {
                 direction = 'CALLE';
