@@ -75,8 +75,8 @@ const DEFAULT_ASSET_CONFIG = {
   MARTINGALE_MULTIPLIER: 1,
   MAX_MARTINGALE_LEVEL: 1,
   AFTER_MAX_LOSS: 'continue',
-  CONTINUE_EXTRA_LEVELS: 14,
-  EXTRA_LEVEL_MULTIPLIERS: [1, 1, 1, 1, 1.48, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
+  CONTINUE_EXTRA_LEVELS: 10,
+  EXTRA_LEVEL_MULTIPLIERS: [1, 1, 1.48, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
 
   // Auto-Compounding
   AUTO_COMPOUNDING: true,
@@ -417,7 +417,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history01007.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history01008.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -548,7 +548,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state01007.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state01008.json');
 
 const state = {
   assets: {},
