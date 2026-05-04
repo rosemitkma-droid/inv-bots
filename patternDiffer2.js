@@ -77,7 +77,7 @@ const BOT_CONFIG = {
     maxTickMove: 0.0004,
 
     minTimeBetweenTrades: 3000,
-    requiredHistoryLength: 200,         // Increased for better pattern detection
+    requiredHistoryLength: 1000,         // Increased for better pattern detection
 
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     telegramChatId: '752497117',
