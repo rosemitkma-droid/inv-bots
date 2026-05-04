@@ -417,7 +417,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history01005.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history01006.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -548,7 +548,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state01005.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state01006.json');
 
 const state = {
   assets: {},
@@ -1638,7 +1638,7 @@ class DerivPatternBot {
         return;
       }
 
-      direction = analysis.direction;
+      // direction = analysis.direction;
 
       if ((symbol === 'stpRNG' || symbol === 'stpRNG2' || symbol === 'stpRNG3' || symbol === 'stpRNG4' || symbol === 'stpRNG5')) {
         if (bestPatternConfidence < DEFAULT_ASSET_CONFIG.MIN_PATTERN_CONFIDENCE_STEP_RNG) {
@@ -1657,10 +1657,10 @@ class DerivPatternBot {
       LOGGER.trade(`🎯 [${symbol}] PATTERN TRADE - Direction: ${direction} | Confidence: ${(analysis.confidence * 100).toFixed(1)}% | Pattern Occurrence: ${analysis.patternOccurrence}`);
 
       if (analysis.patternOccurrence >= 2) {
-        // const newDirection = analysis.direction;
-        // direction = newDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+        const newDirection = analysis.direction;
+        direction = newDirection === 'CALLE' ? 'PUTE' : 'CALLE';
 
-        direction = analysis.direction;
+        // direction = analysis.direction;
         isRecovery = false;
       }
     }
