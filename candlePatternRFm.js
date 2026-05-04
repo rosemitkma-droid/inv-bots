@@ -72,11 +72,11 @@ const DEFAULT_ASSET_CONFIG = {
   INVESTMENT_AMOUNT: 153,
 
   // Martingale Settings
-  MARTINGALE_MULTIPLIER: 1.48,
+  MARTINGALE_MULTIPLIER: 1,
   MAX_MARTINGALE_LEVEL: 1,
   AFTER_MAX_LOSS: 'continue',
-  CONTINUE_EXTRA_LEVELS: 8,
-  EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
+  CONTINUE_EXTRA_LEVELS: 14,
+  EXTRA_LEVEL_MULTIPLIERS: [1, 1, 1, 1, 1.48, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
 
   // Auto-Compounding
   AUTO_COMPOUNDING: true,
@@ -417,7 +417,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history01006.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history01007.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -548,7 +548,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state01006.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state01007.json');
 
 const state = {
   assets: {},
@@ -1657,10 +1657,10 @@ class DerivPatternBot {
       LOGGER.trade(`🎯 [${symbol}] PATTERN TRADE - Direction: ${direction} | Confidence: ${(analysis.confidence * 100).toFixed(1)}% | Pattern Occurrence: ${analysis.patternOccurrence}`);
 
       if (analysis.patternOccurrence >= 2) {
-        const newDirection = analysis.direction;
-        direction = newDirection === 'CALLE' ? 'PUTE' : 'CALLE';
+        // const newDirection = analysis.direction;
+        // direction = newDirection === 'CALLE' ? 'PUTE' : 'CALLE';
 
-        // direction = analysis.direction;
+        direction = analysis.direction;
         isRecovery = false;
       }
     }
