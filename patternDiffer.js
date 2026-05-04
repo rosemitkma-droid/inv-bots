@@ -43,7 +43,7 @@ const BOT_CONFIG = {
     takeProfit: 10000,           // Session take-profit (USD)
 
     // ── 4-Engine Consensus Settings ──────────────────────────────
-    requiredHistoryLength: 150,      // Ticks needed before analysis starts
+    requiredHistoryLength: 1000,      // Ticks needed before analysis starts
 
     // Markov Engine
     markovMinSamples: 20,           // Min state observations to trust Markov
@@ -141,90 +141,6 @@ class StatePersistence {
         process.on('SIGINT', shutdown);
         process.on('SIGTERM', shutdown);
         process.on('uncaughtException', err => { console.error(err); shutdown(); });
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TECHNICAL INDICATORS — removed (irrelevant to digit prediction)
-// Analysis now handled by ConsensusAnalyzer (differAnalyzer.js)
-// ─────────────────────────────────────────────────────────────────────────────
-class _RemovedIndicators {
-    static SMA(data, period) {
-        if (data.length < period) return null;
-        const slice = data.slice(-period);
-        return slice.reduce((s, v) => s + v, 0) / period;
-    }
-
-    static EMA(data, period) {
-        if (data.length < period) return null;
-        const k = 2 / (period + 1);
-        let ema = data.slice(0, period).reduce((s, v) => s + v, 0) / period;
-        for (let i = period; i < data.length; i++) ema = data[i] * k + ema * (1 - k);
-        return ema;
-    }
-
-    static stdDev(data, period) {
-        if (data.length < period) return null;
-        const slice = data.slice(-period);
-        const mean = slice.reduce((s, v) => s + v, 0) / period;
-        return Math.sqrt(slice.reduce((s, v) => s + (v - mean) ** 2, 0) / period);
-    }
-
-    static bollingerBands(prices, period = 20, mult = 2.0) {
-        if (prices.length < period) return null;
-        const middle = this.SMA(prices, period);
-        const sd = this.stdDev(prices, period);
-        const upper = middle + mult * sd;
-        const lower = middle - mult * sd;
-        const cur = prices[prices.length - 1];
-        const width = (upper - lower) / middle;
-        const pctB = (upper - lower) !== 0 ? (cur - lower) / (upper - lower) : 0.5;
-        return { upper, middle, lower, width, percentB: pctB, stdDev: sd };
-    }
-
-    static MACD(prices, fast = 12, slow = 26, signal = 9) {
-        if (prices.length < slow + signal) return null;
-        const macdVals = [];
-        for (let i = slow; i <= prices.length; i++) {
-            const sl = prices.slice(0, i);
-            const fEMA = this.EMA(sl, fast);
-            const sEMA = this.EMA(sl, slow);
-            if (fEMA !== null && sEMA !== null) macdVals.push(fEMA - sEMA);
-        }
-        if (macdVals.length < signal) return null;
-        const macdLine = macdVals[macdVals.length - 1];
-        const signalLine = this.EMA(macdVals, signal);
-        const histogram = macdLine - signalLine;
-        const prevMacd = macdVals.slice(0, -1);
-        const prevSig = prevMacd.length >= signal ? this.EMA(prevMacd, signal) : signalLine;
-        const prevHist = prevMacd[prevMacd.length - 1] - prevSig;
-        return {
-            macdLine, signalLine, histogram, prevHistogram: prevHist,
-            isConverging: Math.abs(histogram) < Math.abs(prevHist),
-            histogramTrend: histogram - prevHist,
-        };
-    }
-
-    static ATR(prices, period = 14) {
-        if (prices.length < period + 1) return null;
-        const ranges = [];
-        for (let i = prices.length - period; i < prices.length; i++)
-            ranges.push(Math.abs(prices[i] - prices[i - 1]));
-        return ranges.reduce((s, v) => s + v, 0) / period;
-    }
-
-    static bandWidthPercentile(prices, bbPeriod = 20, lookback = 100) {
-        if (prices.length < lookback + bbPeriod) return null;
-        const widths = [];
-        for (let i = bbPeriod; i <= Math.min(lookback, prices.length - bbPeriod); i++) {
-            const sl = prices.slice(0, prices.length - i + bbPeriod);
-            const bb = this.bollingerBands(sl, bbPeriod);
-            if (bb) widths.push(bb.width);
-        }
-        if (widths.length < 10) return null;
-        const cur = widths[0];
-        const sorted = [...widths].sort((a, b) => a - b);
-        return sorted.findIndex(w => w >= cur) / sorted.length;
     }
 }
 
