@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b20_006-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b20_006-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b20_006-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b20_007-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b20_007-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b20_007-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1700,11 +1700,11 @@ class ConnectionManager {
                 LOGGER.info(`${symbol} AutoCorr: ${regime.autocorrelation.toFixed(4)} (threshold: ${CONFIG.AUTOCORR_THRESHOLD}) | AssetMaxStreak: ${assetMaxStreak} | Candles: ${assetState.closedCandles.length}`);
 
                 assetState.canTrade = true;
-                // if (assetState.martingaleLevel > 0) {
-                //     bot.executeRecoveryTrade(symbol, closedCandle);
-                // } else {
-                bot.executeNextTrade(symbol, closedCandle);
-                // }
+                if (assetState.martingaleLevel > 0) {
+                    bot.executeRecoveryTrade(symbol, closedCandle);
+                } else {
+                    bot.executeNextTrade(symbol, closedCandle);
+                }
             }
         }
 
@@ -1777,7 +1777,7 @@ class ConnectionManager {
             LOGGER.info(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
             TelegramService.sendMessage(
-                `⚠️ <b>CONNECTION LOST - RECONNECTING b</b>\n` +
+                `⚠️ <b>CONNECTION LOST - RECONNECTING 2b2</b>\n` +
                 `Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n` +
                 `Retrying in ${(delay / 1000).toFixed(1)}s\n` +
                 `State preserved: ${state.session.tradesCount} trades, $${state.session.netPL.toFixed(2)} P&L`
