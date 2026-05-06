@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM2_000000001_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM2_000000002_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1682,11 +1682,11 @@ class EnhancedDerivTradingBot {
 // BOT INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
 const bot = new EnhancedDerivTradingBot('DMylfkyce6VyZt7', {
-    initialStake: 3,
+    initialStake: 15,
     multiplier: 35,
     multiplier2: 8,
     maxConsecutiveLosses: 2,
-    stopLoss: 108,
+    stopLoss: 525,
     takeProfit: 10000,
     growthRate: 0.03,
     takeProfitMultiplier: 0.03,
