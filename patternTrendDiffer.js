@@ -51,12 +51,12 @@ const BOT_CONFIG = {
 
     // Trend Analysis Config
     trendWindow: 10,                    // Number of recent digits to analyze for trend
-    minTrendStrength: 4,                //4 Minimum consecutive steps in same direction
+    minTrendStrength: 5,                //4 Minimum consecutive steps in same direction
     minWinProbability: 0.70,            // 70% minimum historical win rate
     historyDepth: 1000,                 // Ticks to analyze for probability calculation
 
     // Pattern detection
-    allowedStepSizes: [1, 2, 3],       // e.g., +1 (0→1), +2 (0→2), +3 (0→3)
+    allowedStepSizes: [1, 2, 3, 4, 5, 6],       // e.g., +1 (0→1), +2 (0→2), +3 (0→3)
     minPatternOccurrences: 5,           // Minimum times pattern must appear in history
 
     telegramToken: '8578702717:AAFShpdLRtat7PHqjZMUqhY4UNKlWyaGtmo',
@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'trend_reversal-05_state.json');
+const STATE_FILE = path.join(__dirname, 'trend_reversal-06_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -92,6 +92,9 @@ class StatePersistence {
                 },
                 assetMetrics: bot.assetMetrics,
                 patternStats: bot.patternStats,
+                hourlyStats: bot.hourlyStats,
+                session: bot.session,
+                currentTradeDay: bot.currentTradeDay,
             };
             fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
             return true;
@@ -472,6 +475,25 @@ class TrendReversalBot {
         }
 
         this._loadState();
+
+        // New tracking for summaries
+        if (!this.hourlyStats) {
+            this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
+        }
+        if (!this.session) {
+            this.session = {
+                startTime: Date.now(),
+                startCapital: 0,
+                tradesCount: 0,
+                winsCount: 0,
+                lossesCount: 0,
+                netPL: 0,
+                isActive: true
+            };
+        }
+        if (!this.currentTradeDay) {
+            this.currentTradeDay = new Date().toISOString().split('T')[0];
+        }
     }
 
     // ── State ─────────────────────────────────────────────────────────────────
@@ -494,6 +516,9 @@ class TrendReversalBot {
             }
             if (s.assetMetrics) this.assetMetrics = s.assetMetrics;
             if (s.patternStats) this.patternStats = s.patternStats;
+            if (s.hourlyStats) this.hourlyStats = s.hourlyStats;
+            if (s.session) this.session = s.session;
+            if (s.currentTradeDay) this.currentTradeDay = s.currentTradeDay;
 
             console.log(`✅ State restored — ${this.totalTrades} trades, P&L $${this.totalProfitLoss.toFixed(2)}`);
         } catch (e) {
@@ -597,6 +622,11 @@ class TrendReversalBot {
         if (msg.error) { console.error('Auth failed:', msg.error.message); this._cleanupWs(); return; }
         console.log(`✅ Auth OK — Balance: $${msg.authorize.balance}`);
         this.wsReady = true;
+
+        if (this.session.startCapital === 0) {
+            this.session.startCapital = msg.authorize.balance;
+        }
+
         this.cfg.assets.forEach(asset => {
             this._send({ ticks_history: asset, adjust_start_time: 1, count: this.cfg.requiredHistoryLength, end: 'latest', start: 1, style: 'ticks' });
             this._send({ ticks: asset, subscribe: 1 });
@@ -623,6 +653,8 @@ class TrendReversalBot {
         const asset = tick.symbol;
         const price = parseFloat(tick.quote);
         const digit = this._lastDigit(price, asset);
+
+        this._checkDayChange();
 
         this.priceHistories[asset].push(price);
         if (this.priceHistories[asset].length > 1500) this.priceHistories[asset] = this.priceHistories[asset].slice(-1000);
@@ -832,13 +864,29 @@ class TrendReversalBot {
         this.assetMetrics[asset].trades++;
         this.assetMetrics[asset].profitLoss += profit;
 
+        // Update Hourly & Session Stats
+        this._checkDayChange();
+        const currentHour = new Date().getHours();
+        if (currentHour !== this.hourlyStats.lastHour) {
+            this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: currentHour };
+        }
+        this.hourlyStats.trades++;
+        this.hourlyStats.pnl += profit;
+        
+        this.session.tradesCount++;
+        this.session.netPL += profit;
+
         if (won) {
+            this.hourlyStats.wins++;
+            this.session.winsCount++;
             this.totalWins++;
             this.isWinTrade = true;
             this.currentStake = this.cfg.initialStake;
             this.consecutiveLosses = 0;
             this.assetMetrics[asset].wins++;
         } else {
+            this.hourlyStats.losses++;
+            this.session.lossesCount++;
             this.totalLosses++;
             this.isWinTrade = false;
             this.consecutiveLosses++;
@@ -886,6 +934,7 @@ class TrendReversalBot {
             console.log('🎯 Take Profit reached');
             this.endOfDay = true;
             this._sendTelegram(`🎯 <b>Take Profit!</b> P&L: +$${this.totalProfitLoss.toFixed(2)}`);
+            this._sendSessionSummary();
             this._cleanupWs();
             return;
         }
@@ -893,6 +942,7 @@ class TrendReversalBot {
             console.log('🛑 Stop condition met');
             this.endOfDay = true;
             this._sendTelegram(`🛑 <b>Stop Loss</b>\nLosses: ${this.consecutiveLosses} | P&L: $${this.totalProfitLoss.toFixed(2)}`);
+            this._sendSessionSummary();
             this._cleanupWs();
         }
     }
@@ -955,6 +1005,109 @@ class TrendReversalBot {
         if (!this.telegram) return;
         try { await this.telegram.sendMessage(this.cfg.telegramChatId, text, { parse_mode: 'HTML' }); }
         catch (e) { console.error(`Telegram: ${e.message}`); }
+    }
+
+    // ── Summaries & Timers ────────────────────────────────────────────────────
+    async _sendHourlySummary() {
+        try {
+            const stats = { ...this.hourlyStats };
+            if (stats.trades === 0) return;
+
+            const winRate = stats.trades > 0 ? ((stats.wins / stats.trades) * 100).toFixed(1) : '0.0';
+            const pnlEmoji = stats.pnl >= 0 ? '🟢' : '🔴';
+            const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
+
+            const message = [
+                `⏰ <b>Trend Reversal Bot Hourly Summary</b>`, ``,
+                `📊 <b>Last Hour</b>`,
+                `├ Trades: ${stats.trades}`,
+                `├ Wins: ${stats.wins} | Losses: ${stats.losses}`,
+                `├ Win Rate: ${winRate}%`,
+                `└ ${pnlEmoji} <b>P&L:</b> ${pnlStr}`, ``,
+                `🗓️ <b>Today</b>`,
+                `├ Total Trades: ${this.totalTrades}`,
+                `└ Today P&L: ${this.dailyProfitLoss >= 0 ? '+' : ''}$${this.dailyProfitLoss.toFixed(2)}`
+            ].join('\n');
+
+            await this._sendTelegram(message);
+            this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
+        } catch (err) {
+            console.error(`❌ _sendHourlySummary crashed: ${err.message}`);
+        }
+    }
+
+    async _sendSessionSummary() {
+        try {
+            const durationMs = Date.now() - this.session.startTime;
+            const hours = Math.floor(durationMs / 3600000);
+            const minutes = Math.floor((durationMs % 3600000) / 60000);
+            const winRate = this.session.tradesCount > 0 
+                ? ((this.session.winsCount / this.session.tradesCount) * 100).toFixed(1) + '%'
+                : '0%';
+
+            const message = [
+                `📊 <b>SESSION SUMMARY - Trend Reversal</b>`, ``,
+                `⏱️ Duration: ${hours}h ${minutes}m`,
+                `🔢 Trades: ${this.session.tradesCount}`,
+                `✅ Wins: ${this.session.winsCount} | ❌ Losses: ${this.session.lossesCount}`,
+                `📈 Win Rate: ${winRate}`,
+                `💰 Session P/L: ${this.session.netPL >= 0 ? '+' : ''}$${this.session.netPL.toFixed(2)}`,
+                `💵 Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}`
+            ].join('\n');
+
+            await this._sendTelegram(message);
+        } catch (err) {
+            console.error(`❌ _sendSessionSummary crashed: ${err.message}`);
+        }
+    }
+
+    async _sendDayEndSummary(dateKey) {
+        try {
+            const wr = this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(1) + '%' : '0%';
+            const pnlEmoji = this.dailyProfitLoss >= 0 ? '🟢' : '🔴';
+
+            const message = [
+                `🌙 <b>END OF DAY REPORT - ${dateKey}</b>`, ``,
+                `${pnlEmoji} <b>Day Results:</b>`,
+                `├ Trades: ${this.totalTrades}`,
+                `├ Wins: ${this.totalWins} | Losses: ${this.totalLosses}`,
+                `├ Win Rate: ${wr}`,
+                `└ Net P/L: $${this.dailyProfitLoss.toFixed(2)}`, ``,
+                `📊 <b>Overall Stats:</b>`,
+                `└ Total P&L: $${this.totalProfitLoss.toFixed(2)}`
+            ].join('\n');
+
+            await this._sendTelegram(message);
+        } catch (err) {
+            console.error(`❌ _sendDayEndSummary crashed: ${err.message}`);
+        }
+    }
+
+    _startHourlyTimer() {
+        const now = new Date();
+        const nextHour = new Date(now);
+        nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+        const timeUntilNextHour = nextHour.getTime() - now.getTime();
+
+        console.log(`⏰ Hourly Telegram timer started (first summary in ${Math.ceil(timeUntilNextHour / 60000)} min)`);
+        
+        setTimeout(() => {
+            this._sendHourlySummary();
+            setInterval(() => this._sendHourlySummary(), 60 * 60 * 1000);
+        }, timeUntilNextHour);
+    }
+
+    _checkDayChange() {
+        const currentDay = new Date().toISOString().split('T')[0];
+        if (this.currentTradeDay && this.currentTradeDay !== currentDay) {
+            console.log(`🗓️ Day changed from ${this.currentTradeDay} to ${currentDay}`);
+            this._sendDayEndSummary(this.currentTradeDay);
+            
+            // Reset daily stats
+            this.dailyProfitLoss = 0;
+            this.currentTradeDay = currentDay;
+            StatePersistence.save(this);
+        }
     }
 
     // ── Logging ───────────────────────────────────────────────────────────────
@@ -1021,6 +1174,7 @@ class TrendReversalBot {
 
         this.connect();
         this._startTimeScheduler();
+        this._startHourlyTimer();
         StatePersistence.startAutoSave(this);
     }
 }
