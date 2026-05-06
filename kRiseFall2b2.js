@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b20_04-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b20_04-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b20_04-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b20_006-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b20_006-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b20_006-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -29,7 +29,7 @@ const STATE_SAVE_INTERVAL = 5000;
 class AssetMaxStreakManager {
     constructor() {
         this.data = this._load();
-        this._updateIntervalMs = 7 * 24 * 60 * 60 * 1000; // 30 days
+        this._updateIntervalMs = 1 * 24 * 60 * 60 * 1000; // 30 days
         this._refreshTimer = null;
     }
 
@@ -1002,8 +1002,8 @@ const CONFIG = {
 
     // ── Autocorrelation trade threshold ──────────────────────────
     // Trade fires when autocorrelation < AUTOCORR_THRESHOLD
-    AUTOCORR_THRESHOLD: 0.25,
-    AUTOCORR_THRESHOLD2: 0.99,
+    AUTOCORR_THRESHOLD: 0.000,
+    AUTOCORR_THRESHOLD2: 0.000,
     DURATION: 58,
     DURATION_UNIT: 's',
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
