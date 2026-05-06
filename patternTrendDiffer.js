@@ -68,7 +68,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'trend_reversal-01_state.json');
+const STATE_FILE = path.join(__dirname, 'trend_reversal-02_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -246,7 +246,7 @@ class TrendAnalyzer {
         }
 
         return {
-            isValid: strength >= this.cfg.minTrendStrength && sequence.length >= this.cfg.minTrendStrength,
+            isValid: strength >= this.cfg.minTrendStrength && sequence.length >= 3,
             sequence,
             strength,
             predictedDigit,
