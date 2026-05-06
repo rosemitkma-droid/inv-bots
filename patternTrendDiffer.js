@@ -56,7 +56,7 @@ const BOT_CONFIG = {
     historyDepth: 1000,                 // Ticks to analyze for probability calculation
 
     // Pattern detection
-    allowedStepSizes: [2],       // e.g., +1 (0→1), +2 (0→2), +3 (0→3)
+    allowedStepSizes: [1,2,3],       // e.g., +1 (0→1), +2 (0→2), +3 (0→3)
     minPatternOccurrences: 5,           // Minimum times pattern must appear in history
 
     telegramToken: '8578702717:AAFShpdLRtat7PHqjZMUqhY4UNKlWyaGtmo',
@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'trend_reversal-03_state.json');
+const STATE_FILE = path.join(__dirname, 'trend_reversal-04_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -699,10 +699,10 @@ class TrendReversalBot {
         }
 
         //Don't Trade if Trend Sequence is not same as Last 4 Digits 
-        if (analysis.trend.sequence.join(',') !== this.digitHistories[asset].slice(-4).join(',')) {
+        if (analysis.trend.sequence.join(',') !== this.digitHistories[asset].slice(-(this.cfg.minTrendStrength + 1).join(',')) {
             console.log(`   ❌ Trend Sequence is not same as Last 4 Digits — aborting
                 Trend Sequence: ${analysis.trend.sequence.join(',')}
-                Last 4 Digits: ${this.digitHistories[asset].slice(-4).join(',')}
+                Last 4 Digits: ${this.digitHistories[asset].slice-(this.cfg.minTrendStrength + 1).join(',')}
                 `);
             return;
         }
