@@ -24,7 +24,7 @@ const path = require('path');
 // CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
 const BOT_CONFIG = {
-    token: 'hsj0tA0XJoIzJG5',
+    token: 'rgNedekYXvCaPeP',
 
     assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
 
