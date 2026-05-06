@@ -37,7 +37,8 @@ const path = require('path');
 const BOT_CONFIG = {
     token: 'hsj0tA0XJoIzJG5',
 
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'],
+    // assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'],
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
 
     initialStake: 1,
     multiplier: 11.3,
@@ -50,12 +51,12 @@ const BOT_CONFIG = {
 
     // Trend Analysis Config
     trendWindow: 10,                    // Number of recent digits to analyze for trend
-    minTrendStrength: 5,                // Minimum consecutive steps in same direction
+    minTrendStrength: 4,                //4 Minimum consecutive steps in same direction
     minWinProbability: 0.70,            // 70% minimum historical win rate
     historyDepth: 1000,                 // Ticks to analyze for probability calculation
 
     // Pattern detection
-    allowedStepSizes: [1, 2, 3],       // e.g., +1 (0→1), +2 (0→2), +3 (0→3)
+    allowedStepSizes: [2],       // e.g., +1 (0→1), +2 (0→2), +3 (0→3)
     minPatternOccurrences: 5,           // Minimum times pattern must appear in history
 
     telegramToken: '8578702717:AAFShpdLRtat7PHqjZMUqhY4UNKlWyaGtmo',
@@ -68,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'trend_reversal-02_state.json');
+const STATE_FILE = path.join(__dirname, 'trend_reversal-03_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
