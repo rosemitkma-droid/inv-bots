@@ -39,7 +39,7 @@ const BOT_CONFIG = {
     maxVolatility: 0.00025,             // Maximum price movement for "low volatility"
 
     entropyWindow: 50,                  // Ticks for entropy calculation
-    maxEntropy: 3.15,                   //2.85 Maximum entropy (3.32 = uniform)
+    maxEntropy: 3.10,                   //2.85 Maximum entropy (3.32 = uniform)
 
     zoneWindow: 50,                     // Ticks for zone concentration
     minZoneConcentration: 0.58,         // 68% minimum concentration in one zone
@@ -50,7 +50,7 @@ const BOT_CONFIG = {
     // Bollinger Bands for volatility confirmation
     bbPeriod: 20,
     bbMultiplier: 2.0,
-    maxBandWidthPercentile: 0.35,       //0.25 BB must be in bottom 25% (contracting)
+    maxBandWidthPercentile: 0.30,       //0.25 BB must be in bottom 25% (contracting)
 
     // Risk Management
     minTimeBetweenTrades: 30000,        // 30 seconds between trades per asset
@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'volatility_reversal-01_state.json');
+const STATE_FILE = path.join(__dirname, 'volatility_reversal-02_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -91,6 +91,9 @@ class StatePersistence {
                 },
                 assetMetrics: bot.assetMetrics,
                 hourlyTrades: bot.hourlyTrades,
+                hourlyStats: bot.hourlyStats,
+                session: bot.session,
+                currentTradeDay: bot.currentTradeDay,
             };
             fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
             return true;
@@ -533,6 +536,25 @@ class VolatilityReversalBot {
         }
 
         this._loadState();
+
+        // New tracking for summaries
+        if (!this.hourlyStats) {
+            this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
+        }
+        if (!this.session) {
+            this.session = {
+                startTime: Date.now(),
+                startCapital: 0,
+                tradesCount: 0,
+                winsCount: 0,
+                lossesCount: 0,
+                netPL: 0,
+                isActive: true
+            };
+        }
+        if (!this.currentTradeDay) {
+            this.currentTradeDay = new Date().toISOString().split('T')[0];
+        }
     }
 
     // ── State ─────────────────────────────────────────────────────────────────
@@ -554,6 +576,9 @@ class VolatilityReversalBot {
             }
             if (s.assetMetrics) this.assetMetrics = s.assetMetrics;
             if (s.hourlyTrades) this.hourlyTrades = s.hourlyTrades;
+            if (s.hourlyStats) this.hourlyStats = s.hourlyStats;
+            if (s.session) this.session = s.session;
+            if (s.currentTradeDay) this.currentTradeDay = s.currentTradeDay;
 
             console.log(`✅ State restored — ${this.totalTrades} trades, P&L $${this.totalProfitLoss.toFixed(2)}`);
         } catch (e) {
@@ -677,6 +702,11 @@ class VolatilityReversalBot {
         if (msg.error) { console.error('Auth failed:', msg.error.message); this._cleanupWs(); return; }
         console.log(`✅ Auth OK — Balance: $${msg.authorize.balance}`);
         this.wsReady = true;
+
+        if (this.session.startCapital === 0) {
+            this.session.startCapital = msg.authorize.balance;
+        }
+
         this.cfg.assets.forEach(asset => {
             this._send({
                 ticks_history: asset,
@@ -710,6 +740,8 @@ class VolatilityReversalBot {
         const asset = tick.symbol;
         const price = parseFloat(tick.quote);
         const digit = this._lastDigit(price, asset);
+
+        this._checkDayChange();
 
         this.priceHistories[asset].push(price);
         if (this.priceHistories[asset].length > 500) this.priceHistories[asset].shift();
@@ -902,13 +934,29 @@ class VolatilityReversalBot {
         this.assetMetrics[asset].trades++;
         this.assetMetrics[asset].profitLoss += profit;
 
+        // Update Hourly & Session Stats
+        this._checkDayChange();
+        const currentHour = new Date().getHours();
+        if (currentHour !== this.hourlyStats.lastHour) {
+            this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: currentHour };
+        }
+        this.hourlyStats.trades++;
+        this.hourlyStats.pnl += profit;
+        
+        this.session.tradesCount++;
+        this.session.netPL += profit;
+
         if (won) {
+            this.hourlyStats.wins++;
+            this.session.winsCount++;
             this.totalWins++;
             this.isWinTrade = true;
             this.currentStake = this.cfg.initialStake;
             this.consecutiveLosses = 0;
             this.assetMetrics[asset].wins++;
         } else {
+            this.hourlyStats.losses++;
+            this.session.lossesCount++;
             this.totalLosses++;
             this.consecutiveLosses++;
             this.lastLossTime[asset] = Date.now();
@@ -931,7 +979,8 @@ class VolatilityReversalBot {
             `Asset: ${asset}\n` +
             `Last10Digits: ${this.digitHistories[asset].slice(-10).join(',')}\n` +
             `P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(3)}\n` +
-            `Trades: ${this.totalTrades} (WR: ${wr}%)\n` +
+            `Trades: ${this.totalTrades} (${this.totalWins}/${this.totalLosses})}\n` +
+            `Win Rate: ${wr}%\n` +
             `Consecutive losses: ${this.consecutiveLosses}\n` +
             `Next stake: $${this.currentStake.toFixed(2)}\n` +
             `Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}`
@@ -942,12 +991,14 @@ class VolatilityReversalBot {
 
         if (this.totalProfitLoss >= this.cfg.takeProfit) {
             this.endOfDay = true;
-            this._sendTelegram(`🎯 Take Profit! $${this.totalProfitLoss.toFixed(2)}`);
+            this._sendTelegram(`🎯 <b>Take Profit!</b> P&L: +$${this.totalProfitLoss.toFixed(2)}`);
+            this._sendSessionSummary();
             this._cleanupWs();
         } else if (this.consecutiveLosses >= this.cfg.maxConsecutiveLosses ||
             this.totalProfitLoss <= -this.cfg.stopLoss) {
             this.endOfDay = true;
-            this._sendTelegram(`🛑 Stop Loss`);
+            this._sendTelegram(`🛑 <b>Stop Loss</b>\nLosses: ${this.consecutiveLosses} | P&L: $${this.totalProfitLoss.toFixed(2)}`);
+            this._sendSessionSummary();
             this._cleanupWs();
         }
     }
@@ -977,6 +1028,109 @@ class VolatilityReversalBot {
             await this.telegram.sendMessage(this.cfg.telegramChatId, text, { parse_mode: 'HTML' });
         } catch (e) {
             console.error(`Telegram: ${e.message}`);
+        }
+    }
+
+    // ── Summaries & Timers ────────────────────────────────────────────────────
+    async _sendHourlySummary() {
+        try {
+            const stats = { ...this.hourlyStats };
+            if (stats.trades === 0) return;
+
+            const winRate = stats.trades > 0 ? ((stats.wins / stats.trades) * 100).toFixed(1) : '0.0';
+            const pnlEmoji = stats.pnl >= 0 ? '🟢' : '🔴';
+            const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
+
+            const message = [
+                `⏰ <b>Volatility Breakout Bot Hourly Summary</b>`, ``,
+                `📊 <b>Last Hour</b>`,
+                `├ Trades: ${stats.trades}`,
+                `├ Wins: ${stats.wins} | Losses: ${stats.losses}`,
+                `├ Win Rate: ${winRate}%`,
+                `└ ${pnlEmoji} <b>P&L:</b> ${pnlStr}`, ``,
+                `🗓️ <b>Today</b>`,
+                `├ Total Trades: ${this.totalTrades}`,
+                `└ Today P&L: ${this.dailyProfitLoss >= 0 ? '+' : ''}$${this.dailyProfitLoss.toFixed(2)}`
+            ].join('\n');
+
+            await this._sendTelegram(message);
+            this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
+        } catch (err) {
+            console.error(`❌ _sendHourlySummary crashed: ${err.message}`);
+        }
+    }
+
+    async _sendSessionSummary() {
+        try {
+            const durationMs = Date.now() - this.session.startTime;
+            const hours = Math.floor(durationMs / 3600000);
+            const minutes = Math.floor((durationMs % 3600000) / 60000);
+            const winRate = this.session.tradesCount > 0 
+                ? ((this.session.winsCount / this.session.tradesCount) * 100).toFixed(1) + '%'
+                : '0%';
+
+            const message = [
+                `📊 <b>SESSION SUMMARY - Volatility Breakout</b>`, ``,
+                `⏱️ Duration: ${hours}h ${minutes}m`,
+                `🔢 Trades: ${this.session.tradesCount}`,
+                `✅ Wins: ${this.session.winsCount} | ❌ Losses: ${this.session.lossesCount}`,
+                `📈 Win Rate: ${winRate}`,
+                `💰 Session P/L: ${this.session.netPL >= 0 ? '+' : ''}$${this.session.netPL.toFixed(2)}`,
+                `💵 Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}`
+            ].join('\n');
+
+            await this._sendTelegram(message);
+        } catch (err) {
+            console.error(`❌ _sendSessionSummary crashed: ${err.message}`);
+        }
+    }
+
+    async _sendDayEndSummary(dateKey) {
+        try {
+            const wr = this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(1) + '%' : '0%';
+            const pnlEmoji = this.dailyProfitLoss >= 0 ? '🟢' : '🔴';
+
+            const message = [
+                `🌙 <b>END OF DAY REPORT - ${dateKey}</b>`, ``,
+                `${pnlEmoji} <b>Day Results:</b>`,
+                `├ Trades: ${this.totalTrades}`,
+                `├ Wins: ${this.totalWins} | Losses: ${this.totalLosses}`,
+                `├ Win Rate: ${wr}`,
+                `└ Net P/L: $${this.dailyProfitLoss.toFixed(2)}`, ``,
+                `📊 <b>Overall Stats:</b>`,
+                `└ Total P&L: $${this.totalProfitLoss.toFixed(2)}`
+            ].join('\n');
+
+            await this._sendTelegram(message);
+        } catch (err) {
+            console.error(`❌ _sendDayEndSummary crashed: ${err.message}`);
+        }
+    }
+
+    _startHourlyTimer() {
+        const now = new Date();
+        const nextHour = new Date(now);
+        nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+        const timeUntilNextHour = nextHour.getTime() - now.getTime();
+
+        console.log(`⏰ Hourly Telegram timer started (first summary in ${Math.ceil(timeUntilNextHour / 60000)} min)`);
+        
+        setTimeout(() => {
+            this._sendHourlySummary();
+            setInterval(() => this._sendHourlySummary(), 60 * 60 * 1000);
+        }, timeUntilNextHour);
+    }
+
+    _checkDayChange() {
+        const currentDay = new Date().toISOString().split('T')[0];
+        if (this.currentTradeDay && this.currentTradeDay !== currentDay) {
+            console.log(`🗓️ Day changed from ${this.currentTradeDay} to ${currentDay}`);
+            this._sendDayEndSummary(this.currentTradeDay);
+            
+            // Reset daily stats
+            this.dailyProfitLoss = 0;
+            this.currentTradeDay = currentDay;
+            StatePersistence.save(this);
         }
     }
 
@@ -1033,6 +1187,7 @@ class VolatilityReversalBot {
 
         this.connect();
         this._startTimeScheduler();
+        this._startHourlyTimer();
         StatePersistence.startAutoSave(this);
     }
 }
