@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_01006-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_01006-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_01006-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_01007-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_01007-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_01007-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1002,7 +1002,7 @@ const CONFIG = {
 
     // ── Autocorrelation trade threshold ──────────────────────────
     // Trade fires when autocorrelation < AUTOCORR_THRESHOLD
-    AUTOCORR_THRESHOLD: -0.33,
+    AUTOCORR_THRESHOLD: -0.40,
     AUTOCORR_THRESHOLD2: -0.99,
     DURATION: 58,
     DURATION_UNIT: 's',
@@ -1013,10 +1013,10 @@ const CONFIG = {
     MARTINGALE_MULTIPLIER3: 2.1,
     MAX_MARTINGALE_STEPS: 9,
     USE_TRADING_SESSIONS: false,
-    TOKYO_START: 3,
+    TOKYO_START: 2,
     TOKYO_END: 8,
     LONDON_START: 8,
-    LONDON_END: 12,
+    LONDON_END: 13,
     NEWYORK_START: 15,
     NEWYORK_END: 19,
     SYDNEY_START: 19,
@@ -1777,7 +1777,7 @@ class ConnectionManager {
             LOGGER.info(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
             TelegramService.sendMessage(
-                `⚠️ <b>CONNECTION LOST - RECONNECTING b</b>\n` +
+                `⚠️ <b>CONNECTION LOST - RECONNECTING 2b</b>\n` +
                 `Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n` +
                 `Retrying in ${(delay / 1000).toFixed(1)}s\n` +
                 `State preserved: ${state.session.tradesCount} trades, $${state.session.netPL.toFixed(2)} P&L`
