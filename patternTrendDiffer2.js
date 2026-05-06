@@ -39,10 +39,10 @@ const BOT_CONFIG = {
     maxVolatility: 0.00025,             // Maximum price movement for "low volatility"
 
     entropyWindow: 50,                  // Ticks for entropy calculation
-    maxEntropy: 2.85,                   // Maximum entropy (3.32 = uniform)
+    maxEntropy: 3.15,                   //2.85 Maximum entropy (3.32 = uniform)
 
     zoneWindow: 50,                     // Ticks for zone concentration
-    minZoneConcentration: 0.68,         // 68% minimum concentration in one zone
+    minZoneConcentration: 0.58,         // 68% minimum concentration in one zone
 
     digitFrequencyWindow: 50,           // Window for digit frequency
     minDigitFrequency: 10,              // Minimum appearances to be "hot"
@@ -50,12 +50,12 @@ const BOT_CONFIG = {
     // Bollinger Bands for volatility confirmation
     bbPeriod: 20,
     bbMultiplier: 2.0,
-    maxBandWidthPercentile: 0.25,       // BB must be in bottom 25% (contracting)
+    maxBandWidthPercentile: 0.35,       //0.25 BB must be in bottom 25% (contracting)
 
     // Risk Management
     minTimeBetweenTrades: 30000,        // 30 seconds between trades per asset
     cooldownAfterLoss: 60000,           // 60 seconds cooldown after loss
-    maxTradesPerHour: 12,               // Limit overtrading
+    maxTradesPerHour: 19,               // Limit overtrading
 
     requiredHistoryLength: 200,
 
@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'volatility_reversal_state.json');
+const STATE_FILE = path.join(__dirname, 'volatility_reversal-01_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
