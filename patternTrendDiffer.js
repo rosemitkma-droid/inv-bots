@@ -50,12 +50,12 @@ const BOT_CONFIG = {
 
     // Trend Analysis Config
     trendWindow: 10,                    // Number of recent digits to analyze for trend
-    minTrendStrength: 3,                // Minimum consecutive steps in same direction
+    minTrendStrength: 5,                // Minimum consecutive steps in same direction
     minWinProbability: 0.70,            // 70% minimum historical win rate
     historyDepth: 1000,                 // Ticks to analyze for probability calculation
 
     // Pattern detection
-    allowedStepSizes: [1, 2],       // e.g., +1 (0→1), +2 (0→2), +3 (0→3)
+    allowedStepSizes: [1, 2, 3],       // e.g., +1 (0→1), +2 (0→2), +3 (0→3)
     minPatternOccurrences: 5,           // Minimum times pattern must appear in history
 
     telegramToken: '8578702717:AAFShpdLRtat7PHqjZMUqhY4UNKlWyaGtmo',
@@ -68,7 +68,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'trend_reversal_state.json');
+const STATE_FILE = path.join(__dirname, 'trend_reversal-01_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -246,7 +246,7 @@ class TrendAnalyzer {
         }
 
         return {
-            isValid: strength >= this.cfg.minTrendStrength && sequence.length >= 3,
+            isValid: strength >= this.cfg.minTrendStrength && sequence.length >= this.cfg.minTrendStrength,
             sequence,
             strength,
             predictedDigit,
