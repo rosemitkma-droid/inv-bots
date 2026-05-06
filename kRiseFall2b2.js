@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_01007-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_01007-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_01007-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b20_007-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b20_007-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b20_007-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -82,7 +82,7 @@ class AssetMaxStreakManager {
     fetchMaxStreakForAsset(symbol, connection) {
         return new Promise((resolve, reject) => {
             const assetConfig = getAssetConfig(symbol);
-            const BATCH_SIZE = 60; //5000
+            const BATCH_SIZE = 1440; //5000
             const MAX_BATCHES = 1; // 10 × 5,000 = 50,000
 
             let batchesDone = 0;
@@ -208,7 +208,7 @@ class AssetMaxStreakManager {
     async computeAllMaxStreaks(connection) {
         LOGGER.info('🔄 Starting sequential maxStreak computation for all assets...');
         await TelegramService.sendMessage(
-            '🔄 <b>RISEFALL2b MaxStreak Update Started</b>\n' +
+            '🔄 <b>RISEFALL2b2 MaxStreak Update Started</b>\n' +
             `Computing 50k-candle maxStreak for ${CONFIG.ACTIVE_ASSETS.length} assets sequentially.\n` +
             'Trading is PAUSED until complete.'
         );
@@ -259,7 +259,7 @@ class AssetMaxStreakManager {
 
         LOGGER.info('✅ All asset maxStreaks computed. Trading resuming.');
         await TelegramService.sendMessage(
-            '✅ <b>RISEFALL2b MaxStreak Update Complete</b>\n' +
+            '✅ <b>RISEFALL2b2 MaxStreak Update Complete</b>\n' +
             `${summary}\n` +
             'Trading has RESUMED.'
         );
@@ -691,7 +691,7 @@ class TelegramService {
         const assetMaxStreak = assetMaxStreakManager ? assetMaxStreakManager.getMaxStreak(symbol) : 'N/A';
 
         const message = `
-${emoji} <b>${type} TRADE ALERT 2b</b>
+${emoji} <b>${type} TRADE ALERT 2b2</b>
 Asset: ${symbol}
 Direction: ${direction}
 Stake: $${stake.toFixed(2)}
@@ -715,7 +715,7 @@ Total Trades: ${overall.tradesCount || 0}
 Capital: $${state.capital.toFixed(2)}
 Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${overall.x4Losses || 0} | x5:${overall.x5Losses || 0} | x6:${overall.x6Losses || 0} | x7:${overall.x7Losses || 0} | x8:${overall.x8Losses || 0} | x9:${overall.x9Losses || 0}
 `
-                : `Signal: autocorrelation(${regime.autocorrelation.toFixed(4)}) &lt; ${CONFIG.AUTOCORR_THRESHOLD}`
+                : `Signal: autocorrelation(${regime.autocorrelation.toFixed(4)}) > ${CONFIG.AUTOCORR_THRESHOLD}`
             }`.trim();
 
         await this.sendMessage(message);
@@ -762,7 +762,7 @@ Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${ove
                 : '0.0%';
 
             const message = [
-                `📊 <b>SESSION SUMMARY 2b</b>`, ``,
+                `📊 <b>SESSION SUMMARY 2b2</b>`, ``,
                 `🗓️ <b>Today (${TradeHistoryManager.getDateKey()}):</b>`,
                 `Duration: ${stats.duration}`, `Trades: ${stats.trades}`,
                 `Wins: ${stats.wins} | Losses: ${stats.losses}`,
@@ -812,7 +812,7 @@ Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${ove
 
             const pnlEmoji = (dayStats.netPL || 0) >= 0 ? '🟢' : '🔴';
             const message = [
-                `🌙 <b>END OF DAY REPORT 2b - ${dateKey}</b>`, ``,
+                `🌙 <b>END OF DAY REPORT 2b2 - ${dateKey}</b>`, ``,
                 `${pnlEmoji} <b>Day Results:</b>`,
                 `├ Trades: ${dayStats.tradesCount}`,
                 `├ Wins: ${dayStats.winsCount} | Losses: ${dayStats.lossesCount}`,
@@ -820,11 +820,11 @@ Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${ove
                 `├ Net P/L: $${(dayStats.netPL || 0).toFixed(2)}`,
                 `├ Start Capital: $${(dayStats.startCapital || 0).toFixed(2)}`,
                 `└ End Capital: $${(dayStats.endCapital || 0).toFixed(2)}`, ``,
+                ``,
+                `📊 Loss Stats: x2:${dayStats.x2Losses || 0} x3:${dayStats.x3Losses || 0} x4:${dayStats.x4Losses || 0} x5:${dayStats.x5Losses || 0} x6:${dayStats.x6Losses || 0} x7:${dayStats.x7Losses || 0} x8:${dayStats.x8Losses || 0} x9:${dayStats.x9Losses || 0}`,
+                ``,
                 `📋 <b>Per-Asset:</b>${assetBreakdown || '\n  No trades'}`, ``,
-                `📊 <b>Overall Stats (All Time):</b>`,
-                `├ Total Trades: ${overall.tradesCount || 0}`,
-                `├ Overall Win Rate: ${overallWinRate}`,
-                `└ Overall P/L: $${(overall.netPL || 0).toFixed(2)}`, ``,
+                ``,
                 `📊 <b>Overall Stats (All Time):</b>`,
                 `├ Total Trades: ${overall.tradesCount || 0}`,
                 `├ Overall Win Rate: ${overallWinRate}`,
@@ -853,7 +853,7 @@ Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${ove
             });
 
             const message = [
-                `🤖 <b>DERIV RISE/FALL BOT STARTED 2b</b>`,
+                `🤖 <b>DERIV RISE/FALL BOT STARTED 2b2</b>`,
                 `Strategy: 50k-candle assetMaxStreak detection`,
                 `Mode: <b>Independent Per-Asset Management</b>`,
                 `Capital: $${state.capital.toFixed(2)}`,
@@ -899,7 +899,7 @@ Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${ove
             });
 
             const message = [
-                `⏰ <b>Rise/Fall Bot Hourly Summary 2b</b>`, ``,
+                `⏰ <b>Rise/Fall Bot Hourly Summary 2b2</b>`, ``,
                 `📊 <b>Last Hour</b>`,
                 `├ Trades: ${statsSnapshot.trades}`,
                 `├ Wins: ${statsSnapshot.wins} | Losses: ${statsSnapshot.losses}`,
@@ -987,7 +987,7 @@ class CandleAnalyzer {
 // CONFIGURATION
 // ============================================
 const CONFIG = {
-    API_TOKEN: 'rgNedekYXvCaPeP',
+    API_TOKEN: 'DMylfkyce6VyZt7',
     APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
     INITIAL_CAPITAL: 250,
@@ -1002,8 +1002,8 @@ const CONFIG = {
 
     // ── Autocorrelation trade threshold ──────────────────────────
     // Trade fires when autocorrelation < AUTOCORR_THRESHOLD
-    AUTOCORR_THRESHOLD: -0.40,
-    AUTOCORR_THRESHOLD2: -0.99,
+    AUTOCORR_THRESHOLD: 0.000,
+    AUTOCORR_THRESHOLD2: 0.000,
     DURATION: 58,
     DURATION_UNIT: 's',
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
@@ -1012,11 +1012,11 @@ const CONFIG = {
     MARTINGALE_MULTIPLIER2: 1.8,
     MARTINGALE_MULTIPLIER3: 2.1,
     MAX_MARTINGALE_STEPS: 9,
-    USE_TRADING_SESSIONS: false,
-    TOKYO_START: 3,
+    USE_TRADING_SESSIONS: true,
+    TOKYO_START: 2,
     TOKYO_END: 8,
     LONDON_START: 8,
-    LONDON_END: 12,
+    LONDON_END: 13,
     NEWYORK_START: 15,
     NEWYORK_END: 19,
     SYDNEY_START: 19,
@@ -1777,7 +1777,7 @@ class ConnectionManager {
             LOGGER.info(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
             TelegramService.sendMessage(
-                `⚠️ <b>CONNECTION LOST - RECONNECTING 2b</b>\n` +
+                `⚠️ <b>CONNECTION LOST - RECONNECTING 2b2</b>\n` +
                 `Attempt: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n` +
                 `Retrying in ${(delay / 1000).toFixed(1)}s\n` +
                 `State preserved: ${state.session.tradesCount} trades, $${state.session.netPL.toFixed(2)} P&L`
@@ -1790,7 +1790,7 @@ class ConnectionManager {
             }, delay);
         } else {
             LOGGER.error('Max reconnection attempts reached.');
-            TelegramService.sendMessage(`🛑 <b>BOT STOPPED 2b</b>\nMax reconnection attempts reached.\nFinal P&L: $${state.session.netPL.toFixed(2)}`);
+            TelegramService.sendMessage(`🛑 <b>BOT STOPPED 2b2</b>\nMax reconnection attempts reached.\nFinal P&L: $${state.session.netPL.toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -1963,7 +1963,7 @@ class DerivBot {
         LOGGER.trade(`  Direction: ${direction === 'CALLE' ? 'RISE' : 'FALL'} | Stake: $${stake.toFixed(2)} | Martingale Level: ${assetState.martingaleLevel}`);
 
         TelegramService.sendMessage(
-            `⚡ <b>kRISE/FALL2b IMMEDIATE RECOVERY</b>\n` +
+            `⚡ <b>kRISE/FALL2b2 IMMEDIATE RECOVERY</b>\n` +
             `[${symbol}] Martingale Level: ${assetState.martingaleLevel}\n` +
             `Direction: ${direction === 'CALLE' ? 'RISE ↑' : 'FALL ↓'}\n` +
             `Stake: $${stake.toFixed(2)} | Capital: $${state.capital.toFixed(2)}\n` +
@@ -2070,7 +2070,7 @@ class DerivBot {
         let direction = null;
         let signalReason = '';
 
-        if (regime.autocorrelation < CONFIG.AUTOCORR_THRESHOLD && regime.autocorrelation > CONFIG.AUTOCORR_THRESHOLD2) {
+        if (regime.autocorrelation >= CONFIG.AUTOCORR_THRESHOLD && regime.autocorrelation <= CONFIG.AUTOCORR_THRESHOLD2) {
             const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
             if (candleType === 'BULLISH') {
                 direction = 'CALLE';
@@ -2254,7 +2254,7 @@ class DerivBot {
         LOGGER.warn(`🔄 Trade lock released. Bot will continue trading on next candle…`);
 
         TelegramService.sendMessage(
-            `⚠️ <b>kRISE/FALL2b STUCK TRADE RECOVERED [${reason}]</b>\n` +
+            `⚠️ <b>kRISE/FALL2b2 STUCK TRADE RECOVERED [${reason}]</b>\n` +
             `Contract: ${contractId || 'unknown'}\n` +
             `Open for: ${openSeconds}s\n` +
             `Action: lock released, retrying on next candle\n` +
