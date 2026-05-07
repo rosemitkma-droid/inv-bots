@@ -97,7 +97,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 class ProductionLogger {
     constructor() {
-        this.logPath = path.join(__dirname, 'qce_quantum_engine.log');
+        this.logPath = path.join(__dirname, 'qce2_quantum_engine.log');
     }
 
     raw(level, scope, message, meta = null) {
@@ -344,7 +344,7 @@ class LayerPRNGEstimator {
         const normalizedComplexity = (complexity * Math.log10(str.length)) / (str.length || 1);
         const isPredictable = normalizedComplexity < this.cfg.entropyThreshold;
 
-        QLog.prng(`Calculated Complexity Profile`, { lz: normalizedComplexity, threshold: this.cfg.entropyThreshold, isPredictable });
+        // QLog.prng(`Calculated Complexity Profile`, { lz: normalizedComplexity, threshold: this.cfg.entropyThreshold, isPredictable });
         return { isPredictable, metric: normalizedComplexity };
     }
 }
@@ -389,7 +389,7 @@ class LayerCrossAssetMatrix {
         }
 
         const isCorrelated = Math.abs(bestCoef) >= this.cfg.minCorrelationThreshold;
-        QLog.cross(`Cross-Asset Divergence Verified`, { asset: activeAsset, bestCoef, optimalLag, isCorrelated });
+        // QLog.cross(`Cross-Asset Divergence Verified`, { asset: activeAsset, bestCoef, optimalLag, isCorrelated });
         return { isCorrelated, optimalLag, coef: bestCoef };
     }
 }
@@ -411,7 +411,7 @@ class LayerTemporalPeriodicity {
         const density = lowEntropyFrames / this.timeline.length;
 
         const structuralPass = density >= this.cfg.minLowEntropyDensity;
-        QLog.cycle(`Temporal Envelope State`, { density, structuralPass });
+        // QLog.cycle(`Temporal Envelope State`, { density, structuralPass });
         return { structuralPass, density };
     }
 }
@@ -439,7 +439,7 @@ class LayerMultiLagAutocorr {
         }
 
         const pass = validLagsCount >= 2;
-        QLog.autocorr(`Autocorrelation State Space Matrix`, { pass, metrics: lagData });
+        // QLog.autocorr(`Autocorrelation State Space Matrix`, { pass, metrics: lagData });
         return { pass, lagData };
     }
 }
@@ -467,7 +467,7 @@ class LayerKineticLiquidity {
         const targetDigit = counts.indexOf(maxCount);
 
         const pass = velocity >= this.cfg.minVelocityTPS && maxCount >= this.cfg.minRepetitionCount;
-        QLog.kinetic(`Kinetic Wave Pattern Vector`, { velocity, maxCount, targetDigit, pass });
+        // QLog.kinetic(`Kinetic Wave Pattern Vector`, { velocity, maxCount, targetDigit, pass });
 
         return { pass, targetDigit, velocity, maxCount };
     }
@@ -529,7 +529,7 @@ class MasterQuantumEnsemble {
         const neuralTargetDigit = neuralPass.probabilities.indexOf(neuralProbMin);
         const neuralPassPass = (1.0 - neuralProbMin) >= this.cfg.recurrentClassifier.targetConfidence;
 
-        QLog.neural(`Neural Recurrent Prediction Output`, { neuralTargetDigit, neuralProbMin, neuralPassPass });
+        // QLog.neural(`Neural Recurrent Prediction Output`, { neuralTargetDigit, neuralProbMin, neuralPassPass });
 
         // Compile Confluence Voting Protocol
         const systems = [
@@ -560,12 +560,12 @@ class MasterQuantumEnsemble {
         const passesStrictQuorum = activeLayersCount >= this.cfg.ensemble.strictQuorumCount &&
             confidenceScore >= this.cfg.ensemble.masterConfidenceLimit;
 
-        QLog.ensemble(`Ensemble Voting Resolution Frame`, {
-            activeLayersCount,
-            confidenceScore,
-            consensusDigit,
-            passesStrictQuorum
-        });
+        // QLog.ensemble(`Ensemble Voting Resolution Frame`, {
+        //     activeLayersCount,
+        //     confidenceScore,
+        //     consensusDigit,
+        //     passesStrictQuorum
+        // });
 
         const packet = {
             shouldTrade: passesStrictQuorum,
@@ -604,7 +604,7 @@ class MasterQuantumEnsemble {
             }
         });
 
-        QLog.ensemble(`Bayesian Layer Weight Matrix Realigned`, { weights: this.weights.map(x => x.toFixed(2)) });
+        // QLog.ensemble(`Bayesian Layer Weight Matrix Realigned`, { weights: this.weights.map(x => x.toFixed(2)) });
     }
 }
 
