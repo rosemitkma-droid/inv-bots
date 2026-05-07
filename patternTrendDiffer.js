@@ -45,19 +45,19 @@ const BOT_CONFIG = {
     maxConsecutiveLosses: 3,
     stopLoss: 108,
     takeProfit: 10000,
-
-    minTimeBetweenTrades: 3000,
-    requiredHistoryLength: 1000,
-
+    
     // Trend Analysis Config
-    trendWindow: 10,                    // Number of recent digits to analyze for trend
-    minTrendStrength: 5,                //4 Minimum consecutive steps in same direction
+    trendWindow: 30,                    //10 Number of recent digits to analyze for trend
+    minTrendStrength: 4,                //4 Minimum consecutive steps in same direction
     minWinProbability: 0.70,            // 70% minimum historical win rate
     historyDepth: 1000,                 // Ticks to analyze for probability calculation
 
     // Pattern detection
-    allowedStepSizes: [1, 2, 3, 4, 5, 6],       // e.g., +1 (0→1), +2 (0→2), +3 (0→3)
+    allowedStepSizes: [4, 5, 6],       //[1, 2, 3,] e.g., +1 (0→1), +2 (0→2), +3 (0→3)
     minPatternOccurrences: 5,           // Minimum times pattern must appear in history
+
+    minTimeBetweenTrades: 3000,
+    requiredHistoryLength: 1000,
 
     telegramToken: '8578702717:AAFShpdLRtat7PHqjZMUqhY4UNKlWyaGtmo',
     telegramChatId: '752497117',
@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'trend_reversal-06_state.json');
+const STATE_FILE = path.join(__dirname, 'trend_reversal-07_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
