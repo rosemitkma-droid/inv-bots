@@ -53,7 +53,7 @@ const BOT_CONFIG = {
     historyDepth: 1000,                 // Ticks to analyze for probability calculation
 
     // Pattern detection
-    allowedStepSizes: [4, 5, 6],       //[1, 2, 3,] e.g., +1 (0→1), +2 (0→2), +3 (0→3)
+    allowedStepSizes: [1, 2],       //[1, 2, 3,] e.g., +1 (0→1), +2 (0→2), +3 (0→3)
     minPatternOccurrences: 5,           // Minimum times pattern must appear in history
 
     minTimeBetweenTrades: 3000,
@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'trend_reversal-07_state.json');
+const STATE_FILE = path.join(__dirname, 'trend_reversal-08_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
