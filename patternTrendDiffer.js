@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'trend_reversal-09_state.json');
+const STATE_FILE = path.join(__dirname, 'trend_reversal-001_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -739,10 +739,10 @@ class TrendReversalBot {
             return;
         }
 
-        //Don't Trade if Descending Sequence ends in 9 or 8 or 7 and Ascending Sequence ends in 0 or 1 or 2
+        //Don't Trade if Descending Sequence ends in 5 t9 9 and Ascending Sequence ends in 0 or 1 or 4
         if (
-            (analysis.trend.direction.toLowerCase() === 'descending' && [7, 8, 9].includes(analysis.trend.sequence[analysis.trend.sequence.length - 1])) ||
-            (analysis.trend.direction.toLowerCase() === 'ascending' && [0, 1, 2].includes(analysis.trend.sequence[analysis.trend.sequence.length - 1]))
+            (analysis.trend.direction.toLowerCase() === 'descending' && [5, 6, 7, 8, 9].includes(analysis.trend.sequence[analysis.trend.sequence.length - 1])) ||
+            (analysis.trend.direction.toLowerCase() === 'ascending' && [0, 1, 2, 3, 4].includes(analysis.trend.sequence[analysis.trend.sequence.length - 1]))
         ) {
             console.log(`\n⛔ REVERSAL PATTERN CONFLICT:`);
             console.log(`   Trend is [${analysis.trend.direction.toUpperCase()}]`);
