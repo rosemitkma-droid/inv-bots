@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'volatility_reversal-02_state.json');
+const STATE_FILE = path.join(__dirname, 'volatility_reversal-03_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -771,7 +771,7 @@ class VolatilityReversalBot {
 
         // console.log(`📈 ${asset}: shouldTrade=${analysis.shouldTrade} predictedDigit=${analysis.predictedDigit} analysis=${JSON.stringify(analysis, null, 2)}`);
 
-        if (!analysis.shouldTrade) return;
+        if (!analysis.shouldTrade || analysis.predictedDigit === 0) return;
 
         this._requestProposal(asset, analysis);
     }
@@ -942,7 +942,7 @@ class VolatilityReversalBot {
         }
         this.hourlyStats.trades++;
         this.hourlyStats.pnl += profit;
-        
+
         this.session.tradesCount++;
         this.session.netPL += profit;
 
@@ -1065,7 +1065,7 @@ class VolatilityReversalBot {
             const durationMs = Date.now() - this.session.startTime;
             const hours = Math.floor(durationMs / 3600000);
             const minutes = Math.floor((durationMs % 3600000) / 60000);
-            const winRate = this.session.tradesCount > 0 
+            const winRate = this.session.tradesCount > 0
                 ? ((this.session.winsCount / this.session.tradesCount) * 100).toFixed(1) + '%'
                 : '0%';
 
@@ -1114,7 +1114,7 @@ class VolatilityReversalBot {
         const timeUntilNextHour = nextHour.getTime() - now.getTime();
 
         console.log(`⏰ Hourly Telegram timer started (first summary in ${Math.ceil(timeUntilNextHour / 60000)} min)`);
-        
+
         setTimeout(() => {
             this._sendHourlySummary();
             setInterval(() => this._sendHourlySummary(), 60 * 60 * 1000);
@@ -1126,7 +1126,7 @@ class VolatilityReversalBot {
         if (this.currentTradeDay && this.currentTradeDay !== currentDay) {
             console.log(`🗓️ Day changed from ${this.currentTradeDay} to ${currentDay}`);
             this._sendDayEndSummary(this.currentTradeDay);
-            
+
             // Reset daily stats
             this.dailyProfitLoss = 0;
             this.currentTradeDay = currentDay;
