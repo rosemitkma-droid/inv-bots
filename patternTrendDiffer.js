@@ -45,16 +45,16 @@ const BOT_CONFIG = {
     maxConsecutiveLosses: 3,
     stopLoss: 108,
     takeProfit: 10000,
-    
-    // Trend Analysis Config
-    trendWindow: 30,                    //10 Number of recent digits to analyze for trend
+
+    // Trend Analysis Config 
+    trendWindow: 15,                    //10 Number of recent digits to analyze for trend
     minTrendStrength: 4,                //4 Minimum consecutive steps in same direction
-    minWinProbability: 0.70,            // 70% minimum historical win rate
+    minWinProbability: 0.50,            // 70% minimum historical win rate
     historyDepth: 1000,                 // Ticks to analyze for probability calculation
 
     // Pattern detection
-    allowedStepSizes: [1, 2],       //[1, 2, 3,] e.g., +1 (0→1), +2 (0→2), +3 (0→3)
-    minPatternOccurrences: 5,           // Minimum times pattern must appear in history
+    allowedStepSizes: [1],       //[1, 2, 3,] e.g., +1 (0→1), +2 (0→2), +3 (0→3)
+    minPatternOccurrences: 0,           // Minimum times pattern must appear in history
 
     minTimeBetweenTrades: 3000,
     requiredHistoryLength: 1000,
@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'trend_reversal-08_state.json');
+const STATE_FILE = path.join(__dirname, 'trend_reversal-09_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -739,6 +739,19 @@ class TrendReversalBot {
             return;
         }
 
+        //Don't Trade if Descending Sequence ends in 9 or 8 or 7 and Ascending Sequence ends in 0 or 1 or 2
+        if (
+            (analysis.trend.direction.toLowerCase() === 'descending' && [7, 8, 9].includes(analysis.trend.sequence[analysis.trend.sequence.length - 1])) ||
+            (analysis.trend.direction.toLowerCase() === 'ascending' && [0, 1, 2].includes(analysis.trend.sequence[analysis.trend.sequence.length - 1]))
+        ) {
+            console.log(`\n⛔ REVERSAL PATTERN CONFLICT:`);
+            console.log(`   Trend is [${analysis.trend.direction.toUpperCase()}]`);
+            console.log(`   But last digit is [${analysis.trend.sequence[analysis.trend.sequence.length - 1]}]`);
+            console.log(`   Trend continuation expected, but pattern suggests reversal.`);
+            console.log(`   Skipping trade to avoid conflict.`);
+            return;
+        }
+
         const payout = parseFloat(proposal.payout || 0);
         const payoutPct = this.currentStake > 0 ? ((payout - this.currentStake) / this.currentStake * 100).toFixed(1) : '?';
 
@@ -872,7 +885,7 @@ class TrendReversalBot {
         }
         this.hourlyStats.trades++;
         this.hourlyStats.pnl += profit;
-        
+
         this.session.tradesCount++;
         this.session.netPL += profit;
 
@@ -1041,7 +1054,7 @@ class TrendReversalBot {
             const durationMs = Date.now() - this.session.startTime;
             const hours = Math.floor(durationMs / 3600000);
             const minutes = Math.floor((durationMs % 3600000) / 60000);
-            const winRate = this.session.tradesCount > 0 
+            const winRate = this.session.tradesCount > 0
                 ? ((this.session.winsCount / this.session.tradesCount) * 100).toFixed(1) + '%'
                 : '0%';
 
@@ -1090,7 +1103,7 @@ class TrendReversalBot {
         const timeUntilNextHour = nextHour.getTime() - now.getTime();
 
         console.log(`⏰ Hourly Telegram timer started (first summary in ${Math.ceil(timeUntilNextHour / 60000)} min)`);
-        
+
         setTimeout(() => {
             this._sendHourlySummary();
             setInterval(() => this._sendHourlySummary(), 60 * 60 * 1000);
@@ -1102,7 +1115,7 @@ class TrendReversalBot {
         if (this.currentTradeDay && this.currentTradeDay !== currentDay) {
             console.log(`🗓️ Day changed from ${this.currentTradeDay} to ${currentDay}`);
             this._sendDayEndSummary(this.currentTradeDay);
-            
+
             // Reset daily stats
             this.dailyProfitLoss = 0;
             this.currentTradeDay = currentDay;
