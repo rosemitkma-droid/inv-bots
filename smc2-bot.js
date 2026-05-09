@@ -124,7 +124,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'deriv_freq_bot_state.json');
+const STATE_FILE = path.join(__dirname, 'deriv_freq_bot_state_01.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -766,7 +766,7 @@ class DerivFrequencyBot {
         // console.log(`  Last 20 digits: [ ${this.digitHistories[asset].slice(-20).join(' ')} ]`);
         // console.log(`[${asset}] ${analysis.reason} conf=${analysis.confidence}| UR=${analysis.underrepresentedCount}| ${analysis.underrepresented.map(r => `(${r.from}->${r.to}: ${r.rarity})`).join(' ')}`);
 
-        if (!analysis.shouldTrade || analysis.underrepresentedCount < 20 || analysis.underrepresentedCount > 55) return;
+        if (!analysis.shouldTrade || analysis.underrepresentedCount < 31 || analysis.underrepresentedCount > 35) return;
 
         //Don't Trade if Last Digit is not same as analysis.underrepresented[4].from.toString()
         if (this.digitHistories[asset][this.digitHistories[asset].length - 1] != analysis.underrepresented[4].from.toString()) {
