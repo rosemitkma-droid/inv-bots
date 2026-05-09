@@ -105,7 +105,7 @@ const logger = new AnalysisLogger();
 const BOT_CONFIG = {
     token: 'Dz2V2KvRf4Uukt3',
 
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'], //['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR']
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'], //['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR']
 
     initialStake: 2.55,
     multiplier: 11.3,
@@ -190,7 +190,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'qce_lite2_state01.json');
+const STATE_FILE = path.join(__dirname, 'qce_lite2_state02.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
