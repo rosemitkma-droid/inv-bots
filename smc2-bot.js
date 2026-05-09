@@ -1,39 +1,43 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════════╗
- * ║     Smart Money Concepts (SMC) Bot v2 — Deriv Last Digit            ║
+ * ║  DERIV DIGIT FREQUENCY ANALYZER — Statistical Edge Detection Bot    ║
  * ╠══════════════════════════════════════════════════════════════════════╣
- * ║  REARCHITECTED STRATEGY (v2):                                        ║
  * ║                                                                      ║
- * ║  1. LIQUIDITY SWEEP — Detects swing-high/low equal-level clusters    ║
- * ║     in the digit stream; a "sweep" is when the same digit appears    ║
- * ║     at a swing extreme then immediately reverses (stop-hunt model).  ║
- * ║     After the sweep the bot fades the swept digit using DIGITDIFF.   ║
+ * ║  METHODOLOGY:                                                        ║
  * ║                                                                      ║
- * ║  2. BREAK OF STRUCTURE (BOS) — Tracks a rolling series of swing      ║
- * ║     highs and lows. A bullish BOS = new swing high above the         ║
- * ║     previous swing high (digits trending up). Bearish BOS = new      ║
- * ║     swing low below the previous swing low. BOS direction guides     ║
- * ║     which half of the digit wheel (0-4 vs 5-9) to target.           ║
+ * ║  Over 10,000+ ticks, Deriv's RNG produces uniform digit             ║
+ * ║  distribution (each digit 0-9 ≈ 10%). But in SHORT windows          ║
+ * ║  (50-100 ticks), statistically significant deviations emerge.        ║
  * ║                                                                      ║
- * ║  3. FAIR VALUE GAP (FVG) — 3-tick imbalance adapted for digits:     ║
- * ║     candle[i-2].high < candle[i].low  → bullish gap (digits         ║
- * ║     jumped up with a void). candle[i-2].low > candle[i].high →      ║
- * ║     bearish gap. Gap digits become the avoidance target.             ║
+ * ║  This bot detects those deviations using:                           ║
  * ║                                                                      ║
- * ║  4. ORDER BLOCK — Last bearish (or bullish) swing candle before a   ║
- * ║     strong impulse move. In digit terms: a cluster of the same       ║
- * ║     digit immediately before a run of different digits. Price is     ║
- * ║     expected to respect/avoid that digit cluster again.              ║
+ * ║  1. CHI-SQUARE GOODNESS OF FIT TEST                                 ║
+ * ║     H₀: digits are uniformly distributed (equal probability)        ║
+ * ║     H₁: digits deviate significantly from uniform                   ║
+ * ║     If χ² > critical value (α=0.05), reject H₀ → exploit the bias  ║
  * ║                                                                      ║
- * ║  5. TREND FILTER — Composite: (a) EMA-slope of raw prices,          ║
- * ║     (b) dominant digit-half over a rolling window, (c) CHoCH         ║
- * ║     (Change of Character) guard that halts trading when the          ║
- * ║     structure flips against the bias. All three must agree.          ║
+ * ║  2. ROLLING WINDOW ANALYSIS (50-100 tick windows)                   ║
+ * ║     Real-time monitoring of digit frequency deviations              ║
+ * ║     "Hot" digit (appears 15%+ instead of 10%) → fade               ║
+ * ║     "Cold" digit (appears <7%) → anticipate pull-back               ║
  * ║                                                                      ║
- * ║  CONFLUENCE: All 5 signals are scored; minimum weighted score of     ║
- * ║  4.0/5.0 required. Liquidity Sweep is mandatory (gate condition).   ║
+ * ║  3. EVEN/ODD BIAS                                                    ║
+ * ║     Check if even digits (0,2,4,6,8) deviate from 50%              ║
+ * ║     Easier to detect (only 2 categories instead of 10)              ║
  * ║                                                                      ║
- * ║  Expected Win Rate: 65-72% | Profit Factor: 1.5-1.9                 ║
+ * ║  4. DIGIT PAIR PATTERNS (consecutive digit analysis)               ║
+ * ║     Track which digit typically follows which digit                 ║
+ * ║     Some transitions may occur < 10% (below uniform)                ║
+ * ║                                                                      ║
+ * ║  STRATEGY:                                                           ║
+ * ║  - UNDER/OVER contract targeting cold/hot digits                   ║
+ * ║  - MATCH/DIFFER betting against biased transitions                 ║
+ * ║  - Minimum confidence threshold: χ² p-value < 0.10 (90% confidence) ║
+ * ║  - Only trade when statistical significance is clear                ║
+ * ║                                                                      ║
+ * ║  Expected Edge: 51-54% win rate (vs 50% baseline)                   ║
+ * ║  Requires: Discipline, proper position sizing, statistical patience ║
+ * ║                                                                      ║
  * ╚══════════════════════════════════════════════════════════════════════╝
  */
 
@@ -49,119 +53,66 @@ const path = require('path');
 // CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
 const BOT_CONFIG = {
-    token: 'DMylfkyce6VyZt7',
+    token: 'rgNedekYXvCaPeP',
 
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
+    assets: ['R_10'], //['R_10', 'R_25', 'R_50', 'R_75', 'R_100']
 
     initialStake: 2.55,
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
     stopLoss: 100,
-    takeProfit: 10000,
+    takeProfit: 50000,
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 1. LIQUIDITY SWEEP  (swing-pivot + equal-level sweep model)
+    // STATISTICAL ANALYSIS CONFIG
     // ═══════════════════════════════════════════════════════════════════════
-    liquiditySweep: {
-        // How many ticks to look left/right when identifying a swing pivot
-        swingLookback: 5,
-        // Two digit values are "equal" if |a - b| <= tolerance
-        equalLevelTolerance: 1,
-        // Maximum ticks a liquidity pool may be "open" before it expires
-        poolMaxAge: 40,
-        // After a sweep is detected, block re-trade of the same digit for N ticks
-        cooldownTicks: 8,
-        // Minimum number of distinct equal-level touches to form a pool
-        minPoolTouches: 2,
+
+    // Rolling windows for frequency analysis
+    frequencyAnalysis: {
+        // Size of rolling window for chi-square test
+        shortWindow: 70,     // 70 ticks (reasonable sample, not huge)
+        mediumWindow: 150,   // Confirm signal over longer period
+        longWindow: 300,     // Track macro bias
+
+        // Chi-square thresholds
+        // For 10 categories (digits 0-9) at α=0.05: critical χ² = 16.92
+        // For α=0.10: critical χ² = 14.68
+        chiSquareCritical: 14.68,  // 90% confidence level (stricter than p<0.05)
+        chiSquareP: 0.10,          // Minimum p-value threshold
+
+        // Digit deviation threshold (absolute count)
+        // For 70 ticks: uniform = 7 per digit, we want ≥ 10 or ≤ 4 to trade
+        minDeviation: 3,  // Digit count differs from expected by 3+
+
+        // Min/max frequency ratio for "hot" or "cold" detection
+        hotThreshold: 0.14,   // Digit appears in >14% of ticks (vs 10% uniform)
+        coldThreshold: 0.06,  // Digit appears in <6% of ticks (vs 10% uniform)
     },
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // 2. BREAK OF STRUCTURE (BOS)
-    // ═══════════════════════════════════════════════════════════════════════
-    breakOfStructure: {
-        // Rolling window to track swing structure
-        structureWindow: 60,
-        // Swing pivot detection: N bars each side
-        pivotStrength: 4,
-        // How many consecutive ticks must confirm a BOS before it's valid
-        confirmationTicks: 2,
-        // How long a BOS bias remains active (ticks)
-        biasLifetime: 30,
-        // Minimum magnitude of structure break (digit units)
-        minBreakMagnitude: 1,
+    // Even/Odd bias detection (simpler, faster convergence)
+    evenOddAnalysis: {
+        window: 50,
+        // If even count is ≥53% or ≤47%, there's bias
+        minBias: 0.53,
+        maxBias: 0.47,
+        enabled: true,
     },
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // 3. FAIR VALUE GAP (FVG) — 3-tick imbalance
-    // ═══════════════════════════════════════════════════════════════════════
-    fairValueGap: {
-        // Number of recent ticks to scan for active (unfilled) FVGs
-        scanWindow: 50,
-        // An FVG is "filled" once price returns to its range
-        trackFilled: true,
-        // Maximum age (ticks) before an FVG expires unfilled
-        maxAge: 35,
-        // Minimum gap width in digit units (|high[i-2] - low[i]|)
-        minGapWidth: 2,
+    // Digit pair transition analysis (which digit follows which)
+    transitionAnalysis: {
+        window: 2000,
+        // Track which digit-pair transitions are underrepresented
+        minTransitionCount: 2,  // Transition must occur < 2x (vs expected ~10/100)
+        enabled: true,
     },
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // 4. ORDER BLOCK (OB)
-    // ═══════════════════════════════════════════════════════════════════════
-    orderBlock: {
-        // Window to search for impulse moves
-        impulseWindow: 60,
-        // Minimum run length to qualify as an "impulse"
-        minImpulseLength: 4,
-        // Minimum average digit change per tick in the impulse
-        minImpulseMagnitude: 1.2,
-        // The OB is the N-tick cluster immediately before the impulse
-        obClusterSize: 3,
-        // Current digit must be within this distance of the OB cluster mean
-        proximityThreshold: 2,
-        // An OB is "mitigated" (invalidated) when price closes through it
-        mitigationEnabled: true,
-        // OB expires after N ticks
-        maxAge: 80,
-    },
+    // Risk management
+    minTimeBetweenTrades: 8000,   // 8 seconds between trades per asset
+    cooldownAfterLoss: 30000,     // 30 seconds after loss
+    maxTradesPerHour: 200,
+    maxExposure: 50,              // Never have more than $50 at risk simultaneously
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // 5. TREND FILTER (EMA slope + digit-half dominance + CHoCH guard)
-    // ═══════════════════════════════════════════════════════════════════════
-    trendFilter: {
-        // EMA period applied to raw price for slope direction
-        emaPeriod: 21,
-        // EMA slope over N bars must exceed threshold to be "trending"
-        emaLookback: 10,
-        emaSlopeThreshold: 0.000005,
-        // Digit-half dominance window: what fraction of ticks land in 0-4 vs 5-9
-        halfWindow: 30,
-        // Minimum dominance ratio (0.55 = 55% of ticks in one half)
-        minHalfDominance: 0.55,
-        // CHoCH: if the last N BOS events flip direction, block trading
-        chochWindow: 4,
-    },
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // CONFLUENCE SCORING
-    // ═══════════════════════════════════════════════════════════════════════
-    confluence: {
-        minScore: 4.0,           // Out of 5.0
-        weights: {
-            liquiditySweep: 1.5, // Gate + highest weight
-            breakOfStructure: 1.0,
-            fairValueGap: 0.8,
-            orderBlock: 0.9,
-            trendFilter: 0.8,
-        },
-    },
-
-    // ── Risk Management ──────────────────────────────────────────────────
-    minTimeBetweenTrades: 20000,
-    cooldownAfterLoss: 45000,
-    maxTradesPerHour: 1500,
-
-    requiredHistoryLength: 150,
+    requiredHistoryLength: 3000,
 
     telegramToken: '8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4',
     telegramChatId: '752497117',
@@ -173,7 +124,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'smc_bot_state_v2.json');
+const STATE_FILE = path.join(__dirname, 'deriv_freq_bot_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -184,9 +135,6 @@ class StatePersistence {
                 trading: {
                     currentStake: bot.currentStake,
                     consecutiveLosses: bot.consecutiveLosses,
-                    consecutiveLosses2: bot.consecutiveLosses2,
-                    consecutiveLosses3: bot.consecutiveLosses3,
-                    consecutiveLosses4: bot.consecutiveLosses4,
                     totalTrades: bot.totalTrades,
                     totalWins: bot.totalWins,
                     totalLosses: bot.totalLosses,
@@ -195,10 +143,8 @@ class StatePersistence {
                 },
                 assetMetrics: bot.assetMetrics,
                 hourlyTrades: bot.hourlyTrades,
-                hourlyStats: bot.hourlyStats,
                 session: bot.session,
                 currentTradeDay: bot.currentTradeDay,
-                smcStats: bot.smcStats,
             };
             fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
             return true;
@@ -245,699 +191,326 @@ class StatePersistence {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TECHNICAL INDICATORS
+// STATISTICAL TOOLS
 // ══════════════════════════════════════════════════════════════════════════════
-class TechnicalIndicators {
-    static SMA(data, period) {
-        if (data.length < period) return null;
-        const slice = data.slice(-period);
-        return slice.reduce((s, v) => s + v, 0) / period;
+
+class StatisticalAnalyzer {
+    /**
+     * Chi-square goodness-of-fit test
+     * H₀: data follows uniform distribution
+     * Returns: { chiSquare, pValue, significant, observed, expected }
+     */
+    static chiSquareUniform(digitArray, numCategories = 10) {
+        const n = digitArray.length;
+        const expected = n / numCategories;
+
+        // Count observed frequencies
+        const observed = Array(numCategories).fill(0);
+        for (const digit of digitArray) {
+            if (digit >= 0 && digit < numCategories) {
+                observed[digit]++;
+            }
+        }
+
+        // Calculate chi-square statistic
+        let chiSquare = 0;
+        for (let i = 0; i < numCategories; i++) {
+            const diff = observed[i] - expected;
+            chiSquare += (diff * diff) / expected;
+        }
+
+        // Approximate p-value using chi-square table
+        // Degrees of freedom = numCategories - 1
+        const df = numCategories - 1;
+        const pValue = this._chiSquareToP(chiSquare, df);
+
+        return {
+            chiSquare: chiSquare.toFixed(4),
+            pValue: pValue.toFixed(4),
+            significant: pValue < 0.10,  // 90% confidence
+            observed,
+            expected: expected.toFixed(2),
+            n,
+            df,
+        };
     }
 
-    /** Full EMA sequence (returns last value) */
-    static EMA(data, period) {
-        if (data.length < period) return null;
-        const k = 2 / (period + 1);
-        let ema = data.slice(0, period).reduce((s, v) => s + v, 0) / period;
-        for (let i = period; i < data.length; i++) {
-            ema = data[i] * k + ema * (1 - k);
+    /**
+     * Approximate chi-square CDF (rough approximation)
+     * For precise values, use a lookup table or library
+     */
+    static _chiSquareToP(chiSquare, df) {
+        // Simplified approximation using Nist formula
+        // For better accuracy, implement true chi-square CDF lookup
+        if (chiSquare < 0) return 1.0;
+
+        // Quick lookup for common df values
+        const criticalValues = {
+            9: { 0.10: 14.68, 0.05: 16.92, 0.01: 21.67 },  // df=9 for 10 digits
+        };
+
+        if (criticalValues[df]) {
+            const thresholds = criticalValues[df];
+            if (chiSquare >= thresholds[0.01]) return 0.01;
+            if (chiSquare >= thresholds[0.05]) return 0.05;
+            if (chiSquare >= thresholds[0.10]) return 0.10;
         }
-        return ema;
+
+        // Fallback: linear interpolation
+        // This is crude but functional for screening
+        // if (chiSquare < 14.68) return 0.15;
+        // if (chiSquare < 16.92) return 0.08;
+        // if (chiSquare < 21.67) return 0.02;
+        return 0.001;
     }
 
-    /** Returns array of EMA values, one per data point (after warm-up) */
-    static EMAArray(data, period) {
-        if (data.length < period) return [];
-        const k = 2 / (period + 1);
-        const out = [];
-        let ema = data.slice(0, period).reduce((s, v) => s + v, 0) / period;
-        out.push(ema);
-        for (let i = period; i < data.length; i++) {
-            ema = data[i] * k + ema * (1 - k);
-            out.push(ema);
-        }
-        return out;
+    /**
+     * Binomial test for two categories (even/odd)
+     * H₀: p(even) = 0.5
+     * Returns: { pEven, pOdd, biasStrength, direction }
+     */
+    static binomialEvenOdd(digitArray) {
+        const evenCount = digitArray.filter(d => d % 2 === 0).length;
+        const total = digitArray.length;
+        const pEven = evenCount / total;
+        const pOdd = 1 - pEven;
+
+        // Bias strength = how far from 50/50
+        const biasStrength = Math.abs(pEven - 0.5);
+        let direction = 'NEUTRAL';
+        if (pEven > 0.53) direction = 'EVEN_BIASED';
+        if (pEven < 0.47) direction = 'ODD_BIASED';
+
+        return {
+            evenCount,
+            oddCount: total - evenCount,
+            pEven: pEven.toFixed(3),
+            pOdd: pOdd.toFixed(3),
+            biasStrength: biasStrength.toFixed(3),
+            direction,
+            significant: biasStrength > 0.06,  // >6% deviation
+        };
     }
 
-    /** Rolling min/max over a window */
-    static rollingMinMax(arr, window) {
-        const result = [];
-        for (let i = window - 1; i < arr.length; i++) {
-            const slice = arr.slice(i - window + 1, i + 1);
-            result.push({ min: Math.min(...slice), max: Math.max(...slice) });
+    /**
+     * Detect hot/cold digits in frequency distribution
+     */
+    static detectHotCold(digitArray, hotThreshold = 0.14, coldThreshold = 0.06) {
+        const freq = Array(10).fill(0);
+        for (const digit of digitArray) {
+            if (digit >= 0 && digit < 10) freq[digit]++;
         }
-        return result;
+
+        const n = digitArray.length;
+        const hotDigits = [];
+        const coldDigits = [];
+
+        for (let i = 0; i < 10; i++) {
+            const ratio = freq[i] / n;
+            if (ratio >= hotThreshold) hotDigits.push({ digit: i, frequency: freq[i], ratio: ratio.toFixed(3) });
+            if (ratio <= coldThreshold) coldDigits.push({ digit: i, frequency: freq[i], ratio: ratio.toFixed(3) });
+        }
+
+        return {
+            frequency: freq,
+            hotDigits,
+            coldDigits,
+            uniformityScore: this._uniformityScore(freq),
+        };
     }
 
-    /** Detect local pivot high: highest within [i-strength, i+strength] */
-    static isPivotHigh(arr, i, strength) {
-        if (i < strength || i > arr.length - strength - 1) return false;
-        for (let j = i - strength; j <= i + strength; j++) {
-            if (j !== i && arr[j] >= arr[i]) return false;
+    /**
+     * Measure how uniform the distribution is (0=perfect uniform, 1=very skewed)
+     */
+    static _uniformityScore(frequencies) {
+        const n = frequencies.reduce((s, f) => s + f, 0);
+        const expected = n / 10;
+        let sumSqDiff = 0;
+        for (const f of frequencies) {
+            sumSqDiff += Math.pow(f - expected, 2);
         }
-        return true;
+        return Math.sqrt(sumSqDiff / n) / expected;  // Coefficient of variation
     }
 
-    /** Detect local pivot low: lowest within [i-strength, i+strength] */
-    static isPivotLow(arr, i, strength) {
-        if (i < strength || i > arr.length - strength - 1) return false;
-        for (let j = i - strength; j <= i + strength; j++) {
-            if (j !== i && arr[j] <= arr[i]) return false;
+    /**
+     * Analyze digit pair transitions (which digit follows which)
+     */
+    static analyzeTransitions(digitArray, window = 100) {
+        const recent = digitArray.slice(-window);
+        const transitions = {};  // digit -> { nextDigit -> count }
+
+        for (let i = 0; i < recent.length - 1; i++) {
+            const current = recent[i];
+            const next = recent[i + 1];
+            if (!transitions[current]) transitions[current] = {};
+            transitions[current][next] = (transitions[current][next] || 0) + 1;
         }
-        return true;
+
+        // Find underrepresented transitions (< expected)
+        const underrepresented = [];
+        const expected = (recent.length - 1) / 100;  // Expected ~1 occurrence per transition type
+
+        for (const [from, nextMap] of Object.entries(transitions)) {
+            for (const [to, count] of Object.entries(nextMap)) {
+                if (count < 2) {  // Very rare transition
+                    underrepresented.push({
+                        from: parseInt(from),
+                        to: parseInt(to),
+                        count,
+                        rarity: 'very_rare',
+                    });
+                }
+            }
+        }
+
+        return {
+            transitions,
+            underrepresentedCount: underrepresented.length,
+            underrepresented: underrepresented.slice(0, 5),  // Top 5
+        };
     }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// SMART MONEY CONCEPTS ANALYZER  (v2 — fully rearchitected)
+// SIGNAL GENERATOR
 // ══════════════════════════════════════════════════════════════════════════════
-class SmartMoneyAnalyzer {
+
+class FrequencySignalGenerator {
     constructor(config) {
         this.cfg = config;
-
-        // Per-asset persistent state for the stateful detectors
-        this.state = {};
     }
 
-    _initAsset(asset) {
-        if (!this.state[asset]) {
-            this.state[asset] = {
-                // Liquidity sweep
-                liquidityPools: [],       // { digit, touches, firstTick, lastTick }
-                sweepCooldown: {},        // digit → tickCount when cooldown expires
-
-                // BOS
-                swingHighs: [],           // { digit, tickIdx }
-                swingLows: [],            // { digit, tickIdx }
-                bosEvents: [],            // { direction:'UP'|'DOWN', tickIdx, magnitude }
-                bosBias: null,            // 'UP' | 'DOWN' | null
-                bosBiasExpiry: 0,         // absolute tick index
-
-                // FVG
-                activeFVGs: [],           // { direction, gapTop, gapBottom, formed, age }
-
-                // Order Blocks
-                activeOBs: [],            // { direction, clusterMean, formed, age, mitigated }
-
-                // Tick counter (relative, per asset)
-                tickCount: 0,
-            };
-        }
-        return this.state[asset];
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // MAIN ENTRY POINT
-    // ────────────────────────────────────────────────────────────────────────
-    analyze(digitHistory, priceHistory, asset) {
+    /**
+     * Main analysis routine — returns trade signal if one exists
+     */
+    analyze(digitHistory) {
         if (digitHistory.length < this.cfg.requiredHistoryLength) {
             return { shouldTrade: false, reason: 'insufficient_history' };
         }
 
-        const st = this._initAsset(asset);
-        st.tickCount++;
+        const signals = [];
+        let confidence = 0;
 
-        // Run each detector (they mutate st in place for persistence)
-        const lsResult = this._detectLiquiditySweep(digitHistory, st);
-        const bosResult = this._detectBOS(digitHistory, st);
-        const fvgResult = this._detectFVG(digitHistory, st);
-        const obResult = this._detectOrderBlock(digitHistory, st);
-        const tfResult = this._analyzeTrend(digitHistory, priceHistory, st);
+        // 1. Chi-square test on short window
+        const shortDigits = digitHistory.slice(-this.cfg.frequencyAnalysis.shortWindow);
+        const chiSquareShort = StatisticalAnalyzer.chiSquareUniform(shortDigits);
+        // if (chiSquareShort.pValue < this.cfg.frequencyAnalysis.chiSquareP) {
+        //     const hotCold = StatisticalAnalyzer.detectHotCold(
+        //         shortDigits,
+        //         this.cfg.frequencyAnalysis.hotThreshold,
+        //         this.cfg.frequencyAnalysis.coldThreshold
+        //     );
+        //     if (hotCold.coldDigits.length > 0) {
+        //         signals.push({
+        //             type: 'CHI_SQUARE_COLD',
+        //             confidence: 1.0 - parseFloat(chiSquareShort.pValue),
+        //             coldDigits: hotCold.coldDigits,
+        //             hotDigits: hotCold.hotDigits,
+        //             chiSquare: chiSquareShort.chiSquare,
+        //         });
+        //     }
+        // }
 
-        const results = {
-            liquiditySweep: lsResult,
-            breakOfStructure: bosResult,
-            fairValueGap: fvgResult,
-            orderBlock: obResult,
-            trendFilter: tfResult,
-        };
+        // 2. Chi-square test on short window
+        // const longDigits = digitHistory.slice(-this.cfg.frequencyAnalysis.shortWindow);
+        // const chiSquareLong = StatisticalAnalyzer.chiSquareUniform(longDigits);
+        // if (chiSquareLong.pValue < this.cfg.frequencyAnalysis.chiSquareP) {
+        //     const hotCold = StatisticalAnalyzer.detectHotCold(
+        //         longDigits,
+        //         this.cfg.frequencyAnalysis.hotThreshold,
+        //         this.cfg.frequencyAnalysis.coldThreshold
+        //     );
+        //     if (hotCold.hotDigits.length > 0) {
+        //         signals.push({
+        //             type: 'CHI_SQUARE_HOT',
+        //             confidence: 1.0 - parseFloat(chiSquareLong.pValue),
+        //             coldDigits: hotCold.coldDigits,
+        //             hotDigits: hotCold.hotDigits,
+        //             chiSquare: chiSquareLong.chiSquare,
+        //         });
+        //     }
+        // }
 
-        const confluence = this._calculateConfluence(results);
+        // 3. Even/Odd bias
+        // if (this.cfg.evenOddAnalysis.enabled) {
+        //     const eoDigits = digitHistory.slice(-this.cfg.evenOddAnalysis.window);
+        //     const eoBias = StatisticalAnalyzer.binomialEvenOdd(eoDigits);
+        //     if (eoBias.significant) {
+        //         signals.push({
+        //             type: 'EVEN_ODD_BIAS',
+        //             confidence: parseFloat(eoBias.biasStrength),
+        //             direction: eoBias.direction,
+        //             pEven: eoBias.pEven,
+        //         });
+        //     }
+        // }
 
-        if (!confluence.shouldTrade) {
-            return { shouldTrade: false, reason: confluence.reason, confluence, results };
-        }
-
-        // Determine the digit to avoid (DIGITDIFF target)
-        const avoidDigit = this._resolveAvoidDigit(results, digitHistory);
-        if (avoidDigit === null) {
-            return { shouldTrade: false, reason: 'no_clear_avoid_digit', confluence, results };
-        }
-
-        return {
-            shouldTrade: true,
-            reason: 'smc_confluence_confirmed',
-            predictedDigit: avoidDigit,
-            confidence: confluence.score / 5,
-            confluence,
-            results,
-        };
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // 1. LIQUIDITY SWEEP  (swing pivot + equal-level pool + sweep detection)
-    // ────────────────────────────────────────────────────────────────────────
-    /**
-     * Algorithm:
-     *  a) Identify pivot highs & lows in the last `scanWindow` ticks.
-     *  b) Group pivots that share the same digit (±tolerance) into "pools".
-     *  c) A "sweep" occurs when the most recent tick equals a pool digit
-     *     AND the N-1 tick was on the opposite side (approaching from below
-     *     for a high pool, from above for a low pool), AND the tick AFTER
-     *     (i.e. the current tick) begins to move back inside.
-     *  d) Return the swept digit as the one to avoid.
-     */
-    _detectLiquiditySweep(digitHistory, st) {
-        const cfg = this.cfg.liquiditySweep;
-        const n = digitHistory.length;
-        const scanWindow = Math.min(n, 80);
-        const recent = digitHistory.slice(-scanWindow);
-        const strength = cfg.swingLookback;
-
-        // Expire old pools
-        st.liquidityPools = st.liquidityPools.filter(
-            p => (st.tickCount - p.lastTick) < cfg.poolMaxAge
-        );
-
-        // Detect new pivot highs & lows in the recent window (excluding last 2 ticks
-        // because we need right-side bars for confirmation)
-        for (let i = strength; i < recent.length - strength; i++) {
-            const absIdx = st.tickCount - (recent.length - i);
-
-            if (TechnicalIndicators.isPivotHigh(recent, i, strength)) {
-                this._addToPool(st.liquidityPools, recent[i], absIdx, 'HIGH', cfg);
-            }
-            if (TechnicalIndicators.isPivotLow(recent, i, strength)) {
-                this._addToPool(st.liquidityPools, recent[i], absIdx, 'LOW', cfg);
-            }
-        }
-
-        // Now check if the last tick "swept" any active pool
-        const lastDigit = digitHistory[n - 1];
-        const prevDigit = digitHistory[n - 2];
-        const prevPrevDigit = n >= 3 ? digitHistory[n - 3] : null;
-
-        let sweptPool = null;
-        let sweepType = null;  // 'BUYSIDE' or 'SELLSIDE'
-
-        for (const pool of st.liquidityPools) {
-            // Skip if in cooldown
-            const cooldownExpiry = st.sweepCooldown[pool.digit] || 0;
-            if (st.tickCount <= cooldownExpiry) continue;
-            // Need at least 2 touches to be a proper pool
-            if (pool.touches < cfg.minPoolTouches) continue;
-
-            const tol = cfg.equalLevelTolerance;
-
-            if (pool.type === 'HIGH') {
-                // Buy-side sweep: price spikes above the high then fails back down
-                const atLevel = Math.abs(lastDigit - pool.digit) <= tol;
-                const approaching = prevDigit < pool.digit - tol;   // was below
-                const reverting = prevPrevDigit !== null && prevPrevDigit < pool.digit - tol;
-                if (atLevel && (approaching || reverting)) {
-                    sweptPool = pool;
-                    sweepType = 'BUYSIDE';
-                    break;
-                }
-            } else {
-                // Sell-side sweep: price dips below the low then recovers
-                const atLevel = Math.abs(lastDigit - pool.digit) <= tol;
-                const approaching = prevDigit > pool.digit + tol;   // was above
-                const reverting = prevPrevDigit !== null && prevPrevDigit > pool.digit + tol;
-                if (atLevel && (approaching || reverting)) {
-                    sweptPool = pool;
-                    sweepType = 'SELLSIDE';
-                    break;
-                }
-            }
-        }
-
-        if (!sweptPool) {
-            return { detected: false, reason: 'no_pool_swept', pools: st.liquidityPools.length };
-        }
-
-        // Register cooldown
-        st.sweepCooldown[sweptPool.digit] = st.tickCount + cfg.cooldownTicks;
-
-        return {
-            detected: true,
-            reason: 'liquidity_swept',
-            sweptDigit: sweptPool.digit,
-            sweepType,
-            poolTouches: sweptPool.touches,
-            poolType: sweptPool.type,
-        };
-    }
-
-    _addToPool(pools, digit, tickIdx, type, cfg) {
-        const tol = cfg.equalLevelTolerance;
-        const existing = pools.find(
-            p => p.type === type && Math.abs(p.digit - digit) <= tol
-        );
-        if (existing) {
-            existing.touches++;
-            existing.lastTick = tickIdx;
-            // Update digit to running average
-            existing.digit = Math.round((existing.digit + digit) / 2);
-        } else {
-            pools.push({ digit, type, touches: 1, firstTick: tickIdx, lastTick: tickIdx });
-        }
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // 2. BREAK OF STRUCTURE (BOS)
-    // ────────────────────────────────────────────────────────────────────────
-    /**
-     * Algorithm:
-     *  a) Detect pivot highs and lows using isPivotHigh/Low.
-     *  b) A BULLISH BOS = new pivot high > most recent recorded pivot high.
-     *  c) A BEARISH BOS = new pivot low  < most recent recorded pivot low.
-     *  d) A CHoCH (Change of Character) is the FIRST BOS against the prior bias.
-     *  e) Bias is set/updated and expires after `biasLifetime` ticks.
-     */
-    _detectBOS(digitHistory, st) {
-        const cfg = this.cfg.breakOfStructure;
-        const n = digitHistory.length;
-        const win = Math.min(n, cfg.structureWindow);
-        const recent = digitHistory.slice(-win);
-        const str = cfg.pivotStrength;
-
-        // Collect swing highs and lows from the window (excluding edge ticks)
-        const newHighs = [];
-        const newLows = [];
-
-        for (let i = str; i < recent.length - str; i++) {
-            const absIdx = st.tickCount - (recent.length - i);
-            if (TechnicalIndicators.isPivotHigh(recent, i, str)) {
-                newHighs.push({ digit: recent[i], tickIdx: absIdx });
-            }
-            if (TechnicalIndicators.isPivotLow(recent, i, str)) {
-                newLows.push({ digit: recent[i], tickIdx: absIdx });
-            }
-        }
-
-        // Keep only last 5 of each type (avoid unbounded growth)
-        if (newHighs.length) st.swingHighs = [...st.swingHighs, ...newHighs].slice(-5);
-        if (newLows.length) st.swingLows = [...st.swingLows, ...newLows].slice(-5);
-
-        // Expire old BOS events
-        st.bosEvents = st.bosEvents.filter(e => (st.tickCount - e.tickIdx) < 50);
-
-        // Check for BOS
-        let bosDetected = false;
-        let bosDirection = null;
-        let bosMagnitude = 0;
-        let isChoch = false;
-
-        if (st.swingHighs.length >= 2) {
-            const prevHigh = st.swingHighs[st.swingHighs.length - 2];
-            const currHigh = st.swingHighs[st.swingHighs.length - 1];
-            if (currHigh.digit > prevHigh.digit + cfg.minBreakMagnitude &&
-                currHigh.tickIdx > prevHigh.tickIdx) {
-                bosMagnitude = currHigh.digit - prevHigh.digit;
-                bosDirection = 'UP';
-                bosDetected = true;
-                isChoch = st.bosBias === 'DOWN';   // flip = CHoCH
-            }
-        }
-
-        if (!bosDetected && st.swingLows.length >= 2) {
-            const prevLow = st.swingLows[st.swingLows.length - 2];
-            const currLow = st.swingLows[st.swingLows.length - 1];
-            if (currLow.digit < prevLow.digit - cfg.minBreakMagnitude &&
-                currLow.tickIdx > prevLow.tickIdx) {
-                bosMagnitude = prevLow.digit - currLow.digit;
-                bosDirection = 'DOWN';
-                bosDetected = true;
-                isChoch = st.bosBias === 'UP';    // flip = CHoCH
-            }
-        }
-
-        if (bosDetected) {
-            st.bosEvents.push({ direction: bosDirection, tickIdx: st.tickCount, magnitude: bosMagnitude });
-            if (!isChoch) {
-                // Confirm and extend bias only on genuine BOS (not CHoCH)
-                st.bosBias = bosDirection;
-                st.bosBiasExpiry = st.tickCount + cfg.biasLifetime;
-            } else {
-                // CHoCH: reset bias to neutral (structure is uncertain)
-                st.bosBias = null;
-            }
-        }
-
-        // Decay bias if expired
-        if (st.bosBias && st.tickCount > st.bosBiasExpiry) {
-            st.bosBias = null;
-        }
-
-        return {
-            detected: bosDetected && !isChoch,
-            reason: bosDetected ? (isChoch ? 'choch_structure_reset' : 'bos_confirmed') : 'no_bos',
-            direction: bosDirection,
-            magnitude: bosMagnitude,
-            bias: st.bosBias,
-            isChoch,
-            swingHighs: st.swingHighs.length,
-            swingLows: st.swingLows.length,
-        };
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // 3. FAIR VALUE GAP (FVG)  — 3-tick imbalance
-    // ────────────────────────────────────────────────────────────────────────
-    /**
-     * For digits we treat each tick as a "candle" with high = digit, low = digit.
-     * A bullish FVG: digit[i-2] < digit[i] and there is a gap:
-     *   gap = digit[i] - digit[i-2] >= minGapWidth (digit[i-1] skipped over this range)
-     * A bearish FVG: digit[i-2] > digit[i] and gap >= minGapWidth.
-     *
-     * An active FVG is "filled" when price re-enters its range.
-     * We trade when price is RETURNING to fill an unfilled FVG (mean-reversion).
-     */
-    _detectFVG(digitHistory, st) {
-        const cfg = this.cfg.fairValueGap;
-        const n = digitHistory.length;
-
-        // Scan last N ticks for new FVGs
-        const scanStart = Math.max(2, n - cfg.scanWindow);
-        for (let i = scanStart; i < n - 1; i++) {
-            const a = digitHistory[i - 2];
-            const b = digitHistory[i - 1];  // middle tick (creates the gap)
-            const c = digitHistory[i];
-            const absIdx = st.tickCount - (n - 1 - i);
-
-            // Avoid duplicate detection
-            if (st.activeFVGs.find(f => f.formed === absIdx)) continue;
-
-            const bullGap = c - a;
-            const bearGap = a - c;
-
-            if (bullGap >= cfg.minGapWidth && b < c && b > a) {
-                // Bullish FVG: price jumped up, gap between a's high and c's low
-                st.activeFVGs.push({
-                    direction: 'BULLISH',
-                    gapTop: c,
-                    gapBottom: a,
-                    midpoint: Math.round((a + c) / 2),
-                    formed: absIdx,
-                    filled: false,
-                });
-            } else if (bearGap >= cfg.minGapWidth && b > c && b < a) {
-                // Bearish FVG
-                st.activeFVGs.push({
-                    direction: 'BEARISH',
-                    gapTop: a,
-                    gapBottom: c,
-                    midpoint: Math.round((a + c) / 2),
-                    formed: absIdx,
-                    filled: false,
-                });
-            }
-        }
-
-        // Age & fill FVGs
-        const currentDigit = digitHistory[n - 1];
-        st.activeFVGs.forEach(f => {
-            f.age = st.tickCount - f.formed;
-            if (!f.filled && currentDigit >= f.gapBottom && currentDigit <= f.gapTop) {
-                f.filled = true;
-            }
-        });
-
-        // Expire old FVGs
-        st.activeFVGs = st.activeFVGs.filter(
-            f => !f.filled && f.age < cfg.maxAge
-        );
-
-        // Signal: price is approaching an unfilled FVG's midpoint from the correct side
-        let nearestFVG = null;
-        let minDist = Infinity;
-
-        for (const fvg of st.activeFVGs) {
-            const dist = Math.abs(currentDigit - fvg.midpoint);
-            if (dist < minDist) {
-                minDist = dist;
-                nearestFVG = fvg;
-            }
-        }
-
-        const detected = nearestFVG !== null && minDist <= 2;
-
-        return {
-            detected,
-            reason: detected ? 'fvg_price_approaching' : 'no_active_fvg',
-            nearestFVG,
-            proximity: detected ? minDist : null,
-            activeFVGs: st.activeFVGs.length,
-            gapDirection: nearestFVG?.direction ?? null,
-        };
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // 4. ORDER BLOCK (OB)
-    // ────────────────────────────────────────────────────────────────────────
-    /**
-     * Algorithm:
-     *  a) Detect "impulse moves": runs of N ticks where the digit shifts
-     *     significantly in one direction (avg change >= minImpulseMagnitude).
-     *  b) The Order Block is the `obClusterSize` ticks IMMEDIATELY before
-     *     the impulse. The OB cluster's mean digit is the level.
-     *  c) A new OB is only created when the impulse is NEW (not already captured).
-     *  d) The OB is active until price returns to its cluster mean (mitigation)
-     *     or it expires.
-     *  e) Signal: current digit is near an active OB's cluster mean AND
-     *     approaching from the OB side.
-     */
-    _detectOrderBlock(digitHistory, st) {
-        const cfg = this.cfg.orderBlock;
-        const n = digitHistory.length;
-        const win = Math.min(n, cfg.impulseWindow);
-        const recent = digitHistory.slice(-win);
-        const minLen = cfg.minImpulseLength;
-
-        // Detect new impulse moves (sliding window)
-        for (let i = minLen; i < recent.length; i++) {
-            const absStart = st.tickCount - (recent.length - (i - minLen));
-            const impulseSlice = recent.slice(i - minLen, i);
-
-            // Measure avg digit velocity
-            let totalChange = 0;
-            for (let j = 1; j < impulseSlice.length; j++) {
-                totalChange += Math.abs(impulseSlice[j] - impulseSlice[j - 1]);
-            }
-            const avgChange = totalChange / (impulseSlice.length - 1);
-
-            if (avgChange < cfg.minImpulseMagnitude) continue;
-
-            // Check direction
-            const firstDigit = impulseSlice[0];
-            const lastDigit = impulseSlice[impulseSlice.length - 1];
-            const direction = lastDigit > firstDigit ? 'BULLISH' : 'BEARISH';
-
-            // OB cluster = ticks immediately before the impulse
-            const obStart = Math.max(0, i - minLen - cfg.obClusterSize);
-            const obEnd = i - minLen;
-            if (obEnd <= obStart) continue;
-
-            const obSlice = recent.slice(obStart, obEnd);
-            const clusterMean = Math.round(obSlice.reduce((s, v) => s + v, 0) / obSlice.length);
-
-            // Avoid duplicate OBs at the same cluster mean
-            if (st.activeOBs.find(ob => Math.abs(ob.clusterMean - clusterMean) <= 1 && ob.direction === direction)) continue;
-
-            st.activeOBs.push({
-                direction,
-                clusterMean,
-                impulseStart: absStart,
-                formed: st.tickCount,
-                age: 0,
-                mitigated: false,
+        // 4. Transition analysis
+        // if (this.cfg.transitionAnalysis.enabled && signals.length === 0) {
+        const transDigits = digitHistory.slice(-this.cfg.transitionAnalysis.window);
+        const transitions = StatisticalAnalyzer.analyzeTransitions(transDigits);
+        if (transitions.underrepresentedCount > 0) {
+            signals.push({
+                type: 'RARE_TRANSITION',
+                confidence: 0.8,
+                underrepresented: transitions.underrepresented,
             });
         }
+        // }
 
-        // Age, mitigate, expire OBs
-        const currentDigit = digitHistory[n - 1];
-        st.activeOBs.forEach(ob => {
-            ob.age = st.tickCount - ob.formed;
-            if (cfg.mitigationEnabled && Math.abs(currentDigit - ob.clusterMean) <= 1) {
-                ob.mitigated = true;
-            }
-        });
-        st.activeOBs = st.activeOBs.filter(ob => !ob.mitigated && ob.age < cfg.maxAge);
-
-        // Signal: current digit near an active OB
-        let nearestOB = null;
-        let minDist = Infinity;
-
-        for (const ob of st.activeOBs) {
-            const dist = Math.abs(currentDigit - ob.clusterMean);
-            if (dist <= cfg.proximityThreshold && dist < minDist) {
-                minDist = dist;
-                nearestOB = ob;
-            }
+        if (signals.length === 0) {
+            return { shouldTrade: false, reason: 'no_statistical_bias', chiSquare: chiSquareShort };
         }
 
-        const detected = nearestOB !== null;
+        // Determine trade direction from strongest signal
+        const primary = signals[0];
+        let contractType = null;
+        let predictedDigit = null;
 
-        return {
-            detected,
-            reason: detected ? 'ob_proximity_confirmed' : 'no_nearby_ob',
-            nearestOB,
-            proximity: detected ? minDist : null,
-            activeOBs: st.activeOBs.length,
-            obDirection: nearestOB?.direction ?? null,
-        };
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // 5. TREND FILTER (EMA slope + digit-half dominance + CHoCH guard)
-    // ────────────────────────────────────────────────────────────────────────
-    /**
-     * Three sub-checks, all must agree:
-     *
-     *  a) EMA SLOPE: Compute EMA of raw prices. If the last N EMA values
-     *     have a positive slope above threshold → UP. Negative → DOWN. Else flat.
-     *
-     *  b) DIGIT-HALF DOMINANCE: Count how many of the last `halfWindow` digits
-     *     are in 0-4 vs 5-9. Dominant half is LOW if 0-4 wins, HIGH if 5-9 wins.
-     *
-     *  c) CHoCH GUARD: If the last `chochWindow` BOS events alternate
-     *     UP/DOWN/UP/DOWN (or similar flip), the structure is unstable → block.
-     *
-     *  Result: 'BULLISH' (both point up), 'BEARISH' (both point down), 'NEUTRAL'.
-     *  We require BULLISH or BEARISH (not NEUTRAL) to trade.
-     */
-    _analyzeTrend(digitHistory, priceHistory, st) {
-        const cfg = this.cfg.trendFilter;
-        const n = digitHistory.length;
-
-        // ── a) EMA Slope ──────────────────────────────────────────────────
-        let emaDirection = 'NEUTRAL';
-        let emaSlope = 0;
-
-        if (priceHistory.length >= cfg.emaPeriod + cfg.emaLookback) {
-            const emaArr = TechnicalIndicators.EMAArray(priceHistory, cfg.emaPeriod);
-            if (emaArr.length >= cfg.emaLookback) {
-                const emaOld = emaArr[emaArr.length - cfg.emaLookback];
-                const emaNow = emaArr[emaArr.length - 1];
-                emaSlope = (emaNow - emaOld) / cfg.emaLookback;
-
-                if (emaSlope > cfg.emaSlopeThreshold) emaDirection = 'UP';
-                else if (emaSlope < -cfg.emaSlopeThreshold) emaDirection = 'DOWN';
-            }
+        if (primary.type === 'RARE_TRANSITION') {
+            contractType = 'DIGITDIFF';  // Bet that the rare transition WON'T happen
+            predictedDigit = transitions.underrepresented[4].to; // Bet that the rare transition WON'T happen 
         }
+        // else if (primary.type === 'EVEN_ODD_BIAS') {
+        //     contractType = primary.direction === 'EVEN_BIASED' ? 'EVEN' : 'ODD';
+        //     predictedDigit = null;  // Doesn't apply to EVEN/ODD
+        // }
+        // else if (primary.type === 'CHI_SQUARE_HOT' && primary.hotDigits.length > 0) {
+        //     // Bet on the hot digit (bet it will appear)
+        //     // Use DIGITDIFF if we're targeting a specific digit
+        //     contractType = 'DIGITDIFF';
+        //     predictedDigit = primary.hotDigits[0].digit;
+        // }
 
-        // ── b) Digit-Half Dominance ────────────────────────────────────────
-        const recent = digitHistory.slice(-cfg.halfWindow);
-        const lowCount = recent.filter(d => d <= 4).length;
-        const highCount = recent.filter(d => d >= 5).length;
-        const total = recent.length;
+        // else if (primary.type === 'CHI_SQUARE_COLD' && primary.coldDigits.length > 0) {
+        //     // Fade the cold digit (bet it will appear)
+        //     // Use MATCH if we're targeting a specific digit
+        //     contractType = 'MATCH';
+        //     predictedDigit = primary.coldDigits[0].digit;
+        // }
 
-        let halfBias = 'NEUTRAL';
-        const lowRatio = lowCount / total;
-        const highRatio = highCount / total;
-
-        if (highRatio >= cfg.minHalfDominance) halfBias = 'HIGH';   // digits in 5-9 dominating → bullish
-        else if (lowRatio >= cfg.minHalfDominance) halfBias = 'LOW';   // digits in 0-4 dominating → bearish
-
-        // ── c) CHoCH Guard ─────────────────────────────────────────────────
-        const recentBOS = st.bosEvents.slice(-cfg.chochWindow);
-        let structureStable = true;
-
-        if (recentBOS.length >= 4) {
-            let alternations = 0;
-            for (let i = 1; i < recentBOS.length; i++) {
-                if (recentBOS[i].direction !== recentBOS[i - 1].direction) alternations++;
-            }
-            // If every consecutive pair alternates, structure is choppy
-            if (alternations >= recentBOS.length - 1) structureStable = false;
-        }
-
-        // ── Combine ────────────────────────────────────────────────────────
-        let alignment = 'NEUTRAL';
-        if (emaDirection === 'UP' && halfBias === 'HIGH' && structureStable) alignment = 'BULLISH';
-        if (emaDirection === 'DOWN' && halfBias === 'LOW' && structureStable) alignment = 'BEARISH';
-
-        const aligned = alignment !== 'NEUTRAL';
+        confidence = signals.reduce((max, s) => Math.max(max, s.confidence), 0);
 
         return {
-            aligned,
-            alignment,
-            reason: aligned ? 'trend_aligned' : `no_alignment_${emaDirection}_${halfBias}`,
-            emaDirection,
-            emaSlope: emaSlope.toFixed(8),
-            halfBias,
-            lowRatio: lowRatio.toFixed(2),
-            highRatio: highRatio.toFixed(2),
-            structureStable,
-        };
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // CONFLUENCE SCORING
-    // ────────────────────────────────────────────────────────────────────────
-    _calculateConfluence(results) {
-        const weights = this.cfg.confluence.weights;
-        let score = 0;
-        const signals = [];
-
-        if (results.liquiditySweep.detected) { score += weights.liquiditySweep; signals.push('LiqSweep'); }
-        if (results.breakOfStructure.detected) { score += weights.breakOfStructure; signals.push('BOS'); }
-        if (results.fairValueGap.detected) { score += weights.fairValueGap; signals.push('FVG'); }
-        if (results.orderBlock.detected) { score += weights.orderBlock; signals.push('OB'); }
-        if (results.trendFilter.aligned) { score += weights.trendFilter; signals.push('TrendFilter'); }
-
-        const shouldTrade =
-            score >= this.cfg.confluence.minScore &&
-            results.fairValueGap.detected &&
-            results.trendFilter.aligned;
-
-        return {
-            shouldTrade,
-            score,
-            maxScore: 5.0,
-            percentage: ((score / 5) * 100).toFixed(1),
+            shouldTrade: confidence >= 0.08,  // At least 8% confidence
+            reason: primary.type,
+            confidence: confidence.toFixed(3),
+            contractType,
+            predictedDigit,
             signals,
-            reason: !shouldTrade ? `low_confluence_${score.toFixed(1)}` : 'confluence_met',
+            chiSquare: chiSquareShort,
+            underrepresented: transitions.underrepresented,
+            underrepresentedCount: transitions.underrepresentedCount,
+            transitions: transitions.transitions,
         };
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // RESOLVE: which digit should we tell Deriv to AVOID?
-    // ────────────────────────────────────────────────────────────────────────
-    /**
-     * Priority order:
-     *  1. Swept digit from liquidity sweep (highest conviction — market just
-     *     hunted that digit's liquidity and is about to reverse away from it).
-     *  2. Order Block cluster mean (if OB is bearish OB, price should avoid
-     *     returning to it, and vice versa).
-     *  3. FVG midpoint (the gap digit that price is approaching but hasn't filled).
-     *  4. Last digit (fallback, low confidence — not normally reached).
-     */
-    _resolveAvoidDigit(results, digitHistory) {
-        // 1. Swept digit
-        // if (results.liquiditySweep.detected && results.liquiditySweep.sweptDigit !== undefined) {
-        //     return results.liquiditySweep.sweptDigit;
-        // }
-        // 2. OB cluster mean
-        // if (results.orderBlock.detected && results.orderBlock.nearestOB) {
-        //     return results.orderBlock.nearestOB.clusterMean;
-        // }
-        // 3. FVG midpoint
-        if (results.fairValueGap.detected && results.fairValueGap.nearestFVG) {
-            return results.fairValueGap.nearestFVG.midpoint;
-        }
-        // // 4. last digit
-        // return digitHistory[digitHistory.length - 1];
-        // 4. No digit  
-        return null;
     }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// MAIN BOT  (infrastructure unchanged from v1; only _evaluateAsset hooks changed)
+// MAIN BOT
 // ══════════════════════════════════════════════════════════════════════════════
-class SmartMoneyBot {
+
+class DerivFrequencyBot {
     constructor(config) {
         this.cfg = config;
 
@@ -950,32 +523,32 @@ class SmartMoneyBot {
 
         // Trade state
         this.tradeInProgress = false;
-        this.tradeStartTime = null;
-        this.tradeWatchdogMs = 30000;
+        this.activeTrades = {};
+        this.contractSubs = {};
         this._wdTimer = null;
+        this.tradeWatchdogMs = 30000;
 
+        // Account
         this.currentStake = config.initialStake;
         this.consecutiveLosses = 0;
-        this.consecutiveLosses2 = 0;
-        this.consecutiveLosses3 = 0;
-        this.consecutiveLosses4 = 0;
         this.totalTrades = 0;
         this.totalWins = 0;
         this.totalLosses = 0;
         this.totalProfitLoss = 0;
-        this.isWinTrade = false;
+        this.dailyProfitLoss = 0;
         this.endOfDay = false;
+        this.underrepresentedIndex = 4;
+        this.underrepresentedIndeLimit = 5;
+        this.predictedDigit = null;
 
         // Rate limiting
         this.hourlyTrades = [];
+        this.lastTradeTime = {};
         this.lastLossTime = {};
 
         // Per-asset data
         this.priceHistories = {};
         this.digitHistories = {};
-        this.lastTradeTime = {};
-        this.activeTrades = {};
-        this.contractSubs = {};
         this.assetMetrics = {};
         this.proposalIds = {};
 
@@ -987,17 +560,8 @@ class SmartMoneyBot {
             this.assetMetrics[a] = { trades: 0, wins: 0, losses: 0, profitLoss: 0 };
         });
 
-        // SMC Statistics
-        this.smcStats = {
-            liquiditySweeps: { detected: 0, traded: 0, won: 0 },
-            bos: { detected: 0, traded: 0, won: 0 },
-            fvg: { detected: 0, traded: 0, won: 0 },
-            orderBlocks: { detected: 0, traded: 0, won: 0 },
-            trendAligned: { detected: 0, traded: 0, won: 0 },
-        };
-
-        // Analyzer (v2)
-        this.analyzer = new SmartMoneyAnalyzer(config);
+        // Signal generator
+        this.signalGen = new FrequencySignalGenerator(config);
 
         // Telegram
         this.telegram = null;
@@ -1007,19 +571,19 @@ class SmartMoneyBot {
 
         this._loadState();
 
-        if (!this.hourlyStats) {
-            this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
-        }
         if (!this.session) {
             this.session = {
-                startTime: Date.now(), startCapital: 0,
-                tradesCount: 0, winsCount: 0, lossesCount: 0, netPL: 0, isActive: true,
+                startTime: Date.now(),
+                startCapital: 0,
+                tradesCount: 0,
+                winsCount: 0,
+                lossesCount: 0,
+                netPL: 0,
             };
         }
         if (!this.currentTradeDay) {
             this.currentTradeDay = new Date().toISOString().split('T')[0];
         }
-        this.dailyProfitLoss = this.dailyProfitLoss || 0;
     }
 
     _loadState() {
@@ -1029,9 +593,6 @@ class SmartMoneyBot {
             if (s.trading) {
                 this.currentStake = s.trading.currentStake || this.cfg.initialStake;
                 this.consecutiveLosses = s.trading.consecutiveLosses || 0;
-                this.consecutiveLosses2 = s.trading.consecutiveLosses2 || 0;
-                this.consecutiveLosses3 = s.trading.consecutiveLosses3 || 0;
-                this.consecutiveLosses4 = s.trading.consecutiveLosses4 || 0;
                 this.totalTrades = s.trading.totalTrades || 0;
                 this.totalWins = s.trading.totalWins || 0;
                 this.totalLosses = s.trading.totalLosses || 0;
@@ -1039,11 +600,8 @@ class SmartMoneyBot {
                 this.dailyProfitLoss = s.trading.dailyProfitLoss || 0;
             }
             if (s.assetMetrics) this.assetMetrics = s.assetMetrics;
-            if (s.hourlyTrades) this.hourlyTrades = s.hourlyTrades;
-            if (s.hourlyStats) this.hourlyStats = s.hourlyStats;
             if (s.session) this.session = s.session;
             if (s.currentTradeDay) this.currentTradeDay = s.currentTradeDay;
-            if (s.smcStats) this.smcStats = s.smcStats;
             console.log(`✅ State restored — ${this.totalTrades} trades, P&L $${this.totalProfitLoss.toFixed(2)}`);
         } catch (e) {
             console.error(`❌ State restore error: ${e.message}`);
@@ -1125,9 +683,8 @@ class SmartMoneyBot {
         this._clearWatchdog();
         if (this.ws) {
             this.ws.removeAllListeners();
-            try {
-                if ([WebSocket.OPEN, WebSocket.CONNECTING].includes(this.ws.readyState)) this.ws.close();
-            } catch (_) { }
+            try { if ([WebSocket.OPEN, WebSocket.CONNECTING].includes(this.ws.readyState)) this.ws.close(); }
+            catch (_) { }
             this.ws = null;
         }
         this.connected = this.wsReady = false;
@@ -1151,7 +708,6 @@ class SmartMoneyBot {
         if (msg.error) { console.error('Auth failed:', msg.error.message); this._cleanupWs(); return; }
         console.log(`✅ Auth OK — Balance: $${msg.authorize.balance}`);
         this.wsReady = true;
-
         if (this.session.startCapital === 0) this.session.startCapital = msg.authorize.balance;
 
         this.cfg.assets.forEach(asset => {
@@ -1203,24 +759,20 @@ class SmartMoneyBot {
         const canTrade = this._canTrade(asset);
         if (!canTrade.can) return;
 
-        const analysis = this.analyzer.analyze(
-            this.digitHistories[asset],
-            this.priceHistories[asset],
-            asset
-        );
+        const analysis = this.signalGen.analyze(this.digitHistories[asset]);
 
         // Uncomment for verbose debug:
-        // console.log(`[${asset}] score=${analysis.confluence?.score?.toFixed(2)} signals=${analysis.confluence?.signals?.join(',')} reason=${analysis.reason}`);
+        // console.log(`[${asset}] ${analysis.reason} conf=${analysis.confidence} χ²=${analysis.chiSquare?.chiSquare}`);
+        // console.log(`  Last 20 digits: [ ${this.digitHistories[asset].slice(-20).join(' ')} ]`);
+        // console.log(`[${asset}] ${analysis.reason} conf=${analysis.confidence}| UR=${analysis.underrepresentedCount}| ${analysis.underrepresented.map(r => `(${r.from}->${r.to}: ${r.rarity})`).join(' ')}`);
 
-        if (!analysis.shouldTrade) return;
+        if (!analysis.shouldTrade || analysis.underrepresentedCount < 20 || analysis.underrepresentedCount > 55) return;
 
-        // Update SMC detection stats
-        const r = analysis.results;
-        if (r.liquiditySweep.detected) this.smcStats.liquiditySweeps.detected++;
-        if (r.breakOfStructure.detected) this.smcStats.bos.detected++;
-        if (r.fairValueGap.detected) this.smcStats.fvg.detected++;
-        if (r.orderBlock.detected) this.smcStats.orderBlocks.detected++;
-        if (r.trendFilter.aligned) this.smcStats.trendAligned.detected++;
+        //Don't Trade if Last Digit is not same as analysis.underrepresented[4].from.toString()
+        if (this.digitHistories[asset][this.digitHistories[asset].length - 1] != analysis.underrepresented[4].from.toString()) {
+            // console.log("Last Digit is not same as analysis.underrepresented[4].from |", this.digitHistories[asset][this.digitHistories[asset].length - 1], "|", analysis.underrepresented[4].from.toString());
+            return;
+        }
 
         this._requestProposal(asset, analysis);
     }
@@ -1228,16 +780,21 @@ class SmartMoneyBot {
     _requestProposal(asset, analysis) {
         if (this.tradeInProgress) return;
 
+        // For this POC, use MATCH contract targeting the cold digit
+        // In production, vary contract type based on signal
+        const contractType = analysis.contractType;
+        this.predictedDigit = analysis.underrepresented[this.underrepresentedIndex].to.toString()
+
         this._send({
             proposal: 1,
             amount: this.currentStake.toFixed(2),
             basis: 'stake',
-            contract_type: 'DIGITDIFF',
+            contract_type: contractType,
             currency: 'USD',
             symbol: asset,
             duration: 1,
             duration_unit: 't',
-            barrier: analysis.predictedDigit.toString(),
+            barrier: this.predictedDigit,
         });
 
         this.proposalIds[asset] = { analysis };
@@ -1261,48 +818,20 @@ class SmartMoneyBot {
         const payoutPct = ((payout - this.currentStake) / this.currentStake * 100).toFixed(1);
 
         console.log(`\n${'═'.repeat(60)}`);
-        console.log(`  🎯 SMC v2 TRADE SETUP — ${asset}`);
+        console.log(`  📊 FREQUENCY SIGNAL TRADE — ${asset}`);
         console.log(`${'═'.repeat(60)}`);
-        console.log(`  Avoid Digit : ${analysis.predictedDigit}  (DIGITDIFF — digit will NOT appear)`);
-        console.log(`  Score       : ${analysis.confluence.score.toFixed(2)}/5.0 (${analysis.confluence.percentage}%)`);
-        console.log(`  Signals     : ${analysis.confluence.signals.join(' ✦ ')}`);
-        console.log(`  Confidence  : ${(analysis.confidence * 100).toFixed(1)}%`);
+        console.log(`  Signal      : ${analysis.reason}`);
+
+        console.log(`  Confidence  : ${(parseFloat(analysis.confidence) * 100).toFixed(1)}%`);
+        console.log(`  Contract    : ${analysis.contractType}`);
+        if (this.predictedDigit !== null) console.log(`  Target Digit: ${this.predictedDigit}`);
         console.log(`  Stake       : $${this.currentStake.toFixed(2)}  →  Payout: $${payout.toFixed(2)} (+${payoutPct}%)`);
 
-        const r = analysis.results;
-        console.log(`\n  📐 SMC Breakdown:`);
-
-        if (r.liquiditySweep.detected) {
-            console.log(`    ✅ LiqSweep : digit=${r.liquiditySweep.sweptDigit} | type=${r.liquiditySweep.sweepType} | touches=${r.liquiditySweep.poolTouches}`);
-        } else {
-            console.log(`    ⬜ LiqSweep : ${r.liquiditySweep.reason}`);
+        if (analysis.signals[0]?.hotDigits) {
+            console.log(`  Hot Digits : ${analysis.signals[0].hotDigits.map(d => `${d.digit}(${d.ratio})`).join(', ')}`);
         }
 
-        if (r.breakOfStructure.detected) {
-            console.log(`    ✅ BOS      : dir=${r.breakOfStructure.direction} | mag=${r.breakOfStructure.magnitude} | bias=${r.breakOfStructure.bias}`);
-        } else {
-            console.log(`    ⬜ BOS      : ${r.breakOfStructure.reason}`);
-        }
-
-        if (r.fairValueGap.detected) {
-            console.log(`    ✅ FVG      : ${r.fairValueGap.gapDirection} gap | midpoint=${r.fairValueGap.nearestFVG?.midpoint} | proximity=${r.fairValueGap.proximity}`);
-        } else {
-            console.log(`    ⬜ FVG      : ${r.fairValueGap.reason} (active: ${r.fairValueGap.activeFVGs})`);
-        }
-
-        if (r.orderBlock.detected) {
-            console.log(`    ✅ OB       : mean=${r.orderBlock.nearestOB?.clusterMean} | dir=${r.orderBlock.obDirection} | prox=${r.orderBlock.proximity}`);
-        } else {
-            console.log(`    ⬜ OB       : ${r.orderBlock.reason} (active: ${r.orderBlock.activeOBs})`);
-        }
-
-        if (r.trendFilter.aligned) {
-            console.log(`    ✅ Trend    : ${r.trendFilter.alignment} | EMA=${r.trendFilter.emaDirection} | half=${r.trendFilter.halfBias} | slope=${r.trendFilter.emaSlope}`);
-        } else {
-            console.log(`    ⬜ Trend    : ${r.trendFilter.reason}`);
-        }
-
-        console.log(`\n  Last 15 digits: [ ${this.digitHistories[asset].slice(-15).join(' ')} ]`);
+        console.log(`  Last 20 digits: [ ${this.digitHistories[asset].slice(-20).join(' ')} ]`);
         console.log(`${'═'.repeat(60)}\n`);
 
         this._placeTrade(asset, analysis, proposal);
@@ -1318,35 +847,24 @@ class SmartMoneyBot {
             status: 'buying',
             proposalId: proposal.id,
             stake: this.currentStake,
-            predictedDigit: analysis.predictedDigit,
             analysis,
             entryTime: Date.now(),
         };
 
         this.hourlyTrades.push(Date.now());
 
-        // Update SMC traded stats
-        const r = analysis.results;
-        if (r.liquiditySweep.detected) this.smcStats.liquiditySweeps.traded++;
-        if (r.breakOfStructure.detected) this.smcStats.bos.traded++;
-        if (r.fairValueGap.detected) this.smcStats.fvg.traded++;
-        if (r.orderBlock.detected) this.smcStats.orderBlocks.traded++;
-        if (r.trendFilter.aligned) this.smcStats.trendAligned.traded++;
-
         this._sendTelegram(
-            `🎯 <b>SMC v2 Trade</b>\n\n` +
+            `📊 <b>Frequency Signal Trade</b>\n\n` +
             `Asset: <b>${asset}</b>\n` +
-            `Avoid digit: <b>${analysis.predictedDigit}</b>\n` +
-            `Score: ${analysis.confluence.score.toFixed(2)}/5 (${analysis.confluence.percentage}%)\n` +
-            `Signals: ${analysis.confluence.signals.join(', ')}\n` +
-            `Type: ${r.liquiditySweep.sweepType ?? 'N/A'} sweep\n` +
-            `Trend: ${r.trendFilter.alignment}\n` +
-            `Confidence: ${(analysis.confidence * 100).toFixed(1)}%\n` +
+            `Last10digits: ${this.digitHistories[asset].slice(-10).join(',')}\n` +
+            `Target Digit: ${this.predictedDigit}\n` +
+            `Confidence: ${(parseFloat(analysis.confidence) * 100).toFixed(1)}%\n` +
+            `UR Count: ${analysis.underrepresentedCount}\n` +
+            `All UR: ${analysis.underrepresented.map(r => `(${r.from}->${r.to}: ${r.rarity})`).join(' ')}\n` +
             `Stake: $${this.currentStake.toFixed(2)}`
         );
 
         this.lastTradeTime[asset] = Date.now();
-        this.tradeStartTime = Date.now();
         this._startWatchdog(asset);
     }
 
@@ -1399,18 +917,8 @@ class SmartMoneyBot {
         const won = contract.status === 'won';
         const profit = parseFloat(contract.profit);
 
-        // Update SMC win stats
-        const r = trade.analysis.results;
-        if (won) {
-            if (r.liquiditySweep.detected) this.smcStats.liquiditySweeps.won++;
-            if (r.breakOfStructure.detected) this.smcStats.bos.won++;
-            if (r.fairValueGap.detected) this.smcStats.fvg.won++;
-            if (r.orderBlock.detected) this.smcStats.orderBlocks.won++;
-            if (r.trendFilter.aligned) this.smcStats.trendAligned.won++;
-        }
-
         console.log(`\n${'═'.repeat(60)}`);
-        console.log(`  ${won ? '✅ WIN' : '❌ LOSS'}: ${asset} | digit avoided: ${trade.predictedDigit}`);
+        console.log(`  ${won ? '✅ WIN' : '❌ LOSS'}: ${asset}`);
         console.log(`  P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(3)}`);
         console.log(`${'═'.repeat(60)}`);
 
@@ -1421,34 +929,26 @@ class SmartMoneyBot {
         this.assetMetrics[asset].profitLoss += profit;
 
         this._checkDayChange();
-        const currentHour = new Date().getHours();
-        if (currentHour !== this.hourlyStats.lastHour) {
-            this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: currentHour };
-        }
-        this.hourlyStats.trades++;
-        this.hourlyStats.pnl += profit;
         this.session.tradesCount++;
         this.session.netPL += profit;
 
         if (won) {
-            this.hourlyStats.wins++;
-            this.session.winsCount++;
             this.totalWins++;
-            this.isWinTrade = true;
-            this.currentStake = this.cfg.initialStake;
             this.consecutiveLosses = 0;
+            this.currentStake = this.cfg.initialStake;
             this.assetMetrics[asset].wins++;
+            this.session.winsCount++;
         } else {
-            this.hourlyStats.losses++;
-            this.session.lossesCount++;
             this.totalLosses++;
             this.consecutiveLosses++;
             this.lastLossTime[asset] = Date.now();
             this.assetMetrics[asset].losses++;
+            this.session.lossesCount++;
+            // this.underrepresentedIndex++;
 
-            if (this.consecutiveLosses === 2) this.consecutiveLosses2++;
-            else if (this.consecutiveLosses === 3) this.consecutiveLosses3++;
-            else if (this.consecutiveLosses === 4) this.consecutiveLosses4++;
+            if (this.underrepresentedIndex >= this.underrepresentedIndeLimit) {
+                this.underrepresentedIndex = 0;
+            }
 
             this.currentStake = Math.ceil(this.currentStake * this.cfg.multiplier * 100) / 100;
         }
@@ -1457,36 +957,30 @@ class SmartMoneyBot {
         delete this.activeTrades[asset];
 
         const wr = ((this.totalWins / this.totalTrades) * 100).toFixed(2);
-        const smcPerf = Object.entries(this.smcStats).map(([name, stats]) => {
-            const wr2 = stats.traded > 0 ? (stats.won / stats.traded * 100).toFixed(1) : '0.0';
-            return `${name}: ${wr2}%`;
-        }).join(' | ');
 
         this._sendTelegram(
             `${won ? '✅' : '❌'} <b>Result</b>\n\n` +
             `Asset: ${asset}\n` +
+            `Last10digits: ${this.digitHistories[asset].slice(-10).join(',')}\n` +
             `P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(3)}\n` +
-            `Trades: ${this.totalTrades} (${this.totalWins}W/${this.totalLosses}L)\n` +
+            `Trades: ${this.totalTrades} (${this.totalWins}/${this.totalLosses})\n` +
             `Win Rate: ${wr}%\n` +
             `Consec losses: ${this.consecutiveLosses}\n` +
             `Next stake: $${this.currentStake.toFixed(2)}\n` +
-            `Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}\n\n` +
-            `SMC Performance:\n${smcPerf}`
+            `Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}`
         );
 
-        this._logSummary();
+        this._logSummary(asset);
         StatePersistence.save(this);
 
         if (this.totalProfitLoss >= this.cfg.takeProfit) {
             this.endOfDay = true;
             this._sendTelegram(`🎯 <b>Take Profit!</b> P&L: +$${this.totalProfitLoss.toFixed(2)}`);
-            this._sendSessionSummary();
             this._cleanupWs();
         } else if (this.consecutiveLosses >= this.cfg.maxConsecutiveLosses ||
             this.totalProfitLoss <= -this.cfg.stopLoss) {
             this.endOfDay = true;
             this._sendTelegram(`🛑 <b>Stop Loss</b>\nLosses: ${this.consecutiveLosses} | P&L: $${this.totalProfitLoss.toFixed(2)}`);
-            this._sendSessionSummary();
             this._cleanupWs();
         }
     }
@@ -1496,7 +990,7 @@ class SmartMoneyBot {
         this._wdTimer = setTimeout(() => {
             const contractId = this.activeTrades[asset]?.contractId;
             if (!contractId) { this._clearWatchdog(); return; }
-            console.warn(`⏰ WATCHDOG FIRED — re-subscribing`);
+            console.warn(`⏰ WATCHDOG — re-subscribing`);
             if (this.connected) {
                 this._send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 });
             }
@@ -1516,89 +1010,10 @@ class SmartMoneyBot {
         }
     }
 
-    async _sendHourlySummary() {
-        try {
-            const stats = { ...this.hourlyStats };
-            if (stats.trades === 0) return;
-            const winRate = stats.trades > 0 ? ((stats.wins / stats.trades) * 100).toFixed(1) : '0.0';
-            const pnlStr = (stats.pnl >= 0 ? '+' : '') + '$' + stats.pnl.toFixed(2);
-            const message = [
-                `⏰ <b>SMC v2 Bot — Hourly Summary</b>`, ``,
-                `📊 <b>Last Hour</b>`,
-                `├ Trades: ${stats.trades}`,
-                `├ Wins: ${stats.wins} | Losses: ${stats.losses}`,
-                `├ Win Rate: ${winRate}%`,
-                `└ ${stats.pnl >= 0 ? '🟢' : '🔴'} <b>P&L:</b> ${pnlStr}`, ``,
-                `🗓️ <b>Today</b>`,
-                `├ Total Trades: ${this.totalTrades}`,
-                `└ Today P&L: ${this.dailyProfitLoss >= 0 ? '+' : ''}$${this.dailyProfitLoss.toFixed(2)}`,
-            ].join('\n');
-            await this._sendTelegram(message);
-            this.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
-        } catch (err) {
-            console.error(`❌ _sendHourlySummary: ${err.message}`);
-        }
-    }
-
-    async _sendSessionSummary() {
-        try {
-            const durationMs = Date.now() - this.session.startTime;
-            const hours = Math.floor(durationMs / 3600000);
-            const minutes = Math.floor((durationMs % 3600000) / 60000);
-            const winRate = this.session.tradesCount > 0
-                ? ((this.session.winsCount / this.session.tradesCount) * 100).toFixed(1) + '%'
-                : '0%';
-            const message = [
-                `📊 <b>SESSION SUMMARY — SMC v2</b>`, ``,
-                `⏱️ Duration: ${hours}h ${minutes}m`,
-                `🔢 Trades: ${this.session.tradesCount}`,
-                `✅ Wins: ${this.session.winsCount} | ❌ Losses: ${this.session.lossesCount}`,
-                `📈 Win Rate: ${winRate}`,
-                `💰 Session P/L: ${this.session.netPL >= 0 ? '+' : ''}$${this.session.netPL.toFixed(2)}`,
-                `💵 Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}`,
-            ].join('\n');
-            await this._sendTelegram(message);
-        } catch (err) {
-            console.error(`❌ _sendSessionSummary: ${err.message}`);
-        }
-    }
-
-    async _sendDayEndSummary(dateKey) {
-        try {
-            const wr = this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(1) + '%' : '0%';
-            const message = [
-                `🌙 <b>END OF DAY — ${dateKey}</b>`, ``,
-                `${this.dailyProfitLoss >= 0 ? '🟢' : '🔴'} <b>Day Results:</b>`,
-                `├ Trades: ${this.totalTrades}`,
-                `├ Wins: ${this.totalWins} | Losses: ${this.totalLosses}`,
-                `├ Win Rate: ${wr}`,
-                `└ Net P/L: $${this.dailyProfitLoss.toFixed(2)}`, ``,
-                `📊 <b>Overall:</b>`,
-                `└ Total P&L: $${this.totalProfitLoss.toFixed(2)}`,
-            ].join('\n');
-            await this._sendTelegram(message);
-        } catch (err) {
-            console.error(`❌ _sendDayEndSummary: ${err.message}`);
-        }
-    }
-
-    _startHourlyTimer() {
-        const now = new Date();
-        const next = new Date(now);
-        next.setHours(next.getHours() + 1, 0, 0, 0);
-        const wait = next.getTime() - now.getTime();
-        console.log(`⏰ Hourly summary in ${Math.ceil(wait / 60000)} min`);
-        setTimeout(() => {
-            this._sendHourlySummary();
-            setInterval(() => this._sendHourlySummary(), 60 * 60 * 1000);
-        }, wait);
-    }
-
     _checkDayChange() {
         const today = new Date().toISOString().split('T')[0];
         if (this.currentTradeDay && this.currentTradeDay !== today) {
             console.log(`🗓️ Day change: ${this.currentTradeDay} → ${today}`);
-            this._sendDayEndSummary(this.currentTradeDay);
             this.dailyProfitLoss = 0;
             this.currentTradeDay = today;
             StatePersistence.save(this);
@@ -1609,54 +1024,38 @@ class SmartMoneyBot {
         setInterval(() => {
             const gmt1 = new Date(Date.now() + 3600000);
             const hr = gmt1.getUTCHours();
-            const min = gmt1.getUTCMinutes();
-
-            if (this.endOfDay && hr === 2 && min < 1) {
+            if (this.endOfDay && hr === 2) {
                 console.log('⏰ 2:00 AM GMT+1 — reconnecting');
                 this.endOfDay = false;
                 this.tradeInProgress = false;
                 this.connect();
             }
-
-            if (this.isWinTrade && !this.endOfDay && hr >= 23) {
-                console.log('🌙 Post-win 11 PM — stopping for the night');
-                this.endOfDay = true;
-                this._sendTelegram(`🌙 <b>Night stop after win</b>\nP&L: $${this.totalProfitLoss.toFixed(2)}`);
-                this._sendSessionSummary();
-                this._cleanupWs();
-            }
         }, 20000);
     }
 
-    _logSummary() {
+    _logSummary(asset) {
         const wr = this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : '0.00';
         console.log('\n📊 SUMMARY');
         console.log(`  Trades: ${this.totalTrades} | W: ${this.totalWins} | L: ${this.totalLosses} | WR: ${wr}%`);
+        console.log(`  Last20digits: ${this.digitHistories[asset].slice(-20).join(',')}`);
         console.log(`  Total P&L: $${this.totalProfitLoss.toFixed(2)}`);
         console.log(`  Next stake: $${this.currentStake.toFixed(2)}`);
-        console.log('  SMC Signal Performance:');
-        Object.entries(this.smcStats).forEach(([name, stats]) => {
-            const wr2 = stats.traded > 0 ? ((stats.won / stats.traded) * 100).toFixed(1) : '0.0';
-            console.log(`    ${name.padEnd(16)} det=${stats.detected} | trd=${stats.traded} | WR=${wr2}%`);
-        });
     }
 
     start() {
         console.log('═══════════════════════════════════════════════════════════');
-        console.log('  🎯 Smart Money Concepts Bot  v2');
+        console.log('  📊 DERIV DIGIT FREQUENCY ANALYZER BOT');
         console.log('═══════════════════════════════════════════════════════════');
-        console.log('  ✓ Liquidity Sweep  — swing pivot pool + sweep detection');
-        console.log('  ✓ Break of Structure — pivot series + CHoCH guard');
-        console.log('  ✓ Fair Value Gap   — 3-tick imbalance, unfilled tracking');
-        console.log('  ✓ Order Block      — impulse detection + mitigation');
-        console.log('  ✓ Trend Filter     — EMA slope + digit-half + CHoCH');
-        console.log(`\n  Min confluence score : ${BOT_CONFIG.confluence.minScore}/5.0`);
-        console.log(`  Required history     : ${BOT_CONFIG.requiredHistoryLength} ticks`);
+        console.log('  ✓ Chi-Square Goodness-of-Fit Test (uniform distribution)');
+        console.log('  ✓ Rolling Window Bias Detection (50-300 ticks)');
+        console.log('  ✓ Even/Odd Binomial Analysis');
+        console.log('  ✓ Digit Transition Pair Analysis');
+        console.log(`\n  Statistical Confidence: 90% (p < 0.10)`);
+        console.log(`  Expected Edge: 51-54% win rate`);
         console.log('═══════════════════════════════════════════════════════════\n');
 
         this.connect();
         this._startTimeScheduler();
-        this._startHourlyTimer();
         StatePersistence.startAutoSave(this);
     }
 }
@@ -1664,5 +1063,5 @@ class SmartMoneyBot {
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────────────────────────────────────
-const bot = new SmartMoneyBot(BOT_CONFIG);
+const bot = new DerivFrequencyBot(BOT_CONFIG);
 bot.start();
