@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'VolatilityBreakout_v1-state.json');
-const HISTORY_FILE = path.join(__dirname, 'VolatilityBreakout_v1-history.json');
+const STATE_FILE = path.join(__dirname, 'VolatilityBreakout_01_v1-state.json');
+const HISTORY_FILE = path.join(__dirname, 'VolatilityBreakout_01_v1-history.json');
 
 const STATE_SAVE_INTERVAL = 5000;
 
@@ -561,13 +561,6 @@ Capital: $${state.capital.toFixed(2)}
 // LOGGER UTILITY
 // ============================================
 const getGMTTime = () => new Date().toISOString().split('T')[1].split('.')[0] + ' GMT';
-const LOGGER = {
-    info: msg => console.log(`[INFO] ${getGMTTime()} - ${msg}`),
-    trade: msg => console.log(`\x1b[32m[TRADE] ${getGMTTime()} - ${msg}\x1b[0m`),
-    warn: msg => console.warn(`\x1b[33m[WARN] ${getGMTTime()} - ${msg}\x1b[0m`),
-    error: msg => console.error(`\x1b[31m[ERROR] ${getGMTTime()} - ${msg}\x1b[0m`),
-    debug: msg => { if (CONFIG.DEBUG_MODE) console.log(`\x1b[90m[DEBUG] ${getGMTTime()} - ${msg}\x1b[0m`); }
-};
 
 // ============================================
 // CONFIGURATION
@@ -604,8 +597,8 @@ const CONFIG = {
     // Breakout detection
     BREAKOUT: {
         LOOKBACK_PERIOD: 20,      // Candles for high/low range
-        MIN_STRENGTH: 1.2,        // Minimum breakout strength
-        STRONG_STRENGTH: 1.8,     // Strong breakout
+        MIN_STRENGTH: 0.1,        // Minimum breakout strength
+        STRONG_STRENGTH: 0.3,     // Strong breakout
         CONFIRMATION_TICKS: 2,    // Wait for confirmation
     },
 
@@ -621,8 +614,8 @@ const CONFIG = {
     RSI: {
         ENABLED: true,
         PERIOD: 14,
-        OVERSOLD: 30,
-        OVERBOUGHT: 70,
+        OVERSOLD: 40,
+        OVERBOUGHT: 60,
         USE_DIVERGENCE: false,
     },
 
@@ -668,6 +661,14 @@ function getAssetConfig(symbol) {
         DURATION_UNIT: CONFIG.DURATION_UNIT
     };
 }
+
+const LOGGER = {
+    info: msg => console.log(`[INFO] ${getGMTTime()} - ${msg}`),
+    trade: msg => console.log(`\x1b[32m[TRADE] ${getGMTTime()} - ${msg}\x1b[0m`),
+    warn: msg => console.warn(`\x1b[33m[WARN] ${getGMTTime()} - ${msg}\x1b[0m`),
+    error: msg => console.error(`\x1b[31m[ERROR] ${getGMTTime()} - ${msg}\x1b[0m`),
+    debug: msg => { if (CONFIG.DEBUG_MODE) console.log(`\x1b[90m[DEBUG] ${getGMTTime()} - ${msg}\x1b[0m`); }
+};
 
 // ============================================
 // STATE MANAGEMENT
@@ -751,14 +752,26 @@ class VolatilityBreakoutAnalyzer {
             return { isSqueezing: false, ratio: 0, currentATR: 0, historicalATR: 0 };
         }
 
+        // const currentATR = this.calculateATR(
+        //     candles.slice(-CONFIG.VOLATILITY.ATR_PERIOD - 1),
+        //     CONFIG.VOLATILITY.ATR_PERIOD
+        // );
+
+        // const historicalATR = this.calculateATR(
+        //     candles.slice(-CONFIG.VOLATILITY.VOLATILITY_WINDOW),
+        //     CONFIG.VOLATILITY.ATR_PERIOD
+        // );
+
         const currentATR = this.calculateATR(
-            candles.slice(-CONFIG.VOLATILITY.ATR_PERIOD - 1),
-            CONFIG.VOLATILITY.ATR_PERIOD
+            candles.slice(-(CONFIG.VOLATILITY.ATR_PERIOD + 1)),
+            CONFIG.VOLATILITY.ATR_PERIOD          // ATR of recent 14 candles
         );
 
+        // Use a distinct longer period for the baseline
+        const HISTORICAL_PERIOD = 30; // compare recent 14-period ATR vs longer 30-period ATR
         const historicalATR = this.calculateATR(
-            candles.slice(-CONFIG.VOLATILITY.VOLATILITY_WINDOW),
-            CONFIG.VOLATILITY.ATR_PERIOD
+            candles.slice(-(HISTORICAL_PERIOD + 1)),
+            HISTORICAL_PERIOD
         );
 
         if (historicalATR === 0) return { isSqueezing: false, ratio: 0, currentATR, historicalATR };
@@ -805,7 +818,7 @@ class VolatilityBreakoutAnalyzer {
             if (strength >= CONFIG.BREAKOUT.MIN_STRENGTH && confirmed) {
                 return {
                     hasBreakout: true,
-                    direction: 'CALL',
+                    direction: 'CALLE',
                     strength,
                     isStrong: strength >= CONFIG.BREAKOUT.STRONG_STRENGTH,
                     breakoutPrice: high,
@@ -822,7 +835,7 @@ class VolatilityBreakoutAnalyzer {
             if (strength >= CONFIG.BREAKOUT.MIN_STRENGTH && confirmed) {
                 return {
                     hasBreakout: true,
-                    direction: 'PUT',
+                    direction: 'PUTE',
                     strength,
                     isStrong: strength >= CONFIG.BREAKOUT.STRONG_STRENGTH,
                     breakoutPrice: low,
@@ -960,9 +973,9 @@ class VolatilityBreakoutAnalyzer {
         if (CONFIG.RSI.ENABLED) {
             rsi = this.calculateRSI(candles, CONFIG.RSI.PERIOD);
 
-            // For CALL: prefer RSI not overbought
-            // For PUT: prefer RSI not oversold
-            if (breakout.direction === 'CALL') {
+            // For CALLE: prefer RSI not overbought
+            // For PUTE: prefer RSI not oversold
+            if (breakout.direction === 'CALLE') {
                 rsiSignal = rsi < CONFIG.RSI.OVERBOUGHT;
             } else {
                 rsiSignal = rsi > CONFIG.RSI.OVERSOLD;
@@ -993,16 +1006,16 @@ class VolatilityBreakoutAnalyzer {
         // Trend alignment adds confidence
         if (trend.aligned && trend.trend !== 'NEUTRAL') {
             const trendMatch =
-                (trend.trend === 'UPTREND' && breakout.direction === 'CALL') ||
-                (trend.trend === 'DOWNTREND' && breakout.direction === 'PUT');
+                (trend.trend === 'UPTREND' && breakout.direction === 'CALLE') ||
+                (trend.trend === 'DOWNTREND' && breakout.direction === 'PUTE');
 
             if (trendMatch) confidence += 0.20;
         }
 
         // RSI confirmation
         if (CONFIG.RSI.ENABLED) {
-            if (breakout.direction === 'CALL' && rsi < 50) confidence += 0.10;
-            if (breakout.direction === 'PUT' && rsi > 50) confidence += 0.10;
+            if (breakout.direction === 'CALLE' && rsi < 50) confidence += 0.10;
+            if (breakout.direction === 'PUTE' && rsi > 50) confidence += 0.10;
         }
 
         // Cap confidence
@@ -1023,7 +1036,7 @@ class VolatilityBreakoutAnalyzer {
 
         return {
             shouldTrade: true,
-            direction: breakout.direction === 'CALL' ? 'CALLE' : 'PUTE',
+            direction: breakout.direction === 'CALLE' ? 'CALLE' : 'PUTE',
             confidence,
             reason: 'volatility_breakout_confirmed',
             signal: `${breakout.isStrong ? 'STRONG' : 'NORMAL'} ${breakout.direction} breakout from squeeze`,
@@ -1238,6 +1251,7 @@ class SessionManager {
         state.hourlyStats.trades++;
         state.hourlyStats.pnl += profit;
         assetState.tradesCount++;
+        assetState.lastLossTime = Date.now();
 
         if (profit > 0) {
             // WIN
@@ -1288,17 +1302,31 @@ class SessionManager {
             );
 
             // Check consecutive loss limit
-            if (assetState.consecutiveLosses >= CONFIG.RISK.MAX_CONSECUTIVE_LOSSES) {
-                LOGGER.warn(`⚠️ [${symbol}] Max consecutive losses reached, pausing asset`);
-                assetState.canTrade = false;
+            // if (assetState.consecutiveLosses >= CONFIG.RISK.MAX_CONSECUTIVE_LOSSES) {
+            //     LOGGER.warn(`⚠️ [${symbol}] Max consecutive losses reached, pausing asset`);
+            //     assetState.canTrade = false;
 
-                TelegramService.sendMessage(
-                    `⚠️ <b>Asset Paused</b>\n` +
-                    `${symbol} reached ${CONFIG.RISK.MAX_CONSECUTIVE_LOSSES} consecutive losses.\n` +
-                    `Trading paused for this asset.`
-                );
+            //     TelegramService.sendMessage(
+            //         `⚠️ <b>Asset Paused</b>\n` +
+            //         `${symbol} reached ${CONFIG.RISK.MAX_CONSECUTIVE_LOSSES} consecutive losses.\n` +
+            //         `Trading paused for this asset.`
+            //     );
+            // }
+
+            const COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+            if (assetState.consecutiveLosses >= CONFIG.RISK.MAX_CONSECUTIVE_LOSSES) {
+                const lastLossTime = assetState.lastLossTime || 0;
+                if (Date.now() - lastLossTime < COOLDOWN_MS) {
+                    LOGGER.debug(`${symbol} in cooldown (${Math.round((COOLDOWN_MS - (Date.now() - lastLossTime)) / 60000)}m left)`);
+                    return;
+                }
+                // Cooldown expired — reset and allow trading again
+                LOGGER.info(`[${symbol}] Cooldown expired, resuming trading`);
+                assetState.consecutiveLosses = 0;
+                assetState.canTrade = true;
             }
         }
+        this.checkDayChange();
     }
 }
 
@@ -1367,7 +1395,8 @@ class ConnectionManager {
                     profit: 0,
                     loss: 0,
                     netPL: 0,
-                    consecutiveLosses: 0
+                    consecutiveLosses: 0,
+                    lastLossTime: 0,
                 };
 
                 const ac = getAssetConfig(symbol);
@@ -1409,8 +1438,16 @@ class ConnectionManager {
             state.isAuthorized = true;
             state.accountBalance = response.authorize.balance;
 
-            if (state.capital === CONFIG.INITIAL_CAPITAL) {
-                state.capital = response.authorize.balance;
+            // if (state.capital === CONFIG.INITIAL_CAPITAL) {
+            //     state.capital = response.authorize.balance;
+            // }
+
+            state.capital = response.authorize.balance;
+            state.accountBalance = response.authorize.balance;
+
+            // Only set session startCapital on first connect
+            if (!stateLoaded || state.session.startCapital === CONFIG.INITIAL_CAPITAL) {
+                state.session.startCapital = response.authorize.balance;
             }
 
             this.send({ balance: 1, subscribe: 1 });
@@ -1682,7 +1719,7 @@ class ConnectionManager {
         state.assets[symbol].candles = [...candles];
         state.assets[symbol].closedCandles = [...candles];
         state.assets[symbol].lastProcessedCandleOpenTime = candles[candles.length - 1].open_time;
-        state.assets[symbol].currentFormingCandle = null;
+        state.assets[symbol].currentFormingCandle = candles[candles.length - 1];
 
         LOGGER.info(
             `📊 Loaded ${candles.length} ${assetConfig.TIMEFRAME_LABEL} candles for ${symbol}`
@@ -1839,6 +1876,9 @@ class DerivBot {
         if (!assetState.canTrade) return;
         if (!SessionManager.isSessionActive()) return;
 
+        // LOCK IMMEDIATELY before any other check
+        assetState.canTrade = false;
+
         const assetConfig = getAssetConfig(symbol);
 
         if (assetState.activePositions.length >= CONFIG.MAX_OPEN_POSITIONS_PER_ASSET) {
@@ -1876,14 +1916,27 @@ class DerivBot {
         // POSITION SIZING (KELLY CRITERION)
         // ══════════════════════════════════════════════════════════
 
+        const overall = TradeHistoryManager.getOverallStats();
+        const historicalWinRate = overall.tradesCount > 20
+            ? overall.winsCount / overall.tradesCount
+            : state.session.estimatedWinRate; // fall back to 0.55 if too few trades
+
         let stake = KellyPositionSizer.calculateStake(
             state.capital,
-            state.session.estimatedWinRate,
+            historicalWinRate,
             confidence
         );
 
+        // let stake = KellyPositionSizer.calculateStake(
+        //     state.capital,
+        //     state.session.estimatedWinRate,
+        //     confidence
+        // );
+
         // Adjust for consecutive losses
         stake = KellyPositionSizer.adjustForLosses(stake, assetState.consecutiveLosses);
+
+        assetState.currentStake = stake;
 
         if (state.capital < stake) {
             LOGGER.error(
@@ -1897,8 +1950,6 @@ class DerivBot {
             LOGGER.warn(`[${symbol}] Not connected/authorized`);
             return;
         }
-
-        assetState.canTrade = false;
 
         LOGGER.trade(`\n${'═'.repeat(70)}`);
         LOGGER.trade(`  🎯 VOLATILITY BREAKOUT TRADE - ${symbol}`);
