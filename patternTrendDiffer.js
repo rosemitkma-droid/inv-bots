@@ -1155,14 +1155,14 @@ class TrendReversalBot {
             //     this._cleanupWs();
             // }
 
-            if (this.endOfDay && hr === 7 && min < 1) {
+            if (this.endOfDay && hr === 2 && min < 1) {
                 console.log('⏰ 2:00 AM — reconnecting');
                 this.endOfDay = false;
                 this.tradeInProgress = false;
                 this.connect();
             }
 
-            if (this.isWinTrade && !this.endOfDay && hr >= 17) {
+            if (this.isWinTrade && !this.endOfDay && hr >= 11) {
                 console.log('🌙 Post-win 11 PM — stopping for the night');
                 this.endOfDay = true;
                 this._sendTelegram(`🌙 <b>Night stop after win</b>\nP&L: $${this.totalProfitLoss.toFixed(2)}`);
