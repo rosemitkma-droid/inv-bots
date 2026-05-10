@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'trend_reversal-001_state.json');
+const STATE_FILE = path.join(__dirname, 'trend_reversal-002_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1155,14 +1155,14 @@ class TrendReversalBot {
             //     this._cleanupWs();
             // }
 
-            if (this.endOfDay && hr === 2 && min < 1) {
+            if (this.endOfDay && hr === 7 && min < 1) {
                 console.log('⏰ 2:00 AM — reconnecting');
                 this.endOfDay = false;
                 this.tradeInProgress = false;
                 this.connect();
             }
 
-            if (this.isWinTrade && !this.endOfDay && hr >= 23) {
+            if (this.isWinTrade && !this.endOfDay && hr >= 17) {
                 console.log('🌙 Post-win 11 PM — stopping for the night');
                 this.endOfDay = true;
                 this._sendTelegram(`🌙 <b>Night stop after win</b>\nP&L: $${this.totalProfitLoss.toFixed(2)}`);
