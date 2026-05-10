@@ -48,7 +48,7 @@ const BOT_CONFIG = {
 
     // Trend Analysis Config 
     trendWindow: 15,                    //10 Number of recent digits to analyze for trend
-    minTrendStrength: 4,                //4 Minimum consecutive steps in same direction
+    minTrendStrength: 5,                //4 Minimum consecutive steps in same direction
     minWinProbability: 0.50,            // 70% minimum historical win rate
     historyDepth: 1000,                 // Ticks to analyze for probability calculation
 
@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'trend_reversal-002_state.json');
+const STATE_FILE = path.join(__dirname, 'trend_reversal-003_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -741,9 +741,9 @@ class TrendReversalBot {
 
         //Don't Trade if Descending Sequence ends in 5 t9 9 and Ascending Sequence ends in 0 or 1 or 4
         if (
-            (analysis.trend.direction.toLowerCase() === 'descending' && [5, 6, 7, 8, 9].includes(analysis.trend.sequence[analysis.trend.sequence.length - 1])) ||
-            (analysis.trend.direction.toLowerCase() === 'ascending' && [0, 1, 2, 3, 4].includes(analysis.trend.sequence[analysis.trend.sequence.length - 1]))
-        ) {
+            (analysis.trend.direction.toLowerCase() === 'descending' && [5, 6, 7, 8, 9].includes(analysis.predictedDigit)) ||
+            (analysis.trend.direction.toLowerCase() === 'ascending' && [0, 1, 2, 3, 4].includes(analysis.predictedDigit)
+            )) {
             console.log(`\n⛔ REVERSAL PATTERN CONFLICT:`);
             console.log(`   Trend is [${analysis.trend.direction.toUpperCase()}]`);
             console.log(`   But last digit is [${analysis.trend.sequence[analysis.trend.sequence.length - 1]}]`);
