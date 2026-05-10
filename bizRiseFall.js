@@ -573,7 +573,7 @@ const LOGGER = {
 // CONFIGURATION
 // ============================================
 const CONFIG = {
-    API_TOKEN: 'rgNedekYXvCaPeP',
+    API_TOKEN: 'hsj0tA0XJoIzJG5',
     APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
