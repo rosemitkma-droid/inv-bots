@@ -45,7 +45,7 @@ const path = require('path');
 // ─────────────────────────────────────────────────────────────────────────────
 const BOT_CONFIG = {
     token: 'rgNedekYXvCaPeP',
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'],  //['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'],
+    assets: ['R_10', 'R_25', 'R_50', 'R_75'],  //['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'],
 
     initialStake: 2.55,
     // [M2] Reduced from 11.3 to 2.2.
@@ -96,7 +96,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'deriv_digitpair_bot_state_01.json');
+const STATE_FILE = path.join(__dirname, 'deriv_digitpair_bot_state_02.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
