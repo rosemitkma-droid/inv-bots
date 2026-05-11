@@ -45,7 +45,7 @@ const path = require('path');
 // ─────────────────────────────────────────────────────────────────────────────
 const BOT_CONFIG = {
     token: 'rgNedekYXvCaPeP',
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'RDBULL', 'RDBEAR'],  //['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'],
 
     initialStake: 2.55,
     // [M2] Reduced from 11.3 to 2.2.
@@ -81,9 +81,9 @@ const BOT_CONFIG = {
         minConfidenceScore: 0.75,
     },
 
-    minTimeBetweenTrades: 8000,
-    cooldownAfterLoss: 30000,
-    maxTradesPerHour: 200,
+    minTimeBetweenTrades: 25000,
+    cooldownAfterLoss: 60000,
+    maxTradesPerHour: 20000,
     maxExposure: 50,
 
     telegramToken: '8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4',
@@ -96,7 +96,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'deriv_digitpair_bot_state.json');
+const STATE_FILE = path.join(__dirname, 'deriv_digitpair_bot_state_01.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -692,6 +692,34 @@ class DerivDigitPairBot {
 
         if (!analysis.shouldTrade) return;
 
+        // [M2] Strictly ensure the analysis is performed on the current live tick data
+        if (analysis.currentDigit !== this.digitHistories[asset][this.digitHistories[asset].length - 1]) {
+            console.log(`⚠️  Analysis Current Digit is not same as Asset Last Digit`);
+            delete this.proposalIds[asset];
+            return;
+        }
+
+        // Don't Trade if Current Digit === Predicted Digit
+        if (analysis.currentDigit === analysis.predictedDigit) {
+            console.log(`⚠️ Current Digit is same as Predicted Digit, Do Not Trade (${analysis.currentDigit} | ${analysis.predictedDigit})`);
+            delete this.proposalIds[asset];
+            return;
+        }
+
+        // Check if shortRatio < 1.0
+        if (analysis.analysis.shortCount < 1.0) {
+            console.log(`⚠️  ShortRatio is not less than 1.0 (${analysis.analysis.shortCount.toFixed(2)})`);
+            delete this.proposalIds[asset];
+            return;
+        }
+
+        // Check if longCount < 30
+        if (analysis.analysis.longCount < 30) {
+            console.log(`⚠️  LongCount is not less than 30 (${analysis.analysis.longCount.toFixed(2)})`);
+            delete this.proposalIds[asset];
+            return;
+        }
+
         if (this.cfg.transitionAnalysis.useTriplePatterns) {
             const triplePattern = this.analyzer.analyzeTriplePatterns(this.digitHistories[asset]);
             if (triplePattern) {
@@ -810,7 +838,9 @@ class DerivDigitPairBot {
             `Confidence: ${(parseFloat(analysis.confidence) * 100).toFixed(1)}%\n` +
             `Z-Score: ${analysis.analysis.zScore}\n` +
             `Signal: ${analysis.reason}\n` +
-            `Short: ${analysis.analysis.shortCount} (${(parseFloat(analysis.analysis.shortRatio) * 100).toFixed(2)}%)\n` +
+            `Short Window : ${analysis.analysis.shortCount.toFixed(2)} (${(parseFloat(analysis.analysis.shortRatio) * 100).toFixed(2)}%)\n` +
+            `Medium Window: ${analysis.analysis.mediumCount.toFixed(2)} (${(parseFloat(analysis.analysis.mediumRatio) * 100).toFixed(2)}%)\n` +
+            `Long Window  : ${analysis.analysis.longCount.toFixed(2)} (${(parseFloat(analysis.analysis.longRatio) * 100).toFixed(2)}%)\n` +
             `Stake: $${this.currentStake.toFixed(2)}`
         );
 
