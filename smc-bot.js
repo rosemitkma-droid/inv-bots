@@ -52,8 +52,8 @@ const BOT_CONFIG = {
     //      At 2.2×: $2.55 → $5.61 → $12.34 → $27.15 over 3 losses.
     //      With a $100 stop-loss you survive 5+ consecutive losses.
     //      Digit DIFFER pays ~91%, so breakeven win-rate is ~1/2.2 ≈ 45.5%.
-    multiplier: 2.2,
-    maxConsecutiveLosses: 5,
+    multiplier: 11.3,
+    maxConsecutiveLosses: 3,
     stopLoss: 100,
     takeProfit: 50000,
 
@@ -81,8 +81,8 @@ const BOT_CONFIG = {
         minConfidenceScore: 0.75,
     },
 
-    minTimeBetweenTrades: 25000,
-    cooldownAfterLoss: 60000,
+    minTimeBetweenTrades: 35000,
+    cooldownAfterLoss: 2000,
     maxTradesPerHour: 20000,
     maxExposure: 50,
 
@@ -96,7 +96,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'deriv_digitpair_bot_state_02.json');
+const STATE_FILE = path.join(__dirname, 'deriv_digitpair_bot_state_03.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
