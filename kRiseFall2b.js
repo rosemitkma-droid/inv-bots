@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_01007-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_01007-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_01007-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_01207-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_01207-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_01207-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -82,19 +82,27 @@ class AssetMaxStreakManager {
     fetchMaxStreakForAsset(symbol, connection) {
         return new Promise((resolve, reject) => {
             const assetConfig = getAssetConfig(symbol);
-            const BATCH_SIZE = 60; //5000
-            const MAX_BATCHES = 1; // 10 × 5,000 = 50,000
+            const BATCH_SIZE = 60;
+            const MAX_BATCHES = 1;
 
             let batchesDone = 0;
-            let endEpoch = 'latest';   // first call uses 'latest'
+            let endEpoch = 'latest';
             let overallMaxStreak = 1;
-            let crossBatchLastDir = null; // direction of last candle in previous batch
+            let crossBatchLastDir = null;
+            let onMessage = null; // Declare outside to ensure cleanup
 
             LOGGER.info(`📡 [${symbol}] Starting 50k-candle maxStreak fetch...`);
 
+            const cleanup = () => {
+                if (onMessage) {
+                    connection.ws.removeListener('message', onMessage);
+                    onMessage = null;
+                }
+            };
+
             const fetchBatch = () => {
                 if (batchesDone >= MAX_BATCHES) {
-                    // All batches done
+                    cleanup();
                     LOGGER.info(`✅ [${symbol}] maxStreak computation complete: ${overallMaxStreak} (${batchesDone} batches)`);
                     resolve(overallMaxStreak);
                     return;
@@ -110,20 +118,17 @@ class AssetMaxStreakManager {
                     granularity: assetConfig.GRANULARITY
                 };
 
-                // One-shot listener: wait for THIS specific candles response
-                const onMessage = (data) => {
+                onMessage = (data) => {
                     let response;
                     try { response = JSON.parse(data); } catch { return; }
 
-                    // We only care about candles responses for our symbol
                     if (response.msg_type !== 'candles') return;
                     if (response.echo_req?.ticks_history !== symbol) return;
 
-                    connection.ws.removeListener('message', onMessage);
+                    cleanup(); // Remove listener immediately
 
                     if (response.error) {
                         LOGGER.warn(`⚠️ [${symbol}] Batch ${batchesDone + 1} error: ${response.error.message}`);
-                        // Treat as end of available history
                         LOGGER.info(`✅ [${symbol}] maxStreak (early stop): ${overallMaxStreak}`);
                         resolve(overallMaxStreak);
                         return;
@@ -138,19 +143,12 @@ class AssetMaxStreakManager {
 
                     LOGGER.info(`📊 [${symbol}] Batch ${batchesDone + 1}: ${candles.length} candles received`);
 
-                    // Process streak inline — oldest candle first
-                    // The API returns candles sorted oldest→newest
                     let currentStreak = 1;
-
-                    // Seed from cross-batch state
-                    // On subsequent batches, crossBatchLastDir holds the direction
-                    // of the LAST candle of the PREVIOUS batch (which is OLDER),
-                    // so we compare candles[0] against it.
                     let prevDir = crossBatchLastDir;
 
                     for (let i = 0; i < candles.length; i++) {
                         const c = candles[i];
-                        const dir = c.close > c.open ? 1 : 0; // 1=bull, 0=bear
+                        const dir = c.close > c.open ? 1 : 0;
 
                         if (prevDir === null) {
                             prevDir = dir;
@@ -166,35 +164,50 @@ class AssetMaxStreakManager {
                         prevDir = dir;
                     }
 
-                    // Save direction of last candle for next batch comparison
                     const lastC = candles[candles.length - 1];
                     crossBatchLastDir = lastC.close > lastC.open ? 1 : 0;
 
-                    // Next batch ends just before the oldest candle in this batch
                     const oldestEpoch = candles[0].epoch;
                     endEpoch = oldestEpoch - 1;
                     batchesDone++;
 
-                    // Stop if fewer candles than requested (hit history limit)
                     if (candles.length < BATCH_SIZE) {
                         LOGGER.info(`✅ [${symbol}] maxStreak (history exhausted at batch ${batchesDone}): ${overallMaxStreak}`);
                         resolve(overallMaxStreak);
                         return;
                     }
 
-                    // Small delay between batches to avoid rate-limiting
                     setTimeout(fetchBatch, 300);
                 };
 
                 connection.ws.on('message', onMessage);
 
-                // Send via raw ws to avoid req_id collision with trading
                 const reqId = state.requestId++;
                 reqPayload.req_id = reqId;
-                connection.ws.send(JSON.stringify(reqPayload));
+
+                try {
+                    connection.ws.send(JSON.stringify(reqPayload));
+                } catch (error) {
+                    cleanup();
+                    LOGGER.error(`[${symbol}] Failed to send request: ${error.message}`);
+                    reject(error);
+                }
             };
 
+            // Add timeout protection
+            const timeoutId = setTimeout(() => {
+                cleanup();
+                LOGGER.error(`[${symbol}] MaxStreak fetch timeout`);
+                reject(new Error('Fetch timeout'));
+            }, 120000); // 2 minute timeout
+
             fetchBatch();
+
+            // Clear timeout on resolve/reject
+            const originalResolve = resolve;
+            const originalReject = reject;
+            resolve = (val) => { clearTimeout(timeoutId); cleanup(); originalResolve(val); };
+            reject = (err) => { clearTimeout(timeoutId); cleanup(); originalReject(err); };
         });
     }
 
@@ -1113,12 +1126,31 @@ class AlternatingRegimeDetector {
      * @returns {{ autocorrelation: number }}
      */
     static analyze(candleHistory) {
+        // Validate input
         if (!Array.isArray(candleHistory) || candleHistory.length < 4) {
+            LOGGER.warn('AlternatingRegimeDetector: Invalid candle history');
             return { autocorrelation: 0 };
         }
 
-        const seq = candleHistory.map(c => (c.close > c.open ? 1 : 0));
+        // Filter out invalid candles
+        const validCandles = candleHistory.filter(c =>
+            c && typeof c.open === 'number' && typeof c.close === 'number' &&
+            !isNaN(c.open) && !isNaN(c.close)
+        );
+
+        if (validCandles.length < 4) {
+            LOGGER.warn('AlternatingRegimeDetector: Insufficient valid candles');
+            return { autocorrelation: 0 };
+        }
+
+        const seq = validCandles.map(c => (c.close > c.open ? 1 : 0));
         const autocorrelation = this._autocorrelation(seq);
+
+        // Validate output
+        if (isNaN(autocorrelation) || !isFinite(autocorrelation)) {
+            LOGGER.error('AlternatingRegimeDetector: Invalid autocorrelation result');
+            return { autocorrelation: 0 };
+        }
 
         return { autocorrelation };
     }
@@ -1563,7 +1595,12 @@ class ConnectionManager {
     }
 
     handleOpenContract(response) {
-        if (response.error) { LOGGER.error(`Contract error: ${response.error.message}`); return; }
+        if (response.error) {
+            LOGGER.error(`Contract error: ${response.error.message}`);
+            // Force release lock on error
+            if (this.bot) this.bot._forceReleaseTradeLock();
+            return;
+        }
         const contract = response.proposal_open_contract;
         const contractId = contract.contract_id;
 
@@ -1595,13 +1632,13 @@ class ConnectionManager {
 
         if (contract.is_sold || contract.is_expired || contract.status === 'sold') {
             // Clear watchdog FIRST
-            bot._clearAllWatchdogTimers();
-
-            // Mark as processed BEFORE recording result
-            bot._processedContracts.add(String(contractId));
+            // bot._clearAllWatchdogTimers();
 
             const profit = contract.profit;
             LOGGER.trade(`[${ownerSymbol}] Contract ${contractId} closed: ${profit >= 0 ? 'WIN' : 'LOSS'} $${profit.toFixed(2)}`);
+
+            // Mark as processed BEFORE recording result
+            bot._processedContracts.add(String(contractId));
 
             SessionManager.recordTradeResult(ownerSymbol, profit, position.direction);
             TelegramService.sendTradeAlert(
@@ -1611,27 +1648,18 @@ class ConnectionManager {
                 { profit }
             );
 
-            assetState.activePositions.splice(posIndex, 1);
+            // Use safe completion method
+            bot._safelyCompleteContract(contractId, ownerSymbol, profit, position);
 
             // Release watchdog lock
-            state.tradeInProgress = false;
-            state.currentContractId = null;
-            state.tradeStartTime = null;
-            state.pendingTradeInfo = null;
+            // state.tradeInProgress = false;
+            // state.currentContractId = null;
+            // state.tradeStartTime = null;
+            // state.pendingTradeInfo = null;
 
             if (response.subscription?.id) this.send({ forget: response.subscription.id });
             SessionManager.checkSessionTargets();
             StatePersistence.saveState();
-
-            // if (profit < 0 && SessionManager.isSessionActive()) {
-            //     LOGGER.trade(`🔄 [${ownerSymbol}] Loss confirmed — scheduling immediate recovery trade in ${CONFIG.RECOVERY_TRADE_DELAY_MS}ms`);
-            //     setTimeout(() => {
-            //         bot.executeRecoveryTrade(ownerSymbol, assetState.lastClosedCandleForRecovery);
-            //     }, ['1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'].includes(ownerSymbol)
-            //         ? CONFIG.RECOVERY_TRADE_DELAY_MS2
-            //         : CONFIG.RECOVERY_TRADE_DELAY_MS
-            //     );
-            // }
         }
     }
 
@@ -1639,10 +1667,8 @@ class ConnectionManager {
         const symbol = ohlc.symbol;
         if (!state.assets[symbol]) return;
 
-        // Block candle processing until assetMaxStreak is ready
         if (!state.isMaxStreakReady) {
             LOGGER.debug(`[${symbol}] OHLC received but maxStreak not ready yet — buffering candle only`);
-            // Still track forming candle but don't trigger trades
             const assetState = state.assets[symbol];
             const assetConfig = getAssetConfig(symbol);
             const granularity = assetConfig.GRANULARITY;
@@ -1666,6 +1692,13 @@ class ConnectionManager {
             epoch: ohlc.epoch, open_time: calculatedOpenTime
         };
 
+        // VALIDATION: Check for invalid candle data
+        if (isNaN(incomingCandle.open) || isNaN(incomingCandle.close) ||
+            isNaN(incomingCandle.high) || isNaN(incomingCandle.low)) {
+            LOGGER.error(`[${symbol}] Invalid candle data received, skipping`);
+            return;
+        }
+
         const currentOpenTime = assetState.currentFormingCandle?.open_time;
         const isNewCandle = currentOpenTime && incomingCandle.open_time !== currentOpenTime;
 
@@ -1673,11 +1706,15 @@ class ConnectionManager {
             const closedCandle = { ...assetState.currentFormingCandle };
             closedCandle.epoch = closedCandle.open_time + granularity;
 
-            if (closedCandle.open_time !== assetState.lastProcessedCandleOpenTime) {
+            // PREVENT DUPLICATES: Check if this exact candle was already processed
+            const isDuplicate = assetState.closedCandles.some(
+                c => c.open_time === closedCandle.open_time
+            );
+
+            if (!isDuplicate && closedCandle.open_time !== assetState.lastProcessedCandleOpenTime) {
                 assetState.closedCandles.push(closedCandle);
                 assetState.lastClosedCandleForRecovery = closedCandle;
 
-                // Keep closedCandles at MAX_CANDLES_STORED (50 after maxStreak is computed)
                 if (assetState.closedCandles.length > assetConfig.MAX_CANDLES_STORED) {
                     assetState.closedCandles = assetState.closedCandles.slice(-assetConfig.MAX_CANDLES_STORED);
                 }
@@ -1694,22 +1731,31 @@ class ConnectionManager {
                     `L:${closedCandle.low.toFixed(5)} C:${closedCandle.close.toFixed(5)}`
                 );
 
-                // Display autocorrelation
                 const regime = AlternatingRegimeDetector.analyze(assetState.closedCandles);
                 const assetMaxStreak = assetMaxStreakManager ? assetMaxStreakManager.getMaxStreak(symbol) : 'N/A';
                 LOGGER.info(`${symbol} AutoCorr: ${regime.autocorrelation.toFixed(4)} (threshold: ${CONFIG.AUTOCORR_THRESHOLD}) | AssetMaxStreak: ${assetMaxStreak} | Candles: ${assetState.closedCandles.length}`);
 
                 assetState.canTrade = true;
-                if (assetState.martingaleLevel > 0) {
-                    bot.executeRecoveryTrade(symbol, closedCandle);
-                } else {
-                    bot.executeNextTrade(symbol, closedCandle);
+
+                // Execute trades with error handling
+                try {
+                    if (assetState.martingaleLevel > 0) {
+                        bot.executeRecoveryTrade(symbol, closedCandle);
+                    } else {
+                        bot.executeNextTrade(symbol, closedCandle);
+                    }
+                } catch (error) {
+                    LOGGER.error(`[${symbol}] Trade execution error: ${error.message}`);
+                    bot._forceReleaseTradeLock();
                 }
+            } else {
+                LOGGER.debug(`[${symbol}] Skipped duplicate candle at ${closedCandle.open_time}`);
             }
         }
 
         assetState.currentFormingCandle = incomingCandle;
 
+        // Update candles array safely
         const candles = assetState.candles;
         const existingIndex = candles.findIndex(c => c.open_time === incomingCandle.open_time);
         if (existingIndex >= 0) {
@@ -1815,8 +1861,16 @@ class DerivBot {
     constructor() {
         this.connection = new ConnectionManager();
         this._processedContracts = new Set();
-        this.tradeWatchdogMs = 75000; // 75 second watchdog timeout
+        this.tradeWatchdogMs = 75000;
         this.timeCheckStarted = false;
+
+        // Clear old contract IDs every hour
+        setInterval(() => {
+            if (this._processedContracts.size > 1000) {
+                LOGGER.info(`Clearing ${this._processedContracts.size} processed contracts`);
+                this._processedContracts.clear();
+            }
+        }, 3600000); // 1 hour
     }
 
     async start() {
@@ -2141,6 +2195,61 @@ class DerivBot {
         position.reqId = reqId;
     }
 
+    _safelyCompleteContract(contractId, symbol, profit, position) {
+        try {
+            // Clear watchdog FIRST - critical!
+            this._clearAllWatchdogTimers();
+
+            // Mark as processed
+            this._processedContracts.add(String(contractId));
+
+            // Record result
+            if (symbol && typeof profit === 'number') {
+                SessionManager.recordTradeResult(symbol, profit, position.direction);
+
+                TelegramService.sendTradeAlert(
+                    profit >= 0 ? 'WIN' : 'LOSS',
+                    symbol, position.direction,
+                    position.stake, position.duration, position.durationUnit,
+                    { profit }
+                );
+            }
+
+            // Remove position
+            const assetState = state.assets[symbol];
+            if (assetState && assetState.activePositions) {
+                const posIndex = assetState.activePositions.findIndex(
+                    p => p.contractId === contractId
+                );
+                if (posIndex >= 0) {
+                    assetState.activePositions.splice(posIndex, 1);
+                }
+            }
+
+            // Release lock
+            state.tradeInProgress = false;
+            state.currentContractId = null;
+            state.tradeStartTime = null;
+            state.pendingTradeInfo = null;
+
+            LOGGER.info(`✅ Contract ${contractId} safely completed`);
+
+        } catch (error) {
+            LOGGER.error(`❌ Error in _safelyCompleteContract: ${error.message}`);
+            // Force release lock even on error
+            this._forceReleaseTradeLock();
+        }
+    }
+
+    _forceReleaseTradeLock() {
+        this._clearAllWatchdogTimers();
+        state.tradeInProgress = false;
+        state.currentContractId = null;
+        state.tradeStartTime = null;
+        state.pendingTradeInfo = null;
+        LOGGER.warn('⚠️ Trade lock force-released');
+    }
+
     // ============================================
     // TRADE WATCHDOG MANAGER
     // ============================================
@@ -2405,7 +2514,7 @@ console.log('\n🚀 Initializing...\n');
 
 bot.connection.connect();
 
-// Status display every 60 seconds
+// Status display every 30 seconds
 setInterval(() => {
     if (state.isAuthorized) {
         const status = bot.getStatus();
@@ -2423,10 +2532,20 @@ setInterval(() => {
             }
         });
 
+        // Safety check: if trade has been in progress for > 2 minutes, force recovery
+        if (state.tradeInProgress && state.tradeStartTime) {
+            const elapsed = Date.now() - state.tradeStartTime;
+            if (elapsed > 120000) { // 2 minutes
+                LOGGER.error(`🚨 SAFETY: Trade stuck for ${Math.round(elapsed / 1000)}s - forcing recovery`);
+                bot._recoverStuckTrade('safety-timeout');
+            }
+        }
+
         console.log(`\n📊 ${getGMTTime()} | Today: ${status.session.trades} trades | ${status.session.winRate} | $${status.session.netPL.toFixed(2)} | ${status.totalActivePositions} active | MaxStreakReady:${status.isMaxStreakReady}`);
         console.log(`📋 Overall: ${overall.tradesCount} trades | ${overall.winsCount}W/${overall.lossesCount}L | P/L: $${overall.netPL.toFixed(2)} | Days: ${TradeHistoryManager.getAllDays().length}`);
         console.log(`📉 Today Loss Stats: x2:${s.x2Losses} x3:${s.x3Losses} x4:${s.x4Losses} x5:${s.x5Losses} x6:${s.x6Losses} x7:${s.x7Losses} x8:${s.x8Losses} x9:${s.x9Losses}`);
         console.log(`🔧 Per-Asset Status:${assetLines}`);
         console.log(`  ${status.tradingSession}`);
     }
-}, 60000);
+}, 30000);
+
