@@ -47,8 +47,8 @@ const BOT_CONFIG = {
         longWindowThreshold: 10,     // >= 10%
         longWindowThresholdHigh: 12, //12%
         // Repeat probability threshold
-        maxRepeatProbability: 7,    // <= 10%
-        minRepeatProbability: 5,    // >= 10%
+        maxRepeatProbability: 17,    // <= 10%
+        minRepeatProbability: 14,    // >= 10%
 
         // Minimum sample size for repeat probability calculation
         minRepeatSample: 10,
@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'deriv_frequency_bot_state.json');
+const STATE_FILE = path.join(__dirname, 'deriv_frequency_bot_01_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
