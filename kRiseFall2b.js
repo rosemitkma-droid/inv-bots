@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_01207-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_01207-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_01207-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_01208-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_01208-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_01208-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1598,68 +1598,108 @@ class ConnectionManager {
         if (response.error) {
             LOGGER.error(`Contract error: ${response.error.message}`);
             // Force release lock on error
-            if (this.bot) this.bot._forceReleaseTradeLock();
+            if (bot) bot._forceReleaseTradeLock();
             return;
         }
+
         const contract = response.proposal_open_contract;
         const contractId = contract.contract_id;
 
-        // Check if contract already processed
-        if (bot._processedContracts.has(String(contractId))) {
+        // ═══════════════════════════════════════════════════════════════
+        // FIX: Mark as processed IMMEDIATELY (before any other logic)
+        // ═══════════════════════════════════════════════════════════════
+        const contractIdStr = String(contractId);
+
+        if (bot._processedContracts.has(contractIdStr)) {
             LOGGER.debug(`⚠️ Contract ${contractId} already processed, ignoring duplicate`);
-            // Unsubscribe from this contract
+
+            // Unsubscribe to prevent further duplicates
             if (response.subscription?.id) {
                 this.send({ forget: response.subscription.id });
             }
             return;
         }
 
+        // Find owner symbol
         let ownerSymbol = null;
         let posIndex = -1;
+
         for (const symbol of ACTIVE_ASSETS) {
             const asset = state.assets[symbol];
             if (asset && asset.activePositions) {
                 const idx = asset.activePositions.findIndex(p => p.contractId === contractId);
-                if (idx >= 0) { ownerSymbol = symbol; posIndex = idx; break; }
+                if (idx >= 0) {
+                    ownerSymbol = symbol;
+                    posIndex = idx;
+                    break;
+                }
             }
         }
 
-        if (posIndex < 0 || !ownerSymbol) return;
+        if (posIndex < 0 || !ownerSymbol) {
+            LOGGER.debug(`Contract ${contractId} not found in active positions`);
+            return;
+        }
 
         const assetState = state.assets[ownerSymbol];
         const position = assetState.activePositions[posIndex];
+
+        // Update profit tracking
         position.currentProfit = contract.profit;
 
+        // Only process settlement (sold/expired)
         if (contract.is_sold || contract.is_expired || contract.status === 'sold') {
-            // Clear watchdog FIRST
-            // bot._clearAllWatchdogTimers();
+
+            // ═══════════════════════════════════════════════════════════
+            // CRITICAL: Mark as processed BEFORE any processing starts
+            // ═══════════════════════════════════════════════════════════
+            bot._processedContracts.add(contractIdStr);
+
+            // Clear watchdog
+            bot._clearAllWatchdogTimers();
 
             const profit = contract.profit;
-            LOGGER.trade(`[${ownerSymbol}] Contract ${contractId} closed: ${profit >= 0 ? 'WIN' : 'LOSS'} $${profit.toFixed(2)}`);
 
-            // Mark as processed BEFORE recording result
-            bot._processedContracts.add(String(contractId));
+            LOGGER.trade(
+                `[${ownerSymbol}] Contract ${contractId} closed: ` +
+                `${profit >= 0 ? 'WIN' : 'LOSS'} $${profit.toFixed(2)}`
+            );
 
+            // Record result
             SessionManager.recordTradeResult(ownerSymbol, profit, position.direction);
+
+            // Send Telegram alert
             TelegramService.sendTradeAlert(
                 profit >= 0 ? 'WIN' : 'LOSS',
-                ownerSymbol, position.direction,
-                position.stake, position.duration, position.durationUnit,
+                ownerSymbol,
+                position.direction,
+                position.stake,
+                position.duration,
+                position.durationUnit,
                 { profit }
             );
 
-            // Use safe completion method
-            bot._safelyCompleteContract(contractId, ownerSymbol, profit, position);
+            // Remove position from array
+            assetState.activePositions.splice(posIndex, 1);
 
-            // Release watchdog lock
-            // state.tradeInProgress = false;
-            // state.currentContractId = null;
-            // state.tradeStartTime = null;
-            // state.pendingTradeInfo = null;
+            // Release lock
+            state.tradeInProgress = false;
+            state.currentContractId = null;
+            state.tradeStartTime = null;
+            state.pendingTradeInfo = null;
 
-            if (response.subscription?.id) this.send({ forget: response.subscription.id });
+            // Unsubscribe
+            if (response.subscription?.id) {
+                this.send({ forget: response.subscription.id });
+            }
+
+            // Check session targets
             SessionManager.checkSessionTargets();
+
+            // Save state
             StatePersistence.saveState();
+
+            LOGGER.info(`✅ Contract ${contractId} safely completed`);
         }
     }
 
@@ -1864,13 +1904,14 @@ class DerivBot {
         this.tradeWatchdogMs = 75000;
         this.timeCheckStarted = false;
 
-        // Clear old contract IDs every hour
+        // ✅ Clear old contract IDs periodically
         setInterval(() => {
-            if (this._processedContracts.size > 1000) {
-                LOGGER.info(`Clearing ${this._processedContracts.size} processed contracts`);
+            const size = this._processedContracts.size;
+            if (size > 500) {
+                LOGGER.info(`Clearing ${size} processed contracts from memory`);
                 this._processedContracts.clear();
             }
-        }, 3600000); // 1 hour
+        }, 3600000); // Every hour
     }
 
     async start() {
@@ -2242,12 +2283,16 @@ class DerivBot {
     }
 
     _forceReleaseTradeLock() {
-        this._clearAllWatchdogTimers();
-        state.tradeInProgress = false;
-        state.currentContractId = null;
-        state.tradeStartTime = null;
-        state.pendingTradeInfo = null;
-        LOGGER.warn('⚠️ Trade lock force-released');
+        try {
+            this._clearAllWatchdogTimers();
+            state.tradeInProgress = false;
+            state.currentContractId = null;
+            state.tradeStartTime = null;
+            state.pendingTradeInfo = null;
+            LOGGER.warn('⚠️ Trade lock force-released');
+        } catch (error) {
+            LOGGER.error(`Error releasing lock: ${error.message}`);
+        }
     }
 
     // ============================================
