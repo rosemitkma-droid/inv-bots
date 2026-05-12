@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM3_07_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM3_08_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1634,13 +1634,24 @@ class EnhancedDerivTradingBot {
             const currentMinutes = gmtPlus1Time.getUTCMinutes();
 
             // Weekend logic: Saturday 11pm to Monday 2am GMT+1 -> Disconnect and stay disconnected
-            const isWeekend = (currentDay === 0) || // Sunday
-                (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
-                (currentDay === 1 && currentHours < 8);    // Monday before 8am
+            // const isWeekend = (currentDay === 0) || // Sunday
+            //     (currentDay === 6 && currentHours >= 23) || // Saturday after 11pm
+            //     (currentDay === 1 && currentHours < 8);    // Monday before 8am
 
-            // Afternoon resume: 2:00 AM
-            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
-                console.log("It's 2:00 AM, reconnecting the bot.");
+            // Afternoon stop: after 1:00 PM following a win
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours === 13 && currentMinutes >= 0 && currentMinutes < 1) {
+                    console.log("It's past 1:00 PM after a win trade, disconnecting.");
+                    this.sendDisconnectSummary();
+                    this.Pause = true;
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
+
+            // Afternoon resume: 3:00 PM
+            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
+                console.log("It's 3:00 PM, reconnecting the bot.");
                 this.endOfDay = false;
                 this.Pause = false;
                 this.tradeInProgress = false;
@@ -1661,9 +1672,9 @@ class EnhancedDerivTradingBot {
                 }
             }
 
-            // Afternoon resume: 3:00 PM
-            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
-                console.log("It's 3:00 PM, reconnecting the bot.");
+            // Morning Resumption: 2:00 AM
+            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
+                console.log("It's 2:00 AM, reconnecting the bot.");
                 this.endOfDay = false;
                 this.Pause = false;
                 this.tradeInProgress = false;
@@ -1673,16 +1684,6 @@ class EnhancedDerivTradingBot {
                 this.connect();
             }
 
-            // Afternoon stop: after 1:00 PM following a win
-            if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours >= 13 && currentMinutes >= 0) {
-                    console.log("It's past 1:00 PM after a win trade, disconnecting.");
-                    this.sendDisconnectSummary();
-                    this.Pause = true;
-                    this.disconnect();
-                    this.endOfDay = true;
-                }
-            }
         }, 20000);
     }
 
