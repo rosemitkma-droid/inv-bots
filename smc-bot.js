@@ -47,7 +47,7 @@ const BOT_CONFIG = {
     token: 'rgNedekYXvCaPeP',
     assets: ['R_10', 'R_25', 'R_50', 'R_75'],  //['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'RDBULL', 'RDBEAR'],
 
-    initialStake: 2.55,
+    initialStake: 5.55,
     // [M2] Reduced from 11.3 to 2.2.
     //      At 2.2×: $2.55 → $5.61 → $12.34 → $27.15 over 3 losses.
     //      With a $100 stop-loss you survive 5+ consecutive losses.
@@ -83,7 +83,7 @@ const BOT_CONFIG = {
 
     minTimeBetweenTrades: 35000,
     cooldownAfterLoss: 2000,
-    maxTradesPerHour: 20000,
+    maxTradesPerHour: 1, //2000
     maxExposure: 50,
 
     telegramToken: '8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4',
@@ -96,7 +96,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'deriv_digitpair_bot_state_03.json');
+const STATE_FILE = path.join(__dirname, 'deriv_digitpair_bot_state_04.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
