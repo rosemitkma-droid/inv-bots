@@ -1091,7 +1091,7 @@ class DerivFrequencyBot {
                 this.connect();
             }
 
-            if (!this.endOfDay && hr === 11) {
+            if (!this.endOfDay && hr === 23) {
                 if (Object.keys(this.activeTrades).length === 0) {
                     console.log('🌙 11:00 PM GMT+1 — nightly shutdown');
                     this.endOfDay = true;
