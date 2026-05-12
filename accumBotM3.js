@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM3_06_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM3_07_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -54,6 +54,9 @@ class StatePersistence {
                     tradedDigitArray: bot.tradedDigitArray,
                     tradedDigitArray2: bot.tradedDigitArray2,
                     Sys1: bot.Sys1,
+                    Sys2: bot.Sys2,
+                    kCountNum: bot.kCountNum,
+                    filterNum: bot.filterNum,
                 },
                 assetMetrics: bot.assetMetrics,
                 hourlyStats: bot.hourlyStats,
@@ -467,12 +470,13 @@ class EnhancedDerivTradingBot {
         this.wsReady = false;
 
         // ── Multi-asset support ──────────────────────────────────────────────
-        this.assets = config.assets || ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'];
+        this.assets = config.assets;
 
         this.config = {
             initialStake: config.initialStake || 1,
+            initialStake2: config.initialStake2 || 1,
             multiplier: config.multiplier || 6,
-            multiplier2: config.multiplier2 || 8,
+            recoveryWinNum: config.recoveryWinNum || 8,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
             takeProfit: config.takeProfit || 100,
             stopLoss: config.stopLoss || 100,
@@ -535,6 +539,7 @@ class EnhancedDerivTradingBot {
         this.predictedDigit = null;
         this.entryTick = null;
         this.currentTick = 0;
+        this.Sys2 = false;
         // Components
         this.analyzer = new AccumulatorAnalyzer();
 
@@ -650,6 +655,9 @@ class EnhancedDerivTradingBot {
                 this.tradedDigitArray = state.trading.tradedDigitArray || [];
                 this.tradedDigitArray2 = state.trading.tradedDigitArray2 || [];
                 this.Sys1 = state.trading.Sys1 || 0;
+                this.Sys2 = state.trading.Sys2 || 0;
+                this.kCountNum = state.trading.kCountNum || 0;
+                this.filterNum = state.trading.filterNum || 0;
             }
             if (state.assetMetrics) this.assetMetrics = state.assetMetrics;
             if (state.hourlyStats) this.hourlyStats = state.hourlyStats;
@@ -907,7 +915,9 @@ class EnhancedDerivTradingBot {
             `Current Stake: $${this.currentStake.toFixed(2)}\n\n` +
             `Traded Digits: [${this.tradedDigitArray.join(', ')}]\n` +
             `Filtered Digits: [${this.filteredArray.join(', ')}]\n` +
-            `Filter Number: ${this.filterNum}`
+            `Filter Number: ${this.filterNum}\n` +
+            `Sys2: ${this.Sys2}\n` +
+            `kCountNum: ${this.kCountNum}`
         );
     }
 
@@ -1483,9 +1493,16 @@ class EnhancedDerivTradingBot {
         if (won) {
             this.totalWins++;
             this.isWinTrade = true;
-            this.currentStake = this.config.initialStake;
+            this.currentStake = this.Sys2 ? this.config.initialStake2 : this.config.initialStake;
             this.consecutiveLosses = 0;
             this.filterNum = this.config.filterNum;
+            if (this.Sys2) {
+                this.kCountNum++;
+                if (this.kCountNum >= this.config.recoveryWinNum) {
+                    this.kCountNum = 0;
+                    this.Sys2 = false;
+                }
+            }
 
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
             this.hourlyStats.wins++;
@@ -1497,7 +1514,6 @@ class EnhancedDerivTradingBot {
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
-            this.kCountNum = 0;
             this.isWinTrade = false;
             this.hourlyStats.losses++;
 
@@ -1512,7 +1528,17 @@ class EnhancedDerivTradingBot {
             else if (this.consecutiveLosses === 6) this.consecutiveLosses6++;
 
             // Original martingale
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            if (this.consecutiveLosses === 2) {
+                this.currentStake = this.config.initialStake2;
+                if (!this.Sys2) {
+                    this.Sys2 = true;
+                } else {
+                    this.consecutiveLosses = 4;
+                }
+            }
+            else {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            }
 
             // Suspend all other assets, focus on loss asset
             // this.suspendOtherAssets(asset);
@@ -1634,6 +1660,29 @@ class EnhancedDerivTradingBot {
                     this.endOfDay = true;
                 }
             }
+
+            // Afternoon resume: 3:00 PM
+            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
+                console.log("It's 3:00 PM, reconnecting the bot.");
+                this.endOfDay = false;
+                this.Pause = false;
+                this.tradeInProgress = false;
+                this.tradedDigitArray = [];
+                this.tradedDigitArray2 = [];
+                this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
+                this.connect();
+            }
+
+            // Afternoon stop: after 1:00 PM following a win
+            if (this.isWinTrade && !this.endOfDay) {
+                if (currentHours >= 13 && currentMinutes >= 0) {
+                    console.log("It's past 1:00 PM after a win trade, disconnecting.");
+                    this.sendDisconnectSummary();
+                    this.Pause = true;
+                    this.disconnect();
+                    this.endOfDay = true;
+                }
+            }
         }, 20000);
     }
 
@@ -1682,16 +1731,17 @@ class EnhancedDerivTradingBot {
 // BOT INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
 const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
-    initialStake: 5,
+    initialStake: 1,
+    initialStake2: 5,
     multiplier: 21,
-    multiplier2: 8,
-    maxConsecutiveLosses: 2,
-    stopLoss: 110,
-    takeProfit: 10000,
+    recoveryWinNum: 100,
+    maxConsecutiveLosses: 4,
+    stopLoss: 132,
+    takeProfit: 50000,
     growthRate: 0.05,
     takeProfitMultiplier: 0.05,
     filterNum: 4,
-    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'],
+    assets: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100'], //['R_10', 'R_25', 'R_50', 'R_75', 'R_100']
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     telegramChatId: '752497117',
 });
