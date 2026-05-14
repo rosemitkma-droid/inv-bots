@@ -78,7 +78,7 @@ const BOT_CONFIG = {
         recencyDecayFactor: 0.95,
 
         transitionCooldownTicks: 150,
-        minConfidenceScore: 0.75,
+        minConfidenceScore: 0.97,
     },
 
     minTimeBetweenTrades: 35000,
@@ -96,7 +96,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'deriv_digitpair_bot_state_04.json');
+const STATE_FILE = path.join(__dirname, 'deriv_digitpair_bot_state_05.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
