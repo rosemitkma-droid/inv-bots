@@ -42,13 +42,13 @@ const BOT_CONFIG = {
 
         // Frequency thresholds for each window (in percentage)
         shortWindowThreshold: 60,    // >= 60%
-        mediumWindowThreshold: 5,   // >= 10%
+        mediumWindowThreshold: 1,   // >= 10%
         mediumWindowThresholdHigh: 50, //15%
-        longWindowThreshold: 5,     // >= 10%
-        longWindowThresholdHigh: 51, //12%
+        longWindowThreshold: 1,     // >= 10%
+        longWindowThresholdHigh: 50, //12%
         // Repeat probability threshold
-        maxRepeatProbability: 5,    // <= 10%
-        minRepeatProbability: 47,    // >= 10%
+        minRepeatProbability: 1,    // >= 10%
+        maxRepeatProbability: 10,    // <= 10%
 
         // Minimum sample size for repeat probability calculation
         minRepeatSample: 10,
@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'deriv_frequency_bot_04_state.json');
+const STATE_FILE = path.join(__dirname, 'deriv_frequency_bot_05_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -811,6 +811,7 @@ class DerivFrequencyBot {
         this._sendTelegram(
             `💼 <b>Frequency Analysis Trade</b>\n\n` +
             `Asset: <b>${asset}</b>\n` +
+            `Last 10 Digits: [ ${this.digitHistories[asset].slice(-10).join(' ')} ]\n` +
             `Predicted Digit: ${analysis.predictedDigit}\n` +
             `Current Digit: ${analysis.currentDigit}\n` +
             `Confidence: ${(analysis.confidence * 100).toFixed(2)}%\n\n` +
@@ -927,6 +928,7 @@ class DerivFrequencyBot {
             `${won ? '✅' : '❌'} <b>Result</b>\n\n` +
             `Asset: ${asset}\n` +
             `Predicted Digit: ${trade.analysis.predictedDigit}\n` +
+            `Last 10 Digits: [ ${this.digitHistories[asset].slice(-10).join(' ')} ]\n` +
             `P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(3)}\n` +
             `Trades: ${this.totalTrades} (${this.totalWins}W/${this.totalLosses}L)\n` +
             `Win Rate: ${wr}%\n` +
