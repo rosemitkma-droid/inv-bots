@@ -29,7 +29,7 @@ const STATE_SAVE_INTERVAL = 5000;
 class AssetMaxStreakManager {
     constructor() {
         this.data = this._load();
-        this._updateIntervalMs = 1 * 24 * 60 * 60 * 1000; // 30 days
+        this._updateIntervalMs = 30 * 24 * 60 * 60 * 1000; // 30 days
         this._refreshTimer = null;
     }
 
