@@ -31,17 +31,17 @@ const CONFIG = {
     VOLATILITY: {
         ATR_PERIOD: 14,           // Standard ATR period
         VOLATILITY_WINDOW: 50,    // Compare recent vs historical
-        HISTORICAL_PERIOD: 30,    // FIX #12: Separate period for historical baseline
-        LOW_VOLATILITY_RATIO: 0.65, // ATR must be 65% below average
-        SQUEEZE_CONFIRMATION: 3,   // Need 3 ticks confirmation
+        HISTORICAL_PERIOD: 30,    // Separate period for historical baseline
+        LOW_VOLATILITY_RATIO: 0.75, // ATR must be 75% or below average (was 0.65 - too strict)
+        SQUEEZE_CONFIRMATION: 2,   // Need 2 ticks confirmation (was 3)
     },
 
     // Breakout detection
     BREAKOUT: {
         LOOKBACK_PERIOD: 20,      // Candles for high/low range
-        MIN_STRENGTH: 0.1,        // FIX #2: was 1.2 (impossible), now 10% of range
-        STRONG_STRENGTH: 0.3,     // FIX #2: was 1.8, now 30%
-        CONFIRMATION_TICKS: 2,    // Wait for confirmation
+        MIN_STRENGTH: 0.05,       // 5% of range (was 10% - too strict)
+        STRONG_STRENGTH: 0.15,    // 15% for strong breakout (was 30%)
+        CONFIRMATION_TICKS: 1,    // Wait for confirmation (was 2)
     },
 
     // Trend filters
@@ -730,7 +730,12 @@ class VolatilityBreakoutAnalyzer {
      * Calculate Average True Range (ATR)
      */
     static calculateATR(candles, period = 14) {
-        if (candles.length < period + 1) return 0;
+        if (candles.length < period + 1) {
+            if (CONFIG.DEBUG_MODE) {
+                LOGGER.debug(`ATR: need ${period + 1} candles, have ${candles.length}`);
+            }
+            return 0;
+        }
 
         const trueRanges = [];
 
@@ -748,48 +753,84 @@ class VolatilityBreakoutAnalyzer {
             trueRanges.push(tr);
         }
 
+        // Take the last 'period' true ranges
         const recentTR = trueRanges.slice(-period);
-        return recentTR.reduce((a, b) => a + b, 0) / recentTR.length;
+        const atr = recentTR.reduce((a, b) => a + b, 0) / recentTR.length;
+        
+        return atr;
     }
 
     /**
      * Detect volatility compression (squeeze)
-     * FIX #12: Use separate historical period instead of same ATR_PERIOD
+     * FIXED: Proper window calculation with enough candles for ATR
      */
     static detectVolatilitySqueeze(candles) {
-        if (candles.length < CONFIG.VOLATILITY.VOLATILITY_WINDOW) {
+        // Need enough candles for both windows + ATR calculation
+        // Recent: 15 candles (14 for ATR + 1 for previous close)
+        // Historical: 31 candles (30 for ATR + 1 for previous close)
+        // Total minimum: 15 + 31 = 46 candles
+        const minRequired = CONFIG.VOLATILITY.ATR_PERIOD + 1 + CONFIG.VOLATILITY.HISTORICAL_PERIOD + 1;
+        
+        if (candles.length < minRequired) {
+            if (CONFIG.DEBUG_MODE) {
+                LOGGER.debug(
+                    `Insufficient candles for volatility analysis: have ${candles.length}, need ${minRequired}`
+                );
+            }
             return { isSqueezing: false, ratio: 0, currentATR: 0, historicalATR: 0 };
         }
 
-        const currentATR = this.calculateATR(
-            candles.slice(-CONFIG.VOLATILITY.ATR_PERIOD - 1),
-            CONFIG.VOLATILITY.ATR_PERIOD
-        );
+        // ✅ FIXED: Calculate recent ATR from last 15 candles (indices -15 to end)
+        const recentCandles = candles.slice(-15);
+        const currentATR = this.calculateATR(recentCandles, CONFIG.VOLATILITY.ATR_PERIOD);
 
-        // FIX #12: Use separate HISTORICAL_PERIOD for baseline comparison
-        const historicalATR = this.calculateATR(
-            candles.slice(-CONFIG.VOLATILITY.HISTORICAL_PERIOD - 1),
-            CONFIG.VOLATILITY.HISTORICAL_PERIOD
-        );
+        // ✅ FIXED: Calculate historical ATR from 31 candles BEFORE the recent window
+        // Get candles from position -(15+31) to -15, which gives us 31 candles
+        const historicalCandles = candles.slice(-(15 + 31), -15);
+        const historicalATR = this.calculateATR(historicalCandles, CONFIG.VOLATILITY.HISTORICAL_PERIOD);
 
-        if (historicalATR === 0) return { isSqueezing: false, ratio: 0, currentATR, historicalATR };
+        if (CONFIG.DEBUG_MODE) {
+            LOGGER.debug(
+                `Volatility Analysis:\n` +
+                `  Total candles: ${candles.length}\n` +
+                `  Recent window: last ${recentCandles.length} candles → ATR=${currentATR.toFixed(5)}\n` +
+                `  Historical window: ${historicalCandles.length} candles (indices ${-(15+31)} to -15) → ATR=${historicalATR.toFixed(5)}\n` +
+                `  Ratio: ${historicalATR > 0 ? (currentATR / historicalATR).toFixed(3) : 'N/A'}`
+            );
+        }
+
+        if (historicalATR === 0 || currentATR === 0) {
+            if (CONFIG.DEBUG_MODE) {
+                LOGGER.debug(
+                    `⚠️ ATR calculation returned 0:\n` +
+                    `  Historical: ${historicalCandles.length} candles → ${historicalATR}\n` +
+                    `  Recent: ${recentCandles.length} candles → ${currentATR}`
+                );
+            }
+            return { isSqueezing: false, ratio: 0, currentATR, historicalATR };
+        }
 
         const ratio = currentATR / historicalATR;
         const isSqueezing = ratio < CONFIG.VOLATILITY.LOW_VOLATILITY_RATIO;
+
+        if (CONFIG.DEBUG_MODE) {
+            LOGGER.debug(
+                `Volatility Result: ${isSqueezing ? '✓ SQUEEZED' : '✗ NOT SQUEEZED'} ` +
+                `(ratio=${ratio.toFixed(3)}, threshold=${CONFIG.VOLATILITY.LOW_VOLATILITY_RATIO})`
+            );
+        }
 
         return {
             isSqueezing,
             ratio,
             currentATR,
             historicalATR,
-            compressionLevel: (1 - ratio) * 100 // % compression
+            compressionLevel: (1 - ratio) * 100
         };
     }
 
     /**
      * Detect price breakout from range
-     * FIX #1: Changed CALLE/PUTE to CALL/PUT
-     * FIX #2: MIN_STRENGTH now realistic (0.1 = 10% of range instead of 1.2 = 120%)
      */
     static detectBreakout(candles) {
         if (candles.length < CONFIG.BREAKOUT.LOOKBACK_PERIOD + CONFIG.BREAKOUT.CONFIRMATION_TICKS) {
@@ -818,7 +859,7 @@ class VolatilityBreakoutAnalyzer {
             if (strength >= CONFIG.BREAKOUT.MIN_STRENGTH && confirmed) {
                 return {
                     hasBreakout: true,
-                    direction: 'CALL',  // FIX #1: was 'CALLE'
+                    direction: 'CALL',
                     strength,
                     isStrong: strength >= CONFIG.BREAKOUT.STRONG_STRENGTH,
                     breakoutPrice: high,
@@ -835,7 +876,7 @@ class VolatilityBreakoutAnalyzer {
             if (strength >= CONFIG.BREAKOUT.MIN_STRENGTH && confirmed) {
                 return {
                     hasBreakout: true,
-                    direction: 'PUT',  // FIX #1: was 'PUTE'
+                    direction: 'PUT',
                     strength,
                     isStrong: strength >= CONFIG.BREAKOUT.STRONG_STRENGTH,
                     breakoutPrice: low,
@@ -928,9 +969,7 @@ class VolatilityBreakoutAnalyzer {
     }
 
     /**
-     * Main analysis function - combines all indicators
-     * FIX #1: Changed CALLE/PUTE to CALL/PUT throughout
-     * FIX #7: Updated RSI thresholds and logic
+     * Main analysis function
      */
     static analyze(candles) {
         if (!candles || candles.length < CONFIG.VOLATILITY.VOLATILITY_WINDOW) {
@@ -945,6 +984,12 @@ class VolatilityBreakoutAnalyzer {
         const squeeze = this.detectVolatilitySqueeze(candles);
 
         if (!squeeze.isSqueezing) {
+            if (CONFIG.DEBUG_MODE) {
+                LOGGER.debug(
+                    `❌ No volatility compression: ratio=${squeeze.ratio.toFixed(3)} ` +
+                    `(need <${CONFIG.VOLATILITY.LOW_VOLATILITY_RATIO})`
+                );
+            }
             return {
                 shouldTrade: false,
                 reason: 'no_volatility_compression',
@@ -968,19 +1013,16 @@ class VolatilityBreakoutAnalyzer {
         // Step 3: Check trend alignment
         const trend = this.checkTrendAlignment(candles);
 
-        // Step 4: RSI filter (optional)
+        // Step 4: RSI filter
         let rsi = 50;
         let rsiSignal = true;
 
         if (CONFIG.RSI.ENABLED) {
             rsi = this.calculateRSI(candles, CONFIG.RSI.PERIOD);
 
-            // FIX #1: Use CALL/PUT instead of CALLE/PUTE
-            // FIX #7: For CALL: prefer RSI not overbought
             if (breakout.direction === 'CALL') {
                 rsiSignal = rsi < CONFIG.RSI.OVERBOUGHT;
             } else {
-                // For PUT: prefer RSI not oversold
                 rsiSignal = rsi > CONFIG.RSI.OVERSOLD;
             }
 
@@ -996,38 +1038,27 @@ class VolatilityBreakoutAnalyzer {
             }
         }
 
-        // Calculate confidence score
-        let confidence = 0.5; // Base
-
-        // Volatility compression adds confidence
+        // Calculate confidence
+        let confidence = 0.5;
         confidence += (squeeze.compressionLevel / 100) * 0.15;
-
-        // Strong breakout adds confidence
         if (breakout.isStrong) confidence += 0.15;
         else confidence += breakout.strength * 0.10;
 
-        // Trend alignment adds confidence
         if (trend.aligned && trend.trend !== 'NEUTRAL') {
-            // FIX #1: Use CALL/PUT
             const trendMatch =
                 (trend.trend === 'UPTREND' && breakout.direction === 'CALL') ||
                 (trend.trend === 'DOWNTREND' && breakout.direction === 'PUT');
-
             if (trendMatch) confidence += 0.20;
         }
 
-        // RSI confirmation
         if (CONFIG.RSI.ENABLED) {
-            // FIX #1: Use CALL/PUT
             if (breakout.direction === 'CALL' && rsi < 50) confidence += 0.10;
             if (breakout.direction === 'PUT' && rsi > 50) confidence += 0.10;
         }
 
-        // Cap confidence
         confidence = Math.min(confidence, 0.95);
 
-        // Minimum confidence threshold
-        if (confidence < 0.65) {
+        if (confidence < 0.55) {
             return {
                 shouldTrade: false,
                 reason: 'low_confidence',
@@ -1039,9 +1070,11 @@ class VolatilityBreakoutAnalyzer {
             };
         }
 
+        LOGGER.debug(`✅ TRADE SIGNAL: ${breakout.direction} | Confidence: ${(confidence * 100).toFixed(1)}%`);
+
         return {
             shouldTrade: true,
-            direction: breakout.direction,  // FIX #1: now CALL or PUT
+            direction: breakout.direction,
             confidence,
             reason: 'volatility_breakout_confirmed',
             signal: `${breakout.isStrong ? 'STRONG' : 'NORMAL'} ${breakout.direction} breakout from squeeze`,
@@ -1724,7 +1757,8 @@ class ConnectionManager {
         state.assets[symbol].currentFormingCandle = candles[candles.length - 1];
 
         LOGGER.info(
-            `📊 Loaded ${candles.length} ${assetConfig.TIMEFRAME_LABEL} candles for ${symbol}`
+            `📊 Loaded ${candles.length} ${assetConfig.TIMEFRAME_LABEL} candles for ${symbol} ` +
+            `(closedCandles: ${state.assets[symbol].closedCandles.length})`
         );
     }
 
@@ -1919,6 +1953,10 @@ class DerivBot {
         // ══════════════════════════════════════════════════════════
         // VOLATILITY BREAKOUT ANALYSIS
         // ══════════════════════════════════════════════════════════
+
+        if (CONFIG.DEBUG_MODE) {
+            LOGGER.debug(`[${symbol}] Analyzing with ${assetState.closedCandles.length} closed candles`);
+        }
 
         const analysis = VolatilityBreakoutAnalyzer.analyze(assetState.closedCandles);
 
