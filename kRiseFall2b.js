@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_01208-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_01208-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_01208-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_01209-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_01209-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_01209-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -646,6 +646,8 @@ class StatePersistence {
 class TelegramService {
     static hourlyTimerStarted = false;
     static dailyTimerStarted = false;
+    static hourlyTimerId = null;
+    static dailyTimerId = null;
     static async sendMessage(message) {
         if (!CONFIG.TELEGRAM_ENABLED) return;
         try {
@@ -934,7 +936,10 @@ Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${ove
     }
 
     static startHourlyTimer() {
-        if (this.hourlyTimerStarted) return;
+        if (this.hourlyTimerStarted) {
+            LOGGER.debug('⏰ Hourly timer already started, skipping');
+            return;
+        }
         this.hourlyTimerStarted = true;
         const now = new Date();
         const nextHour = new Date(now);
@@ -944,12 +949,16 @@ Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${ove
         const self = this;
         setTimeout(() => {
             self.sendHourlySummary();
-            setInterval(() => self.sendHourlySummary(), 60 * 60 * 1000);
+            // Store the interval ID so it can be cleared later
+            self.hourlyTimerId = setInterval(() => self.sendHourlySummary(), 60 * 60 * 1000);
         }, timeUntilNextHour);
     }
 
     static startDailyTimer() {
-        if (this.dailyTimerStarted) return;
+        if (this.dailyTimerStarted) {
+            LOGGER.debug('🗓️ Daily timer already started, skipping');
+            return;
+        }
         this.dailyTimerStarted = true;
         const now = new Date();
         const nextDay = new Date(now);
@@ -959,10 +968,25 @@ Loss Stats: x2:${overall.x2Losses || 0} | x3:${overall.x3Losses || 0} | x4:${ove
         LOGGER.info(`🗓️ Daily Telegram timer started (first summary in ${Math.ceil(timeUntilNextDay / 60000 / 60)} hours)`);
         setTimeout(() => {
             if (typeof SessionManager !== 'undefined') SessionManager.checkDayChange();
-            setInterval(() => {
+            // Store the interval ID so it can be cleared later
+            this.dailyTimerId = setInterval(() => {
                 if (typeof SessionManager !== 'undefined') SessionManager.checkDayChange();
             }, 24 * 60 * 60 * 1000);
         }, timeUntilNextDay);
+    }
+    
+    static clearTimers() {
+        if (this.hourlyTimerId) {
+            clearInterval(this.hourlyTimerId);
+            this.hourlyTimerId = null;
+            this.hourlyTimerStarted = false;
+        }
+        if (this.dailyTimerId) {
+            clearInterval(this.dailyTimerId);
+            this.dailyTimerId = null;
+            this.dailyTimerStarted = false;
+        }
+        LOGGER.info('🧹 Telegram timers cleared');
     }
 }
 
@@ -1466,6 +1490,10 @@ class ConnectionManager {
 
     restoreSubscriptions() {
         LOGGER.info('📊 Restoring subscriptions after reconnection...');
+        
+        // Clear the subscription tracking set since we're reconnecting
+        this.activeSubscriptions.clear();
+        
         ACTIVE_ASSETS.forEach(symbol => {
             const asset = state.assets[symbol];
             if (asset && asset.activePositions) {
@@ -1481,11 +1509,24 @@ class ConnectionManager {
 
     cleanup() {
         if (this.ws) {
+            // Unsubscribe from all active candle subscriptions
+            if (this.activeSubscriptions.size > 0) {
+                LOGGER.info(`🧹 Cleaning up ${this.activeSubscriptions.size} active subscriptions`);
+                this.send({ forget_all: 'candles' });
+                this.activeSubscriptions.clear();
+            }
+            
             this.ws.removeAllListeners();
             if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
                 try { this.ws.close(); } catch (e) { LOGGER.debug('WebSocket already closed'); }
             }
             this.ws = null;
+        }
+        
+        // Clear ping interval
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
         }
     }
 
@@ -1903,9 +1944,12 @@ class DerivBot {
         this._processedContracts = new Set();
         this.tradeWatchdogMs = 75000;
         this.timeCheckStarted = false;
+        this.sessionTimeCheckerId = null;
+        this.statusDisplayIntervalId = null;
+        this.contractCleanupIntervalId = null;
 
-        // ✅ Clear old contract IDs periodically
-        setInterval(() => {
+        // ✅ Clear old contract IDs periodically and store interval ID
+        this.contractCleanupIntervalId = setInterval(() => {
             const size = this._processedContracts.size;
             if (size > 500) {
                 LOGGER.info(`Clearing ${size} processed contracts from memory`);
@@ -1984,6 +2028,13 @@ class DerivBot {
 
     subscribeToCandles(symbol) {
         const assetConfig = getAssetConfig(symbol);
+        
+        // Check if already subscribed to prevent duplicate subscriptions
+        if (this.connection.activeSubscriptions.has(symbol)) {
+            LOGGER.debug(`📊 Already subscribed to ${symbol}, skipping duplicate subscription`);
+            return;
+        }
+        
         LOGGER.info(`📊 Subscribing to ${assetConfig.TIMEFRAME_LABEL} candles for ${symbol} (granularity: ${assetConfig.GRANULARITY}s)...`);
 
         // Load only 50 recent candles for trade analysis
@@ -2008,6 +2059,9 @@ class DerivBot {
             granularity: assetConfig.GRANULARITY,
             subscribe: 1
         });
+        
+        // Track this subscription
+        this.connection.activeSubscriptions.add(symbol);
     }
 
     // ── IMMEDIATE RECOVERY TRADE ───────────────────────────────────
@@ -2421,19 +2475,56 @@ class DerivBot {
 
     stop() {
         LOGGER.info('🛑 Stopping bot...');
+        
+        // Disable trading for all assets
         ACTIVE_ASSETS.forEach(symbol => {
             const asset = state.assets[symbol];
             if (asset) asset.canTrade = false;
         });
+        
+        // ✅ Clear all timers
+        TelegramService.clearTimers();
+        
+        // ✅ Clear status display interval
+        if (this.statusDisplayIntervalId) {
+            clearInterval(this.statusDisplayIntervalId);
+            this.statusDisplayIntervalId = null;
+            LOGGER.info('🧹 Status display interval cleared');
+        }
+        
+        // ✅ Clear session time checker interval
+        if (this.sessionTimeCheckerId) {
+            clearInterval(this.sessionTimeCheckerId);
+            this.sessionTimeCheckerId = null;
+            LOGGER.info('🧹 Session time checker cleared');
+        }
+        
+        // ✅ Clear processed contracts cleanup interval
+        if (this.contractCleanupIntervalId) {
+            clearInterval(this.contractCleanupIntervalId);
+            this.contractCleanupIntervalId = null;
+            LOGGER.info('🧹 Contract cleanup interval cleared');
+        }
+        
+        // Save state
         StatePersistence.saveState();
         TradeHistoryManager.saveHistory();
-        setTimeout(() => { if (this.connection.ws) this.connection.ws.close(); LOGGER.info('👋 Bot stopped'); }, 2000);
+        
+        // Close connection with cleanup
+        setTimeout(() => {
+            if (this.connection) {
+                this.connection.cleanup();
+            }
+            LOGGER.info('👋 Bot stopped cleanly');
+        }, 2000);
     }
 
     startSessionTimeChecker() {
         if (this.timeCheckStarted) return;
         this.timeCheckStarted = true;
-        setInterval(() => {
+        
+        // ✅ Store interval ID for cleanup
+        this.sessionTimeCheckerId = setInterval(() => {
             const now = new Date();
             const gmtPlus1Time = new Date(now.getTime() + 1 * 60 * 60 * 1000);
             const currentHours = gmtPlus1Time.getUTCHours();
@@ -2560,7 +2651,8 @@ console.log('\n🚀 Initializing...\n');
 bot.connection.connect();
 
 // Status display every 30 seconds
-setInterval(() => {
+// ✅ Store interval ID for proper cleanup
+let statusDisplayIntervalId = setInterval(() => {
     if (state.isAuthorized) {
         const status = bot.getStatus();
         const s = state.session;
@@ -2593,4 +2685,9 @@ setInterval(() => {
         console.log(`  ${status.tradingSession}`);
     }
 }, 30000);
+
+// ✅ Export for cleanup in stop() method
+if (typeof bot !== 'undefined') {
+    bot.statusDisplayIntervalId = statusDisplayIntervalId;
+}
 
