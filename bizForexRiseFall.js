@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'ForexBot-state_04.json');
-const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_04.json');
+const STATE_FILE   = path.join(__dirname, 'ForexBot-state_05.json');
+const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_05.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -104,7 +104,7 @@ const CONFIG = {
 
     // ── Position Management ────────────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS:          3,    // Max simultaneous trades across all pairs
+    MAX_TOTAL_POSITIONS:          9,    // Max simultaneous trades across all pairs
 
     // ── Misc ───────────────────────────────────────────────────────
     DEBUG_MODE:             true,
@@ -1542,7 +1542,7 @@ class ConnectionManager {
         if (profit < 0 && SessionManager.isSessionActive()) {
             LOGGER.trade(`🔄 [${ownerSym}] Loss confirmed — scheduling immediate recovery trade in ${500}ms`);
             setTimeout(() => {
-                bot.executeRecoveryTrade(ownerSym, assetState.lastClosedCandleForRecovery);
+                bot.executeRecoveryTrade(ownerSym);
             }, 500);
         }
     }
@@ -1595,7 +1595,7 @@ class ConnectionManager {
                     a.canTrade = true;
 
                     // try {
-                    //     if (a.martingaleLevel > 0) bot.executeRecoveryTrade(symbol, closed);
+                    //     if (a.martingaleLevel > 0) bot.executeRecoveryTrade(symbol);
                     //     else                       bot.executeNextTrade(symbol, closed);
                     // } catch (err) {
                     //     LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
@@ -1777,7 +1777,7 @@ class ForexBot {
     }
 
     // ── RECOVERY TRADE ──────────────────────────────────────────────
-    executeRecoveryTrade(symbol, closedCandle) {
+    executeRecoveryTrade(symbol) {
         const a = state.assets[symbol];
         if (!a || a.martingaleLevel === 0)                        return;
         if (!SessionManager.isSessionActive())                    return;
