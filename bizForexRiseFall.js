@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'ForexBot-state_03.json');
-const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_03.json');
+const STATE_FILE   = path.join(__dirname, 'ForexBot-state_04.json');
+const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_04.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -49,7 +49,7 @@ const CONFIG = {
 
     // 5-minute duration aligns contract expiry with candle close
     // giving the best directional accuracy for forex on Deriv
-    DURATION:               900,
+    DURATION:               15,
     DURATION_UNIT:          'm',        // Minutes
 
     // ── Strategy Parameters ────────────────────────────────────────
@@ -104,7 +104,7 @@ const CONFIG = {
 
     // ── Position Management ────────────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS:          10,    // Max simultaneous trades across all pairs
+    MAX_TOTAL_POSITIONS:          3,    // Max simultaneous trades across all pairs
 
     // ── Misc ───────────────────────────────────────────────────────
     DEBUG_MODE:             true,
@@ -670,19 +670,19 @@ class SignalAnalyzer {
             return result;
         }
 
-        // if (result.score >= CONFIG.MIN_CONFLUENCE_SCORE) {
+        if (result.score >= CONFIG.MIN_CONFLUENCE_SCORE) {
             if (netScore > 0) {
                 result.direction  = 'CALLE';
                 result.shouldTrade = true;
-                result.reason     = `CALLE: ${bearScore.toFixed(1)}/${result.maxScore} bullish signals`;
+                result.reason     = `CALL: ${bullScore.toFixed(1)}/${result.maxScore} bullish signals`;
             } else if (netScore < 0) {
                 result.direction  = 'PUTE';
                 result.shouldTrade = true;
-                result.reason     = `PUTE: ${bullScore.toFixed(1)}/${result.maxScore} bearish signals`;
+                result.reason     = `PUT: ${bearScore.toFixed(1)}/${result.maxScore} bearish signals`;
             }
-        // } else {
-        //     result.reason = `Insufficient confluence: score ${result.score.toFixed(1)} < ${CONFIG.MIN_CONFLUENCE_SCORE} required`;
-        // }
+        } else {
+            result.reason = `Insufficient confluence: score ${result.score.toFixed(1)} < ${CONFIG.MIN_CONFLUENCE_SCORE} required`;
+        }
 
         return result;
     }
@@ -1538,6 +1538,13 @@ class ConnectionManager {
 
         SessionManager.checkSessionTargets();
         StatePersistence.saveState();
+
+        if (profit < 0 && SessionManager.isSessionActive()) {
+            LOGGER.trade(`🔄 [${ownerSym}] Loss confirmed — scheduling immediate recovery trade in ${500}ms`);
+            setTimeout(() => {
+                bot.executeRecoveryTrade(ownerSym, assetState.lastClosedCandleForRecovery);
+            }, 500);
+        }
     }
 
     handleOHLC(ohlc) {
@@ -1587,9 +1594,16 @@ class ConnectionManager {
 
                     a.canTrade = true;
 
+                    // try {
+                    //     if (a.martingaleLevel > 0) bot.executeRecoveryTrade(symbol, closed);
+                    //     else                       bot.executeNextTrade(symbol, closed);
+                    // } catch (err) {
+                    //     LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
+                    //     bot._forceReleaseTradeLock();
+                    // }
+
                     try {
-                        if (a.martingaleLevel > 0) bot.executeRecoveryTrade(symbol, closed);
-                        else                       bot.executeNextTrade(symbol, closed);
+                        if (a.martingaleLevel <= 0) bot.executeNextTrade(symbol, closed);
                     } catch (err) {
                         LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
                         bot._forceReleaseTradeLock();
@@ -1688,7 +1702,7 @@ class ForexBot {
     constructor() {
         this.connection              = new ConnectionManager();
         this._processedContracts     = new Set();
-        this.tradeWatchdogMs         = 930000;  // 16 minutes (15m duration + buffer)
+        this.tradeWatchdogMs         = 960000;  // 16 minutes (15m duration + buffer)
         this.timeCheckStarted        = false;
         this.sessionTimeCheckerId    = null;
         this.statusDisplayIntervalId = null;
@@ -1784,10 +1798,10 @@ class ForexBot {
         // (following trend that caused the loss)
         const direction = a.lastTradeDirection || 'CALLE';
 
-        LOGGER.trade(`⚡ [${symbol}] RECOVERY | ${direction === 'CALLE' ? 'CALLE' : 'PUTE'} | Stake: $${stake.toFixed(2)} | Mart: ${a.martingaleLevel}`);
+        LOGGER.trade(`⚡ [${symbol}] RECOVERY | ${direction === 'CALLE' ? 'CALL' : 'PUT'} | Stake: $${stake.toFixed(2)} | Mart: ${a.martingaleLevel}`);
         TelegramService.sendMessage(
             `⚡ <b>FOREX RECOVERY [${symbol}]</b>\n` +
-            `Direction: ${direction === 'CALLE' ? '📈 CALLE' : '📉 PUTE'}\n` +
+            `Direction: ${direction === 'CALLE' ? '📈 CALL' : '📉 PUT'}\n` +
             `Stake: $${stake.toFixed(2)} | Martingale Level: ${a.martingaleLevel}\n` +
             `Capital: $${state.capital.toFixed(2)}`
         );
