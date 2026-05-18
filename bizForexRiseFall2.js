@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'IndicesBot-state_01.json');
-const HISTORY_FILE = path.join(__dirname, 'IndicesBot-history_01.json');
+const STATE_FILE   = path.join(__dirname, 'IndicesBot-state_02.json');
+const HISTORY_FILE = path.join(__dirname, 'IndicesBot-history_02.json');
 const STATE_SAVE_INTERVAL = 3000;
 
 // ============================================
@@ -35,9 +35,9 @@ const CONFIG = {
 
     // ── Capital & Risk ─────────────────────────────────────────────
     INITIAL_CAPITAL:        500,        // Start with $500
-    STAKE:                  0.50,       // $0.50 per 1-minute trade (high frequency)
+    STAKE:                  0.35,       // $0.50 per 1-minute trade (high frequency)
     SESSION_PROFIT_TARGET:  250,        // +$250 = end day
-    SESSION_STOP_LOSS:      -50,        // -$50 = end day (tight stop)
+    SESSION_STOP_LOSS:      -150,        // -$50 = end day (tight stop)
 
     // ── Candle / Contract Settings ─────────────────────────────────
     // 1-minute candles: perfect for synthetic indices (high volatility, quick reversals)
@@ -104,13 +104,13 @@ const CONFIG = {
 
     // Minimum confluence score to enter (out of 5 signals)
     // Lower threshold = more trades, higher risk
-    MIN_CONFLUENCE_SCORE:   2.5,
+    MIN_CONFLUENCE_SCORE:   3.5,
 
     // ── Martingale Recovery ────────────────────────────────────────
     // For 1m with tight stops: aggressive recovery needed
-    MARTINGALE_MULTIPLIER:  2.5,        // 1m trades lose more % due to volatility
-    MARTINGALE_MULTIPLIER2: 3.0,
-    MARTINGALE_MULTIPLIER3: 3.5,
+    MARTINGALE_MULTIPLIER:  2.2,        // 1m trades lose more % due to volatility
+    MARTINGALE_MULTIPLIER2: 2.5,
+    MARTINGALE_MULTIPLIER3: 3.0,
     MAX_MARTINGALE_STEPS:   5,          // Only 3 steps max (limited capital)
 
     // ── Candle Pattern Detection ───────────────────────────────────
