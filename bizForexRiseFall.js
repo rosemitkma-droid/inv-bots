@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'ForexBot-state_02.json');
-const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_02.json');
+const STATE_FILE   = path.join(__dirname, 'ForexBot-state_03.json');
+const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_03.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -49,7 +49,7 @@ const CONFIG = {
 
     // 5-minute duration aligns contract expiry with candle close
     // giving the best directional accuracy for forex on Deriv
-    DURATION:               15,
+    DURATION:               900,
     DURATION_UNIT:          'm',        // Minutes
 
     // ── Strategy Parameters ────────────────────────────────────────
@@ -104,7 +104,7 @@ const CONFIG = {
 
     // ── Position Management ────────────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS:          3,    // Max simultaneous trades across all pairs
+    MAX_TOTAL_POSITIONS:          10,    // Max simultaneous trades across all pairs
 
     // ── Misc ───────────────────────────────────────────────────────
     DEBUG_MODE:             true,
@@ -124,6 +124,7 @@ const CONFIG = {
         'frxUSDCAD',    // Dollar/Loonie — oil-correlated trends
         'frxEURGBP',    // Euro/Cable — range-bound, good for reversals
         'frxEURJPY',    // Euro/Yen — high volatility cross
+        'frxXAUUSD',    // Gold — commodity-linked, clear trends
     ]
 };
 
@@ -669,19 +670,19 @@ class SignalAnalyzer {
             return result;
         }
 
-        if (result.score >= CONFIG.MIN_CONFLUENCE_SCORE) {
+        // if (result.score >= CONFIG.MIN_CONFLUENCE_SCORE) {
             if (netScore > 0) {
                 result.direction  = 'CALLE';
                 result.shouldTrade = true;
-                result.reason     = `CALL: ${bullScore.toFixed(1)}/${result.maxScore} bullish signals`;
+                result.reason     = `CALLE: ${bearScore.toFixed(1)}/${result.maxScore} bullish signals`;
             } else if (netScore < 0) {
                 result.direction  = 'PUTE';
                 result.shouldTrade = true;
-                result.reason     = `PUT: ${bearScore.toFixed(1)}/${result.maxScore} bearish signals`;
+                result.reason     = `PUTE: ${bullScore.toFixed(1)}/${result.maxScore} bearish signals`;
             }
-        } else {
-            result.reason = `Insufficient confluence: score ${result.score.toFixed(1)} < ${CONFIG.MIN_CONFLUENCE_SCORE} required`;
-        }
+        // } else {
+        //     result.reason = `Insufficient confluence: score ${result.score.toFixed(1)} < ${CONFIG.MIN_CONFLUENCE_SCORE} required`;
+        // }
 
         return result;
     }
@@ -1687,7 +1688,7 @@ class ForexBot {
     constructor() {
         this.connection              = new ConnectionManager();
         this._processedContracts     = new Set();
-        this.tradeWatchdogMs         = 960000;  // 16 minutes (15m duration + buffer)
+        this.tradeWatchdogMs         = 930000;  // 16 minutes (15m duration + buffer)
         this.timeCheckStarted        = false;
         this.sessionTimeCheckerId    = null;
         this.statusDisplayIntervalId = null;
@@ -1783,10 +1784,10 @@ class ForexBot {
         // (following trend that caused the loss)
         const direction = a.lastTradeDirection || 'CALLE';
 
-        LOGGER.trade(`⚡ [${symbol}] RECOVERY | ${direction === 'CALLE' ? 'CALL' : 'PUT'} | Stake: $${stake.toFixed(2)} | Mart: ${a.martingaleLevel}`);
+        LOGGER.trade(`⚡ [${symbol}] RECOVERY | ${direction === 'CALLE' ? 'CALLE' : 'PUTE'} | Stake: $${stake.toFixed(2)} | Mart: ${a.martingaleLevel}`);
         TelegramService.sendMessage(
             `⚡ <b>FOREX RECOVERY [${symbol}]</b>\n` +
-            `Direction: ${direction === 'CALLE' ? '📈 CALL' : '📉 PUT'}\n` +
+            `Direction: ${direction === 'CALLE' ? '📈 CALLE' : '📉 PUTE'}\n` +
             `Stake: $${stake.toFixed(2)} | Martingale Level: ${a.martingaleLevel}\n` +
             `Capital: $${state.capital.toFixed(2)}`
         );
