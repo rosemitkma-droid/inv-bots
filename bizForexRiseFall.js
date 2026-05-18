@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'ForexBot-state_01.json');
-const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_01.json');
+const STATE_FILE   = path.join(__dirname, 'ForexBot-state_02.json');
+const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_02.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -36,20 +36,20 @@ const CONFIG = {
     // ── Capital & Risk ─────────────────────────────────────────────
     INITIAL_CAPITAL:        1000,
     STAKE:                  1.00,       // Base stake per trade (USD)
-    SESSION_PROFIT_TARGET:  500,        // Stop trading after +$500 session profit
+    SESSION_PROFIT_TARGET:  2500,        // Stop trading after +$500 session profit
     SESSION_STOP_LOSS:      -100,       // Stop trading after -$100 session loss
 
     // ── Candle / Contract Settings ─────────────────────────────────
     // 5-minute candles: best balance of signal quality vs trade frequency
     // for Deriv forex pairs (reduces noise vs 1m, faster than 15m)
-    GRANULARITY:            300,        // 5 minutes in seconds
-    TIMEFRAME_LABEL:        '5m',
+    GRANULARITY:            900,        // 5 minutes in seconds
+    TIMEFRAME_LABEL:        '15m',
     CANDLES_TO_LOAD:        100,        // History for indicator warmup
     MAX_CANDLES_STORED:     200,        // Rolling window
 
     // 5-minute duration aligns contract expiry with candle close
     // giving the best directional accuracy for forex on Deriv
-    DURATION:               5,
+    DURATION:               15,
     DURATION_UNIT:          'm',        // Minutes
 
     // ── Strategy Parameters ────────────────────────────────────────
@@ -1687,7 +1687,7 @@ class ForexBot {
     constructor() {
         this.connection              = new ConnectionManager();
         this._processedContracts     = new Set();
-        this.tradeWatchdogMs         = 360000;  // 6 minutes (5m duration + buffer)
+        this.tradeWatchdogMs         = 960000;  // 16 minutes (15m duration + buffer)
         this.timeCheckStarted        = false;
         this.sessionTimeCheckerId    = null;
         this.statusDisplayIntervalId = null;
