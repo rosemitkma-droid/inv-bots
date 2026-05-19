@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'IndexBot-state_00.json');
-const HISTORY_FILE = path.join(__dirname, 'IndexBot-history_00.json');
+const STATE_FILE   = path.join(__dirname, 'IndexBot-state_02.json');
+const HISTORY_FILE = path.join(__dirname, 'IndexBot-history_02.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -121,7 +121,7 @@ const CONFIG = {
     // ── Misc ───────────────────────────────────────────────────────
     DEBUG_MODE:             true,
     TELEGRAM_ENABLED:       true,
-    TELEGRAM_BOT_TOKEN: '8306232249:AAGMwjFngs68Lcq27oGmqewQgthXTJJRxP0',
+    TELEGRAM_BOT_TOKEN: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     TELEGRAM_CHAT_ID: '752497117',
 
     // ── Active Index Assets ─────────────────────────────────────────
@@ -1827,10 +1827,10 @@ class IndexBot {
         const cfg       = getAssetConfig(symbol);
         // In recovery, trade same direction as last trade
         // (following trend that caused the loss)
-        // const direction = a.lastTradeDirection || 'CALLE';
+        const direction = a.lastTradeDirection || 'CALLE';
 
-        const candleType  = CandleAnalyzer.getCandleDirection(lastClosedCandle);
-        const direction   = candleType === 'BULLISH' ? 'CALLE' : 'PUTE';
+        // const candleType  = CandleAnalyzer.getCandleDirection(lastClosedCandle);
+        // const direction   = candleType === 'BULLISH' ? 'CALLE' : 'PUTE';
 
         LOGGER.trade(`⚡ [${symbol}] RECOVERY | ${direction === 'CALLE' ? 'CALLE' : 'PUTE'} | Stake: $${stake.toFixed(2)} | Mart: ${a.martingaleLevel}`);
         TelegramService.sendMessage(
