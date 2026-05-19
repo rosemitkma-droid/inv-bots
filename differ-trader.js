@@ -69,7 +69,7 @@ const BOT_CONFIG = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE PERSISTENCE
 // ─────────────────────────────────────────────────────────────────────────────
-const STATE_FILE = path.join(__dirname, 'deriv_frequency_bot_05_state.json');
+const STATE_FILE = path.join(__dirname, 'deriv_frequency_bot_07_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -643,10 +643,18 @@ class DerivFrequencyBot {
 
     _evaluateAsset(asset) {
         const canTrade = this._canTrade(asset);
+
+        const last10Digits = this.digitHistories[asset].slice(-10);
+        const currentDigit = this.digitHistories[asset][this.digitHistories[asset].length - 1];
+        const digit10 = this.digitHistories[asset][this.digitHistories[asset].length - 10];
+        const analysis = this.analyzer.analyzeFrequencies(this.digitHistories[asset], currentDigit);
+
         if (!canTrade.can) return;
 
-        const currentDigit = this.digitHistories[asset][this.digitHistories[asset].length - 1];
-        const analysis = this.analyzer.analyzeFrequencies(this.digitHistories[asset], currentDigit);
+        if (currentDigit === digit10) {
+            console.log(`❌ Current digit is same as 10th digit from last`);
+            return;
+        }
 
         // Display frequency analysis
         console.log(`\n${'═'.repeat(70)}`);
