@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'IndicesBot-state_03.json');
-const HISTORY_FILE = path.join(__dirname, 'IndicesBot-history_03.json');
+const STATE_FILE   = path.join(__dirname, 'IndicesBot-state_04.json');
+const HISTORY_FILE = path.join(__dirname, 'IndicesBot-history_04.json');
 const STATE_SAVE_INTERVAL = 3000;
 
 // ============================================
@@ -104,14 +104,14 @@ const CONFIG = {
 
     // Minimum confluence score to enter (out of 5 signals)
     // Lower threshold = more trades, higher risk
-    MIN_CONFLUENCE_SCORE:   4.5,
+    MIN_CONFLUENCE_SCORE:   3.5,
 
     // ── Martingale Recovery ────────────────────────────────────────
     // For 1m with tight stops: aggressive recovery needed
-    MARTINGALE_MULTIPLIER:  2.2,        // 1m trades lose more % due to volatility
-    MARTINGALE_MULTIPLIER2: 2.5,
-    MARTINGALE_MULTIPLIER3: 3.0,
-    MAX_MARTINGALE_STEPS:   5,          // Only 3 steps max (limited capital)
+    MARTINGALE_MULTIPLIER:  1.75,        // 1m trades lose more % due to volatility
+    MARTINGALE_MULTIPLIER2: 2.10,
+    MARTINGALE_MULTIPLIER3: 2.20,
+    MAX_MARTINGALE_STEPS:   6,          // Only 3 steps max (limited capital)
 
     // ── Candle Pattern Detection ───────────────────────────────────
     // For 1m: focus on quick reversals
@@ -127,7 +127,7 @@ const CONFIG = {
     // ── Misc ───────────────────────────────────────────────────────
     DEBUG_MODE:             true,
     TELEGRAM_ENABLED:       true,
-    TELEGRAM_BOT_TOKEN: '8306232249:AAGMwjFngs68Lcq27oGmqewQgthXTJJRxP0',
+    TELEGRAM_BOT_TOKEN: '8565754902:AAHS6UQWEgLJ0DO-JTpAGQhZLs-UDVVNAQc',
     TELEGRAM_CHAT_ID: '752497117',
 
     // ── Active Synthetic Indices ───────────────────────────────────
@@ -1348,7 +1348,7 @@ class ConnectionManager {
                     // Wait for minimum candles before trading
                     if (a.closedCandles.length >= CONFIG.MIN_CANDLES_BEFORE_TRADE) {
                         try {
-                            if (a.martingaleLevel > 0) bot.executeRecoveryTrade(symbol, closed);
+                            if (a.martingaleLevel === 1 || a.martingaleLevel === 3 || a.martingaleLevel === 5) bot.executeRecoveryTrade(symbol, closed);
                             else bot.executeNextTrade(symbol, closed);
                         } catch (err) {
                             LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
