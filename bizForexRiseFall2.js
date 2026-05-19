@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'IndicesBot-state_02.json');
-const HISTORY_FILE = path.join(__dirname, 'IndicesBot-history_02.json');
+const STATE_FILE   = path.join(__dirname, 'IndicesBot-state_03.json');
+const HISTORY_FILE = path.join(__dirname, 'IndicesBot-history_03.json');
 const STATE_SAVE_INTERVAL = 3000;
 
 // ============================================
@@ -104,7 +104,7 @@ const CONFIG = {
 
     // Minimum confluence score to enter (out of 5 signals)
     // Lower threshold = more trades, higher risk
-    MIN_CONFLUENCE_SCORE:   3.5,
+    MIN_CONFLUENCE_SCORE:   4.0,
 
     // ── Martingale Recovery ────────────────────────────────────────
     // For 1m with tight stops: aggressive recovery needed
