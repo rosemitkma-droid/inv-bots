@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'ForexBot-state_05.json');
-const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_05.json');
+const STATE_FILE   = path.join(__dirname, 'ForexBot-state_07.json');
+const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_07.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -37,7 +37,7 @@ const CONFIG = {
     INITIAL_CAPITAL:        1000,
     STAKE:                  1.00,       // Base stake per trade (USD)
     SESSION_PROFIT_TARGET:  2500,        // Stop trading after +$500 session profit
-    SESSION_STOP_LOSS:      -100,       // Stop trading after -$100 session loss
+    SESSION_STOP_LOSS:      -200,       // Stop trading after -$100 session loss
 
     // ── Candle / Contract Settings ─────────────────────────────────
     // 5-minute candles: best balance of signal quality vs trade frequency
@@ -82,10 +82,10 @@ const CONFIG = {
     MIN_CONFLUENCE_SCORE:   3,
 
     // ── Martingale Recovery ────────────────────────────────────────
-    MARTINGALE_MULTIPLIER:  2.05,       // Covers loss + commission on standard win
+    MARTINGALE_MULTIPLIER:  1.75,       // Covers loss + commission on standard win
     MARTINGALE_MULTIPLIER2: 2.10,
-    MARTINGALE_MULTIPLIER3: 2.15,
-    MAX_MARTINGALE_STEPS:   5,          // Lower than synthetic — forex more predictable
+    MARTINGALE_MULTIPLIER3: 2.20,
+    MAX_MARTINGALE_STEPS:   6,          // Lower than synthetic — forex more predictable
 
     // ── Trading Sessions (GMT) ─────────────────────────────────────
     // London: 08:00–17:00 GMT | New York: 13:00–22:00 GMT
@@ -1540,10 +1540,12 @@ class ConnectionManager {
         StatePersistence.saveState();
 
         if (profit < 0 && SessionManager.isSessionActive()) {
-            LOGGER.trade(`🔄 [${ownerSym}] Loss confirmed — scheduling immediate recovery trade in ${500}ms`);
-            setTimeout(() => {
-                bot.executeRecoveryTrade(ownerSym);
-            }, 500);
+            if(a.martingaleLevel === 1 || a.martingaleLevel === 3 || a.martingaleLevel === 5) {
+                LOGGER.trade(`🔄 [${ownerSym}] Loss confirmed — scheduling immediate recovery trade in ${500}ms`);
+                setTimeout(() => {
+                    bot.executeRecoveryTrade(ownerSym);
+                }, 500);
+            }
         }
     }
 
@@ -1603,7 +1605,7 @@ class ConnectionManager {
                     // }
 
                     try {
-                        if (a.martingaleLevel <= 0) bot.executeNextTrade(symbol, closed);
+                        if (a.martingaleLevel === 0 || a.martingaleLevel === 2 || a.martingaleLevel === 4) bot.executeNextTrade(symbol, closed);
                     } catch (err) {
                         LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
                         bot._forceReleaseTradeLock();
