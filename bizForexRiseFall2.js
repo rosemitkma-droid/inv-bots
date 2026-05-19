@@ -104,7 +104,7 @@ const CONFIG = {
 
     // Minimum confluence score to enter (out of 5 signals)
     // Lower threshold = more trades, higher risk
-    MIN_CONFLUENCE_SCORE:   4.0,
+    MIN_CONFLUENCE_SCORE:   4.5,
 
     // ── Martingale Recovery ────────────────────────────────────────
     // For 1m with tight stops: aggressive recovery needed
