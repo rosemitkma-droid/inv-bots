@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'IndexBot-state_02.json');
-const HISTORY_FILE = path.join(__dirname, 'IndexBot-history_02.json');
+const STATE_FILE   = path.join(__dirname, 'IndexBot-state_04.json');
+const HISTORY_FILE = path.join(__dirname, 'IndexBot-history_04.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -35,7 +35,7 @@ const CONFIG = {
 
     // ── Capital & Risk ─────────────────────────────────────────────
     INITIAL_CAPITAL:        1000,
-    STAKE:                  1.00,       // Base stake per trade (USD)
+    STAKE:                  0.35,       // Base stake per trade (USD)
     SESSION_PROFIT_TARGET:  2500,        // Stop trading after +$500 session profit
     SESSION_STOP_LOSS:      -100,       // Stop trading after -$100 session loss
 
@@ -94,10 +94,10 @@ const CONFIG = {
     MIN_CONFLUENCE_SCORE:   3,
 
     // ── Martingale Recovery ────────────────────────────────────────
-    MARTINGALE_MULTIPLIER:  2.05,       // Covers loss + commission on standard win
+    MARTINGALE_MULTIPLIER:  1.75,       // Covers loss + commission on standard win
     MARTINGALE_MULTIPLIER2: 2.10,
-    MARTINGALE_MULTIPLIER3: 2.3,
-    MAX_MARTINGALE_STEPS:   5,          
+    MARTINGALE_MULTIPLIER3: 2.2,
+    MAX_MARTINGALE_STEPS:   6,          
 
     // ── Trading Sessions (GMT) ─────────────────────────────────────
     // London: 08:00–17:00 GMT | New York: 13:00–22:00 GMT
@@ -121,7 +121,7 @@ const CONFIG = {
     // ── Misc ───────────────────────────────────────────────────────
     DEBUG_MODE:             true,
     TELEGRAM_ENABLED:       true,
-    TELEGRAM_BOT_TOKEN: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
+    TELEGRAM_BOT_TOKEN: '8565754902:AAHS6UQWEgLJ0DO-JTpAGQhZLs-UDVVNAQc',
     TELEGRAM_CHAT_ID: '752497117',
 
     // ── Active Index Assets ─────────────────────────────────────────
@@ -1633,8 +1633,11 @@ class ConnectionManager {
                     a.canTrade = true;
 
                     try {
-                        if (a.martingaleLevel > 0) bot.executeRecoveryTrade(symbol, closed);
-                        else                       bot.executeNextTrade(symbol, closed);
+                        if (a.martingaleLevel === 1 || a.martingaleLevel === 3 || a.martingaleLevel === 5) {
+                            bot.executeRecoveryTrade(symbol, closed);
+                        } else {
+                            bot.executeNextTrade(symbol, closed);
+                        }
                     } catch (err) {
                         LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
                         bot._forceReleaseTradeLock();
