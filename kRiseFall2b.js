@@ -6,9 +6,9 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_01210-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_01210-history.json');
-const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_01210-maxstreak.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b0_01211-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b0_01211-history.json');
+const MAXSTREAK_FILE = path.join(__dirname, 'KriseFallM_2b0_01211-maxstreak.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -38,7 +38,7 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     MAX_CANDLES_STORED: 60,
     CANDLES_TO_LOAD: 60,
-    AUTOCORR_THRESHOLD: -0.40,
+    AUTOCORR_THRESHOLD: -0.45,
     AUTOCORR_THRESHOLD2: -0.99,
     DURATION: 58,
     DURATION_UNIT: 's',
