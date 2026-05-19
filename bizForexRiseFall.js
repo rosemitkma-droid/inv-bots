@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'ForexBot-state_07.json');
-const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_07.json');
+const STATE_FILE   = path.join(__dirname, 'ForexBot-state_08.json');
+const HISTORY_FILE = path.join(__dirname, 'ForexBot-history_08.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -104,20 +104,20 @@ const CONFIG = {
 
     // ── Position Management ────────────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS:          9,    // Max simultaneous trades across all pairs
+    MAX_TOTAL_POSITIONS:          7,    // Max simultaneous trades across all pairs
 
     // ── Misc ───────────────────────────────────────────────────────
     DEBUG_MODE:             true,
     TELEGRAM_ENABLED:       true,
-    TELEGRAM_BOT_TOKEN: '8306232249:AAGMwjFngs68Lcq27oGmqewQgthXTJJRxP0',
+    TELEGRAM_BOT_TOKEN: '8565754902:AAHS6UQWEgLJ0DO-JTpAGQhZLs-UDVVNAQc',
     TELEGRAM_CHAT_ID: '752497117',
 
     // ── Active Forex Pairs ─────────────────────────────────────────
     // Deriv offers these as frxXXXYYY format
     // Selected for highest liquidity and binary option suitability
     ACTIVE_ASSETS: [
-        'frxEURUSD',    // Euro/Dollar — most liquid, tightest spread
-        'frxGBPUSD',    // Cable — high volatility, good signals
+        // 'frxEURUSD',    // Euro/Dollar — most liquid, tightest spread
+        // 'frxGBPUSD',    // Cable — high volatility, good signals
         'frxUSDJPY',    // Dollar/Yen — excellent trending behavior
         'frxUSDCHF',    // Dollar/Swiss — safe haven dynamics
         'frxAUDUSD',    // Aussie — commodity-linked, clear trends
