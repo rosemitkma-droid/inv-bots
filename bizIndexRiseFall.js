@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'IndexBot-state_05.json');
-const HISTORY_FILE = path.join(__dirname, 'IndexBot-history_05.json');
+const STATE_FILE   = path.join(__dirname, 'IndexBot-state_07.json');
+const HISTORY_FILE = path.join(__dirname, 'IndexBot-history_07.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -92,7 +92,7 @@ const CONFIG = {
     MACD_SIGNAL:            9,
 
     // Minimum confluence score to enter a trade (out of 5 possible signals)
-    MIN_CONFLUENCE_SCORE:   3.5,
+    MIN_CONFLUENCE_SCORE:   4.0,
 
     // ── Martingale Recovery ────────────────────────────────────────
     MARTINGALE_MULTIPLIER:  1.48,       // Covers loss + commission on standard win
@@ -113,7 +113,7 @@ const CONFIG = {
 
     // ── Position Management ────────────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS:          1,    // Max simultaneous trades across all pairs
+    MAX_TOTAL_POSITIONS:          5,    // Max simultaneous trades across all pairs
 
     // ── Misc ───────────────────────────────────────────────────────
     DEBUG_MODE:             true,
@@ -125,11 +125,11 @@ const CONFIG = {
     // Deriv offers these as frxXXXYYY format
     // Selected for highest liquidity and binary option suitability
     ACTIVE_ASSETS: [
-        'R_100',    // 100-index: highest volatility, most patterns
-        'R_75',     // 75-index: very volatile
-        'R_50',     // 50-index: balanced volatility
-        'R_25',     // 25-index: lower volatility, cleaner signals
-        'R_10',     // 10-index: lowest volatility, lowest noise
+        // 'R_100',    // 100-index: highest volatility, most patterns
+        // 'R_75',     // 75-index: very volatile
+        // 'R_50',     // 50-index: balanced volatility
+        // 'R_25',     // 25-index: lower volatility, cleaner signals
+        // 'R_10',     // 10-index: lowest volatility, lowest noise
         'stpRNG', 
         'stpRNG2',
         'stpRNG3', 
