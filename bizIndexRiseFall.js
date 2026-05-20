@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // FILE PATHS
 // ============================================
-const STATE_FILE   = path.join(__dirname, 'IndexBot-state_04.json');
-const HISTORY_FILE = path.join(__dirname, 'IndexBot-history_04.json');
+const STATE_FILE   = path.join(__dirname, 'IndexBot-state_05.json');
+const HISTORY_FILE = path.join(__dirname, 'IndexBot-history_05.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -37,7 +37,7 @@ const CONFIG = {
     INITIAL_CAPITAL:        1000,
     STAKE:                  0.35,       // Base stake per trade (USD)
     SESSION_PROFIT_TARGET:  2500,        // Stop trading after +$500 session profit
-    SESSION_STOP_LOSS:      -100,       // Stop trading after -$100 session loss
+    SESSION_STOP_LOSS:      -250,       // Stop trading after -$100 session loss
 
     // ── Candle / Contract Settings ─────────────────────────────────
     // 1-minute candles: best balance of signal quality vs trade frequency
@@ -79,7 +79,8 @@ const CONFIG = {
         R_75:  { min: 5.0,  max: 50.0 },
         R_100: { min: 0.2,  max: 2.0 },
 
-        stpRNG:  { min: 0.5, max: 5.0 },
+        stpRNG:  { min: 0.5, max: 10.0 },
+        stpRNG2: { min: 1.0, max: 10.0 },
         stpRNG3: { min: 1.0, max: 10.0 },
         stpRNG4: { min: 1.0, max: 10.0 },
         stpRNG5: { min: 1.0, max: 10.0 },
@@ -91,28 +92,24 @@ const CONFIG = {
     MACD_SIGNAL:            9,
 
     // Minimum confluence score to enter a trade (out of 5 possible signals)
-    MIN_CONFLUENCE_SCORE:   3,
+    MIN_CONFLUENCE_SCORE:   3.5,
 
     // ── Martingale Recovery ────────────────────────────────────────
-    MARTINGALE_MULTIPLIER:  1.75,       // Covers loss + commission on standard win
-    MARTINGALE_MULTIPLIER2: 2.10,
-    MARTINGALE_MULTIPLIER3: 2.2,
-    MAX_MARTINGALE_STEPS:   6,          
+    MARTINGALE_MULTIPLIER:  1.48,       // Covers loss + commission on standard win
+    MARTINGALE_MULTIPLIER2: 1.95,
+    MARTINGALE_MULTIPLIER3: 2.1,
+    MAX_MARTINGALE_STEPS:   8,          
 
     // ── Trading Sessions (GMT) ─────────────────────────────────────
     // London: 08:00–17:00 GMT | New York: 13:00–22:00 GMT
     // Overlap 13:00–17:00 GMT = highest liquidity + tightest spreads
     USE_TRADING_SESSIONS:   true,
     SESSIONS: [
-        { name: 'LONDON',   start: 2,  end: 17 },  // London session
+        { name: 'LONDON',   start: 7,  end: 17 },  // London session
         { name: 'NEW_YORK', start: 12, end: 23 },  // New York session
     ],
     // Only trade during session overlap for highest quality signals
     REQUIRE_SESSION_OVERLAP: false,     // Set true for overlap-only mode
-
-    // ── Spread Filter ──────────────────────────────────────────────
-    // Skip trade if spread (high-low of last candle) is too wide
-    MAX_SPREAD_PIPS:        3.0,        // Max allowed spread equivalent
 
     // ── Position Management ────────────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
@@ -134,6 +131,7 @@ const CONFIG = {
         'R_25',     // 25-index: lower volatility, cleaner signals
         'R_10',     // 10-index: lowest volatility, lowest noise
         'stpRNG', 
+        'stpRNG2',
         'stpRNG3', 
         'stpRNG4', 
         'stpRNG5'
