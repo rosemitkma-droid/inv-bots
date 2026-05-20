@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2a_00203-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2a_00203-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2a_00205-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2a_00205-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1097,7 +1097,7 @@ class CandleAnalyzer {
 // ============================================
 const CONFIG = {
     // API Settings
-    API_TOKEN: 'DMylfkyce6VyZt7',
+    API_TOKEN: 'rgNedekYXvCaPeP',
     APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
@@ -1124,8 +1124,8 @@ const CONFIG = {
     // ============================
     ALTERNATING_PATTERN_THRESHOLD: 60, //60 Percentage threshold for switching to TRADE_SYSTEM 1
     ALTERNATING_PATTERN_LOOKBACK: 60, //100 Number of previous candles to analyze for pattern detection (user configurable)
-    AUTOCORR_THRESHOLD: 0.0000,
-    AUTOCORR_THRESHOLD2: 0.0000,
+    AUTOCORR_THRESHOLD: -0.45,
+    AUTOCORR_THRESHOLD2: -0.99,
 
     // Default Trade Duration Settings (used if asset has no specific config)
     DURATION: 58,
@@ -3371,7 +3371,7 @@ class DerivBot {
         // Trade signals are generated based on Alternating Regime Analysis and Market Structure candle patterns
         const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
 
-        if (regime.details.autocorrelation >= CONFIG.AUTOCORR_THRESHOLD && regime.details.autocorrelation <= CONFIG.AUTOCORR_THRESHOLD2) {
+        if (regime.details.autocorrelation < CONFIG.AUTOCORR_THRESHOLD && regime.details.autocorrelation > CONFIG.AUTOCORR_THRESHOLD2) {
 
             if (candleType === 'BULLISH') {
                 direction = 'CALLE';
