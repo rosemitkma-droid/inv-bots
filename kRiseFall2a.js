@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2a_00205-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2a_00205-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2an_01-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2an_01-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1124,8 +1124,8 @@ const CONFIG = {
     // ============================
     ALTERNATING_PATTERN_THRESHOLD: 60, //60 Percentage threshold for switching to TRADE_SYSTEM 1
     ALTERNATING_PATTERN_LOOKBACK: 60, //100 Number of previous candles to analyze for pattern detection (user configurable)
-    AUTOCORR_THRESHOLD: -0.45,
-    AUTOCORR_THRESHOLD2: -0.99,
+    AUTOCORR_THRESHOLD: 0.25,
+    AUTOCORR_THRESHOLD2: 0.35,
 
     // Default Trade Duration Settings (used if asset has no specific config)
     DURATION: 58,
@@ -1149,7 +1149,7 @@ const CONFIG = {
     // true  = only trade during defined session windows below (recovery allowed anytime)
     // false = trade 24/7 (ignore session windows entirely)
     // ============================================
-    USE_TRADING_SESSIONS: false,
+    USE_TRADING_SESSIONS: true,
     // ============================================
     // TRADING SESSION WINDOWS (GMT+1 hours)
     // ============================================
@@ -1171,7 +1171,7 @@ const CONFIG = {
     TELEGRAM_CHAT_ID: '752497117',
 
     // === TRADE ALL ASSETS AFTER A WIN ===
-    ACTIVE_ASSETS: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG3', 'stpRNG4', 'stpRNG5']
+    ACTIVE_ASSETS: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG3', 'stpRNG4', 'stpRNG5']
 };
 
 // ============================================
@@ -1240,7 +1240,7 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
@@ -2253,7 +2253,15 @@ class ConnectionManager {
                 // TRIGGER TRADE ANALYSIS FOR THIS SPECIFIC ASSET
                 assetState.canTrade = true;
 
-                if (assetState.martingaleLevel > 0) {
+                if (//assetState.martingaleLevel === 1 || 
+                    //assetState.martingaleLevel === 2 || 
+                    //assetState.martingaleLevel === 3 ||
+                    //assetState.martingaleLevel === 5 || 
+                    // assetState.martingaleLevel === 6 || 
+                    // assetState.martingaleLevel === 8 ||
+                    //assetState.martingaleLevel === 9
+                    assetState.martingaleLevel > 0
+                ) {
                     bot.executeRecoveryTrade(symbol, closedCandle);
                 } else {
                     bot.executeNextTrade(symbol, closedCandle);
@@ -3371,7 +3379,7 @@ class DerivBot {
         // Trade signals are generated based on Alternating Regime Analysis and Market Structure candle patterns
         const candleType = CandleAnalyzer.getCandleDirection(lastClosedCandle);
 
-        if (regime.details.autocorrelation < CONFIG.AUTOCORR_THRESHOLD && regime.details.autocorrelation > CONFIG.AUTOCORR_THRESHOLD2) {
+        if (regime.details.autocorrelation >= CONFIG.AUTOCORR_THRESHOLD && regime.details.alternationRate <= CONFIG.AUTOCORR_THRESHOLD2) {
 
             if (candleType === 'BULLISH') {
                 direction = 'CALLE';
