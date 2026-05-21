@@ -6,8 +6,8 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER
 // ============================================
-const STATE_FILE = path.join(__dirname, 'KriseFallM_2b2n_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b2n_01-history.json');
+const STATE_FILE = path.join(__dirname, 'KriseFallM_2b2n_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'KriseFallM_2b2n_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================
@@ -1124,8 +1124,8 @@ const CONFIG = {
     // ============================
     ALTERNATING_PATTERN_THRESHOLD: 60, //60 Percentage threshold for switching to TRADE_SYSTEM 1
     ALTERNATING_PATTERN_LOOKBACK: 60, //100 Number of previous candles to analyze for pattern detection (user configurable)
-    AUTOCORR_THRESHOLD: -0.32,
-    AUTOCORR_THRESHOLD2: -0.35,
+    AUTOCORR_THRESHOLD: -0.30,
+    AUTOCORR_THRESHOLD2: -0.32,
 
     // Default Trade Duration Settings (used if asset has no specific config)
     DURATION: 58,
@@ -1156,8 +1156,8 @@ const CONFIG = {
     TOKYO_START: 2,
     TOKYO_END: 8,
     LONDON_START: 8,
-    LONDON_END: 13,
-    NEWYORK_START: 13,
+    LONDON_END: 12,
+    NEWYORK_START: 15,
     NEWYORK_END: 19,
     SYDNEY_START: 19,
     SYDNEY_END: 23,
@@ -1171,7 +1171,7 @@ const CONFIG = {
     TELEGRAM_CHAT_ID: '752497117',
 
     // === TRADE ALL ASSETS AFTER A WIN ===
-    ACTIVE_ASSETS: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG3', 'stpRNG4', 'stpRNG5']
+    ACTIVE_ASSETS: ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5']
 };
 
 // ============================================
@@ -1240,7 +1240,7 @@ function getAssetConfig(symbol) {
     };
 }
 
-let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
+let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'];
 // let ACTIVE_ASSETS = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
