@@ -1,7 +1,7 @@
 'use strict';
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║         DERIV SYNTHETIC INDICES CALL/PUT BOT  —  v2.0                  ║
+ * ║         DERIV SYNTHETIC INDICES CALLE/PUTE BOT  —  v2.0                  ║
  * ║                                                                          ║
  * ║  Strategy: Volatility-Regime Adaptive Multi-Confluence System           ║
  * ║  ─────────────────────────────────────────────────────────────────────  ║
@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot_01-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot_01-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -79,9 +79,9 @@ const CONFIG = {
     WS_URL:     'wss://ws.derivws.com/websockets/v3',
 
     // ── Capital & Risk (Fixed-Fractional — replaces martingale) ──
-    INITIAL_CAPITAL:            1000,
-    RISK_PERCENT_PER_TRADE:     1.0,    // % of capital per trade (1% = conservative)
-    MAX_STAKE:                  10.0,   // Hard cap per trade in USD
+    INITIAL_CAPITAL:            250,
+    RISK_PERCENT_PER_TRADE:     0.50,    // % of capital per trade (1% = conservative)
+    MAX_STAKE:                  80.0,   // Hard cap per trade in USD
     MIN_STAKE:                  0.35,   // Minimum stake allowed by Deriv
 
     // Recovery staking (limited — max 2 steps)
@@ -92,9 +92,9 @@ const CONFIG = {
     MAX_RECOVERY_STAKE_PCT:     2.5,    // Recovery stake never exceeds 2.5% of capital
 
     // Session profit/loss guards
-    SESSION_PROFIT_TARGET:      500,    // Stop after +$500 session gain
-    SESSION_STOP_LOSS:          -150,   // Stop after -$150 session loss
-    DAILY_STOP_LOSS:            -200,   // Hard daily stop, resets at UTC midnight
+    SESSION_PROFIT_TARGET:      5000,    // Stop after +$500 session gain
+    SESSION_STOP_LOSS:          -1500,   // Stop after -$150 session loss
+    DAILY_STOP_LOSS:            -2000,   // Hard daily stop, resets at UTC midnight
 
     // Cool-down after consecutive losses
     MAX_CONSECUTIVE_LOSSES:     3,      // Pause trading after 3 straight losses
@@ -127,6 +127,7 @@ const CONFIG = {
         stpRNG4: { min: 0.05,  max: 2.0  },
         stpRNG5: { min: 0.05,  max: 2.0  },
     },
+
     ATR_PERIOD:                 14,
 
     // ADX trend-strength gate
@@ -172,16 +173,16 @@ const CONFIG = {
     // ── Trading Sessions (Synthetics trade 24/7 — sessions optional) ─
     // Research shows synthetics have peak pattern clarity at specific hours.
     // Disabling avoids forex-centric session bias on PRNG assets.
-    USE_TRADING_SESSIONS:       false,  // Recommended: false for synthetics
+    USE_TRADING_SESSIONS:       true,  // Recommended: false for synthetics
     SESSIONS: [
-        { name: 'ASIA_OPEN',    start: 22, end: 6  },  // UTC: 22:00–06:00
+        // { name: 'ASIA_OPEN',    start: 22, end: 6  },  // UTC: 22:00–06:00
         { name: 'LONDON_OPEN',  start: 7,  end: 17 },  // UTC: 07:00–17:00
-        { name: 'NY_OPEN',      start: 12, end: 23 },  // UTC: 12:00–23:00
+        { name: 'NY_OPEN',      start: 12, end: 22 },  // UTC: 12:00–23:00
     ],
 
     // ── Position Management ───────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS:          3,    // Reduced from 5 — tighter risk control
+    MAX_TOTAL_POSITIONS:          10,    // Reduced from 5 — tighter risk control
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
@@ -545,7 +546,7 @@ class SignalAnalyzer {
     /**
      * Returns:
      * {
-     *   direction:   'CALL' | 'PUT' | null,
+     *   direction:   'CALLE' | 'PUTE' | null,
      *   shouldTrade: boolean,
      *   score:       number,   (Layer 3 momentum score, max 4)
      *   maxScore:    4,
@@ -797,7 +798,7 @@ class SignalAnalyzer {
 
         // ── Final decision ────────────────────────────────
         if (score >= CONFIG.MIN_CONFLUENCE_SCORE) {
-            result.direction  = trendDirection === 'BULL' ? 'CALL' : 'PUT';
+            result.direction  = trendDirection === 'BULL' ? 'CALLE' : 'PUTE';
             result.shouldTrade = true;
             result.reason = (
                 `${result.direction}: L1✅ L2(ST:${l2.supertrend} EMA:${l2.ema?.split(' ')[0]} DON:${l2.donchian}) ` +
@@ -1155,7 +1156,7 @@ class TelegramService {
         const ind     = details.indicators || {};
         const lines   = [
             `${emoji} <b>INDEX BOT v2 — ${type}</b>`,
-            `Pair: <b>${symbol}</b>  Direction: <b>${direction === 'CALL' ? '📈 CALL' : '📉 PUT'}</b>`,
+            `Pair: <b>${symbol}</b>  Direction: <b>${direction === 'CALLE' ? '📈 CALLE' : '📉 PUTE'}</b>`,
             `Stake: $${stake.toFixed(2)} | Duration: ${duration}${durationUnit.toUpperCase()}`,
             `Recovery Step: ${a?.recoveryStep ?? 0} | ${TradingSessionManager.getStatusString()}`,
             ``,
@@ -2045,7 +2046,7 @@ class IndexBot {
 
         const recoveryNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
         LOGGER.trade(
-            `🎯 [${symbol}]${recoveryNote} ${signal.direction === 'CALL' ? '📈 CALL' : '📉 PUT'} | ` +
+            `🎯 [${symbol}]${recoveryNote} ${signal.direction === 'CALLE' ? '📈 CALLE' : '📉 PUTE'} | ` +
             `Stake: $${stake.toFixed(2)} | Score: ${signal.score}/${signal.maxScore} | ADX: ${signal.indicators?.adx}`
         );
         LOGGER.trade(`   ${signal.reason}`);
