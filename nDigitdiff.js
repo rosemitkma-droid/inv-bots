@@ -107,9 +107,9 @@ const BOT_CONFIG = {
   },
 
   files: {
-    state: path.join(__dirname, 'digitdiff_merged_state_03.json'),
-    signals: path.join(__dirname, 'digitdiff_merged_signals_03.csv'),
-    trades: path.join(__dirname, 'digitdiff_merged_trades_03.csv'),
+    state: path.join(__dirname, 'digitdiff_merged_state_04.json'),
+    signals: path.join(__dirname, 'digitdiff_merged_signals_04.csv'),
+    trades: path.join(__dirname, 'digitdiff_merged_trades_04.csv'),
   },
 };
 
@@ -861,7 +861,7 @@ class DerivDigitDiffMergedBot {
     };
 
     const conservativeProb = (stored.analysis.conservativeLoseProb).toFixed(3)
-    const approved = conservativeProb <= 0.105
+    const approved = conservativeProb <= 0.103
       // stored.analysis.conservativeLoseProb < requiredMaxLoseProb 
       // &&
       // conservativeEV > 0;
@@ -872,7 +872,7 @@ class DerivDigitDiffMergedBot {
           Decision: ${approved ? 'APPROVED' : 'REJECTED'}
           Proposal for: ${asset}: ask $${askPrice.toFixed(2)} 
           Payout: $${payout.toFixed(2)}, break-even WR ${(breakeven * 100).toFixed(2)}% 
-          Required max lose prob: ${(stored.analysis.conservativeLoseProb).toFixed(3)}% < ${0.105}%
+          Required max lose prob: ${(stored.analysis.conservativeLoseProb).toFixed(3)}% < ${0.103}%
           Conservative EV: $${conservativeEV.toFixed(4)}
         `);
       return;
