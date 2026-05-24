@@ -27,25 +27,25 @@ const CONFIG = {
     RISK_PERCENT: 1.0, 
     EQUITY_PROTECTION: 50, // Stop all trading if balance hits this
 
-    ACTIVE_ASSETS: ['R_10', 'R_25', 'R_50', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4' , 'stpRNG5'],//['R_10', 'R_25', 'R_50', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4' , 'stpRNG5']
+    ACTIVE_ASSETS: ['stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4' , 'stpRNG5'],//['R_10', 'R_25', 'R_50', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4' , 'stpRNG5']
 
     // Strategy Thresholds
     ADX_TRENDING: 25,       // Above this, we only take directional trades
     ADX_RANGING: 20,        // Below this, we look for mean reversion/hedges
-    MIN_SCORE_TO_TRADE: 7, 
-    HEDGE_BIAS_THRESHOLD: 2, // Difference in score to trigger biased hedge vs single trade
+    MIN_SCORE_TO_TRADE: 8, // Minimum score to take any trade
+    HEDGE_BIAS_THRESHOLD: 10, // Difference in score to trigger biased hedge vs single trade
 
     // Money Management
     DALEMBERT_UNIT: 0.5,
     MAX_DALEMBERT_STEPS: 5,
     MAX_CONSECUTIVE_LOSSES: 5,
     DAILY_PROFIT_TARGET: 25,
-    DAILY_STOP_LOSS: -20,
+    DAILY_STOP_LOSS: -200,
 
     // Technicals
     GRANULARITY: 60,
     CANDLES_TO_LOAD: 100,
-    DURATION: 5,
+    DURATION: 1,
     DURATION_UNIT: 't',
 
     TELEGRAM_ENABLED: true,
@@ -535,26 +535,29 @@ class HedgedBot {
         const isTrending = parseFloat(score.adx) > CONFIG.ADX_TRENDING;
         const isRanging = parseFloat(score.adx) < CONFIG.ADX_RANGING;
 
-        const shouldRise = score.rise >= CONFIG.MIN_SCORE_TO_TRADE && (isTrending ? score.rise > score.fall + 3 : score.rise > score.fall + 1);
-        const shouldFall = score.fall >= CONFIG.MIN_SCORE_TO_TRADE && (isTrending ? score.fall > score.rise + 3 : score.fall > score.rise + 1);
+        const shouldRise = score.rise >= CONFIG.MIN_SCORE_TO_TRADE && score.fall === 1;
+        const shouldFall = score.fall >= CONFIG.MIN_SCORE_TO_TRADE && score.rise === 1;
 
         if (isTrending) {
             if (shouldRise) this.executeSingle(ohlc.symbol, 'CALLE', score, candle.close);
             else if (shouldFall) this.executeSingle(ohlc.symbol, 'PUTE', score, candle.close);
         } else if (isRanging) {
             // In ranging markets, we can use Biased Hedging
-            if (shouldRise && shouldFall && Math.abs(score.rise - score.fall) <= CONFIG.HEDGE_BIAS_THRESHOLD) {
-                this.executeBiasedHedge(ohlc.symbol, score, candle.close);
-            } else if (shouldRise) {
-                this.executeSingle(ohlc.symbol, 'CALLE', score, candle.close);
-            } else if (shouldFall) {
-                this.executeSingle(ohlc.symbol, 'PUTE', score, candle.close);
-            }
-        } else {
-            // Neutral/Transition zone
-            if (shouldRise) this.executeSingle(ohlc.symbol, 'CALLE', score, candle.close);
-            else if (shouldFall) this.executeSingle(ohlc.symbol, 'PUTE', score, candle.close);
-        }
+            // if (shouldRise && shouldFall && Math.abs(score.rise - score.fall) <= CONFIG.HEDGE_BIAS_THRESHOLD) {
+            //     this.executeBiasedHedge(ohlc.symbol, score, candle.close);
+            // } else if (shouldRise) {
+            //     this.executeSingle(ohlc.symbol, 'CALLE', score, candle.close);
+            // } else if (shouldFall) {
+            //     this.executeSingle(ohlc.symbol, 'PUTE', score, candle.close);
+            // }
+            // if (shouldRise) this.executeSingle(ohlc.symbol, 'CALLE', score, candle.close);
+            // else if (shouldFall) this.executeSingle(ohlc.symbol, 'PUTE', score, candle.close);
+        } 
+        // else {
+        //     // Neutral/Transition zone
+        //     if (shouldRise) this.executeSingle(ohlc.symbol, 'CALLE', score, candle.close);
+        //     else if (shouldFall) this.executeSingle(ohlc.symbol, 'PUTE', score, candle.close);
+        // }
     }
 
     getStake() { 
