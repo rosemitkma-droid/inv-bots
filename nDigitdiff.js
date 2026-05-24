@@ -1325,4 +1325,4 @@ class DerivDigitDiffMergedBot {
 // INIT
 // ─────────────────────────────────────────────────────────────────────────────
 const bot = new DerivDigitDiffMergedBot(BOT_CONFIG);
-bot.start();
+bot.start(); 
