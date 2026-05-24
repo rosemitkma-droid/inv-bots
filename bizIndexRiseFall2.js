@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot_01-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot_01-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot_021-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot_02-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -81,7 +81,7 @@ const CONFIG = {
     // ── Capital & Risk (Fixed-Fractional — replaces martingale) ──
     INITIAL_CAPITAL:            250,
     RISK_PERCENT_PER_TRADE:     0.50,    // % of capital per trade (1% = conservative)
-    MAX_STAKE:                  80.0,   // Hard cap per trade in USD
+    MAX_STAKE:                  2.0,   // Hard cap per trade in USD
     MIN_STAKE:                  0.35,   // Minimum stake allowed by Deriv
 
     // Recovery staking (limited — max 2 steps)
