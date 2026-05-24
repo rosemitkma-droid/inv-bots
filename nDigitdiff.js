@@ -61,7 +61,7 @@ const BOT_CONFIG = {
 
   stopLoss: Number(25),
   takeProfit: Number(25),
-  maxConsecutiveLosses: Number(2),
+  maxConsecutiveLosses: Number(3),
 
   contract: {
     type: 'DIGITDIFF',
@@ -90,7 +90,7 @@ const BOT_CONFIG = {
   minTimeBetweenTrades: Number(25000),
   cooldownAfterLoss: Number(45000),
   maxTradesPerHour: Number(30),
-  maxTradesPerDay: Number(40),
+  maxTradesPerDay: Number(100),
   oneTradeGlobally: ('true').toLowerCase() !== 'false',
   maxProposalAgeMs: Number(4000),
 
@@ -101,15 +101,15 @@ const BOT_CONFIG = {
   reconnectDelay: Number(5000),
 
   scheduler: {
-    enableNightShutdown: ('true').toLowerCase() === 'true',
+    enableNightShutdown: ('true').toLowerCase() === 'false',
     shutdownHourGMT1: Number(23),
     restartHourGMT1: Number(2),
   },
 
   files: {
-    state: path.join(__dirname, 'digitdiff_merged_state_01.json'),
-    signals: path.join(__dirname, 'digitdiff_merged_signals_01.csv'),
-    trades: path.join(__dirname, 'digitdiff_merged_trades_01.csv'),
+    state: path.join(__dirname, 'digitdiff_merged_state_02.json'),
+    signals: path.join(__dirname, 'digitdiff_merged_signals_02.csv'),
+    trades: path.join(__dirname, 'digitdiff_merged_trades_02.csv'),
   },
 };
 
