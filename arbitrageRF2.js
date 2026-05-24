@@ -91,7 +91,7 @@ const LOGGER = {
 };
 
 // ============================================
-const HISTORY_FILE = path.join(__dirname, 'HedgedBot_v4_history.json');
+const HISTORY_FILE = path.join(__dirname, 'HedgedBot_v7_01_history.json');
 let tradeHistory = {
     overall: { tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0, hedges: 0, firstTradeDate: null, lastTradeDate: null },
     dailyHistory: {},
