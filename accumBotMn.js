@@ -39,7 +39,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
-const STATE_FILE = path.join(__dirname, 'accumBot_research_v3_01_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBot_research_v3_03_state.json');
 const STATE_SAVE_INTERVAL = 10000;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -533,7 +533,7 @@ class ResearchBasedAccumulatorBot {
 
         this.config = {
             timezone: config.timezone || 'Africa/Lagos',
-            riskPercent: clamp(safeNum(config.riskPercent, 1.5), 1, 2),
+            riskPercent: clamp(safeNum(config.riskPercent, 1.0), 1, 2),
             investmentCapital: safeNum(config.investmentCapital, 0),
             useBalanceAsCapitalBase: config.useBalanceAsCapitalBase === false,
             maxDailyLossPercent: safeNum(config.maxDailyLossPercent, 6),
@@ -1293,9 +1293,9 @@ class ResearchBasedAccumulatorBot {
 
 if (require.main === module) {
     const bot = new ResearchBasedAccumulatorBot('Dz2V2KvRf4Uukt3', {
-        riskPercent: 1.5,
+        riskPercent: 1.0,
         maxDailyLossPercent: 6,
-        maxDailyProfitPercent: 12,
+        maxDailyProfitPercent: 25,
         assets: ('R_10,R_25,R_50').split(',').map((x) => x.trim()).filter(Boolean),
         investmentCapital: safeNum(100, 0),
         telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
