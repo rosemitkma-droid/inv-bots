@@ -39,7 +39,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
-const STATE_FILE = path.join(__dirname, 'accumBot_research_v3_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBot_research_v3_01_state.json');
 const STATE_SAVE_INTERVAL = 10000;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -540,7 +540,7 @@ class ResearchBasedAccumulatorBot {
             maxDailyProfitPercent: safeNum(config.maxDailyProfitPercent, 12),
             minStake: safeNum(config.minStake, 0.35),
             maxStakeAsBalancePercent: safeNum(config.maxStakeAsBalancePercent, 98),
-            maxConsecutiveLosses: safeNum(config.maxConsecutiveLosses, 3),
+            maxConsecutiveLosses: safeNum(config.maxConsecutiveLosses, 7),
             growthRateMin: 0.03,
             growthRateMax: 0.05,
             minScoreForTrade: safeNum(config.minScoreForTrade, 0.80),
