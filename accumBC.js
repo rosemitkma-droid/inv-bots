@@ -537,7 +537,6 @@ class EnhancedDerivTradingBot {
         this.filterNum = this.config.filterNum;
         this.Percentage = 0;
         this.predictedDigit = null;
-        this.entryTick = null;
         this.currentTick = 0;
         this.Sys2 = false;
         // Components
@@ -1040,12 +1039,15 @@ class EnhancedDerivTradingBot {
         if (!message.proposal) return;
         if (!asset) return;
 
-        if (this.tradeInProgress) return;
+        // if (this.tradeInProgress) return;
 
         const proposal = message.proposal;
         const stayedInArray = proposal.contract_details.ticks_stayed_in;
 
         if (!stayedInArray) return;
+
+        this.stayedInArray = stayedInArray;
+
 
         // Current digit count of the running accumulator
         const currentDigitCount = stayedInArray[99] + 1;
@@ -1070,19 +1072,13 @@ class EnhancedDerivTradingBot {
             .filter(digit => digitFrequency[digit] === this.filterNum)
             .map(Number);
 
-        this.entryTick = stayedInArray[99];
-        this.currentTick2 = stayedInArray[98];
-        this.currentTick3 = stayedInArray[97];
-        this.currentTick4 = stayedInArray[96];
-        this.stayedInArray = stayedInArray;
-
         console.log(`   Digits that appeared ${this.filterNum} times: [${appearedOnceArray.join(', ')}]
-            StayedInArray: [${this.entryTick}|${this.currentTick2}|${this.currentTick3}|${this.currentTick4}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]
+            StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]
         `);
 
         // Entry condition: current digit count is in appearedOnceArray
         // and not already traded, and stayedIn value >= 0
-        const condition = (this.currentTick < 2 && this.currentTick2 < 15 && this.currentTick3 < 15 &&  this.currentTick4 < 15 || this.consecutiveLosses > 0);
+        const condition = (this.stayedInArray[99] < 1 && this.stayedInArray[98] < 15 && this.stayedInArray[97] < 15 &&  this.stayedInArray[96] < 15 || this.consecutiveLosses > 0);
         
         // const condition = appearedOnceArray.includes(currentDigitCount)
         //     && !this.tradedDigitArray.includes(stayedInArray[99])
@@ -1135,7 +1131,7 @@ class EnhancedDerivTradingBot {
 
         // Check if we should place trade
         if (condition) {
-            this.tradedDigitArray.push(stayedInArray[99]);
+            this.tradedDigitArray.push(this.stayedInArray[99]);
             this.filteredArray = appearedOnceArray;
             
             console.log(`   Traded Digit Array: [${this.tradedDigitArray.join(', ')}]`);
@@ -1209,7 +1205,7 @@ class EnhancedDerivTradingBot {
         this.sendTelegramMessage(
             `🚀 <b>TRADE OPENED (Accum BOOM/CRASH)</b>\n\n` +
             `Asset: <b>${asset}</b>\n` +
-            `stayedInArray: <b>[${this.entryTick}|${this.currentTick2}|${this.currentTick3}|${this.currentTick4}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]</b>\n` +
+            `stayedInArray: <b>[${this.stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]</b>\n` +
             `Stake: $${trade.stake.toFixed(2)}\n` +
             `Growth Rate: ${(this.config.growthRate * 100).toFixed(0)}%\n` +
             `Filter Number: ${this.filterNum}\n` +
@@ -1577,9 +1573,9 @@ class EnhancedDerivTradingBot {
         // Send Trade result notification
         this.sendTelegramMessage(
             `<b>Accum BOOM/CRASH</b>\n` +
-            `Asset: <b>${asset}</b>\n` +
             `${won ? '✅ WON' : '❌ LOSS'}\n` +
-            `stayedInArray: [${this.entryTick}|${this.currentTick2}|${this.currentTick3}|${this.currentTick4}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]\n` +
+            `Asset: <b>${asset}</b>\n` +
+            `stayedInArray: [${this.stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]\n` +
             `P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(3)}\n` +
             `Consecutive Losses: ${this.consecutiveLosses}\n` +
             `Trades: ${this.totalTrades} (${this.totalWins}W/${this.totalLosses}L)\n` +
@@ -1760,7 +1756,7 @@ const bot = new EnhancedDerivTradingBot('DMylfkyce6VyZt7', {
     stopLoss: 127,
     takeProfit: 250,
     growthRate: 0.05,
-    takeProfitMultiplier: 1, //0.05,
+    takeProfitMultiplier: 1, //0.05, % of Stake Amount
     filterNum: 4,
     assets: [
         'BOOM1000', 'BOOM900', 'CRASH1000', 'CRASH900', 
