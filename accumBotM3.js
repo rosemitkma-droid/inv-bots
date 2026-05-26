@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM3_09_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBotM3_001_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1731,10 +1731,10 @@ class EnhancedDerivTradingBot {
 // ══════════════════════════════════════════════════════════════════════════════
 // BOT INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
-const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
+const bot = new EnhancedDerivTradingBot('hsj0tA0XJoIzJG5', {
     initialStake: 5,
     initialStake2: 25,
-    multiplier: 21,
+    multiplier: 1,
     recoveryWinNum: 100,
     maxConsecutiveLosses: 4,
     stopLoss: 532,
@@ -1742,7 +1742,7 @@ const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
     growthRate: 0.05,
     takeProfitMultiplier: 0.05,
     filterNum: 4,
-    assets: ['R_10', 'R_25', 'R_50', 'R_75'], //['R_10', 'R_25', 'R_50', 'R_75', 'R_100']
+    assets: ['R_10', 'R_25', 'R_50'], //['R_10', 'R_25', 'R_50', 'R_75', 'R_100']
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     telegramChatId: '752497117',
 });
