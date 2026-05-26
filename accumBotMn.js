@@ -39,7 +39,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
-const STATE_FILE = path.join(__dirname, 'accumBot_research_v3_03_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBot_research_v3_05_state.json');
 const STATE_SAVE_INTERVAL = 10000;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -478,21 +478,21 @@ class AccumulatorAnalyzer {
         overallScore = Number(overallScore.toFixed(3));
 
         let growthRate = 0.01;
-        if (overallScore >= 0.90 && scores.adxLow >= 0.82 && scores.bandWidth >= 0.82) growthRate = 0.03;
-        else if (overallScore >= 0.82) growthRate = 0.02;
+        if (overallScore >= 0.92 && scores.adxLow >= 0.82 && scores.bandWidth >= 0.82) growthRate = 0.05;
+        else if (overallScore >= 0.82) growthRate = 0.03;
 
         let targetTicks = 18;
-        if (growthRate === 0.02) targetTicks = overallScore >= 0.88 ? 12 : 14;
-        if (growthRate === 0.03) targetTicks = overallScore >= 0.92 ? 8 : 10;
+        if (growthRate === 0.03) targetTicks = overallScore >= 0.90 ? 10 : 12;
+        if (growthRate === 0.05) targetTicks = overallScore >= 0.92 ? 8 : 10;
 
         const takeProfitFactor = Math.pow(1 + growthRate, targetTicks) - 1;
 
         const shouldTrade = (
-            overallScore >= 0.78 &&
-            scores.bandWidth >= 0.60 &&
-            scores.macdFlat >= 0.55 &&
-            scores.adxLow >= 0.58 &&
-            scores.pricePosition >= 0.58 &&
+            overallScore >= 0.80 &&
+            scores.bandWidth >= 0.80 &&
+            scores.macdFlat >= 0.95 &&
+            scores.adxLow >= 0.75 &&
+            scores.pricePosition >= 0.75 &&
             scores.tickStability >= 0.55
         );
 
@@ -541,13 +541,13 @@ class ResearchBasedAccumulatorBot {
             minStake: safeNum(config.minStake, 0.35),
             maxStakeAsBalancePercent: safeNum(config.maxStakeAsBalancePercent, 98),
             maxConsecutiveLosses: safeNum(config.maxConsecutiveLosses, 7),
-            growthRateMin: 0.03,
+            growthRateMin: 0.05,
             growthRateMax: 0.05,
             minScoreForTrade: safeNum(config.minScoreForTrade, 0.80),
-            useDigitLogic: false,
+            useDigitLogic: true,
             maxReconnectAttempts: safeNum(config.maxReconnectAttempts, 30),
             reconnectDelay: safeNum(config.reconnectDelay, 4000),
-            minTimeBetweenTrades: safeNum(config.minTimeBetweenTrades, 12000),
+            minTimeBetweenTrades: safeNum(config.minTimeBetweenTrades, 2000),
             requiredHistoryLength: safeNum(config.requiredHistoryLength, 160),
             maxTradeDurationMs: safeNum(config.maxTradeDurationMs, 150000),
             softTradeDurationMs: safeNum(config.softTradeDurationMs, 90000),
