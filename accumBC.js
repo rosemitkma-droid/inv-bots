@@ -1552,6 +1552,8 @@ class EnhancedDerivTradingBot {
                 // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             // }
 
+            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+
             // Suspend all other assets, focus on loss asset
             this.suspendOtherAssets(asset);
         }
@@ -1750,7 +1752,7 @@ const bot = new EnhancedDerivTradingBot('DMylfkyce6VyZt7', {
     recoveryWinNum: 100,
     maxConsecutiveLosses: 7,
     stopLoss: 127,
-    takeProfit: 25,
+    takeProfit: 250,
     growthRate: 0.05,
     takeProfitMultiplier: 1, //0.05,
     filterNum: 4,
