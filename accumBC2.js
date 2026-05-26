@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2_05_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2_06_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1079,7 +1079,7 @@ class EnhancedDerivTradingBot {
 
         // Entry condition: current digit count is in appearedOnceArray
         // and not already traded, and stayedIn value >= 0
-        const condition = (this.stayedInArray[99] < 1 && this.stayedInArray[98] < 10 && this.stayedInArray[97] < 11 && this.stayedInArray[96] < 12 && this.stayedInArray[95] < 13 || this.consecutiveLosses > 0);
+        const condition = (this.stayedInArray[99] < 1 && this.stayedInArray[98] < 9 && this.stayedInArray[97] < 10 && this.stayedInArray[96] < 11 && this.stayedInArray[95] < 12 && this.stayedInArray[94] < 13 || this.consecutiveLosses > 0);
         
         // const condition = appearedOnceArray.includes(currentDigitCount)
         //     && !this.tradedDigitArray.includes(stayedInArray[99])
