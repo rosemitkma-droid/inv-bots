@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC_06_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC_07_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1006,7 +1006,7 @@ class EnhancedDerivTradingBot {
         if (this.tradeInProgress) return;
         if (!this.wsReady) return;
 
-        const takeProfitAmount = this.currentStake; // this.currentStake * this.config.takeProfitMultiplier;
+        this.takeProfitAmount = this.currentStake; // this.currentStake * this.config.takeProfitMultiplier;
 
         const proposal = {
             proposal: 1,
@@ -1017,7 +1017,7 @@ class EnhancedDerivTradingBot {
             symbol: asset,
             growth_rate: this.config.growthRate,
             limit_order: {
-                take_profit: takeProfitAmount.toFixed(2)
+                take_profit: this.takeProfitAmount.toFixed(2)
             }
         };
 
@@ -1138,7 +1138,6 @@ class EnhancedDerivTradingBot {
 
             // 6. Request proposal with appropriate growth rate
             const growthRate = this.config.growthRate;
-            const takeProfitAmount = this.currentStake; // this.currentStake * this.config.takeProfitMultiplier;
 
             console.log(`\n🎯 ENTRY SIGNAL: ${asset}`);
             console.log(`   Score: ${(analysis.overallScore * 100).toFixed(1)}%`);
@@ -1154,7 +1153,7 @@ class EnhancedDerivTradingBot {
             console.log(`   MACD Converging: ${(analysis.scores.macdConverging * 100).toFixed(1)}%`);
             console.log(`   Vol Trend: ${(analysis.scores.volTrend * 100).toFixed(1)}%`);
             console.log(`   Reason: ${analysis.reason}`);
-            console.log(`   Take Profit: $${takeProfitAmount.toFixed(2)}`);
+            console.log(`   Take Profit: $${this.takeProfitAmount.toFixed(2)}`);
 
             // Place trade
             this.placeTrade(asset);
@@ -1218,7 +1217,7 @@ class EnhancedDerivTradingBot {
             `Tick Stability: ${this.tickStability}%\n` +
             `Max Tick Move: ${this.maxTickMove}%\n` +
             `Vol Trend: ${this.volTrend}%\n` +
-            `Take Profit: $${(trade.stake * this.config.takeProfitMultiplier).toFixed(2)}`
+            `Take Profit: $${this.takeProfitAmount.toFixed(2)}`
         );
 
         this.lastTradeTime[asset] = Date.now();
