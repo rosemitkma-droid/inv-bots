@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot_06-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot_06-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot_08-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot_08-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -82,13 +82,13 @@ const CONFIG = {
     INITIAL_CAPITAL:            250,
     RISK_PERCENT_PER_TRADE:     0.50,    // % of capital per trade (1% = conservative)
     MIN_STAKE:                  0.35,   // Minimum stake allowed by Deriv
-    MAX_STAKE:                  100,   // Hard cap per trade in USD
+    MAX_STAKE:                  150,   // Hard cap per trade in USD
 
     // Recovery staking (limited — max 2 steps)
     RECOVERY_ENABLED:           true,
     RECOVERY_MULTIPLIER:        1.48,    // Step 1 recovery multiplier
-    RECOVERY_MULTIPLIER2:       1.95,    // Step 2 recovery multiplier (final)
-    RECOVERY_MULTIPLIER2:       2.1,     // Step 3 recovery multiplier (final)
+    RECOVERY_MULTIPLIER2:       2.0,    // Step 2 recovery multiplier (final)
+    RECOVERY_MULTIPLIER3:       2.1,     // Step 3 recovery multiplier (final)
     MAX_RECOVERY_STEPS:         9,      // Never go beyond 2 recovery steps
     MAX_RECOVERY_STAKE_PCT:     75,    // Recovery stake never exceeds 75% of capital
 
@@ -837,7 +837,7 @@ class StakeCalculator {
         let stake = baseStake;
         if (recoveryStep === 1) stake = baseStake * CONFIG.RECOVERY_MULTIPLIER;
         if (recoveryStep >= 2)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER2;
-        if (recoveryStep >= 2)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER2;
+        if (recoveryStep >= 3)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER3;
 
         // Cap recovery stake at MAX_RECOVERY_STAKE_PCT of capital
         const maxRecovery = capital * (CONFIG.MAX_RECOVERY_STAKE_PCT / 100);
