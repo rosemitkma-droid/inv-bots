@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2_01_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2_02_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -476,6 +476,7 @@ class EnhancedDerivTradingBot {
             initialStake: config.initialStake || 1,
             initialStake2: config.initialStake2 || 1,
             multiplier: config.multiplier || 6,
+            multiplier2: config.multiplier2 || 6,
             recoveryWinNum: config.recoveryWinNum || 8,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
             takeProfit: config.takeProfit || 100,
@@ -1552,7 +1553,11 @@ class EnhancedDerivTradingBot {
                 // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             // }
 
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            if (this.consecutiveLosses >= 2) {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier2 * 100) / 100;
+            } else {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            }
 
             // Suspend all other assets, focus on loss asset
             this.suspendOtherAssets(asset);
@@ -1751,6 +1756,7 @@ const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     initialStake: 1,
     initialStake2: 25,
     multiplier: 4,
+    multiplier2: 8,
     recoveryWinNum: 100,
     maxConsecutiveLosses: 3,
     stopLoss: 127,
