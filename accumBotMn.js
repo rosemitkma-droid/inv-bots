@@ -39,7 +39,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 
-const STATE_FILE = path.join(__dirname, 'accumBot_research_v3_05_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBot_research_v3_07_state.json');
 const STATE_SAVE_INTERVAL = 10000;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -478,17 +478,17 @@ class AccumulatorAnalyzer {
         overallScore = Number(overallScore.toFixed(3));
 
         let growthRate = 0.01;
-        if (overallScore >= 0.92 && scores.adxLow >= 0.82 && scores.bandWidth >= 0.82) growthRate = 0.05;
-        else if (overallScore >= 0.82) growthRate = 0.03;
+        if (overallScore >= 0.90 && scores.adxLow >= 0.82 && scores.bandWidth >= 0.82) growthRate = 0.05;
+        // else if (overallScore >= 0.82) growthRate = 0.03;
 
         let targetTicks = 18;
-        if (growthRate === 0.03) targetTicks = overallScore >= 0.90 ? 10 : 12;
-        if (growthRate === 0.05) targetTicks = overallScore >= 0.92 ? 8 : 10;
+        if (growthRate === 0.05) targetTicks = overallScore >= 0.90 ? 10 : 12;
+        // if (growthRate === 0.05) targetTicks = overallScore >= 0.92 ? 8 : 10;
 
         const takeProfitFactor = Math.pow(1 + growthRate, targetTicks) - 1;
 
         const shouldTrade = (
-            overallScore >= 0.80 &&
+            overallScore >= 0.90 &&
             scores.bandWidth >= 0.80 &&
             scores.macdFlat >= 0.95 &&
             scores.adxLow >= 0.75 &&
