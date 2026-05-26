@@ -50,18 +50,18 @@ const BOT_CONFIG = {
   appId: Number(1089),
   token: 'rgNedekYXvCaPeP', // process.env.DERIV_TOKEN || 'rg
   tradeMode: ('live').toLowerCase(), // paper | live
-  assets: ('R_10,R_25,R_50')
+  assets: ('R_10,R_25,R_50,R_75')
     .split(',')
     .map(v => v.trim())
     .filter(Boolean),
 
   initialStake: Number(1),
-  flatStake: ('true').toLowerCase() !== 'false',
+  flatStake: ('false').toLowerCase() !== 'false',
   maxExposure: Number(5),
 
   stopLoss: Number(25),
   takeProfit: Number(25),
-  maxConsecutiveLosses: Number(3),
+  maxConsecutiveLosses: Number(5),
 
   contract: {
     type: 'DIGITDIFF',
@@ -107,9 +107,9 @@ const BOT_CONFIG = {
   },
 
   files: {
-    state: path.join(__dirname, 'digitdiff_merged_state_05.json'),
-    signals: path.join(__dirname, 'digitdiff_merged_signals_05.csv'),
-    trades: path.join(__dirname, 'digitdiff_merged_trades_05.csv'),
+    state: path.join(__dirname, 'digitdiff_merged_state_07.json'),
+    signals: path.join(__dirname, 'digitdiff_merged_signals_07.csv'),
+    trades: path.join(__dirname, 'digitdiff_merged_trades_07.csv'),
   },
 };
 
@@ -863,7 +863,7 @@ class DerivDigitDiffMergedBot {
     const conservativeProb = (stored.analysis.conservativeLoseProb).toFixed(3)
     
     const signalScore = (stored.analysis.signalScore * 100).toFixed(2); 
-    const approved = signalScore >= 35
+    const approved = signalScore >= 35.5
     //stored.analysis.conservativeLoseProb < requiredMaxLoseProb 
       // &&
       // conservativeEV > 0;
