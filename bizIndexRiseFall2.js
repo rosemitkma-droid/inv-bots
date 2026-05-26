@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot_03-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot_03-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot_06-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot_06-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -81,8 +81,8 @@ const CONFIG = {
     // ── Capital & Risk (Fixed-Fractional — replaces martingale) ──
     INITIAL_CAPITAL:            250,
     RISK_PERCENT_PER_TRADE:     0.50,    // % of capital per trade (1% = conservative)
-    MAX_STAKE:                  1,   // Hard cap per trade in USD
-    MIN_STAKE:                  1,   // Minimum stake allowed by Deriv
+    MIN_STAKE:                  0.35,   // Minimum stake allowed by Deriv
+    MAX_STAKE:                  100,   // Hard cap per trade in USD
 
     // Recovery staking (limited — max 2 steps)
     RECOVERY_ENABLED:           true,
@@ -169,7 +169,7 @@ const CONFIG = {
     STOCH_SMOOTH:               3,
 
     // Minimum Layer 3 confluence score (out of 4 possible)
-    MIN_CONFLUENCE_SCORE:       1,
+    MIN_CONFLUENCE_SCORE:       3,
 
     // ── Trading Sessions (Synthetics trade 24/7 — sessions optional) ─
     // Research shows synthetics have peak pattern clarity at specific hours.
@@ -841,8 +841,8 @@ class StakeCalculator {
 
         // Cap recovery stake at MAX_RECOVERY_STAKE_PCT of capital
         const maxRecovery = capital * (CONFIG.MAX_RECOVERY_STAKE_PCT / 100);
-        stake = Math.min(stake, maxRecovery);
-        stake = Math.max(stake, CONFIG.MIN_STAKE);
+        // stake = Math.min(stake, maxRecovery);
+        // stake = Math.max(stake, CONFIG.MIN_STAKE);
 
         return parseFloat(Math.ceil(stake * 100) / 100);
     }
