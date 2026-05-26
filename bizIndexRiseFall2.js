@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot_08-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot_08-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot_09-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot_09-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -822,13 +822,15 @@ class StakeCalculator {
      * Recovery is limited to 2 steps and capped at MAX_RECOVERY_STAKE_PCT.
      */
     static calculate(capital, recoveryStep = 0) {
-        const baseStake = Math.max(
-            CONFIG.MIN_STAKE,
-            Math.min(
-                capital * (CONFIG.RISK_PERCENT_PER_TRADE / 100),
-                CONFIG.MAX_STAKE
-            )
-        );
+        // const baseStake = Math.max(
+        //     CONFIG.MIN_STAKE,
+        //     Math.min(
+        //         capital * (CONFIG.RISK_PERCENT_PER_TRADE / 100),
+        //         CONFIG.MAX_STAKE
+        //     )
+        // );
+
+        const baseStake = CONFIG.MIN_STAKE;
 
         if (!CONFIG.RECOVERY_ENABLED || recoveryStep === 0) {
             return parseFloat(baseStake.toFixed(2));
