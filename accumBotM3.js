@@ -1738,7 +1738,7 @@ const bot = new EnhancedDerivTradingBot('hsj0tA0XJoIzJG5', {
     recoveryWinNum: 100,
     maxConsecutiveLosses: 4,
     stopLoss: 532,
-    takeProfit: 50000,
+    takeProfit: 5,
     growthRate: 0.05,
     takeProfitMultiplier: 0.05,
     filterNum: 4,
