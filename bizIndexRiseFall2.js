@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot_09-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot_09-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot_001-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot_001-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -98,7 +98,7 @@ const CONFIG = {
     DAILY_STOP_LOSS:            -2000,   // Hard daily stop, resets at UTC midnight
 
     // Cool-down after consecutive losses
-    MAX_CONSECUTIVE_LOSSES:     3,      // Pause trading after 3 straight losses
+    MAX_CONSECUTIVE_LOSSES:     9,      // Pause trading after 3 straight losses
     COOLDOWN_CANDLES:           3,      // Wait 3 candles before re-entry
 
     // ── Candle / Contract Settings ────────────────────────────
@@ -193,7 +193,7 @@ const CONFIG = {
         'stpRNG4',
         'stpRNG5',
         // Uncomment to add volatility indices:
-        'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
+        // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
     ],
 
     // ── Misc ──────────────────────────────────────────────────
