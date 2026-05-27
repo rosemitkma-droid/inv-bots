@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2_002_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC_004_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -129,7 +129,6 @@ class EnhancedDerivTradingBot {
             initialStake: config.initialStake || 1,
             initialStake2: config.initialStake2 || 1,
             multiplier: config.multiplier || 6,
-            multiplier2: config.multiplier2 || 6,
             recoveryWinNum: config.recoveryWinNum || 8,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
             takeProfit: config.takeProfit || 100,
@@ -281,9 +280,10 @@ class EnhancedDerivTradingBot {
         const recentThresholds = (
             stayedInArray[99] < 1 &&
             stayedInArray[98] < 11 
+            &&
+            stayedInArray[97] < 12 &&
+            stayedInArray[96] < 13 
             // &&
-            // stayedInArray[97] < 12 &&
-            // stayedInArray[96] < 13 &&
             // stayedInArray[95] < 14 &&
             // stayedInArray[94] < 15
         );
@@ -345,7 +345,7 @@ class EnhancedDerivTradingBot {
         const inRecoveryMode = consecutiveLosses > 0;
         
         // Return true if: (recent thresholds AND total within range) OR in recovery mode
-        return (recentThresholds && totalWithinRange);
+        return (recentThresholds);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -360,7 +360,7 @@ class EnhancedDerivTradingBot {
         });
         console.log(`🔒 SUSPENDED: All assets except ${lossAsset}. Focusing on loss asset.`);
         // this.sendTelegramMessage(
-        //     `🔒 <b>Asset Suspension (Accum BOOM/CRASH2)</b>\n\n` +
+        //     `🔒 <b>Asset Suspension (Accum BOOM/CRASH)</b>\n\n` +
         //     `Loss on: <b>${lossAsset}</b>\n` +
         //     `Suspended: ${this.assets.filter(a => a !== lossAsset).join(', ')}\n` +
         //     `Focusing on ${lossAsset} until win`
@@ -373,7 +373,7 @@ class EnhancedDerivTradingBot {
         this.focusAsset = null;
         console.log(`✅ RESUMED: All assets active again (was focused on ${prevFocus})`);
         // this.sendTelegramMessage(
-        //     `✅ <b>All Assets Resumed (Accum BOOM/CRASH2)</b>\n\n` +
+        //     `✅ <b>All Assets Resumed (Accum BOOM/CRASH)</b>\n\n` +
         //     `Won on: <b>${prevFocus}</b>\n` +
         //     `All assets now active for trading`
         // );
@@ -644,7 +644,7 @@ class EnhancedDerivTradingBot {
         const pnlStr = (this.totalProfitLoss >= 0 ? '+' : '') + '$' + Math.abs(this.totalProfitLoss).toFixed(2);
 
         await this.sendTelegramMessage(
-            `📊 <b>Session Summary Accum BOOM/CRASH2</b>\n\n` +
+            `📊 <b>Session Summary Accum BOOM/CRASH</b>\n\n` +
             `Trades: ${this.totalTrades}\n` +
             `W/L: ${this.totalWins}/${this.totalLosses}\n` +
             `Losses x2-x6: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5} | ${this.consecutiveLosses6}\n` +
@@ -658,13 +658,13 @@ class EnhancedDerivTradingBot {
 
     async sendDisconnectSummary() {
         await this.sendTelegramMessage(
-            `⚠️ <b>Accum BOOM/CRASH2 Disconnected</b>\n\n` +
+            `⚠️ <b>Accum BOOM/CRASH Disconnected</b>\n\n` +
             `Trading Summary:\n` +
             `Total Trades: ${this.totalTrades}\n` +
             `Wins: ${this.totalWins} | Losses: ${this.totalLosses}\n` +
             `x2-x6 Losses: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5} | ${this.consecutiveLosses6}\n\n` +
-            `Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : '0.00'}%\n` +
-            `Total P&L: $${this.totalProfitLoss.toFixed(2)}\n\n
+            `Total P&L: $${this.totalProfitLoss.toFixed(2)}\n` +
+            `Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : '0.00'}%\n
             `
         );
     }
@@ -755,7 +755,7 @@ class EnhancedDerivTradingBot {
         if (this.tradeInProgress) return;
         if (!this.wsReady) return;
 
-        this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; // this.currentStake * this.config.takeProfitMultiplier;
+        this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/1.8 : this.currentStake; ; // this.currentStake * this.config.takeProfitMultiplier;
 
         const proposal = {
             proposal: 1,
@@ -852,7 +852,7 @@ class EnhancedDerivTradingBot {
         `);
 
         // Entry condition
-        const condition = this.consecutiveLosses < 1 ? (this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 30)) : this.checkTradeCondition3(stayedInArray2, this.consecutiveLosses, 50);
+        const condition = this.consecutiveLosses < 1 ? (this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 40)) : this.checkTradeCondition3(stayedInArray2, this.consecutiveLosses, 50);
         
         console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
 
@@ -904,7 +904,7 @@ class EnhancedDerivTradingBot {
 
         // Telegram notification
         this.sendTelegramMessage(
-            `🚀 <b>TRADE OPENED (Accum BOOM/CRASH2)</b>\n\n` +
+            `🚀 <b>TRADE OPENED (Accum BOOM/CRASH)</b>\n\n` +
             `Asset: <b>${asset}</b>\n` +
             `stayedInArray: <b>[${this.stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]</b>\n` +
             `totalStayedInArray: ${this.totalStayedInArray}/${this.maxTotalStayedIn} (${this.totalStayedInArray2}/${this.maxTotalStayedIn2})\n` +
@@ -991,7 +991,7 @@ class EnhancedDerivTradingBot {
             // ✅ Store the settled contract data
             trade.settledContract = contract;
 
-            this.tickPassed = contract.tick_passed;
+            this.tickPassed = contract.tick_passed
             
             // ✅ Request a fresh proposal to get the CURRENT ticks_stayed_in
             this.requestFinalStayedInArray(asset);
@@ -1190,7 +1190,7 @@ class EnhancedDerivTradingBot {
         );
 
         this.sendTelegramMessage(
-            `🚨 <b>STUCK TRADE RECOVERED Accum BOOM/CRASH2[${reason}]</b>\n\n` +
+            `🚨 <b>STUCK TRADE RECOVERED Accum BOOM/CRASH[${reason}]</b>\n\n` +
             `Contract: ${contractId}\n` +
             `Asset: ${stuckAsset}\n` +
             `Stake: $${stake.toFixed(2)}\n` +
@@ -1266,7 +1266,6 @@ class EnhancedDerivTradingBot {
             if (this.focusAsset) {
                 this.resumeAllAssets();
             }
-            
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
@@ -1296,11 +1295,7 @@ class EnhancedDerivTradingBot {
                 // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             // }
 
-            if (this.consecutiveLosses >= 2) {
-                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier2 * 100) / 100;
-            } else {
-                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            }
+            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
 
             // Suspend all other assets, focus on loss asset
             this.suspendOtherAssets(asset);
@@ -1320,7 +1315,7 @@ class EnhancedDerivTradingBot {
 
         // Send Trade result notification with final stayedInArray
         this.sendTelegramMessage(
-            `<b>Accum BOOM/CRASH2</b>\n` +
+            `<b>Accum BOOM/CRASH</b>\n` +
             `${won ? '✅ WON' : '❌ LOSS'}\n` +
             `Asset: <b>${asset}</b>\n` +
             `Tick Passed: <b>${this.tickPassed}</b>\n` +
@@ -1364,7 +1359,7 @@ class EnhancedDerivTradingBot {
             }
             
             setInterval(() => {
-                if (!this.endOfDay) {
+                if (!this.endOfDay && !this.Pause) {
                     this.connect();
                 }
             }, 350000);
@@ -1507,14 +1502,13 @@ class EnhancedDerivTradingBot {
 // ══════════════════════════════════════════════════════════════════════════════
 // BOT INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
-const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
+const bot = new EnhancedDerivTradingBot('DMylfkyce6VyZt7', {
     initialStake: 1,
     initialStake2: 25,
-    multiplier: 8,
-    multiplier2: 8,
+    multiplier: 2,
     recoveryWinNum: 100,
-    maxConsecutiveLosses: 3,
-    stopLoss: 73,
+    maxConsecutiveLosses: 7,
+    stopLoss: 127,
     takeProfit: 250,
     growthRate: 0.05,
     takeProfitMultiplier: 1, //0.05, % of Stake Amount
