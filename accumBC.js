@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC_004_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC_005_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -345,7 +345,7 @@ class EnhancedDerivTradingBot {
         const inRecoveryMode = consecutiveLosses > 0;
         
         // Return true if: (recent thresholds AND total within range) OR in recovery mode
-        return (recentThresholds);
+        return (recentThresholds && totalWithinRange);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1362,7 +1362,7 @@ class EnhancedDerivTradingBot {
                 if (!this.endOfDay && !this.Pause) {
                     this.connect();
                 }
-            }, 350000);
+            }, 35000);
         }
 
         // ═══════════════════════════════════════════════════════════════════
