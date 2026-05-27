@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot_001-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot_001-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot_002-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot_002-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -821,7 +821,7 @@ class StakeCalculator {
      * Calculate trade stake using fixed-fractional position sizing.
      * Recovery is limited to 2 steps and capped at MAX_RECOVERY_STAKE_PCT.
      */
-    static calculate(capital, recoveryStep = 0) {
+    static calculate(capital, recoveryStep) {
         // const baseStake = Math.max(
         //     CONFIG.MIN_STAKE,
         //     Math.min(
@@ -838,7 +838,7 @@ class StakeCalculator {
 
         let stake = baseStake;
         if (recoveryStep === 1) stake = baseStake * CONFIG.RECOVERY_MULTIPLIER;
-        if (recoveryStep >= 2)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER2;
+        if (recoveryStep === 2)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER2;
         if (recoveryStep >= 3)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER3;
 
         // Cap recovery stake at MAX_RECOVERY_STAKE_PCT of capital
@@ -852,7 +852,7 @@ class StakeCalculator {
     /**
      * Format stake info for display.
      */
-    static describe(capital, recoveryStep = 0) {
+    static describe(capital, recoveryStep) {
         const stake = this.calculate(capital, recoveryStep);
         const pct   = ((stake / capital) * 100).toFixed(2);
         return `$${stake.toFixed(2)} (${pct}% capital, recovery step ${recoveryStep})`;
