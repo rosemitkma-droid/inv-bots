@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot_002-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot_002-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot_004-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot_004-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -122,7 +122,7 @@ const CONFIG = {
         R_50:    { min: 0.02,  max: 0.5  },
         R_75:    { min: 5.00,   max: 50.0 },
         R_100:   { min: 0.20,  max: 2.0  },
-        stpRNG:  { min: 0.50,  max: 10.0  },
+        stpRNG:  { min: 1.00,  max: 10.0  },
         stpRNG2: { min: 1.00,  max: 10.0  },
         stpRNG3: { min: 1.00,  max: 10.0  },
         stpRNG4: { min: 1.00,  max: 10.0  },
@@ -193,7 +193,7 @@ const CONFIG = {
         'stpRNG4',
         'stpRNG5',
         // Uncomment to add volatility indices:
-        // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
+        'R_10', 'R_75', 'R_100',
     ],
 
     // ── Misc ──────────────────────────────────────────────────
@@ -838,8 +838,13 @@ class StakeCalculator {
 
         let stake = baseStake;
         if (recoveryStep === 1) stake = baseStake * CONFIG.RECOVERY_MULTIPLIER;
-        if (recoveryStep === 2)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER2;
-        if (recoveryStep >= 3)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER3;
+        if (recoveryStep === 2)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER * CONFIG.RECOVERY_MULTIPLIER2;
+        if (recoveryStep === 3)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER * CONFIG.RECOVERY_MULTIPLIER2 * CONFIG.RECOVERY_MULTIPLIER3;
+        if (recoveryStep === 4)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER * CONFIG.RECOVERY_MULTIPLIER2 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3;
+        if (recoveryStep === 5)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER * CONFIG.RECOVERY_MULTIPLIER2 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3;
+        if (recoveryStep === 6)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER * CONFIG.RECOVERY_MULTIPLIER2 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3;
+        if (recoveryStep === 7)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER * CONFIG.RECOVERY_MULTIPLIER2 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3;
+        if (recoveryStep === 8)  stake = baseStake * CONFIG.RECOVERY_MULTIPLIER * CONFIG.RECOVERY_MULTIPLIER2 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3 * CONFIG.RECOVERY_MULTIPLIER3;
 
         // Cap recovery stake at MAX_RECOVERY_STAKE_PCT of capital
         const maxRecovery = capital * (CONFIG.MAX_RECOVERY_STAKE_PCT / 100);
