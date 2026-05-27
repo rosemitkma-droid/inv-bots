@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC_09_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC_002_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1096,7 +1096,12 @@ class EnhancedDerivTradingBot {
 
         if (!stayedInArray) return;
 
+        // Always update stayedInArray - this keeps it current even during active trades
         this.stayedInArray = stayedInArray;
+        
+        // Store per-asset stayedInArray for multi-asset support
+        if (!this.assetStayedInArrays) this.assetStayedInArrays = {};
+        this.assetStayedInArrays[asset] = stayedInArray;
 
         if (this.tradeInProgress) return;
 
@@ -1166,17 +1171,17 @@ class EnhancedDerivTradingBot {
         // 3. Decision
         // if (!analysis.shouldTrade) return;
 
-        // if (analysis.overallScore < 0.80) return;
+        if (analysis.overallScore < 0.60) return; //0.8
 
-        // if (analysis.scores.bandWidth < 1) return;
+        if (analysis.scores.bandWidth < 0.6) return; // 1
 
-        // if (analysis.scores.macdFlat < 0.5) return;
+        if (analysis.scores.macdFlat < 0.5) return;
 
         // if (analysis.scores.pricePosition < 0.4) return;
 
         // if (!analysis.tickStability || analysis.tickStability === 'undefined' || analysis.tickStability === 'NaN' || analysis.tickStability < 1) return;
 
-        // if (analysis.scores.macdConverging < 1) return;
+        // if (analysis.scores.macdConverging < 0.7) return; // 1 
 
         // if (this.maxTickMove < 0.03) return;
 
@@ -1531,8 +1536,8 @@ class EnhancedDerivTradingBot {
         const won = contract.status === 'won';
         const profit = parseFloat(contract.profit);
 
-        // Extract the final stayedInArray from the contract
-        const finalStayedInArray = contract.contract_details?.ticks_stayed_in || this.stayedInArray || [];
+        // Get the final stayedInArray for this asset (updated continuously via proposal stream)
+        const finalStayedInArray = this.assetStayedInArrays?.[asset] || [];
 
         // Unsubscribe from contract
         if (this.contractSubscriptions[asset]) {
@@ -1543,6 +1548,7 @@ class EnhancedDerivTradingBot {
         console.log(`\n${'═'.repeat(55)}`);
         console.log(`  ${won ? '✅ WIN' : '❌ LOSS'}: ${asset}`);
         console.log(`  Ticks: ${contract.tick_count || 0} | P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(3)}`);
+        console.log(`  Final StayedIn: [${finalStayedInArray[99]}|${finalStayedInArray[98]}|${finalStayedInArray[97]}|${finalStayedInArray[96]}|${finalStayedInArray[95]}|${finalStayedInArray[94]}]`);
         console.log(`${'═'.repeat(55)}`);
 
         // Update stats
