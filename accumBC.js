@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC_08_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC_09_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -595,6 +595,58 @@ class EnhancedDerivTradingBot {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // UTILITY FUNCTIONS
+    // ══════════════════════════════════════════════════════════════════════════
+    /**
+     * Calculate the total sum of all values in stayedInArray (indices 0-99)
+     * @param {Array} stayedInArray - Array of stayed-in values
+     * @returns {number} Total sum of all array elements
+     */
+    calculateTotalStayedIn(stayedInArray) {
+        if (!stayedInArray || !Array.isArray(stayedInArray)) {
+            return 0;
+        }
+        return stayedInArray.reduce((sum, value) => sum + (value || 0), 0);
+    }
+
+    /**
+     * Check if trading conditions are met based on stayedInArray values
+     * @param {Array} stayedInArray - Array of stayed-in values
+     * @param {number} consecutiveLosses - Current consecutive losses count
+     * @param {number} maxTotalStayedIn - Maximum allowed total sum (default: 600)
+     * @returns {boolean} True if conditions are met for trading
+     */
+    checkTradeCondition(stayedInArray, consecutiveLosses, maxTotalStayedIn) {
+        // Calculate total sum of all stayedInArray values
+        const totalStayedInArray = this.calculateTotalStayedIn(stayedInArray);
+        
+        // Log the calculation for debugging
+        console.log(`   📊 Total StayedIn Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
+        this.totalStayedInArray = totalStayedInArray;
+        this.maxTotalStayedIn = maxTotalStayedIn;
+        
+        // Check individual thresholds for recent values
+        const recentThresholds = (
+            stayedInArray[99] < 1 &&
+            stayedInArray[98] < 11 
+            // &&
+            // stayedInArray[97] < 12 &&
+            // stayedInArray[96] < 13 &&
+            // stayedInArray[95] < 14 &&
+            // stayedInArray[94] < 15
+        );
+        
+        // Check if total sum is within acceptable range
+        const totalWithinRange = totalStayedInArray < maxTotalStayedIn;
+        
+        // Check if we have consecutive losses (recovery mode)
+        const inRecoveryMode = consecutiveLosses > 0;
+        
+        // Return true if: (recent thresholds AND total within range) OR in recovery mode
+        return (recentThresholds && totalWithinRange) || inRecoveryMode;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // ASSET SUSPENSION LOGIC
     // ══════════════════════════════════════════════════════════════════════════
     suspendOtherAssets(lossAsset) {
@@ -1039,14 +1091,14 @@ class EnhancedDerivTradingBot {
         if (!message.proposal) return;
         if (!asset) return;
 
-        // if (this.tradeInProgress) return;
-
         const proposal = message.proposal;
         const stayedInArray = proposal.contract_details.ticks_stayed_in;
 
         if (!stayedInArray) return;
 
         this.stayedInArray = stayedInArray;
+
+        if (this.tradeInProgress) return;
 
 
         // Current digit count of the running accumulator
@@ -1078,7 +1130,8 @@ class EnhancedDerivTradingBot {
 
         // Entry condition: current digit count is in appearedOnceArray
         // and not already traded, and stayedIn value >= 0
-        const condition = (this.stayedInArray[99] < 1 && this.stayedInArray[98] < 11 && this.stayedInArray[97] < 12 && this.stayedInArray[96] < 13 && this.stayedInArray[95] < 14 && this.stayedInArray[94] < 15 || this.consecutiveLosses > 0);
+        // ✅ NEW: Use the checkTradeCondition function that includes total sum check
+        const condition = this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600);
         
         // const condition = appearedOnceArray.includes(currentDigitCount)
         //     && !this.tradedDigitArray.includes(stayedInArray[99])
@@ -1205,6 +1258,7 @@ class EnhancedDerivTradingBot {
             `🚀 <b>TRADE OPENED (Accum BOOM/CRASH)</b>\n\n` +
             `Asset: <b>${asset}</b>\n` +
             `stayedInArray: <b>[${this.stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]</b>\n` +
+            `totalStayedInArray: ${this.totalStayedInArray}/${this.maxTotalStayedIn}\n` +
             `Stake: $${trade.stake.toFixed(2)}\n` +
             `Growth Rate: ${(this.config.growthRate * 100).toFixed(0)}%\n` +
             `Filter Number: ${this.filterNum}\n` +
@@ -1477,6 +1531,9 @@ class EnhancedDerivTradingBot {
         const won = contract.status === 'won';
         const profit = parseFloat(contract.profit);
 
+        // Extract the final stayedInArray from the contract
+        const finalStayedInArray = contract.contract_details?.ticks_stayed_in || this.stayedInArray || [];
+
         // Unsubscribe from contract
         if (this.contractSubscriptions[asset]) {
             this.sendRequest({ forget: this.contractSubscriptions[asset] });
@@ -1569,12 +1626,12 @@ class EnhancedDerivTradingBot {
         this.tradeStartTime = null;
         delete this.activeTrades[asset];
 
-        // Send Trade result notification
+        // Send Trade result notification with final stayedInArray
         this.sendTelegramMessage(
             `<b>Accum BOOM/CRASH</b>\n` +
             `${won ? '✅ WON' : '❌ LOSS'}\n` +
             `Asset: <b>${asset}</b>\n` +
-            `stayedInArray: [${this.stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]\n` +
+            `Final stayedInArray: [${finalStayedInArray[99]}|${finalStayedInArray[98]}|${finalStayedInArray[97]}|${finalStayedInArray[96]}|${finalStayedInArray[95]}|${finalStayedInArray[94]}]\n` +
             `P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(3)}\n` +
             `Consecutive Losses: ${this.consecutiveLosses}\n` +
             `Trades: ${this.totalTrades} (${this.totalWins}W/${this.totalLosses}L)\n` +
