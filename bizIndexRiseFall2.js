@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot_006-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot_006-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot_007-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot_007-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -108,8 +108,8 @@ const CONFIG = {
     MAX_CANDLES_STORED:         250,    // Rolling window
 
     // Contract duration (slightly less than granularity to close on candle)
-    DURATION:                   58,
-    DURATION_UNIT:              's',
+    DURATION:                   5,
+    DURATION_UNIT:              'm',
 
     // Minimum candles before analysis begins
     MIN_CANDLES_REQUIRED:       60,
@@ -122,7 +122,7 @@ const CONFIG = {
         R_50:    { min: 0.02,  max: 0.5  },
         R_75:    { min: 5.00,   max: 50.0 },
         R_100:   { min: 0.20,  max: 2.0  },
-        stpRNG:  { min: 1.00,  max: 10.0  },
+        // stpRNG:  { min: 1.00,  max: 10.0  },
         stpRNG2: { min: 1.00,  max: 10.0  },
         stpRNG3: { min: 1.00,  max: 10.0  },
         stpRNG4: { min: 1.00,  max: 10.0  },
@@ -194,6 +194,8 @@ const CONFIG = {
         'stpRNG5',
         // Uncomment to add volatility indices:
         'R_10', 'R_25', 'R_75',
+        '1HZ10V', '1HZ25V', '1HZ50V',
+
     ],
 
     // ── Misc ──────────────────────────────────────────────────
