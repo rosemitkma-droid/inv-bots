@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot_005-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot_005-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot_006-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot_006-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -193,7 +193,7 @@ const CONFIG = {
         'stpRNG4',
         'stpRNG5',
         // Uncomment to add volatility indices:
-        'R_10', 'R_75', 'R_100',
+        'R_10', 'R_25', 'R_75',
     ],
 
     // ── Misc ──────────────────────────────────────────────────
