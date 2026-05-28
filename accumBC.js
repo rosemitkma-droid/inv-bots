@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC_006_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC_007_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -345,7 +345,7 @@ class EnhancedDerivTradingBot {
         const inRecoveryMode = consecutiveLosses > 0;
         
         // Return true if: (recent thresholds AND total within range) OR in recovery mode
-        return (recentThresholds && totalWithinRange);
+        return (recentThresholds);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -850,12 +850,13 @@ class EnhancedDerivTradingBot {
         // console.log(`   Digits that appeared ${this.filterNum} times: [${appearedOnceArray.join(', ')}]
         //     StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]
         // `);
+        console.log(`StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]`);
 
         // Entry condition
         // Entry condition
         const condition =  this.consecutiveLosses < 1 && this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600); 
         const condition2 = condition && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 40);
-        const condition3 = this.consecutiveLosses >= 1 && this.checkTradeCondition3(stayedInArray2, this.consecutiveLosses, 50);
+        const condition3 = this.consecutiveLosses >= 1 && this.checkTradeCondition3(stayedInArray2, this.consecutiveLosses, 100);
         
         // Check if we should place trade
         if (condition && condition2) {
@@ -1531,7 +1532,7 @@ const bot = new EnhancedDerivTradingBot('DMylfkyce6VyZt7', {
     assets: [
         'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
         'CRASH500', 'CRASH600', 'CRASH900', 'CRASH1000',
-        'R_10', 'R_25', 'R_50', 'R_75', 'R_100'
+        'R_10', 'R_25', 'R_50', 'R_75'
     ],
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     telegramChatId: '752497117',
