@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC_005_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC_006_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -322,7 +322,7 @@ class EnhancedDerivTradingBot {
         const totalStayedInArray = this.calculateTotalStayedIn(stayedInArray);
         
         // Log the calculation for debugging
-        console.log(`   📊 Total StayedIn Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
+        console.log(`   📊 Total StayedIn3 Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
         this.totalStayedInArray2 = totalStayedInArray;
         this.maxTotalStayedIn2 = maxTotalStayedIn;
         
@@ -830,7 +830,7 @@ class EnhancedDerivTradingBot {
         this.currentTick = stayedInArray[99];
 
         console.log(`📋 Proposal for ${asset}: Current StayIN Digit Count: ${stayedInArray[99]} (${currentDigitCount})`);
-        console.log(`   Filter Number: ${this.filterNum}`);
+        // console.log(`   Filter Number: ${this.filterNum}`);
 
         // Store proposal ID
         this.assetStates[asset].proposalId = proposal.id;
@@ -847,17 +847,20 @@ class EnhancedDerivTradingBot {
             .filter(digit => digitFrequency[digit] === this.filterNum)
             .map(Number);
 
-        console.log(`   Digits that appeared ${this.filterNum} times: [${appearedOnceArray.join(', ')}]
-            StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]
-        `);
+        // console.log(`   Digits that appeared ${this.filterNum} times: [${appearedOnceArray.join(', ')}]
+        //     StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]
+        // `);
 
         // Entry condition
-        const condition = this.consecutiveLosses < 1 ? (this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 40)) : this.checkTradeCondition3(stayedInArray2, this.consecutiveLosses, 50);
+        // Entry condition
+        const condition =  this.consecutiveLosses < 1 && this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600); 
+        const condition2 = condition && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 40);
+        const condition3 = this.consecutiveLosses >= 1 && this.checkTradeCondition3(stayedInArray2, this.consecutiveLosses, 50);
         
-        console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
-
         // Check if we should place trade
-        if (condition) {
+        if (condition && condition2) {
+            console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
+
             this.tradedDigitArray.push(this.stayedInArray[99]);
             this.filteredArray = appearedOnceArray;
             
@@ -871,6 +874,22 @@ class EnhancedDerivTradingBot {
 
             // Place trade
             this.placeTrade(asset);
+        } else if (condition3) {
+            console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
+
+           this.tradedDigitArray.push(this.stayedInArray[99]);
+            this.filteredArray = appearedOnceArray;
+            
+            console.log(`   Traded Digit Array: [${this.tradedDigitArray.join(', ')}]`);
+
+            const growthRate = this.config.growthRate;
+
+            console.log(`\n🎯 ENTRY SIGNAL: ${asset}`);
+            console.log(`   Growth Rate: ${(growthRate * 100).toFixed(0)}% | Stake: $${this.currentStake.toFixed(2)}`);
+            console.log(`   Take Profit: $${this.takeProfitAmount.toFixed(2)}`);
+
+            // Place trade
+            this.placeTrade(asset); 
         }
     }
 
@@ -1353,15 +1372,11 @@ class EnhancedDerivTradingBot {
 
         StatePersistence.saveState(this);
 
-        if(won) {
-            if (!this.endOfDay) {
-                this.disconnect();
-            }
+        if(won && !this.endOfDay) {
+            this.disconnect();
             
             setInterval(() => {
-                if (!this.endOfDay && !this.Pause) {
-                    this.connect();
-                }
+                this.connect();
             }, 35000);
         }
 
@@ -1514,13 +1529,10 @@ const bot = new EnhancedDerivTradingBot('DMylfkyce6VyZt7', {
     takeProfitMultiplier: 1, //0.05, % of Stake Amount
     filterNum: 4,
     assets: [
-        // 'BOOM1000', 'BOOM900', 'CRASH1000', 'CRASH900', 
-        'BOOM50',
-        'BOOM150N',  'BOOM300N',  'BOOM500',   'BOOM600',   'BOOM900',
-        'BOOM1000',  'CRASH50',   'CRASH150N', 'CRASH300N',
-        'CRASH500',  'CRASH600',  'CRASH900',  'CRASH1000',
+        'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
+        'CRASH500', 'CRASH600', 'CRASH900', 'CRASH1000',
         'R_10', 'R_25', 'R_50', 'R_75', 'R_100'
-    ], 
+    ],
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     telegramChatId: '752497117',
 });
