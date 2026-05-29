@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot_007-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot_007-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot2_01-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_01-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -74,7 +74,7 @@ const LOGGER = {
 // ============================================================
 const CONFIG = {
     // ── Deriv API ─────────────────────────────────────────────
-    API_TOKEN:  'hsj0tA0XJoIzJG5',   // 
+    API_TOKEN:  '0P94g4WdSrSrzir',   // 
     APP_ID:     '1089',
     WS_URL:     'wss://ws.derivws.com/websockets/v3',
 
@@ -108,8 +108,8 @@ const CONFIG = {
     MAX_CANDLES_STORED:         250,    // Rolling window
 
     // Contract duration (slightly less than granularity to close on candle)
-    DURATION:                   5,
-    DURATION_UNIT:              'm',
+    DURATION:                   58,
+    DURATION_UNIT:              's',
 
     // Minimum candles before analysis begins
     MIN_CANDLES_REQUIRED:       60,
@@ -117,16 +117,26 @@ const CONFIG = {
     // ── LAYER 1: Regime Gate Parameters ──────────────────────
     // ATR per-asset thresholds (must be inside range to trade)
     ATR_THRESHOLDS: {
+        // Standard 2-second tick volatility indices
         R_10:    { min: 0.20,  max: 3.0  },
         R_25:    { min: 0.50,  max: 5.0  },
         R_50:    { min: 0.02,  max: 0.5  },
         R_75:    { min: 5.00,   max: 50.0 },
         R_100:   { min: 0.20,  max: 2.0  },
-        // stpRNG:  { min: 1.00,  max: 10.0  },
+        
+        // Step indices (range-based synthetic indices)
+        stpRNG:  { min: 1.00,  max: 10.0  },
         stpRNG2: { min: 1.00,  max: 10.0  },
         stpRNG3: { min: 1.00,  max: 10.0  },
-        stpRNG4: { min: 1.00,  max: 10.0  },
+        stpRNG4: { min: 1.00,  max: 10.0  }, 
         stpRNG5: { min: 1.00,  max: 10.0  },
+        
+        // 1-second tick volatility indices (1HZ series) - faster tick rate
+        '1HZ10V':  { min: 0.15,  max: 2.5  },   // 10% annualized volatility
+        '1HZ25V':  { min: 0.40,  max: 4.0  },   // 25% annualized volatility
+        '1HZ50V':  { min: 0.80,  max: 8.0  },   // 50% annualized volatility
+        '1HZ75V':  { min: 4.00,  max: 40.0 },   // 75% annualized volatility
+        '1HZ100V': { min: 0.15,  max: 1.8  },   // 100% annualized volatility
     },
 
     ATR_PERIOD:                 14,
@@ -169,7 +179,7 @@ const CONFIG = {
     STOCH_SMOOTH:               3,
 
     // Minimum Layer 3 confluence score (out of 4 possible)
-    MIN_CONFLUENCE_SCORE:       3,
+    MIN_CONFLUENCE_SCORE:       4,
 
     // ── Trading Sessions (Synthetics trade 24/7 — sessions optional) ─
     // Research shows synthetics have peak pattern clarity at specific hours.
@@ -193,8 +203,8 @@ const CONFIG = {
         'stpRNG4',
         'stpRNG5',
         // Uncomment to add volatility indices:
-        'R_10', 'R_25', 'R_75',
-        '1HZ10V', '1HZ25V', '1HZ50V',
+        'R_10', 'R_25', 'R_75', //'R_05', 'R_100'
+        '1HZ10V', '1HZ25V', '1HZ50V', // '1HZ75', '1HZ100V'
 
     ],
 
@@ -867,24 +877,6 @@ class StakeCalculator {
 }
 
 // ============================================================
-// CANDLE ANALYSIS UTILITY (retained from v1)
-// ============================================================
-class CandleAnalyzer {
-    static isBullish(candle)          { return candle.close > candle.open; }
-    static isBearish(candle)          { return candle.close < candle.open; }
-    static getCandleDirection(candle) {
-        if (this.isBullish(candle)) return 'BULLISH';
-        if (this.isBearish(candle)) return 'BEARISH';
-        return 'DOJI';
-    }
-    static getLastClosedCandle(symbol) {
-        const a = state.assets[symbol];
-        if (!a?.closedCandles?.length) return null;
-        return a.closedCandles[a.closedCandles.length - 1];
-    }
-}
-
-// ============================================================
 // TRADING SESSION MANAGER (retained + corrected)
 // ============================================================
 class TradingSessionManager {
@@ -1166,7 +1158,7 @@ class TelegramService {
         const today   = TradeHistoryManager.getTodayStats();
         const ind     = details.indicators || {};
         const lines   = [
-            `${emoji} <b>INDEX BOT v2 — ${type}</b>`,
+            `${emoji} <b>INDEX BOT2 v2 — ${type}</b>`,
             `Pair: <b>${symbol}</b>  Direction: <b>${direction === 'CALLE' ? '📈 CALLE' : '📉 PUTE'}</b>`,
             `Stake: $${stake.toFixed(2)} | Duration: ${duration}${durationUnit.toUpperCase()}`,
             `Recovery Step: ${a?.recoveryStep ?? 0} | ${TradingSessionManager.getStatusString()}`,
@@ -1214,7 +1206,7 @@ class TelegramService {
             }
         });
         await this.sendMessage([
-            `⏰ <b>Index Bot v2 Hourly</b>`,
+            `⏰ <b>Index Bot2 v2 Hourly</b>`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '🟢' : '🔴'} $${h.pnl.toFixed(2)}`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
             `Capital: $${state.capital.toFixed(2)}`,
@@ -1238,7 +1230,7 @@ class TelegramService {
             }
         });
         await this.sendMessage([
-            `📊 <b>INDEX BOT v2 SESSION SUMMARY</b>`,
+            `📊 <b>INDEX BOT2 v2 SESSION SUMMARY</b>`,
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
             `Session P/L: $${stats.netPL.toFixed(2)}`,
@@ -1258,7 +1250,7 @@ class TelegramService {
             pairInfo += `\n  ${sym}: ${CONFIG.TIMEFRAME_LABEL} | ${CONFIG.DURATION}${CONFIG.DURATION_UNIT}`;
         });
         await this.sendMessage([
-            `🤖 <b>DERIV INDEX BOT v2 STARTED</b>`,
+            `🤖 <b>DERIV INDEX BOT2 v2 STARTED</b>`,
             `Strategy: 3-Layer Volatility-Regime Adaptive Confluence`,
             `L1: ATR+ADX+BB | L2: Supertrend+EMA+Donchian | L3: RSI+MACD+Stoch+Pattern (${CONFIG.MIN_CONFLUENCE_SCORE}/4)`,
             `Risk: ${CONFIG.RISK_PERCENT_PER_TRADE}% per trade | Max: $${CONFIG.MAX_STAKE}`,
@@ -2040,7 +2032,7 @@ class IndexBot {
             );
         }
 
-        if (!signal.shouldTrade || !signal.direction) {
+        if (a.recoveryStep < 1 && !signal.shouldTrade || !signal.direction) {
             a.canTrade = false;
 
             // If in recovery and signal is flat — log but don't force trade
