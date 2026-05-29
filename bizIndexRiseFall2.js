@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot2_01-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_01-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot2_02-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_02-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -108,7 +108,7 @@ const CONFIG = {
     MAX_CANDLES_STORED:         250,    // Rolling window
 
     // Contract duration (slightly less than granularity to close on candle)
-    DURATION:                   58,
+    DURATION:                   56,
     DURATION_UNIT:              's',
 
     // Minimum candles before analysis begins
@@ -2032,14 +2032,16 @@ class IndexBot {
             );
         }
 
-        if (a.recoveryStep < 1 && !signal.shouldTrade || !signal.direction) {
-            a.canTrade = false;
+        if (!signal.shouldTrade || !signal.direction) {
+            if(a.recoveryStep < 1) { 
+                a.canTrade = false;
 
-            // If in recovery and signal is flat — log but don't force trade
-            if (a.recoveryStep > 0) {
-                LOGGER.warn(`[${symbol}] Recovery step ${a.recoveryStep} but no signal — waiting for next candle`);
+                // If in recovery and signal is flat — log but don't force trade
+                if (a.recoveryStep > 0) {
+                    LOGGER.warn(`[${symbol}] Recovery step ${a.recoveryStep} but no signal — waiting for next candle`);
+                }
+                return;
             }
-            return;
         }
 
         // ── LOCK mutex and execute ─────────────────────────
