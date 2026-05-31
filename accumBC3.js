@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3_04_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3_05_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -328,7 +328,7 @@ class EnhancedDerivTradingBot {
 
         // Check individual thresholds for recent values
         const recentThresholds = (
-           consecutiveLosses > 0 ? stayedInArray[5] < 3 : stayedInArray[5] < 1
+           consecutiveLosses > 0 ? stayedInArray[5] < 8 : stayedInArray[5] < 1
         );
         
         // Check if total sum is within acceptable range
