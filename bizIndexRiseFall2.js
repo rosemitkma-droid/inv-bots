@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot2_03-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_03-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot2_04-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_04-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -108,7 +108,7 @@ const CONFIG = {
     MAX_CANDLES_STORED:         250,    // Rolling window
 
     // Contract duration (slightly less than granularity to close on candle)
-    DURATION:                   56,
+    DURATION:                   58,
     DURATION_UNIT:              's',
 
     // Minimum candles before analysis begins
