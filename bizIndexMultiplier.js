@@ -56,8 +56,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot_01-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot_01-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot_03-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot_03-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -1696,7 +1696,7 @@ class ConnectionManager {
                     bot._startTradeWatchdog(contract.contract_id);
                     TelegramService.sendTradeAlert(
                         'OPEN', pos.symbol, pos.direction, pos.stake,
-                        pos.duration, pos.durationUnit,
+                        CONFIG.DURATION, CONFIG.DURATION_UNIT,
                         { signal: pos.signal, indicators: pos.indicators }
                     );
                     break;
@@ -1764,7 +1764,7 @@ class ConnectionManager {
         TelegramService.sendTradeAlert(
             profit >= 0 ? 'WIN' : 'LOSS',
             ownerSym, pos.direction, pos.stake,
-            pos.duration, pos.durationUnit,
+            CONFIG.DURATION, CONFIG.DURATION_UNIT,
             { profit }
         );
 
@@ -1772,6 +1772,8 @@ class ConnectionManager {
         state.currentContractId = null;
         state.tradeStartTime    = null;
         state.pendingTradeInfo  = null;
+
+        bot._tradeLocked = false;
 
         if (r.subscription?.id) this.send({ forget: r.subscription.id });
 
@@ -2208,6 +2210,8 @@ class IndexBot {
             multiplier,
             takeProfit:   dynamicTakeProfit,
             stopLoss:     dynamicStopLoss,
+            duration:     null,            
+            durationUnit: null, 
             entryTime:    Date.now(),
             contractId:   null,
             reqId:        null,
