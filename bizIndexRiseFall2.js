@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot2_05-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_05-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot2_06-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_06-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -1884,7 +1884,7 @@ class IndexBot {
         this.connection              = new ConnectionManager();
         this._processedContracts     = new Set();
         this._tradeLocked            = false;   // BUG FIX: mutex added
-        this.tradeWatchdogMs         = 80000;   // 80s (58s duration + buffer)
+        this.tradeWatchdogMs         = 150000;   // 80s (58s duration + buffer)
         this.timeCheckStarted        = false;
         this.sessionTimeCheckerId    = null;
         this.statusDisplayIntervalId = null;
