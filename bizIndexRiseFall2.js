@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot2_04-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_04-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot2_05-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_05-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -108,7 +108,7 @@ const CONFIG = {
     MAX_CANDLES_STORED:         250,    // Rolling window
 
     // Contract duration (slightly less than granularity to close on candle)
-    DURATION:                   58,
+    DURATION:                   116,
     DURATION_UNIT:              's',
 
     // Minimum candles before analysis begins
@@ -1720,6 +1720,8 @@ class ConnectionManager {
         state.currentContractId = null;
         state.tradeStartTime    = null;
         state.pendingTradeInfo  = null;
+
+        bot._tradeLocked = false;
 
         if (r.subscription?.id) this.send({ forget: r.subscription.id });
 
