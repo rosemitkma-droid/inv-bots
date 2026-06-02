@@ -56,8 +56,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot_03-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot_03-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot_05-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot_05-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -96,33 +96,30 @@ const CONFIG = {
     // NOTE: These are now calculated dynamically based on stake amount
     // STOP_LOSS_AMOUNT = currentStake (max loss in multipliers)
     // TAKE_PROFIT_AMOUNT = currentStake * TAKE_PROFIT_MULTIPLIER
-    TAKE_PROFIT_MULTIPLIER:     2,     // Multiplier for take profit (e.g., 3x stake = take profit)
-    // Legacy fixed amounts (not used when dynamic calculation is enabled)
-    TAKE_PROFIT_AMOUNT:         3,     // [DEPRECATED] Use TAKE_PROFIT_MULTIPLIER instead
-    STOP_LOSS_AMOUNT:           1,     // [DEPRECATED] Now equals currentStake automatically
+    TAKE_PROFIT_MULTIPLIER:     1,     // Multiplier for take profit (e.g., 3x stake = take profit)
     
     // Multiplier values per asset (minimum multiplier for each)
     MULTIPLIER_VALUES: {
         // Standard volatility indices
-        R_10:    400,    // x2 multiplier
-        R_25:    160,
-        R_50:    80,
-        R_75:    50,
-        R_100:   40,
+        R_10:    2000, //[400,1000,2000,3000,4000]
+        R_25:    800, //[160,400,800,1200,1600]
+        R_50:    400, //[80,200,400,600,800]
+        R_75:    200, //[50,100,200,300,500]
+        R_100:   200, //[40,100,200,300,400]
         
         // Step indices
-        stpRNG:  750,
-        stpRNG2: 400,
-        stpRNG3: 300,
-        stpRNG4: 200,
-        stpRNG5: 100,
+        stpRNG:  3500, //[750,2000,3500,5500,7500]
+        stpRNG2: 2000, //[400,1000,2000,3000,4000]
+        stpRNG3: 1500, //[300,1000,1500,2000,3000]
+        stpRNG4: 1000, //[200,500,1000,1500,2000]
+        stpRNG5: 500, //[100,300,500,700,1000]
         
         // 1HZ series
-        '1HZ10V':  400,
-        '1HZ25V':  160,
-        '1HZ50V':  80,
-        '1HZ75V':  50,
-        '1HZ100V': 40,
+        '1HZ10V':  2000, //[400,1000,2000,3000,4000]
+        '1HZ25V':  800, //[160,400,800,1200,1600]
+        '1HZ50V':  400, //[80,200,400,600,800]
+        '1HZ75V':  200, //[50,100,200,300,500]
+        '1HZ100V': 200, //[40,100,200,300,400]
     },
 
     // Recovery staking (limited — max 2 steps)
