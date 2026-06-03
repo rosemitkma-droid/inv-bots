@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot2_06-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_06-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot2_07-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_07-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -86,7 +86,7 @@ const CONFIG = {
 
     // Recovery staking (limited — max 2 steps)
     RECOVERY_ENABLED:           true,
-    RECOVERY_MULTIPLIER:        1.48,    // Step 1 recovery multiplier
+    RECOVERY_MULTIPLIER:        1.78,    // Step 1 recovery multiplier
     RECOVERY_MULTIPLIER2:       2.0,    // Step 2 recovery multiplier (final)
     RECOVERY_MULTIPLIER3:       2.1,     // Step 3 recovery multiplier (final)
     MAX_RECOVERY_STEPS:         9,      // Never go beyond 2 recovery steps
@@ -108,7 +108,7 @@ const CONFIG = {
     MAX_CANDLES_STORED:         250,    // Rolling window
 
     // Contract duration (slightly less than granularity to close on candle)
-    DURATION:                   116,
+    DURATION:                   58,
     DURATION_UNIT:              's',
 
     // Minimum candles before analysis begins
@@ -2038,9 +2038,11 @@ class IndexBot {
                 `Stake: $${stake.toFixed(2)} | FORCED AFTER LOSS`
             );
 
+            const direction = a.lastTradeDirection === 'CALLE' ? '📉 PUTE' : '📈 CALLE';
+
             const pos = {
                 symbol,
-                direction:    a.lastTradeDirection,
+                direction:    direction, //a.lastTradeDirection,
                 stake,
                 duration:     CONFIG.DURATION,
                 durationUnit: CONFIG.DURATION_UNIT,
