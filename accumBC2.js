@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2_007_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2_008_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -280,10 +280,11 @@ class EnhancedDerivTradingBot {
         // Check individual thresholds for recent values
         const recentThresholds = (
             stayedInArray[99] < 1 &&
-            stayedInArray[98] < 11 
-            // &&
-            // stayedInArray[97] < 12 &&
-            // stayedInArray[96] < 13 &&
+            stayedInArray[98] < 10 
+            &&
+            stayedInArray[97] < 11 &&
+            stayedInArray[96] < 12 
+            //&&
             // stayedInArray[95] < 14 &&
             // stayedInArray[94] < 15
         );
@@ -309,7 +310,11 @@ class EnhancedDerivTradingBot {
 
         // Check individual thresholds for recent values
         const recentThresholds = (
-            stayedInArray[5] < 1 
+            stayedInArray[19] < 1 
+        );
+
+        const recentThreshold2s = (
+            stayedInArray[19] < 4 
         );
         
         // Check if total sum is within acceptable range
@@ -319,7 +324,7 @@ class EnhancedDerivTradingBot {
         const inRecoveryMode = consecutiveLosses > 0;
         
         // Return true if: (recent thresholds AND total within range) OR in recovery mode
-        return consecutiveLosses > 0 ? (recentThresholds) : (recentThresholds && totalWithinRange);
+        return consecutiveLosses > 0 ? (recentThreshold2s) : (recentThresholds && totalWithinRange);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -827,7 +832,7 @@ class EnhancedDerivTradingBot {
 
         // Entry condition
         // const condition =  this.consecutiveLosses < 1 ? this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 30) : this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 100); 
-        const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20); 
+        const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1550) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20); 
         
         // Check if we should place trade
         if (condition) {
