@@ -29,7 +29,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC_0011_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC_0012_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -323,7 +323,7 @@ class EnhancedDerivTradingBot {
         const inRecoveryMode = consecutiveLosses > 0;
         
         // Return true if: (recent thresholds AND total within range) OR in recovery mode
-        return consecutiveLosses > 0 ? (recentThreshold2s) : (recentThresholds && totalWithinRange);
+        return consecutiveLosses > 0 ? (inRecoveryMode) : (recentThresholds && totalWithinRange);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -831,7 +831,7 @@ class EnhancedDerivTradingBot {
 
         // Entry condition
         // const condition =  this.consecutiveLosses < 1 ? this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 30) : this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 100); 
-        const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1550) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20); 
+        const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1500) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20); 
 
         
         // Check if we should place trade
