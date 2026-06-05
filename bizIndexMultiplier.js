@@ -88,7 +88,7 @@ const CONFIG = {
     // ── Capital & Risk (Fixed-Fractional — replaces martingale) ──
     INITIAL_CAPITAL:            250,
     RISK_PERCENT_PER_TRADE:     0.50,    // % of capital per trade (1% = conservative)
-    MIN_STAKE:                  1,   // Minimum stake allowed by Deriv
+    MIN_STAKE:                  0.35,   // Minimum stake allowed by Deriv
     MAX_STAKE:                  150,   // Hard cap per trade in USD
 
     // ── MULTIPLIER SETTINGS (NEW for v3.0) ────────────────────
@@ -273,7 +273,7 @@ const CONFIG = {
     ],
 
     // ── Misc ──────────────────────────────────────────────────
-    DEBUG_MODE:                 true,
+    DEBUG_MODE:                 false,
     TELEGRAM_ENABLED:           true,
     TELEGRAM_BOT_TOKEN: '8565754902:AAHS6UQWEgLJ0DO-JTpAGQhZLs-UDVVNAQc',
     TELEGRAM_CHAT_ID: '752497117',
