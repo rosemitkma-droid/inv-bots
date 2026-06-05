@@ -1424,7 +1424,7 @@ class SessionManager {
             LOGGER.info(`🗓️ Day changed: ${state.currentTradeDay} → ${today}`);
             const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
             TelegramService.sendMessage(
-                `🌙 <b>END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
+                `🌙 <b>MULTIPLIER END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
             );
             this._resetDailyStats();
             // Re-activate session at day start
@@ -1522,7 +1522,7 @@ class SessionManager {
                 a.forceTradeOnLoss = false;  // NEW: Disable force trade during cooldown
                 LOGGER.warn(`❄️ [${symbol}] ${CONFIG.MAX_CONSECUTIVE_LOSSES} consecutive losses — cooling down for ${CONFIG.COOLDOWN_CANDLES} candles`);
                 TelegramService.sendMessage(
-                    `❄️ <b>[${symbol}] COOL-DOWN ACTIVATED</b>\n` +
+                    `❄️ <b>[${symbol}] MULTIPLIER COOL-DOWN ACTIVATED</b>\n` +
                     `${CONFIG.MAX_CONSECUTIVE_LOSSES} consecutive losses\n` +
                     `Pausing for ${CONFIG.COOLDOWN_CANDLES} candles\n` +
                     `Capital: $${state.capital.toFixed(2)}`
@@ -1920,11 +1920,11 @@ class ConnectionManager {
             this.reconnectAttempts++;
             const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
             LOGGER.info(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts})`);
-            TelegramService.sendMessage(`⚠️ <b>CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
+            TelegramService.sendMessage(`⚠️ <b>MULTIPLIER CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
             setTimeout(() => { this.isReconnecting = false; this.connect(); }, delay);
         } else {
             LOGGER.error('Max reconnection attempts reached — giving up');
-            TelegramService.sendMessage(`🛑 <b>BOT STOPPED</b> — Max reconnections\nFinal P/L: $${state.session.netPL.toFixed(2)}`);
+            TelegramService.sendMessage(`🛑 <b>MULTIPLIER BOT STOPPED</b> — Max reconnections\nFinal P/L: $${state.session.netPL.toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -2333,7 +2333,7 @@ class IndexBot {
         state.pendingTradeInfo  = null;
         state.tradeStartTime    = null;
         TelegramService.sendMessage(
-            `⚠️ <b>STUCK TRADE RECOVERED [${reason}]</b>\n` +
+            `⚠️ <b>MULTIPLIER2 STUCK TRADE RECOVERED [${reason}]</b>\n` +
             `Contract: ${contractId}\n` +
             `⚠️ VERIFY OUTCOME MANUALLY ON DERIV\n` +
             `Capital: $${state.capital.toFixed(2)}`
