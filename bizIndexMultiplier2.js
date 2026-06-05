@@ -57,8 +57,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot2_01-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot2_01-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot2_02-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot2_02-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -82,14 +82,14 @@ const LOGGER = {
 // ============================================================
 const CONFIG = {
     // ── Deriv API ─────────────────────────────────────────────
-    API_TOKEN:  'Dz2V2KvRf4Uukt3',   // ⚠️ CHANGE THIS
+    API_TOKEN:  'DMylfkyce6VyZt7',   
     APP_ID:     '1089',
     WS_URL:     'wss://ws.derivws.com/websockets/v3',
 
     // ── Capital & Risk (Fixed-Fractional — replaces martingale) ──
     INITIAL_CAPITAL:            250,
     RISK_PERCENT_PER_TRADE:     0.50,    // % of capital per trade (1% = conservative)
-    MIN_STAKE:                  1,   // Minimum stake allowed by Deriv
+    MIN_STAKE:                  0.35,   // Minimum stake allowed by Deriv
     MAX_STAKE:                  150,   // Hard cap per trade in USD
 
     // ── MULTIPLIER SETTINGS (NEW for v3.0) ────────────────────
@@ -239,7 +239,7 @@ const CONFIG = {
     ],
 
     // ── Misc ──────────────────────────────────────────────────
-    DEBUG_MODE:                 true,
+    DEBUG_MODE:                 false,
     TELEGRAM_ENABLED:           true,
     TELEGRAM_BOT_TOKEN: '8565754902:AAHS6UQWEgLJ0DO-JTpAGQhZLs-UDVVNAQc',
     TELEGRAM_CHAT_ID: '752497117',
@@ -1125,7 +1125,7 @@ class TelegramService {
         const dynamicTakeProfit = parseFloat((stake * CONFIG.TAKE_PROFIT_MULTIPLIER).toFixed(2));
         
         const lines   = [
-            `${emoji} <b>MULTIPLIER BOT v3 — ${type}</b>`,
+            `${emoji} <b>MULTIPLIER2 BOT v3 — ${type}</b>`,
             `Pair: <b>${symbol}</b>  Direction: <b>${direction === 'MULTUP' ? '📈 UP' : '📉 DOWN'}</b>`,
             `Stake: $${stake.toFixed(2)} | Multiplier: x${multiplier}`,
             `Take Profit: $${dynamicTakeProfit} (${CONFIG.TAKE_PROFIT_MULTIPLIER}x) | Stop Loss: $${dynamicStopLoss} (1x)`,
@@ -1172,7 +1172,7 @@ class TelegramService {
             }
         });
         await this.sendMessage([
-            `⏰ <b>Index Multiplier Bot v3 Hourly</b>`,
+            `⏰ <b>Index Multiplier2 Bot v3 Hourly</b>`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '🟢' : '🔴'} $${h.pnl.toFixed(2)}`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
             `Capital: $${state.capital.toFixed(2)}`,
@@ -1196,7 +1196,7 @@ class TelegramService {
             }
         });
         await this.sendMessage([
-            `📊 <b>INDEX Multiplier Bot v3 SESSION SUMMARY</b>`,
+            `📊 <b>INDEX Multiplier2 Bot v3 SESSION SUMMARY</b>`,
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
             `Session P/L: $${stats.netPL.toFixed(2)}`,
@@ -1217,7 +1217,7 @@ class TelegramService {
             pairInfo += `\n  ${sym}: ${CONFIG.TIMEFRAME_LABEL} | x${multiplier} multiplier`;
         });
         await this.sendMessage([
-            `🤖 <b>DERIV MULTIPLIER BOT v3 STARTED</b>`,
+            `🤖 <b>DERIV MULTIPLIER2 BOT v3 STARTED</b>`,
             `Strategy: 3-Layer Volatility-Regime Adaptive Confluence`,
             `L1: ATR+ADX+BB | L2: Supertrend+EMA+Donchian (2/3) | L3: RSI+MACD+Stoch+Pattern (${CONFIG.MIN_CONFLUENCE_SCORE}/4)`,
             `Market Type: MULTIPLIERS (MULTUP/MULTDOWN)`,
@@ -1319,7 +1319,7 @@ class SessionManager {
             LOGGER.info(`🗓️ Day changed: ${state.currentTradeDay} → ${today}`);
             const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
             TelegramService.sendMessage(
-                `🌙 <b>END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
+                `🌙 <b>MULTIPLIER2 END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
             );
             this._resetDailyStats();
             if (!state.session.isActive) {
@@ -1403,7 +1403,7 @@ class SessionManager {
                 a.forceTradeOnLoss = false;
                 LOGGER.warn(`❄️ [${symbol}] ${CONFIG.MAX_CONSECUTIVE_LOSSES} consecutive losses — cooling down for ${CONFIG.COOLDOWN_CANDLES} candles`);
                 TelegramService.sendMessage(
-                    `❄️ <b>[${symbol}] COOL-DOWN ACTIVATED</b>\n` +
+                    `❄️ <b>[${symbol}] MULTIPLIER2 COOL-DOWN ACTIVATED</b>\n` +
                     `${CONFIG.MAX_CONSECUTIVE_LOSSES} consecutive losses\n` +
                     `Pausing for ${CONFIG.COOLDOWN_CANDLES} candles\n` +
                     `Capital: $${state.capital.toFixed(2)}`
@@ -1758,11 +1758,11 @@ class ConnectionManager {
             this.reconnectAttempts++;
             const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
             LOGGER.info(`🔄 Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts})`);
-            TelegramService.sendMessage(`⚠️ <b>CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
+            TelegramService.sendMessage(`⚠️ <b>MULTIPLIER2 CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
             setTimeout(() => { this.isReconnecting = false; this.connect(); }, delay);
         } else {
             LOGGER.error('Max reconnection attempts reached — giving up');
-            TelegramService.sendMessage(`🛑 <b>BOT STOPPED</b> — Max reconnections\nFinal P/L: $${state.session.netPL.toFixed(2)}`);
+            TelegramService.sendMessage(`🛑 <b>MULTIPLIER2 BOT STOPPED</b> — Max reconnections\nFinal P/L: $${state.session.netPL.toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -2053,7 +2053,7 @@ class IndexBot {
         state.pendingTradeInfo  = null;
         state.tradeStartTime    = null;
         TelegramService.sendMessage(
-            `⚠️ <b>STUCK TRADE RECOVERED [${reason}]</b>\n` +
+            `⚠️ <b>MULTIPLIER2 STUCK TRADE RECOVERED [${reason}]</b>\n` +
             `Contract: ${contractId}\n` +
             `⚠️ VERIFY OUTCOME MANUALLY ON DERIV\n` +
             `Capital: $${state.capital.toFixed(2)}`
