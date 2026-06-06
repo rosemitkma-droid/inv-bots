@@ -56,8 +56,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot_07-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot_07-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot_08-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot_08-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -249,7 +249,7 @@ const CONFIG = {
     // ── Trading Sessions (Synthetics trade 24/7 — sessions optional) ─
     // Research shows synthetics have peak pattern clarity at specific hours.
     // Disabling avoids forex-centric session bias on PRNG assets.
-    USE_TRADING_SESSIONS:       true,  // Recommended: false for synthetics
+    USE_TRADING_SESSIONS: true,  // Recommended: false for synthetics
     SESSIONS: [
         // { name: 'ASIA_OPEN',    start: 22, end: 6  },  // UTC: 22:00–06:00
         { name: 'LONDON_OPEN',  start: 2,  end: 17 },  // UTC: 07:00–17:00
@@ -1714,7 +1714,7 @@ class ConnectionManager {
                     state.currentContractId = contract.contract_id;
                     state.tradeStartTime    = Date.now();
                     state.pendingTradeInfo  = { stake: pos.stake, direction: pos.direction, symbol: pos.symbol };
-                    bot._startTradeWatchdog(contract.contract_id);
+                    // bot._startTradeWatchdog(contract.contract_id);
                     TelegramService.sendTradeAlert(
                         'OPEN', pos.symbol, pos.direction, pos.stake,
                         a.multiplier,
