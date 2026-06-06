@@ -57,8 +57,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot2_02-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot2_02-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot2_03-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot2_03-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -89,7 +89,7 @@ const CONFIG = {
     // ── Capital & Risk (Fixed-Fractional — replaces martingale) ──
     INITIAL_CAPITAL:            250,
     RISK_PERCENT_PER_TRADE:     0.50,    // % of capital per trade (1% = conservative)
-    MIN_STAKE:                  0.35,   // Minimum stake allowed by Deriv
+    MIN_STAKE:                  1,   // Minimum stake allowed by Deriv
     MAX_STAKE:                  150,   // Hard cap per trade in USD
 
     // ── MULTIPLIER SETTINGS (NEW for v3.0) ────────────────────
