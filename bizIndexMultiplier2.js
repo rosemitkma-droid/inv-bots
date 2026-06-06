@@ -124,7 +124,7 @@ const CONFIG = {
     RECOVERY_MULTIPLIER:        2.0,    // Step 1 recovery multiplier
     RECOVERY_MULTIPLIER2:       2.0,    // Step 2 recovery multiplier
     RECOVERY_MULTIPLIER3:       2.0,    // Step 3 recovery multiplier (final)
-    MAX_RECOVERY_STEPS:         3,      // NEVER go beyond 3 recovery steps
+    MAX_RECOVERY_STEPS:         7,      // NEVER go beyond 3 recovery steps
     MAX_RECOVERY_STAKE_PCT:     75,     // Recovery stake never exceeds 75% of capital
 
     // Session profit/loss guards
