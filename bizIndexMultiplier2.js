@@ -704,7 +704,7 @@ class SignalAnalyzer {
         result.layer2 = l2;
 
         // FIXED v3.1: Require 2 out of 3 instead of 3/3
-        const trendDirection = trendBull >= 2 ? 'BULL' : trendBear >= 2 ? 'BEAR' : null;
+        const trendDirection = trendBull >= 3 ? 'BULL' : trendBear >= 2 ? 'BEAR' : null;
 
         if (!trendDirection) {
             result.reason = `L2 FAIL: Trend not aligned (bull:${trendBull} bear:${trendBear}) — waiting for confluence`;
