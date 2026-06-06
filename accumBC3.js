@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3_08_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3_12_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -317,22 +317,22 @@ class EnhancedDerivTradingBot {
         return (recentThresholds && totalWithinRange);
     }
 
-    checkTradeCondition2(stayedInArray, consecutiveLosses, maxTotalStayedIn) {
+    checkTradeCondition2(stayedInArray, consecutiveLosses, maxTotalStayedIn, asset) {
         // Calculate total sum of all stayedInArray values
         const totalStayedInArray = this.calculateTotalStayedIn(stayedInArray);
         
         // Log the calculation for debugging
-        // console.log(`   📊 Total StayedIn2 Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
+        console.log(`   📊 ${asset} Total StayedIn2 Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
         this.totalStayedInArray2 = totalStayedInArray;
         this.maxTotalStayedIn2 = maxTotalStayedIn;
 
         // Check individual thresholds for recent values
         const recentThresholds = (
-           stayedInArray[5] < 1
+           stayedInArray[5] < 150
         );
 
         const recentThreshold2s = (
-            stayedInArray[5] < 10 
+            stayedInArray[5] < 150 
         );
         
         // Check if total sum is within acceptable range
@@ -342,7 +342,8 @@ class EnhancedDerivTradingBot {
         const inRecoveryMode = consecutiveLosses > 0;
         
         // Return true if: (recent thresholds AND total within range) OR in recovery mode
-        return consecutiveLosses > 0 ? (inRecoveryMode) : (recentThresholds && totalWithinRange);
+        return this.consecutiveLosses > 0 ? (recentThreshold2s) : (recentThresholds);
+        //  return this.consecutiveLosses > 0 ? (recentThreshold2s) : (recentThresholds && totalWithinRange);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -891,7 +892,8 @@ class EnhancedDerivTradingBot {
         if (this.tradeInProgress) return;
         if (!this.wsReady) return;
 
-        this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; // this.currentStake * this.config.takeProfitMultiplier;
+        // this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; 
+        this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
 
         const proposal = {
             proposal: 1,
@@ -1008,9 +1010,10 @@ class EnhancedDerivTradingBot {
         // Entry condition
         // const condition =  this.consecutiveLosses < 1 ? this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 30) : this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 100); 
         const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, this.config.STAYED_IN_THRESHOLD) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 11); 
+        const condition2 =  this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20, asset); 
         
         // Check if we should place trade
-        if (condition) {
+        if (condition2 || this.consecutiveLosses > 0) {
             console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
 
             this.tradedDigitArray.push(this.stayedInArray[99]);
@@ -1669,16 +1672,16 @@ class EnhancedDerivTradingBot {
 const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     initialStake: 1,
     initialStake2: 25,
-    multiplier: 8,
-    multiplier2: 8,
+    multiplier: 2,
+    multiplier2: 2,
     recoveryWinNum: 100,
-    maxConsecutiveLosses: 3,
-    stopLoss: 73,
+    maxConsecutiveLosses: 7,
+    stopLoss: 173,
     takeProfit: 250,
     growthRate: 0.05,
-    takeProfitMultiplier: 1, //0.05, % of Stake Amount
+    takeProfitMultiplier: 0.9, //0.05, % of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 1550, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 1300, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
     assets: [
         'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
