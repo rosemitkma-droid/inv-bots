@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3_12_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3_13_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -936,7 +936,7 @@ class EnhancedDerivTradingBot {
 
         // ✅ Check if this is a scan-only request (from pending asset scanner)
         const passthrough = message.echo_req?.passthrough;
-        if (!this.tradeInProgress && passthrough && passthrough.action === 'scan_only') {
+        if (this.consecutiveLosses <= 0 && !this.tradeInProgress && passthrough && passthrough.action === 'scan_only') {
             // This is just a scan to update asset status, don't proceed with trading
             const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
             console.log(`   🔍 Scan result for ${asset}: stayedIn=${totalStayedIn} (${totalStayedIn < this.config.STAYED_IN_THRESHOLD ? 'READY' : 'WAITING'})`);
@@ -944,7 +944,7 @@ class EnhancedDerivTradingBot {
         }
 
         // ✅ Check if this is a request for final stayedInArray (after contract settled)
-        if (!this.tradeInProgress && passthrough && passthrough.action === 'get_final_stayed_in') {
+        if (this.consecutiveLosses <= 0 && !this.tradeInProgress && passthrough && passthrough.action === 'get_final_stayed_in') {
             // This is the final stayedInArray after contract settlement
             console.log(`✅ Final stayedInArray received for ${asset}: [${stayedInArray.slice(-6).join('|')}]`);
             
