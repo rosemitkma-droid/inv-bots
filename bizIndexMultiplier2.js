@@ -148,29 +148,52 @@ const CONFIG = {
     // ── LAYER 1: Regime Gate Parameters ──────────────────────
     // ATR per-asset thresholds (must be inside range to trade)
     // FIXED v3.1: Calibrated proportionally to each asset's volatility / step size
+    // ATR_THRESHOLDS: {
+    //     // Standard 2-second tick volatility indices
+    //     // Higher volatility % → wider ATR band
+    //     R_10:    { min: 0.50,  max: 8.0  },
+    //     R_25:    { min: 1.00,  max: 15.0 },
+    //     R_50:    { min: 2.00,  max: 30.0 },
+    //     R_75:    { min: 4.00,  max: 60.0 },
+    //     R_100:   { min: 6.00,  max: 90.0 },
+        
+    //     // Step indices (range-based synthetic indices)
+    //     // Larger step size → higher ATR
+    //     stpRNG:  { min: 0.40,  max: 6.0  },
+    //     stpRNG2: { min: 0.70,  max: 10.0 },
+    //     stpRNG3: { min: 1.00,  max: 15.0 },
+    //     stpRNG4: { min: 1.50,  max: 20.0 },
+    //     stpRNG5: { min: 2.00,  max: 25.0 },
+        
+    //     // 1-second tick volatility indices (1HZ series)
+    //     '1HZ10V':  { min: 0.60,  max: 10.0 },
+    //     '1HZ25V':  { min: 1.20,  max: 18.0 },
+    //     '1HZ50V':  { min: 2.50,  max: 35.0 },
+    //     '1HZ75V':  { min: 5.00,  max: 70.0 },
+    //     '1HZ100V': { min: 7.00,  max: 100.0 },
+    // },
+
     ATR_THRESHOLDS: {
         // Standard 2-second tick volatility indices
-        // Higher volatility % → wider ATR band
-        R_10:    { min: 0.50,  max: 8.0  },
-        R_25:    { min: 1.00,  max: 15.0 },
-        R_50:    { min: 2.00,  max: 30.0 },
-        R_75:    { min: 4.00,  max: 60.0 },
-        R_100:   { min: 6.00,  max: 90.0 },
-        
+        R_10:    { min: 1.10,  max: 18.0  },
+        R_25:    { min: 2.20,  max: 33.5  },
+        R_50:    { min: 4.50,  max: 67.0  },
+        R_75:    { min: 9.00,  max: 134.0 },
+        R_100:   { min: 13.50, max: 201.0 },
+
         // Step indices (range-based synthetic indices)
-        // Larger step size → higher ATR
-        stpRNG:  { min: 0.40,  max: 6.0  },
-        stpRNG2: { min: 0.70,  max: 10.0 },
-        stpRNG3: { min: 1.00,  max: 15.0 },
-        stpRNG4: { min: 1.50,  max: 20.0 },
-        stpRNG5: { min: 2.00,  max: 25.0 },
-        
+        stpRNG:  { min: 0.90,  max: 13.5  },
+        stpRNG2: { min: 1.60,  max: 22.5  },
+        stpRNG3: { min: 2.20,  max: 33.5  },
+        stpRNG4: { min: 3.40,  max: 45.0  },
+        stpRNG5: { min: 4.50,  max: 56.0  },
+
         // 1-second tick volatility indices (1HZ series)
-        '1HZ10V':  { min: 0.60,  max: 10.0 },
-        '1HZ25V':  { min: 1.20,  max: 18.0 },
-        '1HZ50V':  { min: 2.50,  max: 35.0 },
-        '1HZ75V':  { min: 5.00,  max: 70.0 },
-        '1HZ100V': { min: 7.00,  max: 100.0 },
+        '1HZ10V':  { min: 1.35,  max: 22.5  },
+        '1HZ25V':  { min: 2.70,  max: 40.0  },
+        '1HZ50V':  { min: 5.60,  max: 78.0  },
+        '1HZ75V':  { min: 11.20, max: 157.0 },
+        '1HZ100V': { min: 15.70, max: 224.0 },
     },
 
     ATR_PERIOD:                 14,
