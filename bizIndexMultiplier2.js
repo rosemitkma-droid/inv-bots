@@ -57,8 +57,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot2_03-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot2_03-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot2_04-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot2_04-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -137,8 +137,8 @@ const CONFIG = {
     COOLDOWN_CANDLES:           3,      // Wait 3 candles before re-entry
 
     // ── Candle / Contract Settings ────────────────────────────
-    GRANULARITY:                60,     // 1-minute candles
-    TIMEFRAME_LABEL:            '1m',
+    GRANULARITY:                300,     // 1-minute candles
+    TIMEFRAME_LABEL:            '5m',
     CANDLES_TO_LOAD:            150,    // History for indicator warmup
     MAX_CANDLES_STORED:         250,    // Rolling window
 
@@ -239,7 +239,7 @@ const CONFIG = {
     ],
 
     // ── Misc ──────────────────────────────────────────────────
-    DEBUG_MODE:                 false,
+    DEBUG_MODE:                 true,
     TELEGRAM_ENABLED:           true,
     TELEGRAM_BOT_TOKEN: '8565754902:AAHS6UQWEgLJ0DO-JTpAGQhZLs-UDVVNAQc',
     TELEGRAM_CHAT_ID: '752497117',
@@ -1588,7 +1588,7 @@ class ConnectionManager {
                     state.currentContractId = contract.contract_id;
                     state.tradeStartTime    = Date.now();
                     state.pendingTradeInfo  = { stake: pos.stake, direction: pos.direction, symbol: pos.symbol };
-                    bot._startTradeWatchdog(contract.contract_id);
+                    // bot._startTradeWatchdog(contract.contract_id);
                     TelegramService.sendTradeAlert(
                         'OPEN', pos.symbol, pos.direction, pos.stake,
                         a.multiplier,
@@ -1794,7 +1794,7 @@ class IndexBot {
     constructor() {
         this.connection              = new ConnectionManager();
         this._processedContracts     = new Set();
-        this._tradeLocked            = false;
+        this._tradeLocked            = false; 
         this.tradeWatchdogMs         = 80000;
         this.timeCheckStarted        = false;
         this.sessionTimeCheckerId    = null;
