@@ -15,6 +15,12 @@
  * ║  • Trade watchdog for stuck contract recovery                ║
  * ║  • Robust reconnection with exponential backoff              ║
  * ║  • WebSocket ping keep-alive                                 ║
+ * ║  • INTELLIGENT ASSET FILTERING (NEW):                        ║
+ * ║    - Active Assets: stayedInArray < 1600 (ready to trade)   ║
+ * ║    - Pending Assets: stayedInArray >= 1600 (waiting)         ║
+ * ║    - Dynamic asset management between lists                  ║
+ * ║    - Periodic scanning of pending assets (30s interval)      ║
+ * ║    - Optimized performance by analyzing only active assets   ║
  * ╚══════════════════════════════════════════════════════════════╝
  */
 
@@ -29,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBotM3_001_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3_14_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -112,353 +118,6 @@ class StatePersistence {
     }
 }
 
-// ============================================================================
-// TECHNICAL INDICATORS — Bollinger Bands + MACD on raw tick prices
-// ============================================================================
-class TechnicalIndicators {
-    /**
-     * Simple Moving Average
-     */
-    static SMA(data, period) {
-        if (data.length < period) return null;
-        const slice = data.slice(-period);
-        return slice.reduce((sum, v) => sum + v, 0) / period;
-    }
-
-    /**
-     * Exponential Moving Average
-     */
-    static EMA(data, period) {
-        if (data.length < period) return null;
-        const k = 2 / (period + 1);
-        let ema = data.slice(0, period).reduce((s, v) => s + v, 0) / period;
-        for (let i = period; i < data.length; i++) {
-            ema = data[i] * k + ema * (1 - k);
-        }
-        return ema;
-    }
-
-    /**
-     * Standard Deviation
-     */
-    static stdDev(data, period) {
-        if (data.length < period) return null;
-        const slice = data.slice(-period);
-        const mean = slice.reduce((s, v) => s + v, 0) / period;
-        const variance = slice.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / period;
-        return Math.sqrt(variance);
-    }
-
-    /**
-     * Bollinger Bands (20-period SMA, 2 std devs)
-     * Returns: { upper, middle, lower, width, percentB }
-     */
-    static bollingerBands(prices, period = 20, multiplier = 2.0) {
-        if (prices.length < period) return null;
-
-        const middle = this.SMA(prices, period);
-        const sd = this.stdDev(prices, period);
-        const upper = middle + multiplier * sd;
-        const lower = middle - multiplier * sd;
-        const currentPrice = prices[prices.length - 1];
-
-        // Band width (normalized) — lower = less volatile
-        const width = (upper - lower) / middle;
-
-        // %B — where price sits relative to bands (0 = lower, 1 = upper)
-        const percentB = (upper - lower) !== 0 ? (currentPrice - lower) / (upper - lower) : 0.5;
-
-        return { upper, middle, lower, width, percentB, stdDev: sd };
-    }
-
-    /**
-     * MACD (12, 26, 9)
-     * Returns: { macdLine, signalLine, histogram }
-     */
-    static MACD(prices, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
-        if (prices.length < slowPeriod + signalPeriod) return null;
-
-        // Calculate MACD line for recent history
-        const macdValues = [];
-        for (let i = slowPeriod; i <= prices.length; i++) {
-            const slice = prices.slice(0, i);
-            const fastEMA = this.EMA(slice, fastPeriod);
-            const slowEMA = this.EMA(slice, slowPeriod);
-            if (fastEMA !== null && slowEMA !== null) {
-                macdValues.push(fastEMA - slowEMA);
-            }
-        }
-
-        if (macdValues.length < signalPeriod) return null;
-
-        const macdLine = macdValues[macdValues.length - 1];
-        const signalLine = this.EMA(macdValues, signalPeriod);
-        const histogram = macdLine - signalLine;
-
-        // Get previous histogram for trend detection
-        const prevMacdValues = macdValues.slice(0, -1);
-        const prevSignal = prevMacdValues.length >= signalPeriod ? this.EMA(prevMacdValues, signalPeriod) : signalLine;
-        const prevHistogram = prevMacdValues[prevMacdValues.length - 1] - prevSignal;
-
-        return {
-            macdLine,
-            signalLine,
-            histogram,
-            prevHistogram,
-            isConverging: Math.abs(histogram) < Math.abs(prevHistogram),
-            histogramTrend: histogram - prevHistogram,
-        };
-    }
-
-    /**
-     * Average True Range approximation for tick data
-     * Uses absolute tick-to-tick differences
-     */
-    static ATR(prices, period = 14) {
-        if (prices.length < period + 1) return null;
-        const ranges = [];
-        for (let i = prices.length - period; i < prices.length; i++) {
-            ranges.push(Math.abs(prices[i] - prices[i - 1]));
-        }
-        return ranges.reduce((s, v) => s + v, 0) / period;
-    }
-
-    /**
-     * Bollinger Band Width percentile (how tight are bands vs recent history)
-     * Lower percentile = tighter bands = lower volatility = better for accumulators
-     */
-    static bandWidthPercentile(prices, bbPeriod = 20, lookback = 100) {
-        if (prices.length < lookback + bbPeriod) return null;
-
-        const widths = [];
-        for (let i = bbPeriod; i <= Math.min(lookback, prices.length - bbPeriod); i++) {
-            const slice = prices.slice(0, prices.length - i + bbPeriod);
-            const bb = this.bollingerBands(slice, bbPeriod);
-            if (bb) widths.push(bb.width);
-        }
-
-        if (widths.length < 10) return null;
-
-        const currentWidth = widths[0];
-        const sorted = [...widths].sort((a, b) => a - b);
-        const rank = sorted.findIndex(w => w >= currentWidth);
-        return rank / sorted.length;
-    }
-}
-
-// ============================================================================
-// ACCUMULATOR MARKET ANALYZER — Bollinger + MACD Strategy
-// ============================================================================
-class AccumulatorAnalyzer {
-    constructor() {
-        this.tradeResults = {};   // Per-asset trade outcome history
-    }
-
-    /**
-     * Record a completed trade for learning
-     */
-    recordTradeResult(asset, result) {
-        if (!this.tradeResults[asset]) this.tradeResults[asset] = [];
-        this.tradeResults[asset].push({
-            ...result,
-            timestamp: Date.now()
-        });
-        // Keep last 200
-        if (this.tradeResults[asset].length > 200) this.tradeResults[asset].shift();
-    }
-
-    /**
-     * Get historical win rate for asset
-     */
-    getAssetWinRate(asset) {
-        const results = this.tradeResults[asset] || [];
-        if (results.length < 5) return 0.5;
-        const wins = results.filter(r => r.won).length;
-        return wins / results.length;
-    }
-
-    /**
-     * CORE: Analyze if conditions are favorable for an accumulator entry.
-     * 
-     * Accumulators profit when price STAYS IN RANGE. We need:
-     * 1. Bollinger Bands contracted (low volatility = wide barrier relative to movement)
-     * 2. MACD histogram near zero / flat (no strong momentum that could spike price)
-     * 3. Price near middle of bands (not near edges where breakout is likely)
-     */
-    analyzeEntry(prices) {
-        if (!prices || prices.length < 50) {
-            return { shouldTrade: false, reason: 'insufficient_data' };
-        }
-
-        // --- Bollinger Bands Analysis ---
-        const bb = TechnicalIndicators.bollingerBands(prices, 20, 2.0);
-        if (!bb) return { shouldTrade: false, reason: 'bb_calc_failed' };
-
-        // --- MACD Analysis ---
-        const macd = TechnicalIndicators.MACD(prices, 12, 26, 9);
-        if (!macd) return { shouldTrade: false, reason: 'macd_calc_failed' };
-
-        // --- ATR for volatility context ---
-        const atr = TechnicalIndicators.ATR(prices, 14);
-        const currentPrice = prices[prices.length - 1];
-
-        // --- Band Width Percentile ---
-        const bwPercentile = TechnicalIndicators.bandWidthPercentile(prices, 20, 100);
-
-        // ═══════════════════════════════════════════
-        // SCORING SYSTEM — Each factor scores 0-1
-        // ═══════════════════════════════════════════
-
-        const scores = {};
-
-        // 1. BOLLINGER BAND WIDTH — Contracted bands = low volatility = GOOD
-        //    We want band width to be in the lower 50th percentile
-        if (bwPercentile !== null) {
-            if (bwPercentile <= 0.20) scores.bandWidth = 1.0;        // Very tight — excellent
-            else if (bwPercentile <= 0.40) scores.bandWidth = 0.85;  // Tight — good
-            else if (bwPercentile <= 0.55) scores.bandWidth = 0.65;  // Average — okay
-            else if (bwPercentile <= 0.70) scores.bandWidth = 0.40;  // Wide — poor
-            else scores.bandWidth = 0.15;                             // Very wide — avoid
-        } else {
-            // Fallback: use raw width
-            scores.bandWidth = 0.0;
-        }
-
-        // 2. MACD HISTOGRAM — Flat/near-zero histogram = no momentum = GOOD
-        //    Normalize histogram by price to make it comparable across assets
-        const normalizedHist = Math.abs(macd.histogram) / currentPrice;
-        if (normalizedHist < 0.00005) scores.macdFlat = 1.0;         // Dead flat — excellent
-        else if (normalizedHist < 0.00015) scores.macdFlat = 0.85;
-        else if (normalizedHist < 0.00035) scores.macdFlat = 0.60;
-        else if (normalizedHist < 0.00060) scores.macdFlat = 0.35;
-        else scores.macdFlat = 0.10;                                  // Strong momentum — avoid
-
-        // 3. MACD CONVERGENCE — Histogram getting smaller = momentum fading = GOOD
-        if (macd.isConverging) scores.macdConverging = 1.0;
-        else scores.macdConverging = 0.35;
-
-        // 4. %B POSITION — Price near middle band (0.3-0.7) = less likely to breach barrier
-        if (bb.percentB >= 0.40 && bb.percentB <= 0.60) scores.pricePosition = 1.0;   // Sweet spot
-        else if (bb.percentB >= 0.20 && bb.percentB <= 0.80) scores.pricePosition = 0.70;
-        else if (bb.percentB >= 0.10 && bb.percentB <= 0.90) scores.pricePosition = 0.40;
-        else scores.pricePosition = 0.10;  // Price at band edge — high breakout risk
-
-        // 5. RECENT TICK STABILITY — Check last 10 ticks for erratic movement
-        const recentPrices = prices.slice(-10);
-        let maxTickMove = 0;
-        for (let i = 1; i < recentPrices.length; i++) {
-            const move = Math.abs(recentPrices[i] - recentPrices[i - 1]) / recentPrices[i - 1];
-            maxTickMove = Math.max(maxTickMove, move);
-        }
-        // For accumulators, the barrier at 1% growth rate is ±0.045% of previous spot
-        // At 5% it's ±0.0065%. We want max tick move to be well under the barrier.
-        if (maxTickMove < 0.0003) scores.tickStability = 1.0;
-        else if (maxTickMove < 0.0008) scores.tickStability = 0.80;
-        else if (maxTickMove < 0.0015) scores.tickStability = 0.55;
-        else if (maxTickMove < 0.0025) scores.tickStability = 0.30;
-        else scores.tickStability = 0.05;
-
-        // 6. VOLATILITY TREND — Is ATR declining? (= getting calmer = GOOD)
-        const atrRecent = TechnicalIndicators.ATR(prices, 7);
-        const atrLonger = TechnicalIndicators.ATR(prices.slice(0, -7), 14);
-        if (atrRecent && atrLonger && atrLonger > 0) {
-            const atrRatio = atrRecent / atrLonger;
-            if (atrRatio < 0.70) scores.volTrend = 1.0;        // Volatility dropping fast
-            else if (atrRatio < 0.85) scores.volTrend = 0.80;
-            else if (atrRatio < 1.0) scores.volTrend = 0.60;
-            else if (atrRatio < 1.15) scores.volTrend = 0.40;
-            else scores.volTrend = 0.15;                        // Volatility rising — avoid
-        } else {
-            scores.volTrend = 0.5;
-        }
-
-        // ═══════════════════════════════════════════
-        // WEIGHTED COMPOSITE SCORE
-        // ═══════════════════════════════════════════
-        const weights = {
-            bandWidth: 0.25,       // Most important — overall volatility state
-            macdFlat: 0.20,        // Momentum neutrality
-            macdConverging: 0.10,  // Momentum direction
-            pricePosition: 0.20,   // Position safety
-            tickStability: 0.15,   // Recent stability
-            volTrend: 0.10,        // Volatility trajectory
-        };
-
-        let overallScore = 0;
-        for (const [key, weight] of Object.entries(weights)) {
-            overallScore += (scores[key] || 0) * weight;
-        }
-
-        // ═══════════════════════════════════════════
-        // DETERMINE OPTIMAL GROWTH RATE
-        // ═══════════════════════════════════════════
-        let recommendedGrowthRate;
-        if (overallScore >= 0.85) recommendedGrowthRate = 0.05;    // High confidence → 3%
-        else if (overallScore >= 0.75) recommendedGrowthRate = 0.05; // Good → 2%
-        else if (overallScore >= 0.65) recommendedGrowthRate = 0.05; // Moderate → safest 1%
-        else recommendedGrowthRate = 0.05;                          // Default safest
-
-        // ═══════════════════════════════════════════
-        // HARD REJECTION FILTERS
-        // ═══════════════════════════════════════════
-
-        // REJECT: Bollinger Bands expanding (volatility increasing)
-        if (scores.bandWidth < 0.30) {
-            return {
-                shouldTrade: false,
-                reason: 'bands_expanding_high_volatility',
-                scores, overallScore, bb, macd, recommendedGrowthRate
-            };
-        }
-
-        // REJECT: Strong momentum (MACD histogram large)
-        if (scores.macdFlat < 0.25) {
-            return {
-                shouldTrade: false,
-                reason: 'strong_momentum_detected',
-                scores, overallScore, bb, macd, recommendedGrowthRate
-            };
-        }
-
-        // REJECT: Price at band edge (breakout imminent)
-        if (scores.pricePosition < 0.25) {
-            return {
-                shouldTrade: false,
-                reason: 'price_at_band_edge',
-                scores, overallScore, bb, macd, recommendedGrowthRate
-            };
-        }
-
-        // REJECT: Recent tick spike (erratic movement)
-        if (scores.tickStability < 0.20) {
-            return {
-                shouldTrade: false,
-                reason: 'erratic_tick_movement',
-                scores, overallScore, bb, macd, recommendedGrowthRate
-            };
-        }
-
-        // ═══════════════════════════════════════════
-        // FINAL DECISION
-        // ═══════════════════════════════════════════
-        const minScore = 0.65; // Minimum composite score to trade
-
-        return {
-            shouldTrade: overallScore >= minScore,
-            reason: overallScore >= minScore ? 'conditions_favorable' : `score_below_threshold (${(overallScore * 100).toFixed(1)}% < ${minScore * 100}%)`,
-            scores,
-            overallScore,
-            bb,
-            macd,
-            recommendedGrowthRate,
-            tickStability: scores.tickStability,
-            atr,
-            maxTickMove,
-            volTrend: scores.volTrend
-        };
-    }
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN BOT CLASS
 // ══════════════════════════════════════════════════════════════════════════════
@@ -472,10 +131,17 @@ class EnhancedDerivTradingBot {
         // ── Multi-asset support ──────────────────────────────────────────────
         this.assets = config.assets;
 
+        // ── Asset Filtering System ───────────────────────────────────────────
+        this.activeAssets = new Set();      // Assets ready for trading (stayedInArray < 1600)
+        this.pendingAssets = new Set();     // Assets waiting (stayedInArray >= 1600)
+        this.assetStayedInValues = {};      // Track current stayedInArray total for each asset
+        this.pendingScanInterval = null;    // Timer for periodic pending asset scan
+
         this.config = {
             initialStake: config.initialStake || 1,
             initialStake2: config.initialStake2 || 1,
             multiplier: config.multiplier || 6,
+            multiplier2: config.multiplier2 || 6,
             recoveryWinNum: config.recoveryWinNum || 8,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
             takeProfit: config.takeProfit || 100,
@@ -484,6 +150,8 @@ class EnhancedDerivTradingBot {
             growthRate: config.growthRate || 0.02,
             takeProfitMultiplier: config.takeProfitMultiplier || 0.20,
             filterNum: config.filterNum || 5,
+            scanTimer: config.scanTimer || 60000,
+            STAYED_IN_THRESHOLD: config.STAYED_IN_THRESHOLD, 
 
             // Reconnection
             maxReconnectAttempts: 50,
@@ -497,7 +165,7 @@ class EnhancedDerivTradingBot {
             analysisInterval: 1,
 
             // Telegram
-            telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
+            telegramToken: '8218636914:AAGvaKFh8MT769-_9eOEiU4XKufL0aHRhZ4',
             telegramChatId: '752497117',
         };
 
@@ -525,7 +193,7 @@ class EnhancedDerivTradingBot {
         this.confidenceThreshold = 0.5;
         this.kTradeCount = 0;
         this.isWinTrade = false;
-        this.waitTime = 0;
+        this.waitTime = 50000;
         this.LossDigitsList = [];
         this.threeConsecutiveDigits = 0;
         this.predictedType = '';
@@ -537,11 +205,9 @@ class EnhancedDerivTradingBot {
         this.filterNum = this.config.filterNum;
         this.Percentage = 0;
         this.predictedDigit = null;
-        this.entryTick = null;
         this.currentTick = 0;
         this.Sys2 = false;
-        // Components
-        this.analyzer = new AccumulatorAnalyzer();
+        this.scanningTimer = this.config.scanTimer;
 
         // ── Multi-asset active trades ────────────────────────────────────────
         this.activeTrades = {};          // { asset: { contractId, status, ... } }
@@ -589,10 +255,225 @@ class EnhancedDerivTradingBot {
             this.lastTradeTime[asset] = 0;
             this.assetStates[asset] = { proposalId: null, lastProposalAt: 0 };
             this.assetMetrics[asset] = { trades: 0, wins: 0, losses: 0, profitLoss: 0 };
+            
+            // Initialize all assets as pending until we get their stayedInArray values
+            this.pendingAssets.add(asset);
+            this.assetStayedInValues[asset] = null;
         });
 
         // ── Load saved state ─────────────────────────────────────────────────
         this.loadSavedState();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // UTILITY FUNCTIONS
+    // ══════════════════════════════════════════════════════════════════════════
+    /**
+     * Calculate the total sum of all values in stayedInArray (indices 0-99)
+     * @param {Array} stayedInArray - Array of stayed-in values
+     * @returns {number} Total sum of all array elements
+     */
+    calculateTotalStayedIn(stayedInArray) {
+        if (!stayedInArray || !Array.isArray(stayedInArray)) {
+            return 0;
+        }
+        return stayedInArray.reduce((sum, value) => sum + (value || 0), 0);
+    }
+
+    /**
+     * Check if trading conditions are met based on stayedInArray values
+     * @param {Array} stayedInArray - Array of stayed-in values
+     * @param {number} consecutiveLosses - Current consecutive losses count
+     * @param {number} maxTotalStayedIn - Maximum allowed total sum (default: 600)
+     * @returns {boolean} True if conditions are met for trading
+     */
+    checkTradeCondition(stayedInArray, consecutiveLosses, maxTotalStayedIn) {
+        // Calculate total sum of all stayedInArray values
+        const totalStayedInArray = this.calculateTotalStayedIn(stayedInArray);
+        
+        // Log the calculation for debugging
+        // console.log(`   📊 Total StayedIn Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
+        this.totalStayedInArray = totalStayedInArray;
+        this.maxTotalStayedIn = maxTotalStayedIn;
+        
+        // Check individual thresholds for recent values
+        const recentThresholds = (
+            stayedInArray[99] < 1 &&
+            stayedInArray[98] < 11 
+            // &&
+            // stayedInArray[97] < 12 &&
+            // stayedInArray[96] < 13 &&
+            // stayedInArray[95] < 14 &&
+            // stayedInArray[94] < 15
+        );
+        
+        // Check if total sum is within acceptable range
+        const totalWithinRange = totalStayedInArray < maxTotalStayedIn;
+        
+        // Check if we have consecutive losses (recovery mode)
+        const inRecoveryMode = consecutiveLosses > 0;
+        
+        // Return true if: (recent thresholds AND total within range) OR in recovery mode
+        return (recentThresholds && totalWithinRange);
+    }
+
+    checkTradeCondition2(stayedInArray, consecutiveLosses, maxTotalStayedIn, asset) {
+        // Calculate total sum of all stayedInArray values
+        const totalStayedInArray = this.calculateTotalStayedIn(stayedInArray);
+        
+        // Log the calculation for debugging
+        console.log(`   📊 ${asset} Total StayedIn2 Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
+        this.totalStayedInArray2 = totalStayedInArray;
+        this.maxTotalStayedIn2 = maxTotalStayedIn;
+
+        // Check individual thresholds for recent values
+        const recentThresholds = (
+           stayedInArray[5] < 150
+        );
+
+        const recentThreshold2s = (
+            stayedInArray[5] < 150 
+        );
+        
+        // Check if total sum is within acceptable range
+        const totalWithinRange = totalStayedInArray < maxTotalStayedIn;
+        
+        // Check if we have consecutive losses (recovery mode)
+        const inRecoveryMode = consecutiveLosses > 0;
+        
+        // Return true if: (recent thresholds AND total within range) OR in recovery mode
+        return this.consecutiveLosses > 0 ? (recentThreshold2s) : (recentThresholds);
+        //  return this.consecutiveLosses > 0 ? (recentThreshold2s) : (recentThresholds && totalWithinRange);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // INTELLIGENT ASSET FILTERING SYSTEM
+    // ══════════════════════════════════════════════════════════════════════════
+    /**
+     * Update asset's stayedInArray value and manage its active/pending status
+     * @param {string} asset - Asset symbol
+     * @param {Array} stayedInArray - Current stayedInArray from proposal
+     */
+    updateAssetStatus(asset, stayedInArray) {
+        const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
+        this.assetStayedInValues[asset] = totalStayedIn;
+
+        const wasActive = this.activeAssets.has(asset);
+        const wasPending = this.pendingAssets.has(asset);
+
+        if (totalStayedIn < this.config.STAYED_IN_THRESHOLD) {
+            // Asset is ready for trading
+            if (!wasActive) {
+                this.activeAssets.add(asset);
+                this.pendingAssets.delete(asset);
+                console.log(`✅ ${asset} moved to ACTIVE list (stayedIn: ${totalStayedIn})`);
+            }
+        } else {
+            // Asset needs to wait
+            if (!wasPending) {
+                this.pendingAssets.add(asset);
+                this.activeAssets.delete(asset);
+                console.log(`⏸️  ${asset} moved to PENDING list (stayedIn: ${totalStayedIn})`);
+            }
+        }
+    }
+
+    /**
+     * Check if an asset is ready for analysis and trading
+     * @param {string} asset - Asset symbol
+     * @returns {boolean} True if asset is in active list
+     */
+    isAssetReady(asset) {
+        return this.activeAssets.has(asset);
+    }
+
+    /**
+     * Periodically scan pending assets to check if they're ready to become active
+     */
+    startPendingAssetScan() {
+        // Clear any existing scan interval
+        if (this.pendingScanInterval) {
+            clearInterval(this.pendingScanInterval);
+        }
+
+        const scanningTimer = this.scanningTimer;
+        // Scan every 30 seconds
+        this.pendingScanInterval = setInterval(() => {
+            if (!this.wsReady || this.pendingAssets.size === 0) return;
+
+            console.log(`\n🔍 Scanning ${this.pendingAssets.size} pending assets...`);
+            
+            // Request fresh proposals for pending assets to check their status
+            this.pendingAssets.forEach(asset => {
+                // Don't scan if asset has an active trade
+                if (this.activeTrades[asset]) return;
+
+                // Request a proposal to get current stayedInArray
+                this.requestProposalForScan(asset);
+            });
+
+        }, scanningTimer); // Scan every 30 seconds
+
+        console.log('🔄 Pending asset scanner started (30s interval)');
+    }
+
+    /**
+     * Request a proposal specifically for scanning (not for trading)
+     * @param {string} asset - Asset symbol to scan
+     */
+    requestProposalForScan(asset) {
+        if (!this.wsReady) return;
+
+        const proposal = {
+            proposal: 1,
+            amount: this.currentStake.toFixed(2),
+            basis: 'stake',
+            contract_type: 'ACCU',
+            currency: 'USD',
+            symbol: asset,
+            growth_rate: this.config.growthRate,
+            limit_order: {
+                take_profit: (this.currentStake * this.config.takeProfitMultiplier).toFixed(2)
+            },
+            passthrough: {
+                action: 'scan_only',
+                asset: asset,
+                timestamp: Date.now()
+            }
+        };
+
+        this.sendRequest(proposal);
+    }
+
+    /**
+     * Get a summary of active and pending assets
+     * @returns {string} Formatted summary
+     */
+    getAssetFilteringSummary() {
+        const activeList = Array.from(this.activeAssets).map(asset => {
+            const value = this.assetStayedInValues[asset];
+            return `${asset}(${value !== null ? value : '?'})`;
+        }).join(', ');
+
+        const pendingList = Array.from(this.pendingAssets).map(asset => {
+            const value = this.assetStayedInValues[asset];
+            return `${asset}(${value !== null ? value : '?'})`;
+        }).join(', ');
+
+        return `\n📊 Asset Status:\n` +
+               `   ✅ Active (${this.activeAssets.size}): ${activeList || 'None'}\n` +
+               `   ⏸️  Pending (${this.pendingAssets.size}): ${pendingList || 'None'}`;
+    }
+
+    /**
+     * Stop the pending asset scanner
+     */
+    stopPendingAssetScan() {
+        if (this.pendingScanInterval) {
+            clearInterval(this.pendingScanInterval);
+            this.pendingScanInterval = null;
+            console.log('🛑 Pending asset scanner stopped');
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -606,12 +487,12 @@ class EnhancedDerivTradingBot {
             }
         });
         console.log(`🔒 SUSPENDED: All assets except ${lossAsset}. Focusing on loss asset.`);
-        this.sendTelegramMessage(
-            `🔒 <b>Asset Suspension (accumBotM3)</b>\n\n` +
-            `Loss on: <b>${lossAsset}</b>\n` +
-            `Suspended: ${this.assets.filter(a => a !== lossAsset).join(', ')}\n` +
-            `Focusing on ${lossAsset} until win`
-        );
+        // this.sendTelegramMessage(
+        //     `🔒 <b>Asset Suspension (Accum VolatiliyIndices)</b>\n\n` +
+        //     `Loss on: <b>${lossAsset}</b>\n` +
+        //     `Suspended: ${this.assets.filter(a => a !== lossAsset).join(', ')}\n` +
+        //     `Focusing on ${lossAsset} until win`
+        // );
     }
 
     resumeAllAssets() {
@@ -619,11 +500,11 @@ class EnhancedDerivTradingBot {
         this.suspendedAssets.clear();
         this.focusAsset = null;
         console.log(`✅ RESUMED: All assets active again (was focused on ${prevFocus})`);
-        this.sendTelegramMessage(
-            `✅ <b>All Assets Resumed (accumBotM3)</b>\n\n` +
-            `Won on: <b>${prevFocus}</b>\n` +
-            `All assets now active for trading`
-        );
+        // this.sendTelegramMessage(
+        //     `✅ <b>All Assets Resumed (Accum VolatiliyIndices)</b>\n\n` +
+        //     `Won on: <b>${prevFocus}</b>\n` +
+        //     `All assets now active for trading`
+        // );
     }
 
     isAssetAllowed(asset) {
@@ -758,6 +639,7 @@ class EnhancedDerivTradingBot {
 
     cleanup() {
         this.stopPingKeepAlive();
+        this.stopPendingAssetScan();
         this._clearWatchdogTimers();
         if (this.ws) {
             this.ws.removeAllListeners();
@@ -773,7 +655,6 @@ class EnhancedDerivTradingBot {
     disconnect() {
         console.log('🛑 Disconnecting...');
         StatePersistence.saveState(this);
-        this.endOfDay = true;
         this.cleanup();
         console.log('✅ Bot disconnected');
     }
@@ -849,6 +730,9 @@ class EnhancedDerivTradingBot {
                 subscribe: 1
             });
         });
+
+        // Start the pending asset scanner
+        this.startPendingAssetScan();
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -891,10 +775,10 @@ class EnhancedDerivTradingBot {
         const pnlStr = (this.totalProfitLoss >= 0 ? '+' : '') + '$' + Math.abs(this.totalProfitLoss).toFixed(2);
 
         await this.sendTelegramMessage(
-            `📊 <b>Session Summary (accumBotM3)</b>\n\n` +
+            `📊 <b>Session Summary Accum VolatiliyIndices</b>\n\n` +
             `Trades: ${this.totalTrades}\n` +
             `W/L: ${this.totalWins}/${this.totalLosses}\n` +
-            `Losses x2-x6: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4}\n` +
+            `Losses x2-x6: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5} | ${this.consecutiveLosses6}\n` +
             `Win Rate: ${winRate}%\n` +
             `${pnlEmoji} Total P&L: ${pnlStr}\n` +
             `Daily P&L: ${this.dailyProfitLoss >= 0 ? '+' : ''}$${this.dailyProfitLoss.toFixed(2)}\n` +
@@ -905,19 +789,14 @@ class EnhancedDerivTradingBot {
 
     async sendDisconnectSummary() {
         await this.sendTelegramMessage(
-            `⚠️ <b>accumBotM3 Disconnected</b>\n\n` +
+            `⚠️ <b>Accum VolatiliyIndices Disconnected</b>\n\n` +
             `Trading Summary:\n` +
             `Total Trades: ${this.totalTrades}\n` +
             `Wins: ${this.totalWins} | Losses: ${this.totalLosses}\n` +
-            `x2-x6 Losses: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4}\n\n` +
-            `Total P&L: $${this.totalProfitLoss.toFixed(2)}\n` +
+            `x2-x6 Losses: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5} | ${this.consecutiveLosses6}\n\n` +
             `Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : '0.00'}%\n` +
-            `Current Stake: $${this.currentStake.toFixed(2)}\n\n` +
-            `Traded Digits: [${this.tradedDigitArray.join(', ')}]\n` +
-            `Filtered Digits: [${this.filteredArray.join(', ')}]\n` +
-            `Filter Number: ${this.filterNum}\n` +
-            `Sys2: ${this.Sys2}\n` +
-            `kCountNum: ${this.kCountNum}`
+            `Total P&L: $${this.totalProfitLoss.toFixed(2)}\n\n
+            `
         );
     }
 
@@ -928,9 +807,14 @@ class EnhancedDerivTradingBot {
         const quoteString = quote.toString();
         const [, fractionalPart = ''] = quoteString.split('.');
 
-        if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
+        if (['BOOM150N', 'CRASH150N'].includes(asset)) {
+            return fractionalPart.length >= 5 ? parseInt(fractionalPart[4]) : 0;
+        } else if (['RDBULL', 'RDBEAR', 'R_75', 'R_50'].includes(asset)) {
             return fractionalPart.length >= 4 ? parseInt(fractionalPart[3]) : 0;
-        } else if (['R_10', 'R_25'].includes(asset)) {
+        } else if (['R_10', 'R_25', 'BOOM50',
+            'BOOM300N',  'BOOM500',   'BOOM600',   'BOOM900',
+            'BOOM1000',  'CRASH50',   'CRASH300N',
+            'CRASH500',  'CRASH600',  'CRASH900',  'CRASH1000'].includes(asset)) {
             return fractionalPart.length >= 3 ? parseInt(fractionalPart[2]) : 0;
         } else {
             return fractionalPart.length >= 2 ? parseInt(fractionalPart[1]) : 0;
@@ -980,6 +864,12 @@ class EnhancedDerivTradingBot {
         if (this.activeTrades[asset]) return;
         if (this.tickHistory[asset].length < this.config.requiredHistoryLength) return;
 
+        // ✅ NEW: Only analyze assets in the active list
+        if (!this.isAssetReady(asset)) {
+            // Skip analysis for pending assets
+            return;
+        }
+
         // Minimum time between trades
         if (Date.now() - (this.lastTradeTime[asset] || 0) < this.config.minTimeBetweenTrades) return;
 
@@ -1002,7 +892,8 @@ class EnhancedDerivTradingBot {
         if (this.tradeInProgress) return;
         if (!this.wsReady) return;
 
-        const takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
+        // this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; 
+        this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
 
         const proposal = {
             proposal: 1,
@@ -1013,7 +904,7 @@ class EnhancedDerivTradingBot {
             symbol: asset,
             growth_rate: this.config.growthRate,
             limit_order: {
-                take_profit: takeProfitAmount.toFixed(2)
+                take_profit: this.takeProfitAmount.toFixed(2)
             }
         };
 
@@ -1035,25 +926,71 @@ class EnhancedDerivTradingBot {
         if (!message.proposal) return;
         if (!asset) return;
 
-        if (this.tradeInProgress) return;
-
         const proposal = message.proposal;
         const stayedInArray = proposal.contract_details.ticks_stayed_in;
 
         if (!stayedInArray) return;
+
+        // ✅ NEW: Update asset status based on stayedInArray
+        this.updateAssetStatus(asset, stayedInArray);
+
+        // ✅ Check if this is a scan-only request (from pending asset scanner)
+        const passthrough = message.echo_req?.passthrough;
+        if (this.consecutiveLosses <= 0 && !this.tradeInProgress && passthrough && passthrough.action === 'scan_only') {
+            // This is just a scan to update asset status, don't proceed with trading
+            const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
+            console.log(`   🔍 Scan result for ${asset}: stayedIn=${totalStayedIn} (${totalStayedIn < this.config.STAYED_IN_THRESHOLD ? 'READY' : 'WAITING'})`);
+            return;
+        }
+
+        // ✅ Check if this is a request for final stayedInArray (after contract settled)
+        if (this.consecutiveLosses <= 0 && !this.tradeInProgress && passthrough && passthrough.action === 'get_final_stayed_in') {
+            // This is the final stayedInArray after contract settlement
+            console.log(`✅ Final stayedInArray received for ${asset}: [${stayedInArray.slice(-6).join('|')}]`);
+            
+            // Update stored arrays
+            if (!this.assetStayedInArrays) this.assetStayedInArrays = {};
+            this.assetStayedInArrays[asset] = stayedInArray;
+            this.stayedInArray = stayedInArray;
+
+            // Now handle the trade result with the updated stayedInArray
+            const trade = this.activeTrades[asset];
+            if (trade && trade.awaitingFinalStayedIn && trade.settledContract) {
+                trade.awaitingFinalStayedIn = false;
+                this.handleTradeResult(asset, trade.settledContract);
+            }
+            return;
+        }
+
+        // ✅ Regular proposal handling (for new trades)
+        // Always update stayedInArray
+        this.stayedInArray = stayedInArray;
+        const stayedInArray2 = stayedInArray.slice(-6);
+        
+        // Store per-asset stayedInArray
+        if (!this.assetStayedInArrays) this.assetStayedInArrays = {};
+        this.assetStayedInArrays[asset] = stayedInArray;
+
+        if (this.tradeInProgress) return;
+
+        // ✅ NEW: Only proceed if asset is in active list
+        if (!this.isAssetReady(asset) && this.consecutiveLosses <= 0) {
+            console.log(`⏸️  ${asset} is in pending list, skipping trade analysis`);
+            return;
+        }
 
         // Current digit count of the running accumulator
         const currentDigitCount = stayedInArray[99] + 1;
 
         this.currentTick = stayedInArray[99];
 
-        console.log(`📋 Proposal for ${asset}: Current StayIN Digit Count: ${stayedInArray[99]} (${currentDigitCount})`);
-        console.log(`   Filter Number: ${this.filterNum}`);
+        // console.log(`📋 Proposal for ${asset}: Current StayIN Digit Count: ${stayedInArray[99]} (${currentDigitCount})`);
+        // console.log(`   Filter Number: ${this.filterNum}`);
 
         // Store proposal ID
         this.assetStates[asset].proposalId = proposal.id;
 
-        // ── Original frequency analysis logic ──────────────────────────────
+        // ── Original frequency analysis logic ──────────────────────────────────
         // Create frequency map of digits
         const digitFrequency = {};
         stayedInArray.forEach(digit => {
@@ -1065,101 +1002,34 @@ class EnhancedDerivTradingBot {
             .filter(digit => digitFrequency[digit] === this.filterNum)
             .map(Number);
 
-        console.log(`   Digits that appeared ${this.filterNum} times: [${appearedOnceArray.join(', ')}]`);
+        // console.log(`   Digits that appeared ${this.filterNum} times: [${appearedOnceArray.join(', ')}]
+        //     StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]
+        // `);
+        // console.log(`StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]`);
 
-        // Entry condition: current digit count is in appearedOnceArray
-        // and not already traded, and stayedIn value >= 0
-        const condition = appearedOnceArray.includes(currentDigitCount)
-            && !this.tradedDigitArray.includes(stayedInArray[99])
-            && stayedInArray[99] > 0;
-
-        console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
-
-        // if (!this.isAssetAllowed(asset)) return;
-
-        // 1. Technical analysis
-        const prices = this.priceHistories[asset];
-        const analysis = this.analyzer.analyzeEntry(prices);
-
-        // 2. Log analysis periodically (every 30th check to avoid spam)
-        // if (this.tickCounts[asset] % (this.config.analysisInterval * 10) === 0) {
-        this.logAnalysis(asset, analysis);
-        // }
-
-        this.overallScore = (analysis.overallScore * 100).toFixed(1);
-        this.bbWidth = analysis.bb.width.toFixed(6);
-        this.percentB = (analysis.bb.percentB * 100).toFixed(1);
-        this.macdHist = analysis.macd.histogram.toFixed(6);
-        this.macdConverging = analysis.macd.isConverging;
-        this.maxTickMove = (analysis.maxTickMove * 100).toFixed(2);
-        this.tickStability = (analysis.tickStability * 100).toFixed(1);
-        this.bbWidth = (analysis.scores.bandWidth * 100).toFixed(1);
-        this.macdFlat = (analysis.scores.macdFlat * 100).toFixed(1);
-        this.pricePosition = (analysis.scores.pricePosition * 100).toFixed(1);
-        this.macdConverging = (analysis.scores.macdConverging * 100).toFixed(1);
-        this.volTrend = (analysis.scores.volTrend * 100).toFixed(1);
-
-        // 3. Decision
-        // if (!analysis.shouldTrade) return;
-
-        // if (analysis.overallScore < 0.65) return;
-
-        if (analysis.scores.bandWidth < 1) return;
-
-        if (analysis.scores.macdFlat < 0.5) return;
-
-        if (analysis.scores.pricePosition < 0.5) return;
-
-        if (!analysis.tickStability || analysis.tickStability === 'undefined' || analysis.tickStability === 'NaN' || analysis.tickStability < 1) return;
-
-        if (analysis.scores.macdConverging < 1) return;
-
-        if (this.maxTickMove < 0.03) return;
-
-        if (analysis.scores.volTrend < 0.5) return;
-
+        // Entry condition
+        // const condition =  this.consecutiveLosses < 1 ? this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 30) : this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 100); 
+        const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, this.config.STAYED_IN_THRESHOLD) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 11); 
+        const condition2 =  this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20, asset); 
+        
         // Check if we should place trade
-        if (condition) {
-            this.tradedDigitArray.push(stayedInArray[99]);
+        if (condition2 || this.consecutiveLosses > 0) {
+            console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
+
+            this.tradedDigitArray.push(this.stayedInArray[99]);
             this.filteredArray = appearedOnceArray;
-            this.entryTick = stayedInArray[99];
+            
             console.log(`   Traded Digit Array: [${this.tradedDigitArray.join(', ')}]`);
 
-            // 6. Request proposal with appropriate growth rate
             const growthRate = this.config.growthRate;
-            const takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
 
             console.log(`\n🎯 ENTRY SIGNAL: ${asset}`);
-            console.log(`   Score: ${(analysis.overallScore * 100).toFixed(1)}%`);
-            console.log(`   BB Width: ${analysis.bb.width.toFixed(6)} | %B: ${(analysis.bb.percentB * 100).toFixed(1)}%`);
-            console.log(`   MACD Hist: ${analysis.macd.histogram.toFixed(6)} | Converging: ${analysis.macd.isConverging}`);
             console.log(`   Growth Rate: ${(growthRate * 100).toFixed(0)}% | Stake: $${this.currentStake.toFixed(2)}`);
-            console.log(`   Max Tick Move: ${(analysis.maxTickMove * 100).toFixed(2)}%`);
-            console.log(`   Tick Stability: ${(analysis.tickStability * 100).toFixed(1)}%`);
-
-            console.log(`   BB Width: ${(analysis.scores.bandWidth * 100).toFixed(1)}%`);
-            console.log(`   MACD Flat: ${(analysis.scores.macdFlat * 100).toFixed(1)}%`);
-            console.log(`   Price Position: ${(analysis.scores.pricePosition * 100).toFixed(1)}%`);
-            console.log(`   MACD Converging: ${(analysis.scores.macdConverging * 100).toFixed(1)}%`);
-            console.log(`   Vol Trend: ${(analysis.scores.volTrend * 100).toFixed(1)}%`);
-            console.log(`   Reason: ${analysis.reason}`);
-            console.log(`   Take Profit: $${takeProfitAmount.toFixed(2)}`);
+            console.log(`   Take Profit: $${this.takeProfitAmount.toFixed(2)}`);
 
             // Place trade
             this.placeTrade(asset);
         }
-    }
-
-    logAnalysis(asset, analysis) {
-        const s = analysis.scores || {};
-        console.log(
-            `📈 ${asset} | Score: ${(analysis.overallScore * 100 || 0).toFixed(0)}% | ` +
-            `BW:${(s.bandWidth * 100 || 0).toFixed(0)} MACD:${(s.macdFlat * 100 || 0).toFixed(0)} ` +
-            `Pos:${(s.pricePosition * 100 || 0).toFixed(0)} Stab:${(s.tickStability * 100 || 0).toFixed(0)} ` +
-            `Conv:${(s.macdConverging * 100 || 0).toFixed(0)} Vol:${(s.volTrend * 100 || 0).toFixed(0)} ` +
-            `Ticks: ${this.currentTick} | ` +
-            `| ${analysis.shouldTrade ? '✅' : '❌'} ${analysis.reason}`
-        );
     }
 
     placeTrade(asset) {
@@ -1192,22 +1062,13 @@ class EnhancedDerivTradingBot {
 
         // Telegram notification
         this.sendTelegramMessage(
-            `🚀 <b>TRADE OPENED (accumBotM3)</b>\n\n` +
+            `🚀 <b>TRADE OPENED (Accum VolatiliyIndices)</b>\n\n` +
             `Asset: <b>${asset}</b>\n` +
-            `Entry Tick: <b>${this.entryTick}</b>\n` +
+            `stayedInArray: <b>[${this.stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]</b>\n` +
+            `totalStayedInArray: ${this.totalStayedInArray}/${this.maxTotalStayedIn} (${this.totalStayedInArray2}/${this.maxTotalStayedIn2})\n` +
             `Stake: $${trade.stake.toFixed(2)}\n` +
             `Growth Rate: ${(this.config.growthRate * 100).toFixed(0)}%\n` +
-            `Filter Number: ${this.filterNum}\n` +
-            `Filtered Digits: [${this.filteredArray.join(', ')}]\n` +
-            `Overall Score: ${this.overallScore}%\n` +
-            `BB Width: ${this.bbWidth}%\n` +
-            `MACD Flat: ${this.macdFlat}%\n` +
-            `MACD Converging: ${this.macdConverging}%\n` +
-            `Price Position: ${this.pricePosition}%\n` +
-            `Tick Stability: ${this.tickStability}%\n` +
-            `Max Tick Move: ${this.maxTickMove}%\n` +
-            `Vol Trend: ${this.volTrend}%\n` +
-            `Take Profit: $${(trade.stake * this.config.takeProfitMultiplier).toFixed(2)}`
+            `Take Profit: $${this.takeProfitAmount.toFixed(2)}`
         );
 
         this.lastTradeTime[asset] = Date.now();
@@ -1285,7 +1146,13 @@ class EnhancedDerivTradingBot {
 
         // Contract settled?
         if (contract.is_sold) {
-            this.handleTradeResult(asset, contract);
+            // ✅ Store the settled contract data
+            trade.settledContract = contract;
+
+            this.tickPassed = contract.tick_passed;
+            
+            // ✅ Request a fresh proposal to get the CURRENT ticks_stayed_in
+            this.requestFinalStayedInArray(asset);
             return;
         }
 
@@ -1298,9 +1165,50 @@ class EnhancedDerivTradingBot {
             console.log(
                 `  📊 ${asset}: tick ${tickCount} | ` +
                 `Profit: $${profit.toFixed(3)} | Bid: $${bidPrice.toFixed(2)} | ` +
-                `Recent Digits: ${this.lastDigitsList[asset] ? this.lastDigitsList[asset].slice(-5).join(', ') : 'N/A'}`
+                `Ticks Passed: ${contract.tick_passed || 0}`
             );
         }
+    }
+
+    requestFinalStayedInArray(asset) {
+        const trade = this.activeTrades[asset];
+        if (!trade) return;
+
+        // Mark that we're waiting for final data
+        trade.awaitingFinalStayedIn = true;
+
+        console.log(`🔍 Requesting final stayedInArray for ${asset}...`);
+
+        // Request a fresh proposal to get the current ticks_stayed_in
+        const proposal = {
+            proposal: 1,
+            amount: this.currentStake.toFixed(2),
+            basis: 'stake',
+            contract_type: 'ACCU',
+            currency: 'USD',
+            symbol: asset,
+            growth_rate: this.config.growthRate,
+            limit_order: {
+                take_profit: this.takeProfitAmount.toFixed(2)
+            },
+            passthrough: {
+                action: 'get_final_stayed_in',
+                asset: asset,
+                timestamp: Date.now()
+            }
+        };
+
+        this.sendRequest(proposal);
+
+        // Safety timeout: if no response in 3 seconds, proceed with empty array
+        setTimeout(() => {
+            const currentTrade = this.activeTrades[asset];
+            if (currentTrade && currentTrade.awaitingFinalStayedIn) {
+                console.warn(`⚠️ Timeout waiting for final stayedInArray for ${asset}`);
+                currentTrade.awaitingFinalStayedIn = false;
+                this.handleTradeResult(asset, currentTrade.settledContract);
+            }
+        }, 3000);
     }
 
     handleSellResponse(message) {
@@ -1440,7 +1348,7 @@ class EnhancedDerivTradingBot {
         );
 
         this.sendTelegramMessage(
-            `🚨 <b>STUCK TRADE RECOVERED 3[${reason}]</b>\n\n` +
+            `🚨 <b>STUCK TRADE RECOVERED Accum VolatiliyIndices[${reason}]</b>\n\n` +
             `Contract: ${contractId}\n` +
             `Asset: ${stuckAsset}\n` +
             `Stake: $${stake.toFixed(2)}\n` +
@@ -1467,6 +1375,9 @@ class EnhancedDerivTradingBot {
         const won = contract.status === 'won';
         const profit = parseFloat(contract.profit);
 
+        // Get the final stayedInArray for this asset (updated continuously via proposal stream)
+        const finalStayedInArray = this.assetStayedInArrays?.[asset] || [];
+
         // Unsubscribe from contract
         if (this.contractSubscriptions[asset]) {
             this.sendRequest({ forget: this.contractSubscriptions[asset] });
@@ -1476,6 +1387,7 @@ class EnhancedDerivTradingBot {
         console.log(`\n${'═'.repeat(55)}`);
         console.log(`  ${won ? '✅ WIN' : '❌ LOSS'}: ${asset}`);
         console.log(`  Ticks: ${contract.tick_count || 0} | P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(3)}`);
+        console.log(`  Final StayedIn: [${finalStayedInArray[99]}|${finalStayedInArray[98]}|${finalStayedInArray[97]}|${finalStayedInArray[96]}|${finalStayedInArray[95]}|${finalStayedInArray[94]}]`);
         console.log(`${'═'.repeat(55)}`);
 
         // Update stats
@@ -1493,16 +1405,17 @@ class EnhancedDerivTradingBot {
         if (won) {
             this.totalWins++;
             this.isWinTrade = true;
-            this.currentStake = this.Sys2 ? this.config.initialStake2 : this.config.initialStake;
+            // this.currentStake = this.Sys2 ? this.config.initialStake2 : this.config.initialStake;
+            this.currentStake = this.config.initialStake;
             this.consecutiveLosses = 0;
             this.filterNum = this.config.filterNum;
-            if (this.Sys2) {
-                this.kCountNum++;
-                if (this.kCountNum >= this.config.recoveryWinNum) {
-                    this.kCountNum = 0;
-                    this.Sys2 = false;
-                }
-            }
+            // if (this.Sys2) {
+            //     this.kCountNum++;
+            //     if (this.kCountNum >= this.config.recoveryWinNum) {
+            //         this.kCountNum = 0;
+            //         this.Sys2 = false;
+            //     }
+            // }
 
             if (this.assetMetrics[asset]) this.assetMetrics[asset].wins++;
             this.hourlyStats.wins++;
@@ -1511,6 +1424,7 @@ class EnhancedDerivTradingBot {
             if (this.focusAsset) {
                 this.resumeAllAssets();
             }
+            
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
@@ -1528,20 +1442,26 @@ class EnhancedDerivTradingBot {
             else if (this.consecutiveLosses === 6) this.consecutiveLosses6++;
 
             // Original martingale
-            if (this.consecutiveLosses === 2) {
-                this.currentStake = this.config.initialStake2;
-                if (!this.Sys2) {
-                    this.Sys2 = true;
-                } else {
-                    this.consecutiveLosses = 4;
-                }
-            }
-            else {
+            // if (this.consecutiveLosses === 2) {
+            //     this.currentStake = this.config.initialStake2;
+            //     if (!this.Sys2) {
+            //         this.Sys2 = true;
+            //     } else {
+            //         this.consecutiveLosses = 4;
+            //     }
+            // }
+            // else {
+                // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            // }
+
+            if (this.consecutiveLosses >= 2) {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier2 * 100) / 100;
+            } else {
                 this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             }
 
             // Suspend all other assets, focus on loss asset
-            // this.suspendOtherAssets(asset);
+            this.suspendOtherAssets(asset);
         }
 
         // Keep traded digit array trimmed
@@ -1556,14 +1476,17 @@ class EnhancedDerivTradingBot {
         this.tradeStartTime = null;
         delete this.activeTrades[asset];
 
-        // Send Trade result notification
+        // Send Trade result notification with final stayedInArray
         this.sendTelegramMessage(
-            `${won ? '✅' : '❌'} <b>accumBotM3</b>\n\n` +
+            `<b>Accum VolatiliyIndices</b>\n` +
+            `${won ? '✅ WON' : '❌ LOSS'}\n` +
             `Asset: <b>${asset}</b>\n` +
+            `Tick Passed: <b>${this.tickPassed}</b>\n` +
+            `Final stayedInArray: [${finalStayedInArray[99]}|${finalStayedInArray[98]}|${finalStayedInArray[97]}|${finalStayedInArray[96]}|${finalStayedInArray[95]}|${finalStayedInArray[94]}]\n` +
             `P&L: ${profit >= 0 ? '+' : ''}$${profit.toFixed(3)}\n` +
             `Consecutive Losses: ${this.consecutiveLosses}\n` +
             `Trades: ${this.totalTrades} (${this.totalWins}W/${this.totalLosses}L)\n` +
-            `Losses x2-x5: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5}\n` +
+            `Losses x2-x6: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5} | ${this.consecutiveLosses6}\n` +
             `Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : '0.00'}%\n` +
             `Stake: $${this.currentStake.toFixed(2)}\n` +
             `Total P&L: ${this.totalProfitLoss >= 0 ? '+' : ''}$${this.totalProfitLoss.toFixed(2)}`
@@ -1591,6 +1514,15 @@ class EnhancedDerivTradingBot {
             return;
         }
 
+        if(won && !this.endOfDay) {
+            this.disconnect();
+            console.log("Bot Disconnected, will Restart in", (this.waitTime / 1000).toFixed(0), 'Seconds' );
+            
+            setTimeout(() => {
+                this.connect();
+            }, this.waitTime);
+        }
+
         StatePersistence.saveState(this);
 
         // ═══════════════════════════════════════════════════════════════════
@@ -1610,6 +1542,10 @@ class EnhancedDerivTradingBot {
 
         for (const asset of this.assets) {
             if (!this.isAssetAllowed(asset)) continue;
+            
+            // ✅ NEW: Only evaluate assets in active list
+            if (!this.isAssetReady(asset)) continue;
+            
             if (this.tradeInProgress) break;
             if (this.activeTrades[asset]) continue;
             if (!this.tickHistory[asset] || this.tickHistory[asset].length < this.config.requiredHistoryLength) continue;
@@ -1639,27 +1575,27 @@ class EnhancedDerivTradingBot {
             //     (currentDay === 1 && currentHours < 8);    // Monday before 8am
 
             // Afternoon stop: after 1:00 PM following a win
-            if (this.isWinTrade && !this.endOfDay) {
-                if (currentHours === 13 && currentMinutes >= 0 && currentMinutes < 1) {
-                    console.log("It's past 1:00 PM after a win trade, disconnecting.");
-                    this.sendDisconnectSummary();
-                    this.Pause = true;
-                    this.disconnect();
-                    this.endOfDay = true;
-                }
-            }
+            // if (this.isWinTrade && !this.endOfDay) {
+            //     if (currentHours === 13 && currentMinutes >= 0 && currentMinutes < 1) {
+            //         console.log("It's past 1:00 PM after a win trade, disconnecting.");
+            //         this.sendDisconnectSummary();
+            //         this.Pause = true;
+            //         this.disconnect();
+            //         this.endOfDay = true;
+            //     }
+            // }
 
             // Afternoon resume: 3:00 PM
-            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
-                console.log("It's 3:00 PM, reconnecting the bot.");
-                this.endOfDay = false;
-                this.Pause = false;
-                this.tradeInProgress = false;
-                this.tradedDigitArray = [];
-                this.tradedDigitArray2 = [];
-                this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
-                this.connect();
-            }
+            // if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
+            //     console.log("It's 3:00 PM, reconnecting the bot.");
+            //     this.endOfDay = false;
+            //     this.Pause = false;
+            //     this.tradeInProgress = false;
+            //     this.tradedDigitArray = [];
+            //     this.tradedDigitArray2 = [];
+            //     this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
+            //     this.connect();
+            // }
 
             // Evening stop: after 11:00 PM following a win
             if (this.isWinTrade && !this.endOfDay) {
@@ -1698,11 +1634,14 @@ class EnhancedDerivTradingBot {
         console.log(`  x2 Losses: ${this.consecutiveLosses2}`);
         console.log(`  x3 Losses: ${this.consecutiveLosses3}`);
         console.log(`  x4 Losses: ${this.consecutiveLosses4}`);
+        console.log(`  x5 Losses: ${this.consecutiveLosses5}`);
+        console.log(`  x6 Losses: ${this.consecutiveLosses6}`);
         console.log(`  Total Profit/Loss: $${this.totalProfitLoss.toFixed(2)}`);
         console.log(`  Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : '0.00'}%`);
         console.log(`  Current Stake: $${this.currentStake.toFixed(2)}`);
-        console.log(`  Filtered Digits: [${this.filteredArray.join(', ')}]`);
-        console.log(`  Traded Digits: [${this.tradedDigitArray.join(', ')}]`);
+        
+        // ✅ NEW: Show asset filtering status
+        console.log(this.getAssetFilteringSummary());
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1716,7 +1655,6 @@ class EnhancedDerivTradingBot {
         console.log(`  Initial Stake: $${this.config.initialStake}`);
         console.log(`  Multiplier:    x${this.config.multiplier}`);
         console.log(`  Growth Rate:   ${(this.config.growthRate * 100)}%`);
-        console.log(`  Filter Num:    ${this.filterNum}`);
         console.log(`  Take Profit:   $${this.config.takeProfit}`);
         console.log(`  Stop Loss:     $${this.config.stopLoss}`);
         console.log('═══════════════════════════════════════════════════════════\n');
@@ -1731,18 +1669,26 @@ class EnhancedDerivTradingBot {
 // ══════════════════════════════════════════════════════════════════════════════
 // BOT INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
-const bot = new EnhancedDerivTradingBot('hsj0tA0XJoIzJG5', {
-    initialStake: 5,
+const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
+    initialStake: 1,
     initialStake2: 25,
-    multiplier: 1,
+    multiplier: 2,
+    multiplier2: 2,
     recoveryWinNum: 100,
-    maxConsecutiveLosses: 4,
-    stopLoss: 532,
-    takeProfit: 5,
+    maxConsecutiveLosses: 7,
+    stopLoss: 173,
+    takeProfit: 250,
     growthRate: 0.05,
-    takeProfitMultiplier: 0.05,
+    takeProfitMultiplier: 0.9, //0.05, % of Stake Amount
     filterNum: 4,
-    assets: ['R_10', 'R_25', 'R_50'], //['R_10', 'R_25', 'R_50', 'R_75', 'R_100']
+    STAYED_IN_THRESHOLD: 1300, // Threshold for asset filtering
+    scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
+    assets: [
+        'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
+        'CRASH50', 'CRASH150N', 'CRASH300N', 'CRASH500', 'CRASH600', 'CRASH900', 'CRASH1000',
+        'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
+        '1HZ10V', '1HZ25V', '1HZ50V', '1HZ100V',
+    ],
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     telegramChatId: '752497117',
 });
