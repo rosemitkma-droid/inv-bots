@@ -15,8 +15,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'accumulator_bot2-03_v1_state.json');
-const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot2-03_v1_history.json');
+const STATE_FILE        = path.join(__dirname, 'accumulator_bot2-04_v1_state.json');
+const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot2-04_v1_history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================
@@ -1048,7 +1048,7 @@ class AccumulatorBot {
             `last6=${c2.value} < ${c2.threshold}=${c2.passed} | losses=${a.consecutiveLosses}`
         );
 
-        if (!c2.passed) return;
+        if (!c1.passed || !c2.passed) return;
 
         const stake = Math.min(a.currentStake, CONFIG.MAX_STAKE);
         if (state.capital < stake) {
