@@ -57,8 +57,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot2_05-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot2_05-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexMultplierBot2_06-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexMultplierBot2_06-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -82,7 +82,7 @@ const LOGGER = {
 // ============================================================
 const CONFIG = {
     // ── Deriv API ─────────────────────────────────────────────
-    API_TOKEN:  'DMylfkyce6VyZt7',   
+    API_TOKEN:  'rgNedekYXvCaPeP',   
     APP_ID:     '1089',
     WS_URL:     'wss://ws.derivws.com/websockets/v3',
 
