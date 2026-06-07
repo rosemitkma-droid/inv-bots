@@ -15,8 +15,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'accumulator_bot3-01_v1_state.json');
-const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot3-01_v1_history.json');
+const STATE_FILE        = path.join(__dirname, 'accumulator_bot3-02_v1_state.json');
+const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot3-02_v1_history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================
@@ -69,7 +69,7 @@ const CONFIG = {
     INITIAL_STAKE_2:            25,        // Base after certain conditions (optional)
 
     // ── stayedInArray Entry Conditions ───────────────────────
-    STAYED_IN_THRESHOLD:        1600,      // Asset active if total < this
+    STAYED_IN_THRESHOLD:        1400,      // Asset active if total < this
     STAYED_IN_MAX_TOTAL:        1600,      // Max total sum for condition1
 
     // Recent value thresholds (indices 98, 99 of 100-element array)
