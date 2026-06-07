@@ -69,7 +69,7 @@ const CONFIG = {
     INITIAL_STAKE_2:            25,        // Base after certain conditions (optional)
 
     // ── stayedInArray Entry Conditions ───────────────────────
-    STAYED_IN_THRESHOLD:        1300,      // Asset active if total < this
+    STAYED_IN_THRESHOLD:        1600,      // Asset active if total < this
     STAYED_IN_MAX_TOTAL:        1600,      // Max total sum for condition1
 
     // Recent value thresholds (indices 98, 99 of 100-element array)
