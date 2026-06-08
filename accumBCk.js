@@ -15,8 +15,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'accumulator_bot-02_v1_state.json');
-const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot-02_v1_history.json');
+const STATE_FILE        = path.join(__dirname, 'accumulator_bot-03_v1_state.json');
+const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot-03_v1_history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================
@@ -70,11 +70,14 @@ const CONFIG = {
 
     // ── stayedInArray Entry Conditions ───────────────────────
     STAYED_IN_THRESHOLD:        1400,      // Asset active if total < this
-    STAYED_IN_MAX_TOTAL:        1600,      // Max total sum for condition1
+    STAYED_IN_MAX_TOTAL:        1400,      // Max total sum for condition1
 
     // Recent value thresholds (indices 98, 99 of 100-element array)
     STAYED_IN_IDX_99_MAX:       1,
-    STAYED_IN_IDX_98_MAX:       11,
+    STAYED_IN_IDX_98_MAX:       10,
+    STAYED_IN_IDX_97_MAX:       11,
+    STAYED_IN_IDX_96_MAX:       15,
+    STAYED_IN_IDX_95_MAX:       20,
 
     // Last-6-values threshold (index 5 of sliced array = last element)
     STAYED_IN_LAST6_NORMAL:      2,
@@ -130,7 +133,10 @@ class AccumulatorAnalyzer {
         const total = this.calculateTotalStayedIn(stayedInArray);
         const recentOk = (
             stayedInArray[99] < CONFIG.STAYED_IN_IDX_99_MAX &&
-            stayedInArray[98] < CONFIG.STAYED_IN_IDX_98_MAX
+            stayedInArray[98] < CONFIG.STAYED_IN_IDX_98_MAX &&
+            stayedInArray[97] < CONFIG.STAYED_IN_IDX_97_MAX &&
+            stayedInArray[96] < CONFIG.STAYED_IN_IDX_96_MAX &&
+            stayedInArray[95] < CONFIG.STAYED_IN_IDX_95_MAX 
         );
         const totalOk = total < maxTotal;
         return { passed: recentOk && totalOk, total, recentOk, totalOk };
@@ -1042,7 +1048,7 @@ class AccumulatorBot {
             `last6=${c2.value} < ${c2.threshold}=${c2.passed} | losses=${a.consecutiveLosses}`
         );
 
-        if (!c2.passed) return;
+        if (!c1.passed || !c2.passed) return;
 
         const stake = Math.min(a.currentStake, CONFIG.MAX_STAKE);
         if (state.capital < stake) {
