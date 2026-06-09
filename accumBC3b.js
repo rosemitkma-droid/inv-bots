@@ -287,21 +287,21 @@ class EnhancedDerivTradingBot {
      * @param {number} maxTotalStayedIn - Maximum allowed total sum (default: 600)
      * @returns {boolean} True if conditions are met for trading
      */
-    checkTradeCondition(stayedInArray, consecutiveLosses, maxTotalStayedIn) {
+    checkTradeCondition(stayedInArray, consecutiveLosses, maxTotalStayedIn, asset) {
         // Calculate total sum of all stayedInArray values
         const totalStayedInArray = this.calculateTotalStayedIn(stayedInArray);
         
         // Log the calculation for debugging
-        // console.log(`   📊 Total StayedIn Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
+        console.log(`   📊 ${asset} | Total StayedIn Sum: ${stayedInArray[99]} (${totalStayedInArray}/${maxTotalStayedIn})`);
         this.totalStayedInArray = totalStayedInArray;
         this.maxTotalStayedIn = maxTotalStayedIn;
         
         // Check individual thresholds for recent values
         const recentThresholds = (
-            stayedInArray[99] < 1 &&
-            stayedInArray[98] < 11 
+            stayedInArray[99] < 20 &&
+            stayedInArray[98] < 29 &&
+            stayedInArray[97] < 29 
             // &&
-            // stayedInArray[97] < 12 &&
             // stayedInArray[96] < 13 &&
             // stayedInArray[95] < 14 &&
             // stayedInArray[94] < 15
@@ -322,13 +322,13 @@ class EnhancedDerivTradingBot {
         const totalStayedInArray = this.calculateTotalStayedIn(stayedInArray);
         
         // Log the calculation for debugging
-        console.log(`   📊 ${asset} Total StayedIn2 Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
+        // console.log(`   📊 ${asset} Total StayedIn2 Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
         this.totalStayedInArray2 = totalStayedInArray;
         this.maxTotalStayedIn2 = maxTotalStayedIn;
 
         // Check individual thresholds for recent values
         const recentThresholds = (
-           stayedInArray[5] < 1
+           stayedInArray[5] < 10
            && stayedInArray[4] < 10
         );
 
@@ -893,8 +893,8 @@ class EnhancedDerivTradingBot {
         if (this.tradeInProgress) return;
         if (!this.wsReady) return;
 
-        this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; 
-        // this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
+        // this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; 
+        this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
 
         const proposal = {
             proposal: 1,
@@ -1012,11 +1012,11 @@ class EnhancedDerivTradingBot {
 
         // Entry condition
         // const condition =  this.consecutiveLosses < 1 ? this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 30) : this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 100); 
-        const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, this.config.STAYED_IN_THRESHOLD) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 11); 
+        const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, this.config.STAYED_IN_THRESHOLD, asset); 
         const condition2 =  this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20, asset); 
         
         // Check if we should place trade
-        if (condition2) {
+        if (condition) {
             console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
 
             this.tradedDigitArray.push(this.stayedInArray[99]);
@@ -1675,16 +1675,16 @@ class EnhancedDerivTradingBot {
 const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     initialStake: 1,
     initialStake2: 25,
-    multiplier: 8,
-    multiplier2: 8,
+    multiplier: 10,
+    multiplier2: 10,
     recoveryWinNum: 100,
     maxConsecutiveLosses: 3,
     stopLoss: 173,
     takeProfit: 2500,
-    growthRate: 0.05,
-    takeProfitMultiplier: 0.9, //0.05, % of Stake Amount
+    growthRate: 0.01,
+    takeProfitMultiplier: 0.20, //0.20, 20% of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 1400, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 6000, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
     assets: [
         'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
