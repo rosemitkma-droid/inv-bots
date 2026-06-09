@@ -15,8 +15,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'accumulator_bot4-004_v1_state.json');
-const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot4-004_v1_history.json');
+const STATE_FILE        = path.join(__dirname, 'accumulator_bot4-005_v1_state.json');
+const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot4-005_v1_history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================
@@ -69,8 +69,8 @@ const CONFIG = {
     INITIAL_STAKE_2:            25,        // Base after certain conditions (optional)
 
     // ── stayedInArray Entry Conditions ───────────────────────
-    STAYED_IN_THRESHOLD:        7900,      // Asset active if total < this
-    STAYED_IN_MAX_TOTAL:        7900,      // Max total sum for condition1
+    STAYED_IN_THRESHOLD:        7000,      // Asset active if total < this
+    STAYED_IN_MAX_TOTAL:        7000,      // Max total sum for condition1
 
     // Recent value thresholds (indices 98, 99 of 100-element array)
     STAYED_IN_IDX_99_MAX:       3,
@@ -104,10 +104,8 @@ const CONFIG = {
 
     // ── Active Assets ───────────────────────────────────────────
     ACTIVE_ASSETS: [
-        'R_10', '1HZ75V',
-        // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
         // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'BOOM150N', 'BOOM300N',
-        // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
+        '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
         // 'BOOM50', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
         // 'CRASH150N', 'CRASH300N',
         // 'CRASH50', 'CRASH500', 'CRASH600', 'CRASH900', 'CRASH1000',
