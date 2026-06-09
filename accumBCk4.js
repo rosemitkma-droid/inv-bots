@@ -15,8 +15,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'accumulator_bot4-003_v1_state.json');
-const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot4-003_v1_history.json');
+const STATE_FILE        = path.join(__dirname, 'accumulator_bot5-003_v1_state.json');
+const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot5-003_v1_history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================
@@ -69,17 +69,17 @@ const CONFIG = {
     INITIAL_STAKE_2:            25,        // Base after certain conditions (optional)
 
     // ── stayedInArray Entry Conditions ───────────────────────
-    STAYED_IN_THRESHOLD:        8500,      // Asset active if total < this
-    STAYED_IN_MAX_TOTAL:        8500,      // Max total sum for condition1
+    STAYED_IN_THRESHOLD:        7900,      // Asset active if total < this
+    STAYED_IN_MAX_TOTAL:        7900,      // Max total sum for condition1
 
     // Recent value thresholds (indices 98, 99 of 100-element array)
     STAYED_IN_IDX_99_MAX:       1,
-    STAYED_IN_IDX_98_MAX:       20,
-    STAYED_IN_IDX_97_MAX:       100,
+    STAYED_IN_IDX_98_MAX:       260,
+    STAYED_IN_IDX_97_MAX:       260,
 
     // Last-6-values threshold (index 5 of sliced array = last element)
     STAYED_IN_LAST6_NORMAL:      1,
-    STAYED_IN_LAST6_RECOVERY:   10,
+    STAYED_IN_LAST6_RECOVERY:   20,
 
     // ── Asset Filtering & Scanning ───────────────────────────
     SCAN_TIMER:                 60000,     // Scan pending assets every 60s
