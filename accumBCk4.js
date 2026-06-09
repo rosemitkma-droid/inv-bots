@@ -15,8 +15,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'accumulator_bot4-002_v1_state.json');
-const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot4-002_v1_history.json');
+const STATE_FILE        = path.join(__dirname, 'accumulator_bot4-003_v1_state.json');
+const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot4-003_v1_history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================
@@ -50,7 +50,7 @@ const CONFIG = {
 
     // ── Accumulator Contract Settings ────────────────────────
     CONTRACT_TYPE:              'ACCU',
-    GROWTH_RATE:                0.01,      // 5% growth rate
+    GROWTH_RATE:                0.01,      // 1% growth rate
     ACCU_TICKS:                 100,       // Default accumulator length
 
     // Take Profit multiplier for limit_order (fallback)
@@ -69,12 +69,13 @@ const CONFIG = {
     INITIAL_STAKE_2:            25,        // Base after certain conditions (optional)
 
     // ── stayedInArray Entry Conditions ───────────────────────
-    STAYED_IN_THRESHOLD:        6500,      // Asset active if total < this
-    STAYED_IN_MAX_TOTAL:        6500,      // Max total sum for condition1
+    STAYED_IN_THRESHOLD:        8500,      // Asset active if total < this
+    STAYED_IN_MAX_TOTAL:        8500,      // Max total sum for condition1
 
     // Recent value thresholds (indices 98, 99 of 100-element array)
     STAYED_IN_IDX_99_MAX:       1,
-    STAYED_IN_IDX_98_MAX:       10,
+    STAYED_IN_IDX_98_MAX:       20,
+    STAYED_IN_IDX_97_MAX:       100,
 
     // Last-6-values threshold (index 5 of sliced array = last element)
     STAYED_IN_LAST6_NORMAL:      1,
@@ -103,7 +104,8 @@ const CONFIG = {
 
     // ── Active Assets ───────────────────────────────────────────
     ACTIVE_ASSETS: [
-        'R_10', 'R_25', 'R_50', '1HZ10V', '1HZ25V', '1HZ50V',
+        'R_10', '1HZ75V',
+        // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
         // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'BOOM150N', 'BOOM300N',
         // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
         // 'BOOM50', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
@@ -131,7 +133,8 @@ class AccumulatorAnalyzer {
         const total = this.calculateTotalStayedIn(stayedInArray);
         const recentOk = (
             stayedInArray[99] < CONFIG.STAYED_IN_IDX_99_MAX &&
-            stayedInArray[98] < CONFIG.STAYED_IN_IDX_98_MAX
+            stayedInArray[98] < CONFIG.STAYED_IN_IDX_98_MAX &&
+            stayedInArray[97] < CONFIG.STAYED_IN_IDX_97_MAX 
         );
         const totalOk = total < maxTotal;
         return { passed: recentOk && totalOk, total, recentOk, totalOk };
@@ -1043,7 +1046,7 @@ class AccumulatorBot {
             `last6=${c2.value} < ${c2.threshold}=${c2.passed} | losses=${a.consecutiveLosses}`
         );
 
-        if (!c2.passed) return;
+        if (!c1.passed || !c2.passed) return;
 
         const stake = Math.min(a.currentStake, CONFIG.MAX_STAKE);
         if (state.capital < stake) {
