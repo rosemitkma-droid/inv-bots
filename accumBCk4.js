@@ -15,8 +15,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'accumulator_bot4-001_v1_state.json');
-const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot4-001_v1_history.json');
+const STATE_FILE        = path.join(__dirname, 'accumulator_bot4-002_v1_state.json');
+const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot4-002_v1_history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================
@@ -103,7 +103,7 @@ const CONFIG = {
 
     // ── Active Assets ───────────────────────────────────────────
     ACTIVE_ASSETS: [
-        'R_10', '1HZ10V', 'BOOM1000', 'CRASH1000'
+        'R_10', 'R_25', 'R_50', '1HZ10V', '1HZ25V', '1HZ50V',
         // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'BOOM150N', 'BOOM300N',
         // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
         // 'BOOM50', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
