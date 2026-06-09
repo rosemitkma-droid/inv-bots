@@ -15,8 +15,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'accumulator_bot4-04_v1_state.json');
-const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot4-04_v1_history.json');
+const STATE_FILE        = path.join(__dirname, 'accumulator_bot4-001_v1_state.json');
+const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot4-001_v1_history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================
@@ -50,34 +50,34 @@ const CONFIG = {
 
     // ── Accumulator Contract Settings ────────────────────────
     CONTRACT_TYPE:              'ACCU',
-    GROWTH_RATE:                0.05,      // 5% growth rate
+    GROWTH_RATE:                0.01,      // 5% growth rate
     ACCU_TICKS:                 100,       // Default accumulator length
 
     // Take Profit multiplier for limit_order (fallback)
     TAKE_PROFIT_MULTIPLIER:     0.20,
 
     // Dynamic take-profit amounts (stake / divisor)
-    TP_DIVISOR_NORMAL:          4,         // stake / 4
-    TP_DIVISOR_1_LOSS:          6,         // stake / 6
-    TP_DIVISOR_2_PLUS_LOSS:     7,         // stake / 7
+    TP_DIVISOR_NORMAL:          5,         // stake / 4
+    TP_DIVISOR_1_LOSS:          5,         // stake / 6
+    TP_DIVISOR_2_PLUS_LOSS:     5,         // stake / 7
 
     // ── Martingale Recovery (from example) ───────────────────
     RECOVERY_ENABLED:           true,
-    MULTIPLIER:                 8,         // First loss multiplier
-    MULTIPLIER2:                8,         // 2nd+ loss multiplier
+    MULTIPLIER:                 10,         // First loss multiplier
+    MULTIPLIER2:                10,         // 2nd+ loss multiplier
     INITIAL_STAKE:              1,
     INITIAL_STAKE_2:            25,        // Base after certain conditions (optional)
 
     // ── stayedInArray Entry Conditions ───────────────────────
-    STAYED_IN_THRESHOLD:        1250,      // Asset active if total < this
-    STAYED_IN_MAX_TOTAL:        1600,      // Max total sum for condition1
+    STAYED_IN_THRESHOLD:        6500,      // Asset active if total < this
+    STAYED_IN_MAX_TOTAL:        6500,      // Max total sum for condition1
 
     // Recent value thresholds (indices 98, 99 of 100-element array)
     STAYED_IN_IDX_99_MAX:       1,
-    STAYED_IN_IDX_98_MAX:       11,
+    STAYED_IN_IDX_98_MAX:       10,
 
     // Last-6-values threshold (index 5 of sliced array = last element)
-    STAYED_IN_LAST6_NORMAL:      2,
+    STAYED_IN_LAST6_NORMAL:      1,
     STAYED_IN_LAST6_RECOVERY:   10,
 
     // ── Asset Filtering & Scanning ───────────────────────────
@@ -94,8 +94,8 @@ const CONFIG = {
 
     // ── Time-based Disconnect (from example) ─────────────────
     USE_TIME_BASED_DISCONNECT:  true,
-    DISCONNECT_HOUR:            23,        // GMT+1 hour to disconnect after win
-    RECONNECT_HOUR:             2,         // GMT+1 hour to reconnect
+    DISCONNECT_HOUR:            22,        // GMT+1 hour to disconnect after win
+    RECONNECT_HOUR:             1,         // GMT+1 hour to reconnect
 
     // ── Position Management ───────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
@@ -103,11 +103,12 @@ const CONFIG = {
 
     // ── Active Assets ───────────────────────────────────────────
     ACTIVE_ASSETS: [
+        'R_10', '1HZ10V', 'BOOM1000', 'CRASH1000'
         // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'BOOM150N', 'BOOM300N',
         // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
         // 'BOOM50', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
         // 'CRASH150N', 'CRASH300N',
-        'CRASH50', 'CRASH500', 'CRASH600', 'CRASH900', 'CRASH1000',
+        // 'CRASH50', 'CRASH500', 'CRASH600', 'CRASH900', 'CRASH1000',
     ],
 
     // ── Misc ──────────────────────────────────────────────────
