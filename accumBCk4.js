@@ -15,8 +15,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'accumulator_bot4-005_v1_state.json');
-const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot4-005_v1_history.json');
+const STATE_FILE        = path.join(__dirname, 'accumulator_bot4-006_v1_state.json');
+const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot4-006_v1_history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================
@@ -73,13 +73,13 @@ const CONFIG = {
     STAYED_IN_MAX_TOTAL:        7000,      // Max total sum for condition1
 
     // Recent value thresholds (indices 98, 99 of 100-element array)
-    STAYED_IN_IDX_99_MAX:       3,
-    STAYED_IN_IDX_98_MAX:       260,
-    STAYED_IN_IDX_97_MAX:       260,
+    STAYED_IN_IDX_99_MAX:       20,
+    STAYED_IN_IDX_98_MAX:       29,
+    STAYED_IN_IDX_97_MAX:       29,
 
     // Last-6-values threshold (index 5 of sliced array = last element)
-    STAYED_IN_LAST6_NORMAL:      3,
-    STAYED_IN_LAST6_RECOVERY:   23,
+    STAYED_IN_LAST6_NORMAL:      20,
+    STAYED_IN_LAST6_RECOVERY:   29,
 
     // ── Asset Filtering & Scanning ───────────────────────────
     SCAN_TIMER:                 60000,     // Scan pending assets every 60s
@@ -1044,7 +1044,8 @@ class AccumulatorBot {
             `last6=${c2.value} < ${c2.threshold}=${c2.passed} | losses=${a.consecutiveLosses}`
         );
 
-        if (!c1.passed || !c2.passed) return;
+        // if (!c1.passed || !c2.passed) return;
+        if (!c1.passed) return;
 
         const stake = Math.min(a.currentStake, CONFIG.MAX_STAKE);
         if (state.capital < stake) {
