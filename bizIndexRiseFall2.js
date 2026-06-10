@@ -49,8 +49,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'IndexBot2_07-state_v2.json');
-const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_07-history_v2.json');
+const STATE_FILE        = path.join(__dirname, 'IndexBot2_09-state_v2.json');
+const HISTORY_FILE      = path.join(__dirname, 'IndexBot2_09-history_v2.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -81,7 +81,7 @@ const CONFIG = {
     // ── Capital & Risk (Fixed-Fractional — replaces martingale) ──
     INITIAL_CAPITAL:            250,
     RISK_PERCENT_PER_TRADE:     0.50,    // % of capital per trade (1% = conservative)
-    MIN_STAKE:                  0.35,   // Minimum stake allowed by Deriv
+    MIN_STAKE:                  1,   // Minimum stake allowed by Deriv
     MAX_STAKE:                  150,   // Hard cap per trade in USD
 
     // Recovery staking (limited — max 2 steps)
@@ -102,8 +102,8 @@ const CONFIG = {
     COOLDOWN_CANDLES:           3,      // Wait 3 candles before re-entry
 
     // ── Candle / Contract Settings ────────────────────────────
-    GRANULARITY:                60,     // 1-minute candles
-    TIMEFRAME_LABEL:            '1m',
+    GRANULARITY:                300,     // 5-minute candles
+    TIMEFRAME_LABEL:            '5m',
     CANDLES_TO_LOAD:            150,    // History for indicator warmup
     MAX_CANDLES_STORED:         250,    // Rolling window
 
@@ -202,10 +202,8 @@ const CONFIG = {
         'stpRNG3',
         'stpRNG4',
         'stpRNG5',
-        // Uncomment to add volatility indices:
-        'R_10', 'R_25', 'R_75', //'R_05', 'R_100'
-        '1HZ10V', '1HZ25V', '1HZ50V', // '1HZ75', '1HZ100V'
-
+        'R_10', 'R_25', 'R_75','R_50', 'R_100',
+        '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75', // '1HZ100V'
     ],
 
     // ── Misc ──────────────────────────────────────────────────
