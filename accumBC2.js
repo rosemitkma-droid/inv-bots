@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2_0001_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2_0003_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -310,7 +310,7 @@ class EnhancedDerivTradingBot {
         );
         
         // Check if total sum is within acceptable range
-        const totalWithinRange = totalStayedInArray < maxTotalStayedIn;
+        const totalWithinRange = totalStayedInArray > maxTotalStayedIn;
         
         // Check if we have consecutive losses (recovery mode)
         const inRecoveryMode = consecutiveLosses > 0;
@@ -1688,7 +1688,7 @@ const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     growthRate: 0.01,
     takeProfitMultiplier: 0.2, //0.20, % of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 6400, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 7100, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
     assets: [
         // 'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
