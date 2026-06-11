@@ -1,6 +1,6 @@
 /**
  * ╔══════════════════════════════════════════════════════════════╗
- * ║         accumBotM — Enhanced Multi-Asset Accumulator Bot    ║
+ * ║         accumBotM — Enhanced Multi-Asset Accumulator Bot     ║
  * ╠══════════════════════════════════════════════════════════════╣
  * ║  ORIGINAL STRATEGY (preserved):                              ║
  * ║  • Digit-frequency analysis on StayIN sequence               ║
@@ -15,6 +15,12 @@
  * ║  • Trade watchdog for stuck contract recovery                ║
  * ║  • Robust reconnection with exponential backoff              ║
  * ║  • WebSocket ping keep-alive                                 ║
+ * ║  • INTELLIGENT ASSET FILTERING (NEW):                        ║
+ * ║    - Active Assets: stayedInArray < 1600 (ready to trade)    ║
+ * ║    - Pending Assets: stayedInArray >= 1600 (waiting)         ║
+ * ║    - Dynamic asset management between lists                  ║
+ * ║    - Periodic scanning of pending assets (30s interval)      ║
+ * ║    - Optimized performance by analyzing only active assets   ║
  * ╚══════════════════════════════════════════════════════════════╝
  */
 
@@ -29,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC_0012_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC_0001_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -125,10 +131,17 @@ class EnhancedDerivTradingBot {
         // ── Multi-asset support ──────────────────────────────────────────────
         this.assets = config.assets;
 
+        // ── Asset Filtering System ───────────────────────────────────────────
+        this.activeAssets = new Set();      // Assets ready for trading (stayedInArray < 1600)
+        this.pendingAssets = new Set();     // Assets waiting (stayedInArray >= 1600)
+        this.assetStayedInValues = {};      // Track current stayedInArray total for each asset
+        this.pendingScanInterval = null;    // Timer for periodic pending asset scan
+
         this.config = {
             initialStake: config.initialStake || 1,
             initialStake2: config.initialStake2 || 1,
             multiplier: config.multiplier || 6,
+            multiplier2: config.multiplier2 || 6,
             recoveryWinNum: config.recoveryWinNum || 8,
             maxConsecutiveLosses: config.maxConsecutiveLosses || 3,
             takeProfit: config.takeProfit || 100,
@@ -137,6 +150,8 @@ class EnhancedDerivTradingBot {
             growthRate: config.growthRate || 0.02,
             takeProfitMultiplier: config.takeProfitMultiplier || 0.20,
             filterNum: config.filterNum || 5,
+            scanTimer: config.scanTimer || 60000,
+            STAYED_IN_THRESHOLD: config.STAYED_IN_THRESHOLD, 
 
             // Reconnection
             maxReconnectAttempts: 50,
@@ -178,7 +193,7 @@ class EnhancedDerivTradingBot {
         this.confidenceThreshold = 0.5;
         this.kTradeCount = 0;
         this.isWinTrade = false;
-        this.waitTime = 50000; // Reconnect after Waiting 
+        this.waitTime = 50000;
         this.LossDigitsList = [];
         this.threeConsecutiveDigits = 0;
         this.predictedType = '';
@@ -192,6 +207,8 @@ class EnhancedDerivTradingBot {
         this.predictedDigit = null;
         this.currentTick = 0;
         this.Sys2 = false;
+        this.TP_SL = false;
+        this.scanningTimer = this.config.scanTimer;
 
         // ── Multi-asset active trades ────────────────────────────────────────
         this.activeTrades = {};          // { asset: { contractId, status, ... } }
@@ -239,6 +256,10 @@ class EnhancedDerivTradingBot {
             this.lastTradeTime[asset] = 0;
             this.assetStates[asset] = { proposalId: null, lastProposalAt: 0 };
             this.assetMetrics[asset] = { trades: 0, wins: 0, losses: 0, profitLoss: 0 };
+            
+            // Initialize all assets as pending until we get their stayedInArray values
+            this.pendingAssets.add(asset);
+            this.assetStayedInValues[asset] = null;
         });
 
         // ── Load saved state ─────────────────────────────────────────────────
@@ -267,25 +288,25 @@ class EnhancedDerivTradingBot {
      * @param {number} maxTotalStayedIn - Maximum allowed total sum (default: 600)
      * @returns {boolean} True if conditions are met for trading
      */
-    checkTradeCondition(stayedInArray, consecutiveLosses, maxTotalStayedIn) {
+    checkTradeCondition(stayedInArray, consecutiveLosses, maxTotalStayedIn, asset) {
         // Calculate total sum of all stayedInArray values
         const totalStayedInArray = this.calculateTotalStayedIn(stayedInArray);
         
         // Log the calculation for debugging
-        console.log(`   📊 Total StayedIn Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
+        console.log(`   📊 ${asset} | Total StayedIn Sum: ${stayedInArray[99]} (${totalStayedInArray}/${maxTotalStayedIn})`);
         this.totalStayedInArray = totalStayedInArray;
         this.maxTotalStayedIn = maxTotalStayedIn;
         
         // Check individual thresholds for recent values
         const recentThresholds = (
-            stayedInArray[99] < 1 &&
-            stayedInArray[98] < 10 
+            stayedInArray[99] < 3 &&
+            stayedInArray[98] < 20 &&
+            stayedInArray[97] < 20 
             &&
-            stayedInArray[97] < 11 &&
-            stayedInArray[96] < 12 
+            stayedInArray[96] < 20 
             // &&
-            // stayedInArray[95] < 14 &&
-            // stayedInArray[94] < 15
+            // stayedInArray[95] < 20 &&
+            // stayedInArray[94] < 20
         );
         
         // Check if total sum is within acceptable range
@@ -298,22 +319,23 @@ class EnhancedDerivTradingBot {
         return (recentThresholds && totalWithinRange);
     }
 
-    checkTradeCondition2(stayedInArray, consecutiveLosses, maxTotalStayedIn) {
+    checkTradeCondition2(stayedInArray, consecutiveLosses, maxTotalStayedIn, asset) {
         // Calculate total sum of all stayedInArray values
         const totalStayedInArray = this.calculateTotalStayedIn(stayedInArray);
         
         // Log the calculation for debugging
-        console.log(`   📊 Total StayedIn2 Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
+        // console.log(`   📊 ${asset} Total StayedIn2 Sum: ${totalStayedInArray} (Max: ${maxTotalStayedIn})`);
         this.totalStayedInArray2 = totalStayedInArray;
         this.maxTotalStayedIn2 = maxTotalStayedIn;
 
         // Check individual thresholds for recent values
         const recentThresholds = (
-            stayedInArray[5] < 1 
+           stayedInArray[5] < 10
+           && stayedInArray[4] < 10
         );
 
         const recentThreshold2s = (
-            stayedInArray[5] < 4 
+            stayedInArray[5] < 10 
         );
         
         // Check if total sum is within acceptable range
@@ -323,7 +345,138 @@ class EnhancedDerivTradingBot {
         const inRecoveryMode = consecutiveLosses > 0;
         
         // Return true if: (recent thresholds AND total within range) OR in recovery mode
-        return consecutiveLosses > 0 ? (inRecoveryMode) : (recentThresholds && totalWithinRange);
+        // return inRecoveryMode ? (recentThreshold2s) : (recentThresholds);
+         return this.consecutiveLosses > 0 ? (recentThreshold2s) : (recentThresholds && totalWithinRange);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // INTELLIGENT ASSET FILTERING SYSTEM
+    // ══════════════════════════════════════════════════════════════════════════
+    /**
+     * Update asset's stayedInArray value and manage its active/pending status
+     * @param {string} asset - Asset symbol
+     * @param {Array} stayedInArray - Current stayedInArray from proposal
+     */
+    updateAssetStatus(asset, stayedInArray) {
+        const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
+        this.assetStayedInValues[asset] = totalStayedIn;
+
+        const wasActive = this.activeAssets.has(asset);
+        const wasPending = this.pendingAssets.has(asset);
+
+        if (totalStayedIn < this.config.STAYED_IN_THRESHOLD) {
+            // Asset is ready for trading
+            if (!wasActive) {
+                this.activeAssets.add(asset);
+                this.pendingAssets.delete(asset);
+                console.log(`✅ ${asset} moved to ACTIVE list (stayedIn: ${totalStayedIn})`);
+            }
+        } else {
+            // Asset needs to wait
+            if (!wasPending) {
+                this.pendingAssets.add(asset);
+                this.activeAssets.delete(asset);
+                console.log(`⏸️  ${asset} moved to PENDING list (stayedIn: ${totalStayedIn})`);
+            }
+        }
+    }
+
+    /**
+     * Check if an asset is ready for analysis and trading
+     * @param {string} asset - Asset symbol
+     * @returns {boolean} True if asset is in active list
+     */
+    isAssetReady(asset) {
+        return this.activeAssets.has(asset);
+    }
+
+    /**
+     * Periodically scan pending assets to check if they're ready to become active
+     */
+    startPendingAssetScan() {
+        // Clear any existing scan interval
+        if (this.pendingScanInterval) {
+            clearInterval(this.pendingScanInterval);
+        }
+
+        const scanningTimer = this.scanningTimer;
+        // Scan every 30 seconds
+        this.pendingScanInterval = setInterval(() => {
+            if (!this.wsReady || this.pendingAssets.size === 0) return;
+
+            console.log(`\n🔍 Scanning ${this.pendingAssets.size} pending assets...`);
+            
+            // Request fresh proposals for pending assets to check their status
+            this.pendingAssets.forEach(asset => {
+                // Don't scan if asset has an active trade
+                if (this.activeTrades[asset]) return;
+
+                // Request a proposal to get current stayedInArray
+                this.requestProposalForScan(asset);
+            });
+
+        }, scanningTimer); // Scan every 30 seconds
+
+        console.log('🔄 Pending asset scanner started (30s interval)');
+    }
+
+    /**
+     * Request a proposal specifically for scanning (not for trading)
+     * @param {string} asset - Asset symbol to scan
+     */
+    requestProposalForScan(asset) {
+        if (!this.wsReady) return;
+
+        const proposal = {
+            proposal: 1,
+            amount: this.currentStake.toFixed(2),
+            basis: 'stake',
+            contract_type: 'ACCU',
+            currency: 'USD',
+            symbol: asset,
+            growth_rate: this.config.growthRate,
+            limit_order: {
+                take_profit: (this.currentStake * this.config.takeProfitMultiplier).toFixed(2)
+            },
+            passthrough: {
+                action: 'scan_only',
+                asset: asset,
+                timestamp: Date.now()
+            }
+        };
+
+        this.sendRequest(proposal);
+    }
+
+    /**
+     * Get a summary of active and pending assets
+     * @returns {string} Formatted summary
+     */
+    getAssetFilteringSummary() {
+        const activeList = Array.from(this.activeAssets).map(asset => {
+            const value = this.assetStayedInValues[asset];
+            return `${asset}(${value !== null ? value : '?'})`;
+        }).join(', ');
+
+        const pendingList = Array.from(this.pendingAssets).map(asset => {
+            const value = this.assetStayedInValues[asset];
+            return `${asset}(${value !== null ? value : '?'})`;
+        }).join(', ');
+
+        return `\n📊 Asset Status:\n` +
+               `   ✅ Active (${this.activeAssets.size}): ${activeList || 'None'}\n` +
+               `   ⏸️  Pending (${this.pendingAssets.size}): ${pendingList || 'None'}`;
+    }
+
+    /**
+     * Stop the pending asset scanner
+     */
+    stopPendingAssetScan() {
+        if (this.pendingScanInterval) {
+            clearInterval(this.pendingScanInterval);
+            this.pendingScanInterval = null;
+            console.log('🛑 Pending asset scanner stopped');
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -338,7 +491,7 @@ class EnhancedDerivTradingBot {
         });
         console.log(`🔒 SUSPENDED: All assets except ${lossAsset}. Focusing on loss asset.`);
         // this.sendTelegramMessage(
-        //     `🔒 <b>Asset Suspension (Accum BOOM)</b>\n\n` +
+        //     `🔒 <b>Asset Suspension (Accum VolatiliyIndices)</b>\n\n` +
         //     `Loss on: <b>${lossAsset}</b>\n` +
         //     `Suspended: ${this.assets.filter(a => a !== lossAsset).join(', ')}\n` +
         //     `Focusing on ${lossAsset} until win`
@@ -351,7 +504,7 @@ class EnhancedDerivTradingBot {
         this.focusAsset = null;
         console.log(`✅ RESUMED: All assets active again (was focused on ${prevFocus})`);
         // this.sendTelegramMessage(
-        //     `✅ <b>All Assets Resumed (Accum BOOM)</b>\n\n` +
+        //     `✅ <b>All Assets Resumed (Accum VolatiliyIndices)</b>\n\n` +
         //     `Won on: <b>${prevFocus}</b>\n` +
         //     `All assets now active for trading`
         // );
@@ -489,6 +642,7 @@ class EnhancedDerivTradingBot {
 
     cleanup() {
         this.stopPingKeepAlive();
+        this.stopPendingAssetScan();
         this._clearWatchdogTimers();
         if (this.ws) {
             this.ws.removeAllListeners();
@@ -579,6 +733,9 @@ class EnhancedDerivTradingBot {
                 subscribe: 1
             });
         });
+
+        // Start the pending asset scanner
+        this.startPendingAssetScan();
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -621,7 +778,7 @@ class EnhancedDerivTradingBot {
         const pnlStr = (this.totalProfitLoss >= 0 ? '+' : '') + '$' + Math.abs(this.totalProfitLoss).toFixed(2);
 
         await this.sendTelegramMessage(
-            `📊 <b>Session Summary Accum BOOM</b>\n\n` +
+            `📊 <b>Session Summary Accum VolatiliyIndices</b>\n\n` +
             `Trades: ${this.totalTrades}\n` +
             `W/L: ${this.totalWins}/${this.totalLosses}\n` +
             `Losses x2-x6: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5} | ${this.consecutiveLosses6}\n` +
@@ -635,13 +792,13 @@ class EnhancedDerivTradingBot {
 
     async sendDisconnectSummary() {
         await this.sendTelegramMessage(
-            `⚠️ <b>Accum BOOM Disconnected</b>\n\n` +
+            `⚠️ <b>Accum VolatiliyIndices Disconnected</b>\n\n` +
             `Trading Summary:\n` +
             `Total Trades: ${this.totalTrades}\n` +
             `Wins: ${this.totalWins} | Losses: ${this.totalLosses}\n` +
             `x2-x6 Losses: ${this.consecutiveLosses2} | ${this.consecutiveLosses3} | ${this.consecutiveLosses4} | ${this.consecutiveLosses5} | ${this.consecutiveLosses6}\n\n` +
-            `Total P&L: $${this.totalProfitLoss.toFixed(2)}\n` +
-            `Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : '0.00'}%\n
+            `Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : '0.00'}%\n` +
+            `Total P&L: $${this.totalProfitLoss.toFixed(2)}\n\n
             `
         );
     }
@@ -710,6 +867,12 @@ class EnhancedDerivTradingBot {
         if (this.activeTrades[asset]) return;
         if (this.tickHistory[asset].length < this.config.requiredHistoryLength) return;
 
+        // ✅ NEW: Only analyze assets in the active list
+        if (!this.isAssetReady(asset)) {
+            // Skip analysis for pending assets
+            return;
+        }
+
         // Minimum time between trades
         if (Date.now() - (this.lastTradeTime[asset] || 0) < this.config.minTimeBetweenTrades) return;
 
@@ -732,7 +895,8 @@ class EnhancedDerivTradingBot {
         if (this.tradeInProgress) return;
         if (!this.wsReady) return;
 
-        this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; // this.currentStake * this.config.takeProfitMultiplier;
+        // this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; 
+        this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
 
         const proposal = {
             proposal: 1,
@@ -770,24 +934,37 @@ class EnhancedDerivTradingBot {
 
         if (!stayedInArray) return;
 
-        // ✅ Check if this is a request for final stayedInArray (after contract settled)
-        const passthrough = message.echo_req?.passthrough;
-        if (passthrough && passthrough.action === 'get_final_stayed_in') {
-            // This is the final stayedInArray after contract settlement
-            console.log(`✅ Final stayedInArray received for ${asset}: [${stayedInArray.slice(-6).join('|')}]`);
-            
-            // Update stored arrays
-            if (!this.assetStayedInArrays) this.assetStayedInArrays = {};
-            this.assetStayedInArrays[asset] = stayedInArray;
-            this.stayedInArray = stayedInArray;
+        // ✅ NEW: Update asset status based on stayedInArray
+        this.updateAssetStatus(asset, stayedInArray);
 
-            // Now handle the trade result with the updated stayedInArray
-            const trade = this.activeTrades[asset];
-            if (trade && trade.awaitingFinalStayedIn && trade.settledContract) {
-                trade.awaitingFinalStayedIn = false;
-                this.handleTradeResult(asset, trade.settledContract);
+        // ✅ Check if this is a scan-only request (from pending asset scanner)
+        const passthrough = message.echo_req?.passthrough;
+        if (this.consecutiveLosses <= 0) {
+            if (passthrough && passthrough.action === 'scan_only') {
+                // This is just a scan to update asset status, don't proceed with trading
+                const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
+                console.log(`   🔍 Scan result for ${asset}: stayedIn=${totalStayedIn} (${totalStayedIn < this.config.STAYED_IN_THRESHOLD ? 'READY' : 'WAITING'})`);
+                return;
             }
-            return;
+
+            // ✅ Check if this is a request for final stayedInArray (after contract settled)
+            if (passthrough && passthrough.action === 'get_final_stayed_in') {
+                // This is the final stayedInArray after contract settlement
+                console.log(`✅ Final stayedInArray received for ${asset}: [${stayedInArray.slice(-6).join('|')}]`);
+                
+                // Update stored arrays
+                if (!this.assetStayedInArrays) this.assetStayedInArrays = {};
+                this.assetStayedInArrays[asset] = stayedInArray;
+                this.stayedInArray = stayedInArray;
+
+                // Now handle the trade result with the updated stayedInArray
+                const trade = this.activeTrades[asset];
+                if (trade && trade.awaitingFinalStayedIn && trade.settledContract) {
+                    trade.awaitingFinalStayedIn = false;
+                    this.handleTradeResult(asset, trade.settledContract);
+                }
+                return;
+            }
         }
 
         // ✅ Regular proposal handling (for new trades)
@@ -801,12 +978,18 @@ class EnhancedDerivTradingBot {
 
         if (this.tradeInProgress) return;
 
+        // ✅ NEW: Only proceed if asset is in active list
+        if ((!this.isAssetReady(asset) && this.consecutiveLosses <= 0)) {
+            console.log(`⏸️  ${asset} is in pending list, skipping trade analysis`);
+            return;
+        }
+
         // Current digit count of the running accumulator
         const currentDigitCount = stayedInArray[99] + 1;
 
         this.currentTick = stayedInArray[99];
 
-        console.log(`📋 Proposal for ${asset}: Current StayIN Digit Count: ${stayedInArray[99]} (${currentDigitCount})`);
+        // console.log(`📋 Proposal for ${asset}: Current StayIN Digit Count: ${stayedInArray[99]} (${currentDigitCount})`);
         // console.log(`   Filter Number: ${this.filterNum}`);
 
         // Store proposal ID
@@ -827,15 +1010,15 @@ class EnhancedDerivTradingBot {
         // console.log(`   Digits that appeared ${this.filterNum} times: [${appearedOnceArray.join(', ')}]
         //     StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]
         // `);
-        console.log(`StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]`);
+        // console.log(`StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]`);
 
         // Entry condition
         // const condition =  this.consecutiveLosses < 1 ? this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 30) : this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 100); 
-        const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1500) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20); 
-
+        const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, this.config.STAYED_IN_THRESHOLD, asset); 
+        const condition2 =  this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20, asset); 
         
         // Check if we should place trade
-        if (condition) {
+        if (condition || this.consecutiveLosses > 0) {
             console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
 
             this.tradedDigitArray.push(this.stayedInArray[99]);
@@ -884,7 +1067,7 @@ class EnhancedDerivTradingBot {
 
         // Telegram notification
         this.sendTelegramMessage(
-            `🚀 <b>TRADE OPENED (Accum BOOM)</b>\n\n` +
+            `🚀 <b>TRADE OPENED (Accum VolatiliyIndices)</b>\n\n` +
             `Asset: <b>${asset}</b>\n` +
             `stayedInArray: <b>[${this.stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]</b>\n` +
             `totalStayedInArray: ${this.totalStayedInArray}/${this.maxTotalStayedIn} (${this.totalStayedInArray2}/${this.maxTotalStayedIn2})\n` +
@@ -971,7 +1154,7 @@ class EnhancedDerivTradingBot {
             // ✅ Store the settled contract data
             trade.settledContract = contract;
 
-            this.tickPassed = contract.tick_passed
+            this.tickPassed = contract.tick_passed;
             
             // ✅ Request a fresh proposal to get the CURRENT ticks_stayed_in
             this.requestFinalStayedInArray(asset);
@@ -1170,7 +1353,7 @@ class EnhancedDerivTradingBot {
         );
 
         this.sendTelegramMessage(
-            `🚨 <b>STUCK TRADE RECOVERED Accum BOOM[${reason}]</b>\n\n` +
+            `🚨 <b>STUCK TRADE RECOVERED Accum VolatiliyIndices[${reason}]</b>\n\n` +
             `Contract: ${contractId}\n` +
             `Asset: ${stuckAsset}\n` +
             `Stake: $${stake.toFixed(2)}\n` +
@@ -1246,6 +1429,7 @@ class EnhancedDerivTradingBot {
             if (this.focusAsset) {
                 this.resumeAllAssets();
             }
+            
         } else {
             this.totalLosses++;
             this.consecutiveLosses++;
@@ -1275,7 +1459,11 @@ class EnhancedDerivTradingBot {
                 // this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             // }
 
-            this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            if (this.consecutiveLosses >= 2) {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier2 * 100) / 100;
+            } else {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
+            }
 
             // Suspend all other assets, focus on loss asset
             this.suspendOtherAssets(asset);
@@ -1295,7 +1483,7 @@ class EnhancedDerivTradingBot {
 
         // Send Trade result notification with final stayedInArray
         this.sendTelegramMessage(
-            `<b>Accum BOOM</b>\n` +
+            `<b>Accum VolatiliyIndices</b>\n` +
             `${won ? '✅ WON' : '❌ LOSS'}\n` +
             `Asset: <b>${asset}</b>\n` +
             `Tick Passed: <b>${this.tickPassed}</b>\n` +
@@ -1312,12 +1500,11 @@ class EnhancedDerivTradingBot {
         // Log summary
         this.logTradingSummary();
 
-        StatePersistence.saveState(this);
-
         // Take profit condition
         if (this.totalProfitLoss >= this.config.takeProfit) {
             console.log('🎯 Take Profit Reached... Stopping trading.');
             this.endOfDay = true;
+            this.TP_SL = true;
             this.sendDisconnectSummary();
             this.disconnect();
             return;
@@ -1328,19 +1515,22 @@ class EnhancedDerivTradingBot {
             this.totalProfitLoss <= -this.config.stopLoss) {
             console.log('🛑 Stopping condition met. Disconnecting...');
             this.endOfDay = true;
+            this.TP_SL = true;
             this.sendDisconnectSummary();
             this.disconnect();
             return;
         }
 
-        if(won && !this.endOfDay) {
-            this.disconnect();
-            console.log("Bot Disconnected, will Restart in", (this.waitTime / 1000).toFixed(0), 'Seconds' );
+        // if(won && !this.endOfDay) {
+        //     this.disconnect();
+        //     console.log("Bot Disconnected, will Restart in", (this.waitTime / 1000).toFixed(0), 'Seconds' );
             
-            setTimeout(() => {
-                this.connect();
-            }, this.waitTime);
-        }
+        //     setTimeout(() => {
+        //         this.connect();
+        //     }, this.waitTime);
+        // }
+
+        StatePersistence.saveState(this);
 
         // ═══════════════════════════════════════════════════════════════════
         // IMMEDIATE RE-EVALUATION — Don't wait for the next tick
@@ -1359,6 +1549,10 @@ class EnhancedDerivTradingBot {
 
         for (const asset of this.assets) {
             if (!this.isAssetAllowed(asset)) continue;
+            
+            // ✅ NEW: Only evaluate assets in active list
+            if (!this.isAssetReady(asset)) continue;
+            
             if (this.tradeInProgress) break;
             if (this.activeTrades[asset]) continue;
             if (!this.tickHistory[asset] || this.tickHistory[asset].length < this.config.requiredHistoryLength) continue;
@@ -1399,16 +1593,16 @@ class EnhancedDerivTradingBot {
             // }
 
             // Afternoon resume: 3:00 PM
-            if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
-                console.log("It's 3:00 PM, reconnecting the bot.");
-                this.endOfDay = false;
-                this.Pause = false;
-                this.tradeInProgress = false;
-                this.tradedDigitArray = [];
-                this.tradedDigitArray2 = [];
-                this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
-                this.connect();
-            }
+            // if (this.endOfDay && currentHours === 15 && currentMinutes >= 0) {
+            //     console.log("It's 3:00 PM, reconnecting the bot.");
+            //     this.endOfDay = false;
+            //     this.Pause = false;
+            //     this.tradeInProgress = false;
+            //     this.tradedDigitArray = [];
+            //     this.tradedDigitArray2 = [];
+            //     this.tradeNum = Math.floor(Math.random() * (40 - 21 + 1)) + 21;
+            //     this.connect();
+            // }
 
             // Evening stop: after 11:00 PM following a win
             if (this.isWinTrade && !this.endOfDay) {
@@ -1422,7 +1616,7 @@ class EnhancedDerivTradingBot {
             }
 
             // Morning Resumption: 2:00 AM
-            if (this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
+            if (!this.TP_SL && this.endOfDay && currentHours === 2 && currentMinutes >= 0) {
                 console.log("It's 2:00 AM, reconnecting the bot.");
                 this.endOfDay = false;
                 this.Pause = false;
@@ -1452,6 +1646,9 @@ class EnhancedDerivTradingBot {
         console.log(`  Total Profit/Loss: $${this.totalProfitLoss.toFixed(2)}`);
         console.log(`  Win Rate: ${this.totalTrades > 0 ? ((this.totalWins / this.totalTrades) * 100).toFixed(2) : '0.00'}%`);
         console.log(`  Current Stake: $${this.currentStake.toFixed(2)}`);
+        
+        // ✅ NEW: Show asset filtering status
+        console.log(this.getAssetFilteringSummary());
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1479,21 +1676,25 @@ class EnhancedDerivTradingBot {
 // ══════════════════════════════════════════════════════════════════════════════
 // BOT INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
-const bot = new EnhancedDerivTradingBot('DMylfkyce6VyZt7', {
+const bot = new EnhancedDerivTradingBot('hsj0tA0XJoIzJG5', {
     initialStake: 1,
     initialStake2: 25,
-    multiplier: 8,
+    multiplier: 10,
+    multiplier2: 10,
     recoveryWinNum: 100,
     maxConsecutiveLosses: 3,
-    stopLoss: 127,
-    takeProfit: 250,
-    growthRate: 0.05,
-    takeProfitMultiplier: 1, //0.05, % of Stake Amount
+    stopLoss: 173,
+    takeProfit: 2500,
+    growthRate: 0.01,
+    takeProfitMultiplier: 0.2, //0.20, % of Stake Amount
     filterNum: 4,
+    STAYED_IN_THRESHOLD: 6400, // Threshold for asset filtering
+    scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
     assets: [
-        'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
-        // 'CRASH300N', 'CRASH500', 'CRASH600', 'CRASH900', 'CRASH1000',
-        // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100'
+        // 'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
+        // 'CRASH50', 'CRASH150N', 'CRASH300N', 'CRASH500', 'CRASH600', 'CRASH900', 'CRASH1000',
+        'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
+        // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
     ],
     telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     telegramChatId: '752497117',
