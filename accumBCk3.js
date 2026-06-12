@@ -15,8 +15,8 @@ const path      = require('path');
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE        = path.join(__dirname, 'accumulator_bot3-03_v1_state.json');
-const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot3-03_v1_history.json');
+const STATE_FILE        = path.join(__dirname, 'accumulator_bot3-04_v1_state.json');
+const HISTORY_FILE      = path.join(__dirname, 'accumulator_bot3-04_v1_history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ============================================================
@@ -50,7 +50,7 @@ const CONFIG = {
 
     // ── Accumulator Contract Settings ────────────────────────
     CONTRACT_TYPE:              'ACCU',
-    GROWTH_RATE:                0.05,      // 5% growth rate
+    GROWTH_RATE:                0.01,      // 1%g rowth rate
     ACCU_TICKS:                 100,       // Default accumulator length
 
     // Take Profit multiplier for limit_order (fallback)
@@ -60,25 +60,30 @@ const CONFIG = {
     TP_DIVISOR_NORMAL:          4,         // stake / 4
     TP_DIVISOR_1_LOSS:          6,         // stake / 6
     TP_DIVISOR_2_PLUS_LOSS:     7,         // stake / 7
+    TP_MULTIPLIER: 0.2, //0.20, 20% of Stake Amount
 
     // ── Martingale Recovery (from example) ───────────────────
     RECOVERY_ENABLED:           true,
-    MULTIPLIER:                 8,         // First loss multiplier
-    MULTIPLIER2:                8,         // 2nd+ loss multiplier
+    MULTIPLIER:                 10,         // First loss multiplier
+    MULTIPLIER2:                10,         // 2nd+ loss multiplier
     INITIAL_STAKE:              1,
     INITIAL_STAKE_2:            25,        // Base after certain conditions (optional)
 
     // ── stayedInArray Entry Conditions ───────────────────────
-    STAYED_IN_THRESHOLD:        1300,      // Asset active if total < this
-    STAYED_IN_MAX_TOTAL:        1600,      // Max total sum for condition1
+    STAYED_IN_THRESHOLD:        7400,      // Asset active if total < this
+    STAYED_IN_MAX_TOTAL:        7400,      // Max total sum for condition1
 
     // Recent value thresholds (indices 98, 99 of 100-element array)
     STAYED_IN_IDX_99_MAX:       1,
-    STAYED_IN_IDX_98_MAX:       11,
+    STAYED_IN_IDX_98_MAX:       30,
+    STAYED_IN_IDX_97_MAX:       30,
+    STAYED_IN_IDX_96_MAX:       30,
+    STAYED_IN_IDX_95_MAX:       30,
+    STAYED_IN_IDX_94_MAX:       30,
 
     // Last-6-values threshold (index 5 of sliced array = last element)
-    STAYED_IN_LAST6_NORMAL:      2,
-    STAYED_IN_LAST6_RECOVERY:   10,
+    STAYED_IN_LAST6_NORMAL:      6,
+    STAYED_IN_LAST6_RECOVERY:   50,
 
     // ── Asset Filtering & Scanning ───────────────────────────
     SCAN_TIMER:                 60000,     // Scan pending assets every 60s
@@ -130,9 +135,13 @@ class AccumulatorAnalyzer {
         const total = this.calculateTotalStayedIn(stayedInArray);
         const recentOk = (
             stayedInArray[99] < CONFIG.STAYED_IN_IDX_99_MAX &&
-            stayedInArray[98] < CONFIG.STAYED_IN_IDX_98_MAX
+            stayedInArray[98] > CONFIG.STAYED_IN_IDX_98_MAX &&
+            stayedInArray[97] > CONFIG.STAYED_IN_IDX_97_MAX &&
+            stayedInArray[96] > CONFIG.STAYED_IN_IDX_96_MAX &&
+            stayedInArray[95] > CONFIG.STAYED_IN_IDX_95_MAX &&
+            stayedInArray[94] > CONFIG.STAYED_IN_IDX_95_MAX
         );
-        const totalOk = total < maxTotal;
+        const totalOk = total > maxTotal;
         return { passed: recentOk && totalOk, total, recentOk, totalOk };
     }
 
@@ -944,7 +953,7 @@ class AccumulatorBot {
         const a = state.assets[asset];
         if (!a) return;
         a.stayedInValue = total;
-        if (total < CONFIG.STAYED_IN_THRESHOLD) {
+        if (total > CONFIG.STAYED_IN_THRESHOLD) {
             if (a.activeStatus !== 'active') {
                 a.activeStatus = 'active';
                 LOGGER.info(`✅ ${asset} ACTIVE (stayedIn: ${total})`);
@@ -1042,7 +1051,8 @@ class AccumulatorBot {
             `last6=${c2.value} < ${c2.threshold}=${c2.passed} | losses=${a.consecutiveLosses}`
         );
 
-        if (!c2.passed) return;
+        // if (!c2.passed) return;
+        if (!c1.passed) return;
 
         const stake = Math.min(a.currentStake, CONFIG.MAX_STAKE);
         if (state.capital < stake) {
@@ -1105,9 +1115,10 @@ class AccumulatorBot {
     }
 
     calculateTakeProfit(consecutiveLosses, stake) {
-        if (consecutiveLosses < 1) return stake / CONFIG.TP_DIVISOR_NORMAL;
-        if (consecutiveLosses === 1) return stake / CONFIG.TP_DIVISOR_1_LOSS;
-        return stake / CONFIG.TP_DIVISOR_2_PLUS_LOSS;
+        // if (consecutiveLosses < 1) return stake / CONFIG.TP_DIVISOR_NORMAL;
+        // if (consecutiveLosses === 1) return stake / CONFIG.TP_DIVISOR_1_LOSS;
+        // return stake / CONFIG.TP_DIVISOR_2_PLUS_LOSS;
+        return stake / CONFIG.TP_MULTIPLIER;
     }
 
     _startContractWatchdog(contractId, asset) {
