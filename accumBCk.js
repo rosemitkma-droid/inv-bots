@@ -50,7 +50,7 @@ const CONFIG = {
 
     // ── Accumulator Contract Settings ────────────────────────
     CONTRACT_TYPE:              'ACCU',
-    GROWTH_RATE:                0.05,      // 5% growth rate
+    GROWTH_RATE:                0.01,      // 1%g rowth rate
     ACCU_TICKS:                 100,       // Default accumulator length
 
     // Take Profit multiplier for limit_order (fallback)
@@ -60,28 +60,30 @@ const CONFIG = {
     TP_DIVISOR_NORMAL:          4,         // stake / 4
     TP_DIVISOR_1_LOSS:          6,         // stake / 6
     TP_DIVISOR_2_PLUS_LOSS:     7,         // stake / 7
+    TP_MULTIPLIER: 0.2, //0.20, 20% of Stake Amount
 
     // ── Martingale Recovery (from example) ───────────────────
     RECOVERY_ENABLED:           true,
-    MULTIPLIER:                 8,         // First loss multiplier
-    MULTIPLIER2:                8,         // 2nd+ loss multiplier
+    MULTIPLIER:                 10,         // First loss multiplier
+    MULTIPLIER2:                10,         // 2nd+ loss multiplier
     INITIAL_STAKE:              1,
     INITIAL_STAKE_2:            25,        // Base after certain conditions (optional)
 
     // ── stayedInArray Entry Conditions ───────────────────────
-    STAYED_IN_THRESHOLD:        1400,      // Asset active if total < this
-    STAYED_IN_MAX_TOTAL:        1400,      // Max total sum for condition1
+    STAYED_IN_THRESHOLD:        7400,      // Asset active if total < this
+    STAYED_IN_MAX_TOTAL:        7400,      // Max total sum for condition1
 
     // Recent value thresholds (indices 98, 99 of 100-element array)
     STAYED_IN_IDX_99_MAX:       1,
-    STAYED_IN_IDX_98_MAX:       10,
-    STAYED_IN_IDX_97_MAX:       11,
-    STAYED_IN_IDX_96_MAX:       15,
-    STAYED_IN_IDX_95_MAX:       20,
+    STAYED_IN_IDX_98_MAX:       30,
+    STAYED_IN_IDX_97_MAX:       30,
+    STAYED_IN_IDX_96_MAX:       30,
+    STAYED_IN_IDX_95_MAX:       30,
+    STAYED_IN_IDX_94_MAX:       30,
 
     // Last-6-values threshold (index 5 of sliced array = last element)
-    STAYED_IN_LAST6_NORMAL:      2,
-    STAYED_IN_LAST6_RECOVERY:   10,
+    STAYED_IN_LAST6_NORMAL:      6,
+    STAYED_IN_LAST6_RECOVERY:   50,
 
     // ── Asset Filtering & Scanning ───────────────────────────
     SCAN_TIMER:                 60000,     // Scan pending assets every 60s
@@ -97,7 +99,7 @@ const CONFIG = {
 
     // ── Time-based Disconnect (from example) ─────────────────
     USE_TIME_BASED_DISCONNECT:  true,
-    DISCONNECT_HOUR:            23,        // GMT+1 hour to disconnect after win
+    DISCONNECT_HOUR:            22,        // GMT+1 hour to disconnect after win
     RECONNECT_HOUR:             2,         // GMT+1 hour to reconnect
 
     // ── Position Management ───────────────────────────────────
@@ -106,7 +108,7 @@ const CONFIG = {
 
     // ── Active Assets ───────────────────────────────────────────
     ACTIVE_ASSETS: [
-        'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'BOOM150N', 
+        'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 
         // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
         //'BOOM300N', 'CRASH150N'
         // 'BOOM50', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
@@ -134,13 +136,14 @@ class AccumulatorAnalyzer {
         const total = this.calculateTotalStayedIn(stayedInArray);
         const recentOk = (
             stayedInArray[99] < CONFIG.STAYED_IN_IDX_99_MAX &&
-            stayedInArray[98] < CONFIG.STAYED_IN_IDX_98_MAX &&
-            stayedInArray[97] < CONFIG.STAYED_IN_IDX_97_MAX &&
-            stayedInArray[96] < CONFIG.STAYED_IN_IDX_96_MAX &&
-            stayedInArray[95] < CONFIG.STAYED_IN_IDX_95_MAX 
+            stayedInArray[98] > CONFIG.STAYED_IN_IDX_98_MAX &&
+            stayedInArray[97] > CONFIG.STAYED_IN_IDX_97_MAX &&
+            stayedInArray[96] > CONFIG.STAYED_IN_IDX_96_MAX &&
+            stayedInArray[95] > CONFIG.STAYED_IN_IDX_95_MAX &&
+            stayedInArray[94] > CONFIG.STAYED_IN_IDX_95_MAX
         );
-        const totalOk = total < maxTotal;
-        return { passed: recentOk && totalOk, total, recentOk, totalOk };
+        const totalOk = total > maxTotal;
+        return { passed: recentOk && totalOk, total, recentOk, totalOk, stayedInArray };
     }
 
     static checkTradeCondition2(last6Array, consecutiveLosses) {
@@ -371,7 +374,8 @@ class TelegramService {
             lines.push(`📊 <b>Entry Analysis:</b>`);
             lines.push(`Total StayedIn: ${profitDetails.stayedIn.total} / ${CONFIG.STAYED_IN_MAX_TOTAL}`);
             lines.push(`Recent Check: ${profitDetails.stayedIn.recentOk ? '✅' : '❌'}`);
-            lines.push(`Last-6 Check: ${profitDetails.stayedIn.last6Ok ? '✅' : '❌'} (val: ${profitDetails.stayedIn.last6Val})`);
+            lines.push(`Last-6 Check: ${profitDetails.stayedIn.last6Ok ? '✅' : '❌'} (val: ${profitDetails.stayedIn.last6Val})`)
+            lines.push(`StayedInArray: ${profitDetails.stayedIn.stayedInArray[99]}|${profitDetails.stayedIn.stayedInArray[98]}|${profitDetails.stayedIn.stayedInArray[97]}|${profitDetails.stayedIn.stayedInArray[96]}|${profitDetails.stayedIn.stayedInArray[95]}|${profitDetails.stayedIn.stayedInArray[94]}`);;
         }
         if (profitDetails.profit !== undefined) {
             const pl = profitDetails.profit;
@@ -951,7 +955,7 @@ class AccumulatorBot {
         const a = state.assets[asset];
         if (!a) return;
         a.stayedInValue = total;
-        if (total < CONFIG.STAYED_IN_THRESHOLD) {
+        if (total > CONFIG.STAYED_IN_THRESHOLD) {
             if (a.activeStatus !== 'active') {
                 a.activeStatus = 'active';
                 LOGGER.info(`✅ ${asset} ACTIVE (stayedIn: ${total})`);
@@ -1046,10 +1050,12 @@ class AccumulatorBot {
 
         LOGGER.debug(
             `${asset} | total=${c1.total} | recent=${c1.recentOk} | totalOk=${c1.totalOk} | ` +
-            `last6=${c2.value} < ${c2.threshold}=${c2.passed} | losses=${a.consecutiveLosses}`
+            `last6=${c2.value} < ${c2.threshold}=${c2.passed} | losses=${a.consecutiveLosses}` +
+            `${c1.stayedInArray[99]}| ${c1.stayedInArray[98]}| ${c1.stayedInArray[97]}| ${c1.stayedInArray[96]}| ${c1.stayedInArray[95]}| ${c1.stayedInArray[94]}`
         );
 
-        if (!c1.passed || !c2.passed) return;
+        // if (!c1.passed || !c2.passed) return;
+        if (!c1.passed) return;
 
         const stake = Math.min(a.currentStake, CONFIG.MAX_STAKE);
         if (state.capital < stake) {
@@ -1083,7 +1089,7 @@ class AccumulatorBot {
             status: 'buying',           // <-- track status explicitly
             currentProfit: 0,
             buyPrice: 0,
-            stayedInData: { total: c1.total, recentOk: c1.recentOk, last6Ok: c2.passed, last6Val: c2.value },
+            stayedInData: { total: c1.total, recentOk: c1.recentOk, last6Ok: c2.passed, last6Val: c2.value, stayedInArray: c1.stayedInArray },
             awaitingFinalStayedIn: false,
             finalStayedIn: null,
         };
@@ -1112,9 +1118,10 @@ class AccumulatorBot {
     }
 
     calculateTakeProfit(consecutiveLosses, stake) {
-        if (consecutiveLosses < 1) return stake / CONFIG.TP_DIVISOR_NORMAL;
-        if (consecutiveLosses === 1) return stake / CONFIG.TP_DIVISOR_1_LOSS;
-        return stake / CONFIG.TP_DIVISOR_2_PLUS_LOSS;
+        // if (consecutiveLosses < 1) return stake / CONFIG.TP_DIVISOR_NORMAL;
+        // if (consecutiveLosses === 1) return stake / CONFIG.TP_DIVISOR_1_LOSS;
+        // return stake / CONFIG.TP_DIVISOR_2_PLUS_LOSS;
+        return stake / CONFIG.TP_MULTIPLIER;
     }
 
     _startContractWatchdog(contractId, asset) {
