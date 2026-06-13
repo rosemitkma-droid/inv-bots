@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC_0001_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC_0002_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -193,7 +193,7 @@ class EnhancedDerivTradingBot {
         this.confidenceThreshold = 0.5;
         this.kTradeCount = 0;
         this.isWinTrade = false;
-        this.waitTime = 50000;
+        this.waitTime = 150000;
         this.LossDigitsList = [];
         this.threeConsecutiveDigits = 0;
         this.predictedType = '';
@@ -1521,14 +1521,15 @@ class EnhancedDerivTradingBot {
             return;
         }
 
-        // if(won && !this.endOfDay) {
-        //     this.disconnect();
-        //     console.log("Bot Disconnected, will Restart in", (this.waitTime / 1000).toFixed(0), 'Seconds' );
+        //Disconnect and Reconnect after WaitTime
+        if(won && !this.endOfDay) {
+            this.disconnect();
+            console.log("Bot Disconnected, will Restart in", (this.waitTime / 1000).toFixed(0), 'Seconds' );
             
-        //     setTimeout(() => {
-        //         this.connect();
-        //     }, this.waitTime);
-        // }
+            setTimeout(() => {
+                this.connect();
+            }, this.waitTime);
+        }
 
         StatePersistence.saveState(this);
 
@@ -1676,7 +1677,7 @@ class EnhancedDerivTradingBot {
 // ══════════════════════════════════════════════════════════════════════════════
 // BOT INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
-const bot = new EnhancedDerivTradingBot('hsj0tA0XJoIzJG5', {
+const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
     initialStake: 1,
     initialStake2: 25,
     multiplier: 10,
