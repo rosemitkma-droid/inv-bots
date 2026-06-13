@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2_0009_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2_0011_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -941,7 +941,8 @@ class EnhancedDerivTradingBot {
 
         // ✅ Check if this is a scan-only request (from pending asset scanner)
         const passthrough = message.echo_req?.passthrough;
-        if (this.consecutiveLosses <= 0) {
+        // if (this.consecutiveLosses <= 0) {
+        if (this.consecutiveLosses >= 0) {
             if (passthrough && passthrough.action === 'scan_only') {
                 // This is just a scan to update asset status, don't proceed with trading
                 const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
@@ -981,7 +982,8 @@ class EnhancedDerivTradingBot {
         if (this.tradeInProgress) return;
 
         // ✅ NEW: Only proceed if asset is in active list
-        if ((!this.isAssetReady(asset) && this.consecutiveLosses <= 0)) {
+        // if ((!this.isAssetReady(asset) && this.consecutiveLosses <= 0)) {
+        if (!this.isAssetReady(asset)) {
             console.log(`⏸️  ${asset} is in pending list, skipping trade analysis`);
             return;
         }
@@ -1020,7 +1022,8 @@ class EnhancedDerivTradingBot {
         const condition2 =  this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20, asset); 
         
         // Check if we should place trade
-        if (condition || this.consecutiveLosses > 0) {
+        // if (condition || this.consecutiveLosses > 0) {
+        if (condition) {
             console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
 
             this.tradedDigitArray.push(this.stayedInArray[99]);
@@ -1468,7 +1471,7 @@ class EnhancedDerivTradingBot {
             }
 
             // Suspend all other assets, focus on loss asset
-            this.suspendOtherAssets(asset);
+            // this.suspendOtherAssets(asset);
         }
 
         // Keep traded digit array trimmed
