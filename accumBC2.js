@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2_0012_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2_0013_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -149,6 +149,7 @@ class EnhancedDerivTradingBot {
             // Accumulator specific
             growthRate: config.growthRate || 0.02,
             takeProfitMultiplier: config.takeProfitMultiplier || 0.20,
+            takeProfitMultiplier2: config.takeProfitMultiplier2 || 0.20,
             filterNum: config.filterNum || 5,
             scanTimer: config.scanTimer || 60000,
             STAYED_IN_THRESHOLD: config.STAYED_IN_THRESHOLD, 
@@ -898,7 +899,8 @@ class EnhancedDerivTradingBot {
         if (!this.wsReady) return;
 
         // this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; 
-        this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
+        // this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
+        this.takeProfitAmount = this.consecutiveLosses < 2 ? this.currentStake * this.config.takeProfitMultiplier : this.currentStake * this.config.takeProfitMultiplier2;
 
         const proposal = {
             proposal: 1,
@@ -1686,10 +1688,11 @@ const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     multiplier2: 2,
     recoveryWinNum: 100,
     maxConsecutiveLosses: 7,
-    stopLoss: 173,
+    stopLoss: 127,
     takeProfit: 2500,
     growthRate: 0.01,
-    takeProfitMultiplier: 0.75, //0.20, % of Stake Amount
+    takeProfitMultiplier: 0.75, //75% of Stake Amount
+    takeProfitMultiplier2: 1.0, //100% of Stake Amount
     filterNum: 4,
     STAYED_IN_THRESHOLD: 7100, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
