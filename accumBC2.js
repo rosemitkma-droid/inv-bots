@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2_0011_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2_0012_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -941,8 +941,7 @@ class EnhancedDerivTradingBot {
 
         // ✅ Check if this is a scan-only request (from pending asset scanner)
         const passthrough = message.echo_req?.passthrough;
-        // if (this.consecutiveLosses <= 0) {
-        if (this.consecutiveLosses >= 0) {
+        if (this.consecutiveLosses <= 0) {
             if (passthrough && passthrough.action === 'scan_only') {
                 // This is just a scan to update asset status, don't proceed with trading
                 const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
@@ -982,8 +981,7 @@ class EnhancedDerivTradingBot {
         if (this.tradeInProgress) return;
 
         // ✅ NEW: Only proceed if asset is in active list
-        // if ((!this.isAssetReady(asset) && this.consecutiveLosses <= 0)) {
-        if (!this.isAssetReady(asset)) {
+        if ((!this.isAssetReady(asset) && this.consecutiveLosses <= 0)) {
             console.log(`⏸️  ${asset} is in pending list, skipping trade analysis`);
             return;
         }
@@ -1022,8 +1020,7 @@ class EnhancedDerivTradingBot {
         const condition2 =  this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20, asset); 
         
         // Check if we should place trade
-        // if (condition || this.consecutiveLosses > 0) {
-        if (condition) {
+        if (condition || this.consecutiveLosses > 0) {
             console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
 
             this.tradedDigitArray.push(this.stayedInArray[99]);
@@ -1471,7 +1468,7 @@ class EnhancedDerivTradingBot {
             }
 
             // Suspend all other assets, focus on loss asset
-            // this.suspendOtherAssets(asset);
+            this.suspendOtherAssets(asset);
         }
 
         // Keep traded digit array trimmed
@@ -1685,14 +1682,14 @@ class EnhancedDerivTradingBot {
 const bot = new EnhancedDerivTradingBot('rgNedekYXvCaPeP', {
     initialStake: 1,
     initialStake2: 25,
-    multiplier: 10,
-    multiplier2: 10,
+    multiplier: 2,
+    multiplier2: 2,
     recoveryWinNum: 100,
-    maxConsecutiveLosses: 3,
+    maxConsecutiveLosses: 7,
     stopLoss: 173,
     takeProfit: 2500,
     growthRate: 0.01,
-    takeProfitMultiplier: 0.2, //0.20, % of Stake Amount
+    takeProfitMultiplier: 0.75, //0.20, % of Stake Amount
     filterNum: 4,
     STAYED_IN_THRESHOLD: 7100, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
