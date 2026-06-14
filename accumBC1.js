@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC1_02_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC1_03_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -149,6 +149,7 @@ class EnhancedDerivTradingBot {
             // Accumulator specific
             growthRate: config.growthRate || 0.02,
             takeProfitMultiplier: config.takeProfitMultiplier || 0.20,
+            takeProfitMultiplier2: config.takeProfitMultiplier2 || 0.20,
             filterNum: config.filterNum || 5,
             scanTimer: config.scanTimer || 60000,
             STAYED_IN_THRESHOLD: config.STAYED_IN_THRESHOLD, 
@@ -396,32 +397,30 @@ class EnhancedDerivTradingBot {
      * Periodically scan pending assets to check if they're ready to become active
      */
     startPendingAssetScan() {
-        if(this.consecutiveLosses < 1) {
-            // Clear any existing scan interval
-            if (this.pendingScanInterval) {
-                clearInterval(this.pendingScanInterval);
-            }
-
-            const scanningTimer = this.scanningTimer;
-            // Scan every 30 seconds
-            this.pendingScanInterval = setInterval(() => {
-                if (!this.wsReady || this.pendingAssets.size === 0) return;
-
-                console.log(`\n🔍 Scanning ${this.pendingAssets.size} pending assets...`);
-                
-                // Request fresh proposals for pending assets to check their status
-                this.pendingAssets.forEach(asset => {
-                    // Don't scan if asset has an active trade
-                    if (this.activeTrades[asset]) return;
-
-                    // Request a proposal to get current stayedInArray
-                    this.requestProposalForScan(asset);
-                });
-
-            }, scanningTimer); // Scan every 30 seconds
-
-            console.log('🔄 Pending asset scanner started (30s interval)');
+        // Clear any existing scan interval
+        if (this.pendingScanInterval) {
+            clearInterval(this.pendingScanInterval);
         }
+
+        const scanningTimer = this.scanningTimer;
+        // Scan every 30 seconds
+        this.pendingScanInterval = setInterval(() => {
+            if (!this.wsReady || this.pendingAssets.size === 0) return;
+
+            console.log(`\n🔍 Scanning ${this.pendingAssets.size} pending assets...`);
+            
+            // Request fresh proposals for pending assets to check their status
+            this.pendingAssets.forEach(asset => {
+                // Don't scan if asset has an active trade
+                if (this.activeTrades[asset]) return;
+
+                // Request a proposal to get current stayedInArray
+                this.requestProposalForScan(asset);
+            });
+
+        }, scanningTimer); // Scan every 30 seconds
+
+        console.log('🔄 Pending asset scanner started (30s interval)');
     }
 
     /**
@@ -900,7 +899,8 @@ class EnhancedDerivTradingBot {
         if (!this.wsReady) return;
 
         // this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; 
-        this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
+        // this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
+        this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake * this.config.takeProfitMultiplier : this.currentStake * this.config.takeProfitMultiplier2;
 
         const proposal = {
             proposal: 1,
@@ -938,12 +938,13 @@ class EnhancedDerivTradingBot {
 
         if (!stayedInArray) return;
 
-        // ✅ NEW: Update asset status based on stayedInArray
-        this.updateAssetStatus(asset, stayedInArray);
-
-        // ✅ Check if this is a scan-only request (from pending asset scanner)
-        const passthrough = message.echo_req?.passthrough;
         if (this.consecutiveLosses <= 0) {
+            // ✅ NEW: Update asset status based on stayedInArray
+            this.updateAssetStatus(asset, stayedInArray);
+
+            // ✅ Check if this is a scan-only request (from pending asset scanner)
+            const passthrough = message.echo_req?.passthrough;
+        
             if (passthrough && passthrough.action === 'scan_only') {
                 // This is just a scan to update asset status, don't proceed with trading
                 const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
@@ -1430,11 +1431,9 @@ class EnhancedDerivTradingBot {
             this.hourlyStats.wins++;
 
             // Resume all assets after win
-            // if (this.focusAsset) {
-            //     this.resumeAllAssets();
-            // }
-
-            this.assets = config.assets;
+            if (this.focusAsset) {
+                this.resumeAllAssets();
+            }
             
         } else {
             this.totalLosses++;
@@ -1472,8 +1471,7 @@ class EnhancedDerivTradingBot {
             }
 
             // Suspend all other assets, focus on loss asset
-            // this.suspendOtherAssets(asset);
-            this.assets = asset;
+            this.suspendOtherAssets(asset);
         }
 
         // Keep traded digit array trimmed
@@ -1684,19 +1682,20 @@ class EnhancedDerivTradingBot {
 // ══════════════════════════════════════════════════════════════════════════════
 // BOT INITIALIZATION
 // ══════════════════════════════════════════════════════════════════════════════
-const bot = new EnhancedDerivTradingBot('hsj0tA0XJoIzJG5', {
+const bot = new EnhancedDerivTradingBot('Dz2V2KvRf4Uukt3', {
     initialStake: 1,
     initialStake2: 25,
-    multiplier: 10,
-    multiplier2: 10,
+    multiplier: 2,
+    multiplier2: 2,
     recoveryWinNum: 100,
-    maxConsecutiveLosses: 3,
-    stopLoss: 173,
+    maxConsecutiveLosses: 7,
+    stopLoss: 127,
     takeProfit: 2500,
     growthRate: 0.01,
-    takeProfitMultiplier: 0.2, //0.20, % of Stake Amount
+    takeProfitMultiplier: 0.5, //50% of Stake Amount
+    takeProfitMultiplier2: 1, //100% of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 7400, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 6700, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
     assets: [
         // 'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
