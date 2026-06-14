@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3_0006_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3b_007_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -149,7 +149,6 @@ class EnhancedDerivTradingBot {
             // Accumulator specific
             growthRate: config.growthRate || 0.02,
             takeProfitMultiplier: config.takeProfitMultiplier || 0.20,
-            takeProfitMultiplier2: config.takeProfitMultiplier2 || 0.20,
             filterNum: config.filterNum || 5,
             scanTimer: config.scanTimer || 60000,
             STAYED_IN_THRESHOLD: config.STAYED_IN_THRESHOLD, 
@@ -194,7 +193,7 @@ class EnhancedDerivTradingBot {
         this.confidenceThreshold = 0.5;
         this.kTradeCount = 0;
         this.isWinTrade = false;
-        this.waitTime = 150000;
+        this.waitTime = 50000;
         this.LossDigitsList = [];
         this.threeConsecutiveDigits = 0;
         this.predictedType = '';
@@ -301,19 +300,18 @@ class EnhancedDerivTradingBot {
         // Check individual thresholds for recent values
         const recentThresholds = (
             stayedInArray[99] < 3 &&
-            stayedInArray[98] > 30 
+            stayedInArray[98] < 20 &&
+            stayedInArray[97] < 20 
             &&
-            stayedInArray[97] > 30 
+            stayedInArray[96] < 20 
             &&
-            stayedInArray[96] > 30 
-            &&
-            stayedInArray[95] > 30 
-            &&
-            stayedInArray[94] > 30
+            stayedInArray[95] < 20 
+            // &&
+            // stayedInArray[94] < 20
         );
         
         // Check if total sum is within acceptable range
-        const totalWithinRange = totalStayedInArray > maxTotalStayedIn;
+        const totalWithinRange = totalStayedInArray < maxTotalStayedIn;
         
         // Check if we have consecutive losses (recovery mode)
         const inRecoveryMode = consecutiveLosses > 0;
@@ -367,7 +365,7 @@ class EnhancedDerivTradingBot {
         const wasActive = this.activeAssets.has(asset);
         const wasPending = this.pendingAssets.has(asset);
 
-        if (totalStayedIn > this.config.STAYED_IN_THRESHOLD) {
+        if (totalStayedIn < this.config.STAYED_IN_THRESHOLD) {
             // Asset is ready for trading
             if (!wasActive) {
                 this.activeAssets.add(asset);
@@ -899,8 +897,7 @@ class EnhancedDerivTradingBot {
         if (!this.wsReady) return;
 
         // this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; 
-        // this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
-        this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake * this.config.takeProfitMultiplier : this.currentStake * this.config.takeProfitMultiplier2;
+        this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
 
         const proposal = {
             proposal: 1,
@@ -938,17 +935,16 @@ class EnhancedDerivTradingBot {
 
         if (!stayedInArray) return;
 
-        if (this.consecutiveLosses <= 0) {
-            // ✅ NEW: Update asset status based on stayedInArray
-            this.updateAssetStatus(asset, stayedInArray);
+        // ✅ NEW: Update asset status based on stayedInArray
+        this.updateAssetStatus(asset, stayedInArray);
 
-            // ✅ Check if this is a scan-only request (from pending asset scanner)
-            const passthrough = message.echo_req?.passthrough;
-        // if (this.consecutiveLosses <= 0) {
+        // ✅ Check if this is a scan-only request (from pending asset scanner)
+        const passthrough = message.echo_req?.passthrough;
+        if (this.consecutiveLosses <= 0) {
             if (passthrough && passthrough.action === 'scan_only') {
                 // This is just a scan to update asset status, don't proceed with trading
                 const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
-                console.log(`   🔍 Scan result for ${asset}: stayedIn=${totalStayedIn} (${totalStayedIn > this.config.STAYED_IN_THRESHOLD ? 'READY' : 'WAITING'})`);
+                console.log(`   🔍 Scan result for ${asset}: stayedIn=${totalStayedIn} (${totalStayedIn < this.config.STAYED_IN_THRESHOLD ? 'READY' : 'WAITING'})`);
                 return;
             }
 
@@ -1526,15 +1522,14 @@ class EnhancedDerivTradingBot {
             return;
         }
 
-        //Disconnect and Reconnect after WaitTime
-        if(won && !this.endOfDay) {
-            this.disconnect();
-            console.log("Bot Disconnected, will Restart in", (this.waitTime / 1000).toFixed(0), 'Seconds' );
+        // if(won && !this.endOfDay) {
+        //     this.disconnect();
+        //     console.log("Bot Disconnected, will Restart in", (this.waitTime / 1000).toFixed(0), 'Seconds' );
             
-            setTimeout(() => {
-                this.connect();
-            }, this.waitTime);
-        }
+        //     setTimeout(() => {
+        //         this.connect();
+        //     }, this.waitTime);
+        // }
 
         StatePersistence.saveState(this);
 
@@ -1685,17 +1680,16 @@ class EnhancedDerivTradingBot {
 const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     initialStake: 1,
     initialStake2: 25,
-    multiplier: 2,
-    multiplier2: 2,
+    multiplier: 10,
+    multiplier2: 10,
     recoveryWinNum: 100,
-    maxConsecutiveLosses: 7,
-    stopLoss: 127,
+    maxConsecutiveLosses: 3,
+    stopLoss: 173,
     takeProfit: 2500,
     growthRate: 0.01,
-    takeProfitMultiplier: 0.5, //50% of Stake Amount
-    takeProfitMultiplier2: 1, //100% of Stake Amount
+    takeProfitMultiplier: 0.20, //0.20, 20% of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 6400, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 6000, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
     assets: [
         'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
