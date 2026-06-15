@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3_0006_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3_0007_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -301,15 +301,15 @@ class EnhancedDerivTradingBot {
         // Check individual thresholds for recent values
         const recentThresholds = (
             stayedInArray[99] < 3 &&
-            stayedInArray[98] > 30 
+            stayedInArray[98] < 100 
             &&
-            stayedInArray[97] > 30 
+            stayedInArray[97] < 100 
             &&
-            stayedInArray[96] > 30 
+            stayedInArray[96] < 100 
             &&
-            stayedInArray[95] > 30 
+            stayedInArray[95] < 100 
             &&
-            stayedInArray[94] > 30
+            stayedInArray[94] < 100
         );
         
         // Check if total sum is within acceptable range
@@ -1527,14 +1527,14 @@ class EnhancedDerivTradingBot {
         }
 
         //Disconnect and Reconnect after WaitTime
-        if(won && !this.endOfDay) {
-            this.disconnect();
-            console.log("Bot Disconnected, will Restart in", (this.waitTime / 1000).toFixed(0), 'Seconds' );
+        // if(won && !this.endOfDay) {
+        //     this.disconnect();
+        //     console.log("Bot Disconnected, will Restart in", (this.waitTime / 1000).toFixed(0), 'Seconds' );
             
-            setTimeout(() => {
-                this.connect();
-            }, this.waitTime);
-        }
+        //     setTimeout(() => {
+        //         this.connect();
+        //     }, this.waitTime);
+        // }
 
         StatePersistence.saveState(this);
 
