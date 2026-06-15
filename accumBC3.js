@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3_0007_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3_0008_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1685,17 +1685,17 @@ class EnhancedDerivTradingBot {
 const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     initialStake: 1,
     initialStake2: 25,
-    multiplier: 2,
-    multiplier2: 2,
+    multiplier: 10,
+    multiplier2: 10,
     recoveryWinNum: 100,
     maxConsecutiveLosses: 7,
     stopLoss: 127,
     takeProfit: 2500,
     growthRate: 0.01,
-    takeProfitMultiplier: 0.5, //50% of Stake Amount
-    takeProfitMultiplier2: 1, //100% of Stake Amount
+    takeProfitMultiplier: 0.25, //50% of Stake Amount
+    takeProfitMultiplier2: 0.13, //100% of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 6400, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 6900, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
     assets: [
         'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
