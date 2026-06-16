@@ -1696,7 +1696,7 @@ const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     takeProfitMultiplier: 0.25, //50% of Stake Amount
     takeProfitMultiplier2: 0.15, //15% of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 7500, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 7300, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
     assets: [
         'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
