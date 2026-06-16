@@ -398,31 +398,35 @@ class EnhancedDerivTradingBot {
      * Periodically scan pending assets to check if they're ready to become active
      */
     startPendingAssetScan() {
-        // Clear any existing scan interval
-        if (this.pendingScanInterval) {
-            clearInterval(this.pendingScanInterval);
+    if (this.pendingScanInterval) {
+        clearInterval(this.pendingScanInterval);
+    }
+
+    const scanningTimer = this.scanningTimer;
+
+    this.pendingScanInterval = setInterval(() => {
+        if (!this.wsReady || this.pendingAssets.size === 0) return;
+
+        // ✅ FIX 5: Skip scan entirely during recovery — only the focus asset
+        //    matters and it doesn't need a scan proposal to re-enter.
+        //    Without this, the scanner floods the API with proposals for
+        //    suspended assets that then race against recovery logic.
+        if (this.focusAsset) {
+            console.log(`⏸️  Pending scan skipped — recovery mode (focus: ${this.focusAsset})`);
+            return;
         }
 
-        const scanningTimer = this.scanningTimer;
-        // Scan every 30 seconds
-        this.pendingScanInterval = setInterval(() => {
-            if (!this.wsReady || this.pendingAssets.size === 0) return;
+        console.log(`\n🔍 Scanning ${this.pendingAssets.size} pending assets...`);
 
-            console.log(`\n🔍 Scanning ${this.pendingAssets.size} pending assets...`);
-            
-            // Request fresh proposals for pending assets to check their status
-            this.pendingAssets.forEach(asset => {
-                // Don't scan if asset has an active trade
-                if (this.activeTrades[asset]) return;
+        this.pendingAssets.forEach(asset => {
+            if (this.activeTrades[asset]) return;
+            this.requestProposalForScan(asset);
+        });
 
-                // Request a proposal to get current stayedInArray
-                this.requestProposalForScan(asset);
-            });
+    }, scanningTimer);
 
-        }, scanningTimer); // Scan every 30 seconds
-
-        console.log('🔄 Pending asset scanner started (30s interval)');
-    }
+    console.log('🔄 Pending asset scanner started (scan interval: ' + scanningTimer / 1000 + 's)');
+}
 
     /**
      * Request a proposal specifically for scanning (not for trading)
@@ -842,47 +846,45 @@ class EnhancedDerivTradingBot {
     }
 
     handleTickUpdate(tick) {
-        const asset = tick.symbol;
-        const price = parseFloat(tick.quote);
-        const lastDigit = this.getLastDigit(price, asset);
+    const asset = tick.symbol;
+    const price = parseFloat(tick.quote);
+    const lastDigit = this.getLastDigit(price, asset);
 
-        // Store raw price
-        this.priceHistories[asset].push(price);
-        if (this.priceHistories[asset].length > 500) {
-            this.priceHistories[asset] = this.priceHistories[asset].slice(-300);
-        }
-
-        // Store digit
-        if (!this.lastDigitsList[asset]) this.lastDigitsList[asset] = [];
-        this.lastDigitsList[asset].push(lastDigit);
-
-        this.tickHistory[asset].push(lastDigit);
-        if (this.tickHistory[asset].length > this.config.requiredHistoryLength) {
-            this.tickHistory[asset].shift();
-        }
-
-        this.tickCounts[asset] = (this.tickCounts[asset] || 0) + 1;
-
-        // Throttle analysis
-        // if (this.tickCounts[asset] % this.config.analysisInterval !== 0) return;
-
-        // Don't analyze if not ready or if asset already has active trade
-        if (!this.wsReady) return;
-        if (this.activeTrades[asset]) return;
-        if (this.tickHistory[asset].length < this.config.requiredHistoryLength) return;
-
-        // ✅ NEW: Only analyze assets in the active list
-        if (!this.isAssetReady(asset)) {
-            // Skip analysis for pending assets
-            return;
-        }
-
-        // Minimum time between trades
-        if (Date.now() - (this.lastTradeTime[asset] || 0) < this.config.minTimeBetweenTrades) return;
-
-        // Run analysis and maybe trade
-        this.evaluateAndTrade(asset);
+    // Store raw price
+    this.priceHistories[asset].push(price);
+    if (this.priceHistories[asset].length > 500) {
+        this.priceHistories[asset] = this.priceHistories[asset].slice(-300);
     }
+
+    // Store digit
+    if (!this.lastDigitsList[asset]) this.lastDigitsList[asset] = [];
+    this.lastDigitsList[asset].push(lastDigit);
+
+    this.tickHistory[asset].push(lastDigit);
+    if (this.tickHistory[asset].length > this.config.requiredHistoryLength) {
+        this.tickHistory[asset].shift();
+    }
+
+    this.tickCounts[asset] = (this.tickCounts[asset] || 0) + 1;
+
+    if (!this.wsReady) return;
+    if (this.activeTrades[asset]) return;
+    if (this.tickHistory[asset].length < this.config.requiredHistoryLength) return;
+
+    // ✅ FIX 1a: Hard gate — drop suspended assets before any further work
+    if (!this.isAssetAllowed(asset)) return;
+
+    // ✅ FIX 1b: Allow the focus asset through even if it's been moved to
+    //    pendingAssets (its stayedInArray resets low after a loss, so
+    //    isAssetReady() would wrongly block its own recovery trade)
+    if (!this.isAssetReady(asset) && asset !== this.focusAsset) return;
+
+    // Minimum time between trades
+    if (Date.now() - (this.lastTradeTime[asset] || 0) < this.config.minTimeBetweenTrades) return;
+
+    // Run analysis and maybe trade
+    this.evaluateAndTrade(asset);
+}
 
     // ========================================================================
     // TRADE ANALYSIS & EXECUTION — Bollinger + MACD Strategy
@@ -896,152 +898,147 @@ class EnhancedDerivTradingBot {
     }
 
     requestProposal(asset) {
-        if (this.tradeInProgress) return;
-        if (!this.wsReady) return;
+    if (this.tradeInProgress) return;
+    if (!this.wsReady) return;
 
-        // this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake/4 : this.consecutiveLosses === 1 ? this.currentStake/6 : this.currentStake/7; 
-        // this.takeProfitAmount = this.currentStake * this.config.takeProfitMultiplier;
-        this.takeProfitAmount = this.consecutiveLosses < 1 ? this.currentStake * this.config.takeProfitMultiplier : this.currentStake * this.config.takeProfitMultiplier2;
+    // ✅ FIX 4: Belt-and-suspenders — never send a proposal for a suspended asset
+    if (!this.isAssetAllowed(asset)) return;
 
-        const proposal = {
-            proposal: 1,
-            amount: this.currentStake.toFixed(2),
-            basis: 'stake',
-            contract_type: 'ACCU',
-            currency: 'USD',
-            symbol: asset,
-            growth_rate: this.config.growthRate,
-            limit_order: {
-                take_profit: this.takeProfitAmount.toFixed(2)
-            }
-        };
+    this.takeProfitAmount = this.consecutiveLosses < 1
+        ? this.currentStake * this.config.takeProfitMultiplier
+        : this.currentStake * this.config.takeProfitMultiplier2;
 
-        this.sendRequest(proposal);
-    }
+    const proposal = {
+        proposal: 1,
+        amount: this.currentStake.toFixed(2),
+        basis: 'stake',
+        contract_type: 'ACCU',
+        currency: 'USD',
+        symbol: asset,
+        growth_rate: this.config.growthRate,
+        limit_order: {
+            take_profit: this.takeProfitAmount.toFixed(2)
+        }
+    };
+
+    this.sendRequest(proposal);
+}
 
     handleProposal(message) {
-        const asset = message.echo_req?.symbol;
+    const asset = message.echo_req?.symbol;
 
-        if (message.error) {
-            if (asset && this.activeTrades[asset]?.status === 'requesting_proposal') {
-                console.log(`❌ Proposal rejected for ${asset}: ${message.error.message}`);
-                delete this.activeTrades[asset];
-                this.tradeInProgress = false;
-            }
-            return;
+    if (message.error) {
+        if (asset && this.activeTrades[asset]?.status === 'requesting_proposal') {
+            console.log(`❌ Proposal rejected for ${asset}: ${message.error.message}`);
+            delete this.activeTrades[asset];
+            this.tradeInProgress = false;
         }
+        return;
+    }
 
-        if (!message.proposal) return;
-        if (!asset) return;
+    if (!message.proposal) return;
+    if (!asset) return;
 
-        const proposal = message.proposal;
-        const stayedInArray = proposal.contract_details.ticks_stayed_in;
+    const proposal = message.proposal;
+    const stayedInArray = proposal.contract_details.ticks_stayed_in;
 
-        if (!stayedInArray) return;
+    if (!stayedInArray) return;
 
+    // ✅ FIX 2: Passthrough actions handled FIRST — unconditionally, before
+    //    any consecutiveLosses branching.  Previously these were inside the
+    //    (consecutiveLosses <= 0) block so they were silently skipped during
+    //    recovery, causing scan_only proposals to fall through to trade logic
+    //    and get_final_stayed_in to never reach its handler.
+    const passthrough = message.echo_req?.passthrough;
+
+    if (passthrough?.action === 'scan_only') {
         if (this.consecutiveLosses <= 0) {
-            // ✅ NEW: Update asset status based on stayedInArray
             this.updateAssetStatus(asset, stayedInArray);
-
-            // ✅ Check if this is a scan-only request (from pending asset scanner)
-            const passthrough = message.echo_req?.passthrough;
-        // if (this.consecutiveLosses <= 0) {
-            if (passthrough && passthrough.action === 'scan_only') {
-                // This is just a scan to update asset status, don't proceed with trading
-                const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
-                console.log(`   🔍 Scan result for ${asset}: stayedIn=${totalStayedIn} (${totalStayedIn > this.config.STAYED_IN_THRESHOLD ? 'READY' : 'WAITING'})`);
-                return;
-            }
-
-            // ✅ Check if this is a request for final stayedInArray (after contract settled)
-            if (passthrough && passthrough.action === 'get_final_stayed_in') {
-                // This is the final stayedInArray after contract settlement
-                console.log(`✅ Final stayedInArray received for ${asset}: [${stayedInArray.slice(-6).join('|')}]`);
-                
-                // Update stored arrays
-                if (!this.assetStayedInArrays) this.assetStayedInArrays = {};
-                this.assetStayedInArrays[asset] = stayedInArray;
-                this.stayedInArray = stayedInArray;
-
-                // Now handle the trade result with the updated stayedInArray
-                const trade = this.activeTrades[asset];
-                if (trade && trade.awaitingFinalStayedIn && trade.settledContract) {
-                    trade.awaitingFinalStayedIn = false;
-                    this.handleTradeResult(asset, trade.settledContract);
-                }
-                return;
-            }
         }
+        const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
+        console.log(`   🔍 Scan result for ${asset}: stayedIn=${totalStayedIn} (${totalStayedIn > this.config.STAYED_IN_THRESHOLD ? 'READY' : 'WAITING'})`);
+        return;
+    }
 
-        // ✅ Regular proposal handling (for new trades)
-        // Always update stayedInArray
-        this.stayedInArray = stayedInArray;
-        const stayedInArray2 = stayedInArray.slice(-6);
-        
-        // Store per-asset stayedInArray
+    if (passthrough?.action === 'get_final_stayed_in') {
+        console.log(`✅ Final stayedInArray received for ${asset}: [${stayedInArray.slice(-6).join('|')}]`);
+
         if (!this.assetStayedInArrays) this.assetStayedInArrays = {};
         this.assetStayedInArrays[asset] = stayedInArray;
+        this.stayedInArray = stayedInArray;
 
-        if (this.tradeInProgress) return;
-
-        // ✅ NEW: Only proceed if asset is in active list
-        if ((!this.isAssetReady(asset) && this.consecutiveLosses <= 0)) {
-            console.log(`⏸️  ${asset} is in pending list, skipping trade analysis`);
-            return;
+        const trade = this.activeTrades[asset];
+        if (trade && trade.awaitingFinalStayedIn && trade.settledContract) {
+            trade.awaitingFinalStayedIn = false;
+            this.handleTradeResult(asset, trade.settledContract);
         }
-
-        // Current digit count of the running accumulator
-        const currentDigitCount = stayedInArray[99] + 1;
-
-        this.currentTick = stayedInArray[99];
-
-        // console.log(`📋 Proposal for ${asset}: Current StayIN Digit Count: ${stayedInArray[99]} (${currentDigitCount})`);
-        // console.log(`   Filter Number: ${this.filterNum}`);
-
-        // Store proposal ID
-        this.assetStates[asset].proposalId = proposal.id;
-
-        // ── Original frequency analysis logic ──────────────────────────────────
-        // Create frequency map of digits
-        const digitFrequency = {};
-        stayedInArray.forEach(digit => {
-            digitFrequency[digit] = (digitFrequency[digit] || 0) + 1;
-        });
-
-        // Create array: digits that have appeared exactly filterNum times
-        const appearedOnceArray = Object.keys(digitFrequency)
-            .filter(digit => digitFrequency[digit] === this.filterNum)
-            .map(Number);
-
-        // console.log(`   Digits that appeared ${this.filterNum} times: [${appearedOnceArray.join(', ')}]
-        //     StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]
-        // `);
-        // console.log(`StayedInArray: [${stayedInArray[99]}|${this.stayedInArray[98]}|${this.stayedInArray[97]}|${this.stayedInArray[96]}|${this.stayedInArray[95]}|${this.stayedInArray[94]}]`);
-
-        // Entry condition
-        // const condition =  this.consecutiveLosses < 1 ? this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 30) : this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 100); 
-        const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, this.config.STAYED_IN_THRESHOLD, asset); 
-        const condition2 =  this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 170, asset); 
-        
-        // Check if we should place trade
-        if ((condition && condition2) || this.consecutiveLosses > 0) {
-            console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
-
-            this.tradedDigitArray.push(this.stayedInArray[99]);
-            this.filteredArray = appearedOnceArray;
-            
-            console.log(`   Traded Digit Array: [${this.tradedDigitArray.join(', ')}]`);
-
-            const growthRate = this.config.growthRate;
-
-            console.log(`\n🎯 ENTRY SIGNAL: ${asset}`);
-            console.log(`   Growth Rate: ${(growthRate * 100).toFixed(0)}% | Stake: $${this.currentStake.toFixed(2)}`);
-            console.log(`   Take Profit: $${this.takeProfitAmount.toFixed(2)}`);
-
-            // Place trade
-            this.placeTrade(asset);
-        }
+        return;
     }
+
+    // ✅ FIX 3: Hard gate for suspended assets — catches every in-flight
+    //    proposal response that arrived after suspension was set.
+    //    This is the primary fix for wrong-asset recovery trades.
+    if (!this.isAssetAllowed(asset)) {
+        console.log(`⏸️  ${asset} is suspended — ignoring proposal`);
+        return;
+    }
+
+    // Update asset status only in normal (non-recovery) mode
+    if (this.consecutiveLosses <= 0) {
+        this.updateAssetStatus(asset, stayedInArray);
+    }
+
+    // ── Regular proposal handling (for new trades) ──────────────────────────
+    this.stayedInArray = stayedInArray;
+    const stayedInArray2 = stayedInArray.slice(-6);
+
+    if (!this.assetStayedInArrays) this.assetStayedInArrays = {};
+    this.assetStayedInArrays[asset] = stayedInArray;
+
+    if (this.tradeInProgress) return;
+
+    // Enforce active/pending filter only outside recovery mode.
+    // In recovery the focus asset must be allowed through regardless of
+    // its current stayedInArray total.
+    if (!this.isAssetReady(asset) && this.consecutiveLosses <= 0) {
+        console.log(`⏸️  ${asset} is in pending list, skipping trade analysis`);
+        return;
+    }
+
+    const currentDigitCount = stayedInArray[99] + 1;
+    this.currentTick = stayedInArray[99];
+
+    this.assetStates[asset].proposalId = proposal.id;
+
+    // ── Original frequency analysis ──────────────────────────────────────────
+    const digitFrequency = {};
+    stayedInArray.forEach(digit => {
+        digitFrequency[digit] = (digitFrequency[digit] || 0) + 1;
+    });
+
+    const appearedOnceArray = Object.keys(digitFrequency)
+        .filter(digit => digitFrequency[digit] === this.filterNum)
+        .map(Number);
+
+    const condition  = this.checkTradeCondition(stayedInArray, this.consecutiveLosses, this.config.STAYED_IN_THRESHOLD, asset);
+    const condition2 = this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20, asset);
+
+    if (condition || this.consecutiveLosses > 0) {
+        console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
+
+        this.tradedDigitArray.push(this.stayedInArray[99]);
+        this.filteredArray = appearedOnceArray;
+
+        console.log(`   Traded Digit Array: [${this.tradedDigitArray.join(', ')}]`);
+
+        const growthRate = this.config.growthRate;
+        console.log(`\n🎯 ENTRY SIGNAL: ${asset}`);
+        console.log(`   Growth Rate: ${(growthRate * 100).toFixed(0)}% | Stake: $${this.currentStake.toFixed(2)}`);
+        console.log(`   Take Profit: $${this.takeProfitAmount.toFixed(2)}`);
+
+        this.placeTrade(asset);
+    }
+}
 
     placeTrade(asset) {
         if (this.tradeInProgress) return;
@@ -1556,17 +1553,17 @@ class EnhancedDerivTradingBot {
 
         for (const asset of this.assets) {
             if (!this.isAssetAllowed(asset)) continue;
-            
-            // ✅ NEW: Only evaluate assets in active list
-            if (!this.isAssetReady(asset)) continue;
-            
+
+            // ✅ FIX 6: Same as handleTickUpdate — allow focus asset through
+            //    even if its stayedInArray is low post-loss
+            if (!this.isAssetReady(asset) && asset !== this.focusAsset) continue;
+
             if (this.tradeInProgress) break;
             if (this.activeTrades[asset]) continue;
             if (!this.tickHistory[asset] || this.tickHistory[asset].length < this.config.requiredHistoryLength) continue;
             if (Date.now() - (this.lastTradeTime[asset] || 0) < this.config.minTimeBetweenTrades) continue;
 
             console.log(`\n⚡ IMMEDIATE RE-ENTRY: ${asset} (post-trade evaluation)`);
-
             this.requestProposal(asset);
             break;
         }
@@ -1696,7 +1693,7 @@ const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     takeProfitMultiplier: 0.25, //50% of Stake Amount
     takeProfitMultiplier2: 0.15, //15% of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 7100, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 7300, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
     assets: [
         'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
