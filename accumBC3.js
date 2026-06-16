@@ -349,7 +349,8 @@ class EnhancedDerivTradingBot {
         
         // Return true if: (recent thresholds AND total within range) OR in recovery mode
         // return inRecoveryMode ? (recentThreshold2s) : (recentThresholds);
-         return this.consecutiveLosses > 0 ? (recentThreshold2s) : (recentThresholds && totalWithinRange);
+        //  return this.consecutiveLosses > 0 ? (recentThreshold2s) : (recentThresholds && totalWithinRange);
+        return (totalWithinRange);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1020,10 +1021,10 @@ class EnhancedDerivTradingBot {
         // Entry condition
         // const condition =  this.consecutiveLosses < 1 ? this.checkTradeCondition(stayedInArray, this.consecutiveLosses, 1600) && this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 30) : this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 100); 
         const condition =  this.checkTradeCondition(stayedInArray, this.consecutiveLosses, this.config.STAYED_IN_THRESHOLD, asset); 
-        const condition2 =  this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20, asset); 
+        const condition2 =  this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 200, asset); 
         
         // Check if we should place trade
-        if (condition || this.consecutiveLosses > 0) {
+        if ((condition && condition2) || this.consecutiveLosses > 0) {
             console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
 
             this.tradedDigitArray.push(this.stayedInArray[99]);
@@ -1067,6 +1068,9 @@ class EnhancedDerivTradingBot {
             stake: this.currentStake,
             entryTime: Date.now(),
         };
+
+        // ✅ Suspend all other assets immediately on trade open
+        this.suspendOtherAssets(asset);
 
         const trade = this.activeTrades[asset];
 
@@ -1469,9 +1473,6 @@ class EnhancedDerivTradingBot {
             } else {
                 this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
             }
-
-            // Suspend all other assets, focus on loss asset
-            this.suspendOtherAssets(asset);
         }
 
         // Keep traded digit array trimmed
