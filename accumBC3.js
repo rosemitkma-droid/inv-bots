@@ -35,7 +35,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3_0013_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3_0016_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -301,15 +301,19 @@ class EnhancedDerivTradingBot {
         // Check individual thresholds for recent values
         const recentThresholds = (
             stayedInArray[99] < 3 &&
-            stayedInArray[98] < 100 
+            stayedInArray[98] < 20 
             &&
-            stayedInArray[97] < 100 
+            stayedInArray[97] < 20 
             &&
             stayedInArray[96] < 100 
             &&
             stayedInArray[95] < 100 
             &&
             stayedInArray[94] < 100
+            &&
+            stayedInArray[93] < 100 
+            &&
+            stayedInArray[92] < 100
         );
         
         // Check if total sum is within acceptable range
@@ -1021,7 +1025,7 @@ class EnhancedDerivTradingBot {
         .map(Number);
 
     const condition  = this.checkTradeCondition(stayedInArray, this.consecutiveLosses, this.config.STAYED_IN_THRESHOLD, asset);
-    const condition2 = this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 20, asset);
+    const condition2 = this.checkTradeCondition2(stayedInArray2, this.consecutiveLosses, 160, asset);
 
     if (condition || this.consecutiveLosses > 0) {
         console.log(`   Entry condition: ${condition ? '✅ MET' : '❌ NOT MET'}`);
@@ -1693,7 +1697,7 @@ const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     takeProfitMultiplier: 0.25, //50% of Stake Amount
     takeProfitMultiplier2: 0.15, //15% of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 7300, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 7100, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
     assets: [
         'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
