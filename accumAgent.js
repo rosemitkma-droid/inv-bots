@@ -84,17 +84,17 @@ loadEnv();
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
   // ─ Deriv API ─
-  apiToken: (process.env.DERIV_API_TOKEN || '0P94g4WdSrSrzir').trim(),
-  appId   : process.env.DERIV_APP_ID      || '1089',
-  wsUrl   : process.env.DERIV_WS_URL      || 'wss://ws.derivws.com/websockets/v3',
-  currency: (process.env.CURRENCY || 'USD').toUpperCase(),
+  apiToken: ('0P94g4WdSrSrzir').trim(),
+  appId   : '1089',
+  wsUrl   : 'wss://ws.derivws.com/websockets/v3',
+  currency: ('USD').toUpperCase(),
 
   // ─ Trade parameters ─
-  stake          : parseFloat(process.env.STAKE           ?? '1.0'),
-  multiplier     : parseFloat(process.env.MULTIPLIER      ?? '0.02'),  // 2 % growth rate
-  multiplierStep : parseFloat(process.env.MULTIPLIER_STEP ?? '0.0'),   // grow after wins
-  stopLoss       : parseFloat(process.env.STOP_LOSS       ?? '10.0'),
-  takeProfit     : parseFloat(process.env.TAKE_PROFIT     ?? '5.0'),
+  stake          : parseFloat('1.0'),
+  multiplier     : parseFloat('0.02'),  // 2 % growth rate
+  multiplierStep : parseFloat('0.0'),   // grow after wins
+  stopLoss       : parseFloat('10.0'),
+  takeProfit     : parseFloat('5.0'),
 
   // ─ Assets (Deriv synthetic indices) ─
   // assets: (process.env.ASSETS
@@ -107,20 +107,20 @@ const CONFIG = Object.freeze({
   // ─ Telegram ─
   telegram: {
     enabled : true, //!!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
-    botToken: process.env.TELEGRAM_BOT_TOKEN || '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
-    chatId  : process.env.TELEGRAM_CHAT_ID   || '752497117',
+    botToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
+    chatId  : '752497117',
   },
 
   // ─ Strategy ─
-  tickWindow          : parseInt(process.env.TICK_WINDOW          ?? '200',  10),
-  minTicksForAnalysis : parseInt(process.env.MIN_TICKS_ANALYSIS   ?? '100',  10),
-  analysisIntervalMs  : parseInt(process.env.ANALYSIS_INTERVAL_MS ?? '30000',10),
-  tradeCooldownMs     : parseInt(process.env.TRADE_COOLDOWN_MS    ?? '5000', 10),
-  maxOpenTrades       : parseInt(process.env.MAX_OPEN_TRADES      ?? '1',    10),
+  tickWindow          : parseInt('200',  10),
+  minTicksForAnalysis : parseInt('100',  10),
+  analysisIntervalMs  : parseInt('30000',10),
+  tradeCooldownMs     : parseInt('5000', 10),
+  maxOpenTrades       : parseInt('1',    10),
 
   // ─ Daily limits ─
-  dailyMaxLoss  : parseFloat(process.env.DAILY_MAX_LOSS  ?? '100'),
-  dailyMaxTrades: parseInt  (process.env.DAILY_MAX_TRADES ?? '200'),
+  dailyMaxLoss  : parseFloat('100'),
+  dailyMaxTrades: parseInt  ('200'),
 
   // ─ Reconnect ─
   reconnect: {
@@ -131,8 +131,8 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : process.env.LOG_FILE  || 'deriv_bot.log',
-  logLevel: (process.env.LOG_LEVEL || 'INFO').toUpperCase(),
+  logFile : 'deriv_bot.log',
+  logLevel: ('INFO').toUpperCase(),
 });
 
 // ─────────────────────────────────────────────────────────────────────
