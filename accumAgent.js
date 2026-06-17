@@ -93,15 +93,14 @@ const CONFIG = Object.freeze({
   stake          : parseFloat('1.0'),
   multiplier     : parseFloat('0.02'),  // 2 % growth rate
   multiplierStep : parseFloat('0.0'),   // grow after wins
-  stopLoss       : parseFloat('10.0'),
-  takeProfit     : parseFloat('5.0'),
+  stopLoss       : parseFloat('110.0'),
+  takeProfit     : parseFloat('5000.0'),
 
   // ─ Assets (Deriv synthetic indices) ─
   // assets: (process.env.ASSETS
   //   || '1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75,R_100')
   //   .split(',').map(s => s.trim()).filter(Boolean),
-  assets: (process.env.ASSETS
-    || 'R_10,R_25,R_50,R_75,R_100')
+  assets: ('R_10,R_25,R_50,R_75,R_100')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ─ Telegram ─
