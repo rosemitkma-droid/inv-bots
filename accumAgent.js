@@ -129,7 +129,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot2.log',
+  logFile : 'deriv_bot3.log',
   logLevel: ('INFO').toUpperCase(),
 });
 
@@ -796,15 +796,15 @@ class MarketAnalyzer {
     const targetSigmaCoverage = 2.0;     // we want barrier ≥ 2 × per-tick σ
     const perTickStdevPct = (shortStats.stdev / Math.abs(price)) * 100;
     // For each growth rate, approximate the barrier% (slightly conservative)
-    const barrierByGrowth = { 0.01: 0.061, 0.02: 0.056, 0.03: 0.053, 0.04: 0.050, 0.05: 0.048 };
+    const barrierByGrowth = { 0.04: 0.050, 0.05: 0.048 };
     if (perTickStdevPct > 0) {
-      for (const g of [0.01, 0.02, 0.03, 0.04, 0.05]) {
+      for (const g of [0.04, 0.05]) {
         // barrier is on EACH side; we need barrier_pct ≥ target × per_tick_stdev_pct
         if (barrierByGrowth[g] >= targetSigmaCoverage * perTickStdevPct) {
           suggestedGrowth = g;
           break;
         }
-        suggestedGrowth = g;  // last fallback
+        // suggestedGrowth = g;  // last fallback
       }
     }
 
@@ -1390,7 +1390,13 @@ class TradingBot {
         logger.warn('not enough data to analyse yet');
         return;
       }
+      
       const best = ranked[0];
+
+      if (best.symbol === this.bestAsset) {
+        logger.warn('Same as Last Traded Asset');
+        return;
+      }
 
       logger.info(
         `best=${best.symbol} score=${best.score.toFixed(2)} regime=${best.regime} ` +
@@ -1421,6 +1427,7 @@ class TradingBot {
         { stop_loss: stopLoss, take_profit: takeProfit },
       );
       logger.info(`trade placed #${trade.contractId} ${best.symbol} growth=${growthRate} tp=${takeProfit} barrier=±${trade.halfBarrierPct.toFixed(4)}%`);
+      this.bestAsset =  best.symbol;
     } catch (e) {
       logger.error('analyse/trade error:', e.message);
     }
