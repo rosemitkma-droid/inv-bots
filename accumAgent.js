@@ -91,17 +91,16 @@ const CONFIG = Object.freeze({
 
   // ─ Trade parameters ─
   stake          : parseFloat('1.0'),
-  multiplier     : parseFloat('0.02'),  // 2 % growth rate
-  multiplierStep : parseFloat('0.0'),   // grow after wins
+  multiplier     : parseFloat('0.05'),  // 2 % growth rate
+  multiplierStep : parseFloat('1.0'),   // grow after wins
   stopLoss       : parseFloat('110.0'),
   takeProfit     : parseFloat('5000.0'),
 
   // ─ Assets (Deriv synthetic indices) ─
-  // assets: (process.env.ASSETS
-  //   || '1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75,R_100')
+  assets: ('BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
+      .split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('R_10,R_25,R_50,R_75,R_100')
   //   .split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('R_10,R_25,R_50,R_75,R_100')
-    .split(',').map(s => s.trim()).filter(Boolean),
 
   // ─ Telegram ─
   telegram: {
@@ -119,7 +118,7 @@ const CONFIG = Object.freeze({
 
   // ─ Daily limits ─
   dailyMaxLoss  : parseFloat('100'),
-  dailyMaxTrades: parseInt  ('200'),
+  dailyMaxTrades: parseInt  ('20000000000'),
 
   // ─ Reconnect ─
   reconnect: {
@@ -130,7 +129,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot.log',
+  logFile : 'deriv_bot2.log',
   logLevel: ('INFO').toUpperCase(),
 });
 
@@ -753,16 +752,16 @@ class MarketAnalyzer {
     let reasonParts = [];
 
     // 1) Calm regime (most important — volatility is the #1 killer)
-    if (calmScore < 0.55)      { score += 0.35; reasonParts.push('very-calm'); }
-    else if (calmScore < 0.75) { score += 0.25; reasonParts.push('calm'); }
-    else if (calmScore < 1.0)  { score += 0.10; reasonParts.push('normal'); }
+    if (calmScore < 0.50)      { score += 0.35; reasonParts.push('very-calm'); }
+    else if (calmScore < 0.70) { score += 0.25; reasonParts.push('calm'); }
+    else if (calmScore < 1.0)  { score += 0.00; reasonParts.push('normal'); }
     else if (calmScore < 1.3)  { score -= 0.10; reasonParts.push('turbulent'); }
     else                        { score -= 0.35; reasonParts.push('stormy'); }
 
     // 2) BB middle-band proximity (entry at the mean is safest)
     if (bbMiddleProximity > 0.85)      { score += 0.25; reasonParts.push('at-mean'); }
     else if (bbMiddleProximity > 0.60){ score += 0.15; reasonParts.push('near-mean'); }
-    else if (bbMiddleProximity > 0.35){ score += 0.00; reasonParts.push('off-mean'); }
+    else if (bbMiddleProximity > 0.35){ score -= 0.10; reasonParts.push('off-mean'); }
     else                                { score -= 0.25; reasonParts.push('at-band'); }
 
     // 3) RSI in neutral zone (40–60) means no extreme momentum
@@ -777,7 +776,7 @@ class MarketAnalyzer {
     else                                                  { score -= 0.20; reasonParts.push('extreme-trend'); }
 
     // 5) Mean reversion (high reversion → whipsaw)
-    if (meanReversion > 0.55)        { score -= 0.25; reasonParts.push('whipsaw'); }
+    if (meanReversion > 0.50)        { score -= 0.25; reasonParts.push('whipsaw'); }
     else if (meanReversion > 0.25)  { score -= 0.10; reasonParts.push('mean-rev'); }
 
     // 6) Safe-move ratio (estimated per-tick survival probability proxy)
@@ -835,7 +834,7 @@ class MarketAnalyzer {
       // Decision
       score,
       reasons: reasonParts,
-      recommendTrade: score >= 0.55,
+      recommendTrade: score >= 0.60,
       // Sizing
       suggestedGrowth,
       recommendedTp,
