@@ -44,7 +44,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2_01001_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2_0103_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -320,9 +320,9 @@ class EnhancedDerivTradingBot {
 
         // Check individual thresholds for recent values
         const recentThresholds = (
-            stayedInArray[99] >= 0 
-            &&
-            stayedInArray[98] > 50
+            stayedInArray[99] >= 10 
+            // &&
+            // stayedInArray[98] > 50
             // &&
             // stayedInArray[97] < 20
             // &&
@@ -338,7 +338,7 @@ class EnhancedDerivTradingBot {
         );
 
         // Check if total sum is within acceptable range
-        const totalWithinRange = totalStayedInArray > maxTotalStayedIn;
+        const totalWithinRange = totalStayedInArray < maxTotalStayedIn;
 
         // Check if we have consecutive losses (recovery mode)
         const inRecoveryMode = consecutiveLosses > 0;
@@ -471,7 +471,7 @@ class EnhancedDerivTradingBot {
         const wasActive = this.activeAssets.has(asset);
         const wasPending = this.pendingAssets.has(asset);
 
-        if (totalStayedIn > this.config.STAYED_IN_THRESHOLD) {
+        if (totalStayedIn < this.config.STAYED_IN_THRESHOLD) {
             // Asset is ready for trading
             if (!wasActive) {
                 this.activeAssets.add(asset);
@@ -514,10 +514,10 @@ class EnhancedDerivTradingBot {
             // matters and it doesn't need a scan proposal to re-enter.
             // Without this, the scanner floods the API with proposals for
             // suspended assets that then race against recovery logic.
-            // if (this.focusAsset) {
-            //     console.log(`⏸️  Pending scan skipped — recovery mode (focus: ${this.focusAsset})`);
-            //     return;
-            // }
+            if (this.focusAsset) {
+                console.log(`⏸️  Pending scan skipped — recovery mode (focus: ${this.focusAsset})`);
+                return;
+            }
 
             console.log(`\n🔍 Scanning ${this.pendingAssets.size} pending assets...`);
 
@@ -1058,10 +1058,10 @@ class EnhancedDerivTradingBot {
         const passthrough = message.echo_req?.passthrough;
 
         if (passthrough?.action === 'scan_only') {
-            // if (this.consecutiveLosses <= 0) {
+            if (this.consecutiveLosses <= 0) {
                 this.updateAssetStatus(asset, stayedInArray);
-            // }
-            console.log(`   🔍 Scan result for ${asset}: stayedIn=${totalStayedInSample} (${totalStayedInSample > this.config.STAYED_IN_THRESHOLD ? 'READY' : 'WAITING'})`);
+            }
+            console.log(`   🔍 Scan result for ${asset}: stayedIn=${totalStayedInSample} (${totalStayedInSample < this.config.STAYED_IN_THRESHOLD ? 'READY' : 'WAITING'})`);
             return;
         }
 
@@ -1088,9 +1088,9 @@ class EnhancedDerivTradingBot {
         }
 
         // Update asset status only in normal (non-recovery) mode
-        // if (this.consecutiveLosses <= 0) {
+        if (this.consecutiveLosses <= 0) {
             this.updateAssetStatus(asset, stayedInArray);
-        // }
+        }
 
         // ── Regular proposal handling (for new trades) ──────────────────────────
         this.stayedInArray = stayedInArray;
@@ -1104,12 +1104,7 @@ class EnhancedDerivTradingBot {
         // Enforce active/pending filter only outside recovery mode. In
         // recovery the focus asset must be allowed through regardless of
         // its current stayedInArray total.
-        // if (!this.isAssetReady(asset) && this.consecutiveLosses <= 0) {
-        //     console.log(`⏸️  ${asset} is in pending list, skipping trade analysis`);
-        //     return;
-        // }
-
-        if (!this.isAssetReady(asset)) {
+        if (!this.isAssetReady(asset) && this.consecutiveLosses <= 0) {
             console.log(`⏸️  ${asset} is in pending list, skipping trade analysis`);
             return;
         }
@@ -1194,7 +1189,7 @@ class EnhancedDerivTradingBot {
         };
 
         // Suspend all other assets immediately on trade open
-        // this.suspendOtherAssets(asset);
+        this.suspendOtherAssets(asset);
 
         const trade = this.activeTrades[asset];
         const trendDirection = this.getStayedInTrendDirection(asset);
@@ -1553,9 +1548,9 @@ class EnhancedDerivTradingBot {
             this.hourlyStats.wins++;
 
             // Resume all assets after win
-            // if (this.focusAsset) {
-            //     this.resumeAllAssets();
-            // }
+            if (this.focusAsset) {
+                this.resumeAllAssets();
+            }
 
         } else {
             this.totalLosses++;
@@ -1573,11 +1568,11 @@ class EnhancedDerivTradingBot {
             else if (this.consecutiveLosses === 5) this.consecutiveLosses5++;
             else if (this.consecutiveLosses === 6) this.consecutiveLosses6++;
 
-            // if (this.consecutiveLosses >= 2) {
-            //     this.currentStake = Math.ceil(this.currentStake * this.config.multiplier2 * 100) / 100;
-            // } else {
+            if (this.consecutiveLosses >= 2) {
+                this.currentStake = Math.ceil(this.currentStake * this.config.multiplier2 * 100) / 100;
+            } else {
                 this.currentStake = Math.ceil(this.currentStake * this.config.multiplier * 100) / 100;
-            // }
+            }
         }
 
         // Keep traded digit array trimmed
@@ -1753,17 +1748,17 @@ class EnhancedDerivTradingBot {
 const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     initialStake: 1,
     initialStake2: 25,
-    multiplier: 1,
-    multiplier2: 2,
+    multiplier: 10,
+    multiplier2: 10,
     recoveryWinNum: 100,
-    maxConsecutiveLosses: 10,
+    maxConsecutiveLosses: 3,
     stopLoss: 127,
     takeProfit: 2500,
-    growthRate: 0.04,
-    takeProfitMultiplier: 0.12, //25% of Stake Amount
-    takeProfitMultiplier2: 0.12, //15% of Stake Amount
+    growthRate: 0.01,
+    takeProfitMultiplier: 0.25, //25% of Stake Amount
+    takeProfitMultiplier2: 0.15, //15% of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 2400, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 6200, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
 
     // ── StayedIn trend filter (NEW) ──────────────────────────────────────────
