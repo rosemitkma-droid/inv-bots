@@ -1143,11 +1143,11 @@ class EnhancedDerivTradingBot {
         const trendingUp = this.config.enableTrendFilter ? this.isStayedInTrendingUp(asset) : true;
         const trendDirection = this.getStayedInTrendDirection(asset);
 
-        if (entrySignal && !trendingUp) {
+        if (!trendingUp) {
             console.log(`   ⏳ ${asset}: entry conditions met but stayedIn trend is ${trendDirection} — waiting for a FRESH upward trend before entering`);
         }
 
-        if (entrySignal && trendingUp) {
+        if (trendingUp) {
             console.log(`   Entry condition: ✅ MET | Trend: ${trendDirection}`);
 
             this.tradedDigitArray.push(this.stayedInArray[99]);
@@ -1763,23 +1763,23 @@ const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     takeProfitMultiplier: 0.12, //25% of Stake Amount
     takeProfitMultiplier2: 0.12, //15% of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 2400, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 2000, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
 
     // ── StayedIn trend filter (NEW) ──────────────────────────────────────────
     enableTrendFilter: true,  // Only trade when stayedInArray sum is freshly trending upward
     trendSampleSize: 5,       // How many recent stayedIn samples to retain per asset
-    trendConfirmCount: 2,     // Consecutive upward steps required to confirm a fresh uptrend
+    trendConfirmCount: 0,     // Consecutive upward steps required to confirm a fresh uptrend
     trendMinDelta: 1,         // Minimum increase per step to count as "up" (raise to filter noise)
     trendMaxAgeMs: 120000,    // Ignore trend data older than this (stale safeguard)
 
     assets: [
-        'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
-        'CRASH50', 'CRASH150N', 'CRASH300N', 'CRASH500', 'CRASH600', 'CRASH900', 'CRASH1000',
-        // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
-        '1HZ10V', '1HZ25V', '1HZ75V', '1HZ100V',
+        // 'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
+        // 'CRASH50', 'CRASH150N', 'CRASH300N', 'CRASH500', 'CRASH600', 'CRASH900', 'CRASH1000',
+        'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
+        // '1HZ10V', '1HZ25V', '1HZ75V', '1HZ100V',
     ],
-    telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
+    telegramToken: '8106601008:AAEMyCma6mvPYIHEvw3RHQX2tkD5-wUe1o0',
     telegramChatId: '752497117',
 });
 
