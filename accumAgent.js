@@ -99,10 +99,12 @@ const CONFIG = Object.freeze({
   // ─ Assets (Deriv synthetic indices) ─
   // assets: ('BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
   //     .split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75,R_100')
-    .split(',').map(s => s.trim()).filter(Boolean),
-  // assets: ('R_10,R_25,R_50,R_75,R_100')
+  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75,R_100')
   //   .split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
+  assets: ('R_10,R_25,R_50,R_75,R_100')
+    .split(',').map(s => s.trim()).filter(Boolean),
 
   // ─ Telegram ─
   telegram: {
@@ -131,7 +133,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot5.log',
+  logFile : 'deriv_bot6.log',
   logLevel: ('INFO').toUpperCase(),
 });
 
