@@ -44,7 +44,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2n_01_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2n_02_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1768,10 +1768,10 @@ const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
 
     // ── StayedIn trend filter (NEW) ──────────────────────────────────────────
     enableTrendFilter: true,  // Only trade when stayedInArray sum is freshly trending upward
-    trendSampleSize: 5,       // How many recent stayedIn samples to retain per asset
-    trendConfirmCount: 0,     // Consecutive upward steps required to confirm a fresh uptrend
+    trendSampleSize: 10,       // How many recent stayedIn samples to retain per asset
+    trendConfirmCount: 1,     // Consecutive upward steps required to confirm a fresh uptrend
     trendMinDelta: 1,         // Minimum increase per step to count as "up" (raise to filter noise)
-    trendMaxAgeMs: 120000,    // Ignore trend data older than this (stale safeguard)
+    trendMaxAgeMs: 12000000,    //120000 Ignore trend data older than this (stale safeguard)
 
     assets: [
         // 'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
