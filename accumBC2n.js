@@ -44,7 +44,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2n_06_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2n_07_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
