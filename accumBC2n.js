@@ -44,7 +44,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2n_12_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2n_13_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -321,7 +321,7 @@ class EnhancedDerivTradingBot {
         // Check individual thresholds for recent values
         const recentThresholds = (
             // stayedInArray[99] >= stayedInArray[98] && stayedInArray[99] <= (stayedInArray[98] + 1) &&
-            stayedInArray[99] <= 0 &&
+            stayedInArray[99] <= 10 &&
             stayedInArray[98] > stayedInArray[97]  
             &&
             stayedInArray[97] > stayedInArray[96] 
@@ -1147,7 +1147,7 @@ class EnhancedDerivTradingBot {
             console.log(`   ⏳ ${asset}: entry conditions met but stayedIn trend is ${trendDirection} — waiting for a FRESH upward trend before entering`);
         }
 
-        if (entrySignal && trendingUp) {
+        if (trendingUp) {
             console.log(`   Entry condition: ✅ MET | Trend: ${trendDirection}`);
 
             this.tradedDigitArray.push(this.stayedInArray[99]);
@@ -1777,7 +1777,7 @@ const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
         'BOOM50','BOOM150N', 'BOOM300N', 'BOOM500', 'BOOM600', 'BOOM900', 'BOOM1000',
         'CRASH50', 'CRASH150N', 'CRASH300N', 'CRASH500', 'CRASH600', 'CRASH900', 'CRASH1000',
         // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
-        '1HZ10V', '1HZ25V', '1HZ75V', '1HZ100V',
+        // '1HZ10V', '1HZ25V', '1HZ75V', '1HZ100V',
     ],
     telegramToken: '8106601008:AAEMyCma6mvPYIHEvw3RHQX2tkD5-wUe1o0',
     telegramChatId: '752497117',
