@@ -134,7 +134,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot2_003.log',
+  logFile : 'deriv_bot2_004.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
@@ -2134,8 +2134,8 @@ class TradingBot {
           } 
           logger.debug(`SRAS ok: score=${srasScore.toFixed(2)} mean=${srasMean.toFixed(1)} ticks rising-streak=${srasRisingStreak} trend=${stays.trendNorm.toFixed(3)} above-med=${(stays.aboveMedian*100).toFixed(0)}%`);
         } else {
-          // No stay data yet — soft pass (don't block; just lower confidence)
-          logger.debug('SRAS: no cached stays yet — soft pass');
+          logger.debug('SRAS: no cached stays yet — Waiting!!!');
+          return;
         }
       } else {
         // If we have NO stay data, fetch fresh proposals to populate the cache.
