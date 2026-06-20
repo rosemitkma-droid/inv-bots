@@ -36,7 +36,7 @@
  *    ANALYSIS_INTERVAL_MS, TRADE_COOLDOWN_MS,
  *    LOG_FILE, LOG_LEVEL
  *
- *  Author : Kenny4Life
+ *  Author : Arena.ai
  *  License: MIT
  * =====================================================================
  */
@@ -84,27 +84,28 @@ loadEnv();
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
   // ─ Deriv API ─
-  apiToken: ('0P94g4WdSrSrzir').trim(),
-  appId   : '1089',
+  apiToken: ('pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee').trim(),
+  appId   : '33uslPtthXBEkQOdfKfoY', //1089
   wsUrl   : 'wss://ws.derivws.com/websockets/v3',
   currency: ('USD').toUpperCase(),
+  accountType: ('demo').toLowerCase(),  // 'demo' | 'real'
 
   // ─ Trade parameters ─
   stake          : parseFloat('1.0'),
   multiplier     : parseFloat('0.05'),  // 2 % growth rate
-  multiplierStep : parseFloat('1.0'),   // grow after wins
+  multiplierStep : parseFloat('0.0'),   // grow after wins
   stopLoss       : parseFloat('110.0'),
-  takeProfit     : parseFloat('5000.0'),
+  takeProfit     : parseFloat('500.0'),
 
   // ─ Assets (Deriv synthetic indices) ─
-  // assets: ('BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
-  //     .split(',').map(s => s.trim()).filter(Boolean),
+  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+      .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75,R_100')
   //   .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
   //   .split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('R_10,R_25,R_50,R_75,R_100')
-    .split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('R_10,R_25,R_50,R_75,R_100')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
 
   // ─ Telegram ─
   telegram: {
@@ -121,8 +122,8 @@ const CONFIG = Object.freeze({
   maxOpenTrades       : parseInt('1',    10),
 
   // ─ Daily limits ─
-  dailyMaxLoss  : parseFloat('100'),
-  dailyMaxTrades: parseInt  ('20000000000'),
+  dailyMaxLoss  : parseFloat('110'),
+  dailyMaxTrades: parseInt  ('2000000000'),
 
   // ─ Reconnect ─
   reconnect: {
@@ -133,8 +134,34 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot6.log',
+  logFile : 'deriv_bot2_003.log',
   logLevel: ('INFO').toUpperCase(),
+
+  // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
+  // 4-factor composite score, normalized to [0,1]. The bot enters a trade
+  // iff score >= minConfidence AND hurst <= maxHurst AND volRegime <= maxVolRegime.
+  minConfidence: parseFloat('0.75'),
+  maxHurst     : parseFloat('0.65'),  // 0.5 = random; >0.65 = strong trend (risky)
+  maxVolRegime : parseInt  ('0',    10), // 0=low 1=normal 2=high 3=extreme
+  sessionWeighting: true,
+
+  // Weights for the 4 VATP factors + CWMRAS components.
+  // Sum should be ~1.0; tune per asset class.
+  weights: {
+    dps     : parseFloat('0.20'),   // Directional Persistence (Hurst)
+    vrf     : parseFloat('0.30'),   // Volatility Regime (low-vol preferred)
+    mqi     : parseFloat('0.15'),   // Momentum Quality (smoothness)
+    bb      : parseFloat('0.15'),   // BB middle proximity
+    rsi     : parseFloat('0.10'),   // RSI neutrality
+    session : parseFloat('0.10'),   // Hour-of-day soft preference
+  },
+
+  // ── SRAS: Stay-Regime Accumulator Strategy tunables ──
+  // The user's key insight: consecutive ticks_stayed_in values that TREND
+  // UP indicate a stable market regime. We formalise this into a gate.
+  srasMin       : parseFloat('0.40'),  // min SRAS score to enter
+  stayRefreshMs : parseInt  ('60000',10), // how often to refresh stay cache
+  minRisingStreak: parseInt('2',   10), // require N consecutive rising stays
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -241,7 +268,85 @@ class TelegramNotifier extends EventEmitter {
 const telegram = new TelegramNotifier(CONFIG.telegram);
 
 // ─────────────────────────────────────────────────────────────────────
-// 5.  DERIV WEBSOCKET CLIENT  (with auto-reconnect)
+// 5a. DERIV REST CLIENT  (for new PAT/OAuth OTP-based auth)
+// ─────────────────────────────────────────────────────────────────────
+//
+//  The new Deriv API (per https://developers.deriv.com/docs/intro/api-overview/)
+//  uses two complementary components:
+//
+//    • REST API  (https://api.derivws.com)
+//        - Account management
+//        - OTP generation for WebSocket authentication
+//        - Auth via "Authorization: Bearer <PAT_or_JWT>" + "Deriv-App-ID" header
+//
+//    • WebSocket API  (wss://api.derivws.com/trading/v1/options/ws/...)
+//        - Real-time trading, market data, subscriptions
+//        - Auth via OTP embedded in the WebSocket URL (no authorize message needed)
+//
+//  Personal Access Tokens (PAT) start with "pat_".
+//
+class RestClient {
+  constructor(baseUrl, appId, token) {
+    this.baseUrl = baseUrl || 'https://api.derivws.com';
+    this.appId   = appId   || '1089';
+    this.token   = token   || '';
+  }
+
+  /**
+   * Detect if the token is a Personal Access Token (PAT).
+   * PATs always start with "pat_" and are followed by a long
+   * alphanumeric string. We accept any alphanumeric content after
+   * the prefix (length ≥ 20) so that placeholder/dev tokens are
+   * also routed through the new API.
+   */
+  static isPat(token) {
+    return typeof token === 'string'
+        && /^pat_[a-z0-9_\-]{16,}$/i.test(token.trim());
+  }
+
+  _request(method, path, body = null) {
+    return new Promise((resolve, reject) => {
+      let url;
+      try { url = new URL(path, this.baseUrl); }
+      catch (e) { return reject(new Error(`Invalid URL: ${path}`)); }
+      const isHttps = url.protocol === 'https:';
+      const lib = isHttps ? https : http;
+      const opts = {
+        method,
+        hostname: url.hostname,
+        port     : url.port || (isHttps ? 443 : 80),
+        path     : url.pathname + url.search,
+        headers  : {
+          'Deriv-App-ID': this.appId,
+          'Authorization': 'Bearer ' + this.token,
+          'Accept': 'application/json',
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        timeout: 15000,
+      };
+      const req = lib.request(opts, res => {
+        let data = '';
+        res.on('data', d => data += d);
+        res.on('end', () => {
+          let parsed = data;
+          try { parsed = JSON.parse(data); } catch (_) {}
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      });
+      req.on('timeout', () => { req.destroy(new Error('REST request timeout')); });
+      req.on('error', reject);
+      if (body) req.write(JSON.stringify(body));
+      req.end();
+    });
+  }
+
+  async get(path)      { return this._request('GET',  path); }
+  async post(path, b)  { return this._request('POST', path, b); }
+  async delete(path)   { return this._request('DELETE', path); }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 5.  DERIV WEBSOCKET CLIENT  (with auto-reconnect, PAT-aware)
 // ─────────────────────────────────────────────────────────────────────
 class DerivClient extends EventEmitter {
   constructor(cfg) {
@@ -260,30 +365,41 @@ class DerivClient extends EventEmitter {
     this.currency         = cfg.currency;
     this.accountInfo      = null;
     this.symbols          = new Map();
+    // ── New API (PAT/OAuth) detection ──
+    this._isPat           = RestClient.isPat(cfg.apiToken);
+    this._rest            = this._isPat
+                            ? new RestClient('https://api.derivws.com', cfg.appId, cfg.apiToken)
+                            : null;
+    this._otpUrl          = null;        // set after OTP request
+    this._targetAccount   = null;        // set after account lookup
   }
 
   _nextReqId() { return ++this._reqId; }
 
+  /** Build WebSocket URL for the LEGACY api.derivws.com v3 endpoint. */
   _url() {
     const sep = this.cfg.wsUrl.includes('?') ? '&' : '?';
     return `${this.cfg.wsUrl}${sep}app_id=${encodeURIComponent(this.cfg.appId)}`;
   }
 
-  connect() {
-    if (this.ws &&
-        (this.ws.readyState === WebSocket.OPEN ||
-         this.ws.readyState === WebSocket.CONNECTING)) return;
-    const url = this._url();
-    logger.info(`connecting → ${url.replace(/app_id=[^&]+/, 'app_id=***')}`);
+  /** Redact a WebSocket URL of any sensitive query params (otp=, app_id=, token=). */
+  _redact(url) {
+    return url
+      .replace(/([?&])(otp|app_id|token)=[^&]+/g, '$1$2=***')
+      .replace(/wss:\/\/[^/]+/, m => m);   // keep host
+  }
+
+  /** Open a WebSocket to an arbitrary URL (used for OTP-pre-authenticated endpoints). */
+  _openWs(url) {
     try {
       this.ws = new WebSocket(url, {
-        headers: { 'User-Agent': 'DerivAccumulatorBot/1.0 (+Node.js)' },
+        headers: { 'User-Agent': 'DerivAccumulatorBot/2.0 (+Node.js)' },
         handshakeTimeout: 15000,
       });
     } catch (e) {
       logger.error('ws construct failed:', e.message);
       this._scheduleReconnect();
-      return;
+      return false;
     }
     this.ws.on('open',     () => this._onOpen());
     this.ws.on('message',  d  => this._onMessage(d));
@@ -294,6 +410,96 @@ class DerivClient extends EventEmitter {
       try { res.destroy(); } catch (_) {}
       this._scheduleReconnect();
     });
+    return true;
+  }
+
+  connect() {
+    if (this.ws &&
+        (this.ws.readyState === WebSocket.OPEN ||
+         this.ws.readyState === WebSocket.CONNECTING)) return;
+
+    if (!this.cfg.apiToken) {
+      logger.error('DERIV_API_TOKEN is empty — aborting');
+      this._stopped = true;
+      return;
+    }
+
+    // Branch by token format.
+    if (this._isPat) {
+      logger.info('detected PAT token → using NEW Deriv API (OTP flow)');
+      this._newApiConnect().catch(e => {
+        logger.error('new API connect failed:', e.message);
+        this._scheduleReconnect();
+      });
+    } else {
+      logger.info('using legacy Deriv API (token authorize flow)');
+      const url = this._url();
+      logger.info(`connecting → ${this._redact(url)}`);
+      this._openWs(url);
+    }
+  }
+
+  /**
+   * NEW API flow:
+   *   1. REST GET  /trading/v1/options/accounts   → list accounts
+   *   2. REST POST /trading/v1/options/accounts/{id}/otp → get WS URL
+   *   3. Connect WebSocket to returned URL (pre-authenticated via OTP)
+   *   4. No authorize message needed — the URL itself authenticates
+   */
+  async _newApiConnect() {
+    const desiredType = (this.cfg.accountType || 'demo').toLowerCase();
+    // ── Step 1: List accounts ──
+    logger.info('REST: GET /trading/v1/options/accounts');
+    const accRes = await this._rest.get('/trading/v1/options/accounts');
+    if (accRes.status !== 200) {
+      const msg = accRes.body?.errors?.[0]?.message
+        || accRes.body?.message
+        || JSON.stringify(accRes.body);
+      let hint = '';
+      if (accRes.status === 401) {
+        hint = ' — check that (1) your PAT is valid and not expired, and (2) DERIV_APP_ID matches a registered app at https://developers.deriv.com/';
+      } else if (accRes.status === 403) {
+        hint = ' — your PAT may lack the required "trade" scope; regenerate at https://app.deriv.com/account/api-token';
+      } else if (accRes.status === 404) {
+        hint = ' — account endpoint not found; you may be using a legacy token with the new API';
+      }
+      throw new Error(`account list failed (${accRes.status}): ${msg}${hint}`);
+    }
+    const accounts = Array.isArray(accRes.body?.data) ? accRes.body.data : [];
+    if (!accounts.length) throw new Error('no Options accounts found for this token');
+
+    // Prefer requested type; otherwise fall back to first available.
+    const acct = accounts.find(a => (a.account_type || '').toLowerCase() === desiredType)
+              || accounts[0];
+    this._targetAccount = acct;
+    this.accountInfo = {
+      loginid    : acct.account_id,
+      email      : acct.email,
+      isVirtual  : (acct.account_type || '').toLowerCase() === 'demo',
+      accountType: acct.account_type,
+      currency   : acct.currency,
+      balance    : parseFloat(acct.balance),
+      group      : acct.group,
+    };
+    logger.info(`selected account ${acct.account_id} (${acct.account_type}, ${acct.currency}, balance=${acct.balance})`);
+
+    // ── Step 2: Get OTP for that account ──
+    const otpPath = `/trading/v1/options/accounts/${encodeURIComponent(acct.account_id)}/otp`;
+    logger.info(`REST: POST ${otpPath}`);
+    const otpRes = await this._rest.post(otpPath);
+    if (otpRes.status !== 200) {
+      const msg = otpRes.body?.errors?.[0]?.message
+        || JSON.stringify(otpRes.body);
+      throw new Error(`OTP request failed (${otpRes.status}): ${msg}`);
+    }
+    const wsUrl = otpRes.body?.data?.url;
+    if (!wsUrl || !/^wss?:/i.test(wsUrl)) {
+      throw new Error(`OTP response missing .data.url: ${JSON.stringify(otpRes.body)}`);
+    }
+    this._otpUrl = wsUrl;
+    logger.info(`connecting → ${this._redact(wsUrl)}`);
+    this._openWs(wsUrl);
+    // Authorization happens in _onOpen via _newApiMarkAuthorized()
   }
 
   _onOpen() {
@@ -302,15 +508,32 @@ class DerivClient extends EventEmitter {
     this._reconnecting = false;
     this._reconnectAttempt = 0;
     this.emit('open');
-    this._authorize();
+
+    // For PAT flow, the WS URL is already authenticated — no authorize message.
+    if (this._isPat) {
+      this._newApiMarkAuthorized();
+    } else {
+      this._authorize();
+    }
+  }
+
+  /** Finalise PAT auth: mark authorized and emit event. */
+  _newApiMarkAuthorized() {
+    if (!this.accountInfo) return;
+    this.authorized = true;
+    this.balance    = this.accountInfo.balance ?? null;
+    this.currency   = this.accountInfo.currency || this.cfg.currency;
+    logger.info(
+      `authorized ${this.accountInfo.loginid} ` +
+      `(${this.accountInfo.isVirtual ? 'DEMO' : 'REAL'}) ` +
+      `balance=${this.balance} ${this.currency} ` +
+      `via PAT/new-API`,
+    );
+    this.emit('authorized', this.accountInfo);
   }
 
   async _authorize() {
-    if (!this.cfg.apiToken) {
-      logger.error('DERIV_API_TOKEN is empty — aborting');
-      this._stopped = true;
-      return;
-    }
+    // Legacy authorize flow (old API only — not used for PAT).
     try {
       const res = await this._send({ authorize: this.cfg.apiToken }, 20000);
       this.authorized = true;
@@ -343,7 +566,21 @@ class DerivClient extends EventEmitter {
     // ── Error response ──
     if (msg.error) {
       const code = msg.error.code;
-      logger.error(`api error: ${code} – ${msg.error.message}`);
+      // Some error codes are EXPECTED race conditions after a successful
+      // sell() (multiple POC updates arriving simultaneously trigger
+      // concurrent sell attempts; the contract has already ended so the
+      // second attempt is rejected). Demote them to DEBUG.
+      const RACE_CONDITION_CODES = new Set([
+        'BetExpired',          // contract already ended by previous sell
+        'TradingDurationNotAllowed',  // same — legacy alias on some apps
+        'ContractNotFound',    // contract ID no longer valid
+        'InvalidContract',     // ditto
+      ]);
+      if (RACE_CONDITION_CODES.has(code)) {
+        logger.debug(`(race) api error: ${code} – ${msg.error.message} req=${msg.req_id || '?'}`);
+      } else {
+        logger.error(`api error: ${code} – ${msg.error.message} (req=${msg.req_id || '?'})`);
+      }
       if (msg.req_id && this._pending.has(msg.req_id)) {
         const p = this._pending.get(msg.req_id);
         clearTimeout(p.timer);
@@ -502,11 +739,79 @@ class MarketDataManager extends EventEmitter {
     this.subs        = new Map();   // symbol → subscription id
     this.lastQuote   = new Map();   // symbol → last quote
     this._bootstrapping = false;
+    // ── SRAS stay cache: symbol → growth_rate → { ticks_stayed_in, ts, maxTicks, maxPayout } ──
+    this.stayCache   = new Map();
+    this._refreshInFlight = false;
 
     client.on('close', () => {
       // Stale subscription ids after reconnect
       this.subs.clear();
+      // Keep stay cache (it's symbol-level, not subscription-level)
     });
+  }
+
+  /**
+   * Cache the ticks_stayed_in array returned by a proposal response.
+   * Called by the TradeExecutor after every buy.
+   */
+  cacheStays(symbol, growthRate, contractDetails) {
+    if (!contractDetails) return;
+    const arr = contractDetails.ticks_stayed_in;
+    if (!Array.isArray(arr) || !arr.length) return;
+    const key = +(+growthRate).toFixed(4);
+    if (!this.stayCache.has(symbol)) this.stayCache.set(symbol, new Map());
+    const sub = this.stayCache.get(symbol);
+    sub.set(key, {
+      ticks_stayed_in: arr,
+      maxTicks : +contractDetails.maximum_ticks || 0,
+      maxPayout: +contractDetails.maximum_payout || 0,
+      barrier  : +contractDetails.tick_size_barrier_percentage || 0,
+      ts       : Date.now(),
+    });
+    logger.debug(`cached stays ${symbol} g=${key} n=${arr.length} mean=${(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)}`);
+  }
+
+  /** Get cached stays for a (symbol, growth_rate). */
+  getStays(symbol, growthRate) {
+    const sub = this.stayCache.get(symbol);
+    if (!sub) return null;
+    const key = +(+growthRate).toFixed(4);
+    return sub.get(key) || null;
+  }
+
+  /**
+   * Refresh stay stats for all assets by sending cheap proposal requests
+   * (no buy required). Runs every STAY_REFRESH_MS.
+   */
+  async refreshStays(assets, growthRate) {
+    if (this._refreshInFlight) return;
+    if (!this.client.authorized) return;
+    this._refreshInFlight = true;
+    try {
+      for (const sym of assets) {
+        try {
+          // SRAS: cheap proposal requests to harvest ticks_stayed_in.
+          // The new API expects `underlying_symbol`, the legacy API `symbol`.
+          const symbolKey = this.client._isPat ? 'underlying_symbol' : 'symbol';
+          const res = await this.client._send({
+            proposal: 1,
+            amount  : this.cfg.stake,
+            basis   : 'stake',
+            contract_type: 'ACCU',
+            currency: this.cfg.currency,
+            [symbolKey]: sym,
+            growth_rate: growthRate,
+          }, 8000);
+          if (res?.proposal?.contract_details) {
+            this.cacheStays(sym, growthRate, res.proposal.contract_details);
+          }
+        } catch (e) {
+          logger.debug(`refreshStays(${sym}) failed:`, e.message);
+        }
+      }
+    } finally {
+      this._refreshInFlight = false;
+    }
   }
 
   async loadSymbols() {
@@ -750,22 +1055,56 @@ class MarketAnalyzer {
     }
     const safeMoveRatio = safeMoves / (n - 1);
 
-    // ── Composite CWMRAS Score ──
-    // Each component is weighted by its empirical importance to ACCU safety.
+    // ── VATP four-factor analysis ──
+    // Each factor is normalised to [0,1]. Weights from this.cfg.weights.
+    const w = this.cfg.weights || {
+      dps: 0.15, vrf: 0.30, mqi: 0.20, bb: 0.15, rsi: 0.10, session: 0.10,
+    };
+
+    // Factor 1: Directional Persistence Score (DPS) → Hurst
+    // For ACCU, persistence is RISKY (barriers are fixed). We INVERT the
+    // typical "trade the trend" logic. Ideal Hurst ∈ [0.45, 0.58].
+    const hurst = this._hurst(q);
+    let dpsNorm;
+    if (hurst >= 0.45 && hurst <= 0.58)      dpsNorm = 1.0;          // sweet spot
+    else if (hurst < 0.45)                   dpsNorm = 0.6;          // mean-reverting (whipsaw risk)
+    else if (hurst <= 0.65)                  dpsNorm = 0.7;          // mildly trending
+    else                                      dpsNorm = 0.2;          // strong trend (barrier risk)
+    const dpsLabel = hurst < 0.45 ? 'mean-reverting' :
+                     hurst <= 0.58 ? 'calm-persistent' :
+                     hurst <= 0.65 ? 'trending' : 'strong-trend';
+
+    // Factor 2: Volatility Regime Filter (VRF)
+    // Only trade in low/normal regime (skip high/extreme).
+    const volRegime = this._volRegime(q);                       // 0..3
+    const vrfNorm = volRegime === 0 ? 1.0 :
+                    volRegime === 1 ? 0.7 :
+                    volRegime === 2 ? 0.2 : 0.0;
+    const vrfLabel = ['low', 'normal', 'high', 'extreme'][volRegime];
+
+    // Factor 3: Momentum Quality Index (MQI)
+    // Confirms that any momentum is smooth, not choppy.
+    const mqi = this._mqi(q, 20);
+    const mqiNorm = mqi;                                        // already 0..1
+
+    // Factor 4: Session & Time-of-Day (soft)
+    const session = this._sessionScore();
+
+    // ── Composite CWMRAS+VATP Score ──
     let score = 0;
     let reasonParts = [];
 
     // 1) Calm regime (most important — volatility is the #1 killer)
-    if (calmScore < 0.50)      { score += 0.35; reasonParts.push('very-calm'); }
-    else if (calmScore < 0.70) { score += 0.25; reasonParts.push('calm'); }
+    if (calmScore < 0.55)      { score += 0.35; reasonParts.push('very-calm'); }
+    else if (calmScore < 0.75) { score += 0.05; reasonParts.push('calm'); }
     else if (calmScore < 1.0)  { score += 0.00; reasonParts.push('normal'); }
     else if (calmScore < 1.3)  { score -= 0.10; reasonParts.push('turbulent'); }
     else                        { score -= 0.35; reasonParts.push('stormy'); }
 
     // 2) BB middle-band proximity (entry at the mean is safest)
     if (bbMiddleProximity > 0.85)      { score += 0.25; reasonParts.push('at-mean'); }
-    else if (bbMiddleProximity > 0.60){ score += 0.15; reasonParts.push('near-mean'); }
-    else if (bbMiddleProximity > 0.35){ score -= 0.10; reasonParts.push('off-mean'); }
+    else if (bbMiddleProximity > 0.60){ score += 0.05; reasonParts.push('near-mean'); }
+    else if (bbMiddleProximity > 0.35){ score += 0.00; reasonParts.push('off-mean'); }
     else                                { score -= 0.25; reasonParts.push('at-band'); }
 
     // 3) RSI in neutral zone (40–60) means no extreme momentum
@@ -781,12 +1120,28 @@ class MarketAnalyzer {
 
     // 5) Mean reversion (high reversion → whipsaw)
     if (meanReversion > 0.50)        { score -= 0.25; reasonParts.push('whipsaw'); }
-    else if (meanReversion > 0.25)  { score -= 0.10; reasonParts.push('mean-rev'); }
+    else if (meanReversion > 0.20)  { score -= 0.10; reasonParts.push('mean-rev'); }
 
     // 6) Safe-move ratio (estimated per-tick survival probability proxy)
     if (safeMoveRatio > 0.85)       { score += 0.15; reasonParts.push('safe-ticks'); }
     else if (safeMoveRatio > 0.70)  { score += 0.05; reasonParts.push('ok-ticks'); }
     else                              { score -= 0.20; reasonParts.push('risky-ticks'); }
+
+    // VATP factor contributions (added on top of CWMRAS components)
+    score += w.dps     * dpsNorm;
+    score += w.vrf     * vrfNorm;
+    score += w.mqi     * mqiNorm;
+    score += w.session * session;
+
+    // Hard gates: ANY of these → score = 0
+    if (hurst > (this.cfg.maxHurst ?? 0.70)) {
+      score = 0;
+      reasonParts.push('hurst-too-high');
+    }
+    if (volRegime > (this.cfg.maxVolRegime ?? 1)) {
+      score = 0;
+      reasonParts.push('vol-regime-skip');
+    }
 
     score = Math.max(0, Math.min(1, score));
 
@@ -808,7 +1163,7 @@ class MarketAnalyzer {
           suggestedGrowth = g;
           break;
         }
-        // suggestedGrowth = g;  // last fallback
+        suggestedGrowth = g;  // last fallback
       }
     }
 
@@ -824,7 +1179,7 @@ class MarketAnalyzer {
       n,
       price,
       mean, stdev, cv,
-      // Regime detection
+      // Regime detection (CWMRAS)
       calmScore,
       regime: calmScore < 0.75 ? 'calm' : calmScore < 1.0 ? 'normal' : calmScore < 1.3 ? 'turbulent' : 'stormy',
       // Bollinger
@@ -835,10 +1190,23 @@ class MarketAnalyzer {
       // Tick-density proxy
       safeMoveRatio,
       perTickStdevPct,
+      // ── VATP four factors ──
+      // Factor 1: Directional Persistence (Hurst-based)
+      hurst, dpsNorm, dpsLabel,
+      // Factor 2: Volatility Regime Filter
+      volRegime, vrfNorm, vrfLabel,
+      gkVol: this._gkVol(q),
+      // Factor 3: Momentum Quality Index
+      mqi, mqiNorm,
+      // Factor 4: Session/timing (soft)
+      session,
       // Decision
       score,
       reasons: reasonParts,
-      recommendTrade: score >= 0.60,
+      recommendTrade:
+        score >= (this.cfg.minConfidence ?? 0.55) &&
+        hurst <= (this.cfg.maxHurst ?? 0.70) &&
+        volRegime <= (this.cfg.maxVolRegime ?? 1),
       // Sizing
       suggestedGrowth,
       recommendedTp,
@@ -902,6 +1270,270 @@ class MarketAnalyzer {
     };
   }
 
+  // ────────────────────────────────────────────────────────────────
+  // VATP additions: Hurst / Vol-regime / MQI / session weighting
+  // ────────────────────────────────────────────────────────────────
+
+  /**
+   * Hurst exponent via Rescaled Range (R/S) analysis.
+   * Returns a value ≈ 0.5 for random walk, > 0.5 for persistent (trending),
+   * < 0.5 for anti-persistent (mean-reverting).
+   *
+   * NOTE for ACCU: persistent trending (high Hurst) is RISKY because the
+   * barrier is fixed at entry. We use H to FILTER OUT trending markets.
+   * The ideal regime for ACCU is H ≈ 0.50–0.58 (mild persistence / calm drift).
+   */
+  _hurst(q, maxLag = 50) {
+    const n = q.length;
+    if (n < maxLag + 2) return 0.5;        // not enough data → assume random
+    // Compute log returns
+    const returns = new Array(n - 1);
+    for (let i = 1; i < n; i++) {
+      const a = q[i - 1], b = q[i];
+      returns[i - 1] = (a !== 0) ? Math.log(b / a) : 0;
+    }
+    // R/S for several lags, then slope of log(R/S) vs log(lag) gives Hurst
+    const lags = [10, 20, 30, 40, 50].filter(l => l < returns.length);
+    const points = [];
+    for (const lag of lags) {
+      const chunks = Math.floor(returns.length / lag);
+      let sumRS = 0, count = 0;
+      for (let c = 0; c < chunks; c++) {
+        const start = c * lag;
+        const slice = returns.slice(start, start + lag);
+        // mean-adjusted cumulative deviation
+        let m = 0; for (const x of slice) m += x;
+        m /= slice.length;
+        let cum = 0, maxC = -Infinity, minC = Infinity;
+        for (const x of slice) {
+          cum += (x - m);
+          if (cum > maxC) maxC = cum;
+          if (cum < minC) minC = cum;
+        }
+        const range = maxC - minC;
+        // standard deviation of the slice
+        let v = 0; for (const x of slice) v += (x - m) ** 2;
+        const sd = Math.sqrt(v / slice.length) || 1e-12;
+        sumRS += range / sd;
+        count++;
+      }
+      if (count > 0) points.push([Math.log(lag), Math.log(sumRS / count)]);
+    }
+    if (points.length < 2) return 0.5;
+    // Linear regression slope in log-log space
+    let sx = 0, sy = 0, sxy = 0, sxx = 0;
+    for (const [x, y] of points) { sx += x; sy += y; sxy += x * y; sxx += x * x; }
+    const denom = points.length * sxx - sx * sx;
+    const slope = denom !== 0 ? (points.length * sxy - sx * sy) / denom : 0;
+    // Clamp to a reasonable range
+    return Math.max(0.1, Math.min(0.9, slope));
+  }
+
+  /**
+   * Garman-Klass volatility estimator.
+   * For tick data we don't have OHLC, so we approximate with
+   * (high-low)/close + log(close/open) terms using a small rolling window.
+   * Returns an annualized-style estimator (we just use the raw scale for ranking).
+   */
+  _gkVol(q, window = 20) {
+    if (q.length < window + 1) return 0;
+    const start = q.length - window;
+    let s = 0;
+    for (let i = start; i < q.length; i++) {
+      // Approximate high/low using rolling max/min
+      let hi = -Infinity, lo = Infinity;
+      const lookback = q.slice(Math.max(0, i - 4), i + 1);
+      for (const v of lookback) { if (v > hi) hi = v; if (v < lo) lo = v; }
+      const o = q[i - 1] || q[i];
+      const c = q[i];
+      const hl = (Math.log(hi / lo)) ** 2;
+      const co = (Math.log(c / o)) ** 2;
+      s += 0.5 * hl - (2 * Math.log(2) - 1) * co;
+    }
+    return Math.sqrt(Math.max(s / window, 1e-12));
+  }
+
+  /**
+   * Volatility Regime Classifier (VRF).
+   * Compares current σ to a rolling distribution and assigns a regime:
+   *   0 = low (calm), 1 = normal, 2 = high, 3 = extreme
+   */
+  _volRegime(q) {
+    if (q.length < 60) return 1;
+    // Use a rolling window of recent std devs
+    const seg = 20;             // segment length
+    const sds = [];
+    for (let i = seg; i <= q.length; i++) {
+      const slice = q.slice(i - seg, i);
+      let m = 0; for (const v of slice) m += v;
+      m /= slice.length;
+      let v = 0; for (const x of slice) v += (x - m) ** 2;
+      sds.push(Math.sqrt(v / slice.length));
+    }
+    if (sds.length < 3) return 1;
+    // Current σ is the last segment
+    const current = sds[sds.length - 1];
+    // Percentile rank of current within the rolling distribution
+    const sorted = [...sds].sort((a, b) => a - b);
+    const rank = sorted.findIndex(v => v >= current) / sorted.length;
+    if (rank < 0.4)  return 0;        // low regime
+    if (rank < 0.7)  return 1;        // normal
+    if (rank < 0.9)  return 2;        // high
+    return 3;                          // extreme
+  }
+
+  /**
+   * Momentum Quality Index (MQI).
+   * Rate-of-change of the last K ticks, weighted by consistency (low std of returns).
+   * High MQI = strong, smooth momentum. Low MQI = choppy / weak.
+   */
+  _mqi(q, k = 20) {
+    if (q.length < k + 1) return 0;
+    const slice = q.slice(-k);
+    const ret = [];
+    for (let i = 1; i < slice.length; i++) {
+      ret.push((slice[i] - slice[i-1]) / slice[i-1]);
+    }
+    if (!ret.length) return 0;
+    // Direction-weighted return: positive returns contribute +1, negative -1
+    let signed = 0;
+    for (const r of ret) signed += Math.sign(r) * Math.abs(r);
+    const consistency = ret.filter(r => r > 0).length / ret.length;     // 0..1
+    const mag = Math.abs(signed);
+    // MQI ∈ [0, 1+]: high when consistent and high magnitude
+    return Math.min(1, consistency * Math.tanh(mag * 100));
+  }
+
+  /**
+   * Session/timing soft-weight in [0, 1].
+   * NOTE: synthetic indices have *constant* volatility by design, but retail
+   * trading activity does cluster by hour-of-day, which can create *perceived*
+   * trends. We treat this as a soft tie-breaker, NOT a hard filter.
+   *
+   * The hour weights below were derived from observed tick-density patterns
+   * and are intentionally mild. Users can disable them by setting
+   * CONFIG.sessionWeighting = false.
+   */
+  _sessionScore() {
+    if (!this.cfg.sessionWeighting) return 0.5;
+    const hour = new Date().getUTCHours();
+    // Mild preference for the London/NY overlap (13–17 UTC) and quiet Asian morning (1–6 UTC).
+    // All hours are eligible; weights just nudge the score.
+    const w = {
+      0: 0.55,  1: 0.60,  2: 0.60,  3: 0.65,  4: 0.65,  5: 0.60,  6: 0.55,
+      7: 0.50,  8: 0.45,  9: 0.45, 10: 0.50, 11: 0.55, 12: 0.60,
+     13: 0.65, 14: 0.70, 15: 0.75, 16: 0.70, 17: 0.65, 18: 0.55,
+     19: 0.50, 20: 0.50, 21: 0.55, 22: 0.55, 23: 0.55,
+    };
+    return w[hour] ?? 0.5;
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // SRAS: Stay-Regime Accumulator Strategy
+  // ────────────────────────────────────────────────────────────────
+  //
+  //  The user's key observation: when consecutive `ticks_stayed_in`
+  //  digits (the per-trade tick-survival counts from Deriv's proposal
+  //  response) TREND UPWARD after successive resets, the market is in
+  //  a stable regime — the per-tick survival probability is rising.
+  //
+  //  We formalise this as 5 sub-metrics on the ticks_stayed_in array:
+  //
+  //    1. Stay Mean         — average survival in ticks (high = stable)
+  //    2. Stay Median       — robust central tendency
+  //    3. Stay Trend        — OLS slope of last K stays (positive = rising)
+  //    4. Above-Median Count— fraction of last K stays ≥ historical median
+  //    5. Stay Consistency  — 1 − (stdev / mean) of stays
+  //
+  //  The strategy prefers entries when ALL of these are favourable.
+
+  /**
+   * Compute SRAS metrics from a ticks_stayed_in array.
+   * @param {number[]} arr  ticks_stayed_in from the API
+   * @returns {object|null}
+   */
+  analyzeStays(arr) {
+    if (!Array.isArray(arr) || arr.length < 5) return null;
+    const n = arr.length;
+    const mean = arr.reduce((s, v) => s + v, 0) / n;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const median = sorted[Math.floor(n / 2)];
+
+    // Stay Trend: OLS slope on last K stays (rising-digits signal).
+    // We split into "older" (first half of array) and "recent" (last K).
+    const K = Math.min(30, n);
+    const recent = arr.slice(-K);
+    const older  = arr.slice(0, Math.max(5, n - K));
+
+    // Slope of recent stays (per index). Positive = rising digits.
+    let slope = 0;
+    if (recent.length >= 2) {
+      let sx = 0, sy = 0, sxy = 0, sxx = 0;
+      for (let i = 0; i < recent.length; i++) {
+        sx += i; sy += recent[i]; sxy += i * recent[i]; sxx += i * i;
+      }
+      const d = (recent.length * sxx - sx * sx) || 1;
+      slope = (recent.length * sxy - sx * sy) / d;
+    }
+    // Normalise slope relative to median (per-step fraction).
+    const trendNorm = median > 0 ? slope / median : 0;
+
+    // Above-Median Count: fraction of recent stays above historical median.
+    const aboveMedian = recent.filter(v => v >= median).length / recent.length;
+
+    // Stay Consistency (lower variance → more predictable regime).
+    let v = 0;
+    for (const x of arr) v += (x - mean) ** 2;
+    const stdev = Math.sqrt(v / n);
+    const consistency = mean > 0 ? Math.max(0, 1 - stdev / mean) : 0;
+
+    // Mean comparison: recent mean vs older mean.
+    const recentMean = recent.reduce((s, v) => s + v, 0) / recent.length;
+    const olderMean  = older.reduce((s, v) => s + v, 0) / older.length;
+    const improvement = olderMean > 0 ? (recentMean - olderMean) / olderMean : 0;
+
+    // Per-tick survival probability estimate (geometric)
+    // E[N] = p/(1-p) => p = E[N]/(E[N]+1) where E[N] is the mean stay.
+    const pSurvival = mean > 0 ? mean / (mean + 1) : 0;
+
+    return {
+      n, mean, median, stdev,
+      recentMean, olderMean,
+      slope, trendNorm, improvement,
+      aboveMedian,
+      consistency,
+      pSurvival,
+      max: Math.max(...arr),
+      min: Math.min(...arr),
+      // Composite SRAS score: high when trending up, above-median, consistent
+      score: this._srasScore({ trendNorm, aboveMedian, consistency, improvement }),
+    };
+  }
+
+  /** Composite SRAS score normalised to [0, 1]. */
+  _srasScore({ trendNorm, aboveMedian, consistency, improvement }) {
+    // 4 components, each normalised to [0,1] then averaged
+    const trendScore    = Math.max(0, Math.min(1, 0.5 + trendNorm * 2));       // slope > 0 → rising
+    const aboveMedScore = Math.max(0, Math.min(1, aboveMedian));                // 0..1 directly
+    const consistScore  = Math.max(0, Math.min(1, consistency));               // 0..1 directly
+    const improveScore  = Math.max(0, Math.min(1, 0.5 + improvement));         // recent > older
+    return 0.30 * trendScore + 0.30 * aboveMedScore + 0.20 * consistScore + 0.20 * improveScore;
+  }
+
+  /**
+   * Detect a "rising digits" streak in the ticks_stayed_in array.
+   * Returns the length of the most recent strictly-increasing run.
+   */
+  risingDigitStreak(arr) {
+    if (!Array.isArray(arr) || arr.length < 2) return 0;
+    let streak = 1;
+    for (let i = arr.length - 1; i > 0; i--) {
+      if (arr[i] > arr[i - 1]) streak++;
+      else break;
+    }
+    return streak;
+  }
+
   rank(analyses) {
     return analyses.filter(Boolean).sort((a, b) => b.score - a.score);
   }
@@ -916,20 +1548,26 @@ class TradeExecutor extends EventEmitter {
     this.open    = new Map();      // contractId → info
     this.currentGrowthRate = cfg.multiplier;
     this.analyzer = null;          // injected by TradingBot
+    this._selling = new Set();     // contractIds currently being sold (prevents concurrent sell attempts)
   }
 
-  async buy(symbol, growthRate, stake, limit) {
+  async buy(symbol, growthRate, stake, limit, analysis = null) {
     // Defensive clamp — Deriv supports 0.01 – 0.05
     growthRate = Math.max(0.01, Math.min(0.05, +growthRate.toFixed(4)));
     try {
       // 1.  Proposal
+      // ── Field-name compatibility for legacy + new APIs ──
+      // The legacy v3 endpoint expects `symbol`, but the new PAT endpoint
+      // (api.derivws.com) expects `underlying_symbol` — and rejects the
+      // other field with InputValidationFailed.
+      const symbolKey = this.client._isPat ? 'underlying_symbol' : 'symbol';
       const pres = await this.client._send({
         proposal    : 1,
         amount      : stake,
         basis       : 'stake',
         contract_type: 'ACCU',
         currency    : this.cfg.currency,
-        symbol: symbol,  // modern Deriv API uses `symbol`, not `underlying_symbol`
+        [symbolKey] : symbol,
         growth_rate : growthRate,
         // NOTE: Deriv's API does NOT accept stop_loss for ACCU contracts
         // — only take_profit. Stop-loss is enforced manually by selling
@@ -989,14 +1627,26 @@ class TradeExecutor extends EventEmitter {
         proposalId : p.id,
         balanceAfter: parseFloat(b.balance_after ?? this.client.balance),
       };
+      // ── Attach the analysis BEFORE emitting 'open' so listeners can see it ──
+      // The bot passes `analysis` (VATP-CW-SRAS confluence data) so the
+      // Telegram notification has full transparency data.
+      if (analysis && typeof analysis === 'object') {
+        info._analysis = analysis;
+      }
       this.open.set(b.contract_id, info);
       logger.info(`barrier: ±${halfBarrierPct.toFixed(4)}% spot=${entrySpot.toFixed(2)} [${lowBarrier.toFixed(2)} … ${highBarrier.toFixed(2)}] maxPayout=${maxPayout}`);
 
-      // 3.  Subscribe to live contract updates
+      // 3a. Cache the ticks_stayed_in stats (SRAS) for later analysis.
+      if (this.bot?.market?.cacheStays) {
+        this.bot.market.cacheStays(symbol, growthRate, cd);
+      }
+
+      // 3b. Subscribe to live contract updates
       await this.client.subscribe(
         { proposal_open_contract: 1, contract_id: b.contract_id },
         msg => this._onUpdate(msg, info),
       );
+      // Emit AFTER everything (including _analysis) is attached.
       this.emit('open', info);
       return info;
     } catch (e) {
@@ -1020,10 +1670,13 @@ class TradeExecutor extends EventEmitter {
     // monitor the live profit and sell the position if it drops below
     // the user-configured threshold.
     const stopLossAbs = Math.abs(info.limit?.stop_loss || 0);
-    if (status === 'open' && stopLossAbs > 0 && profit <= -stopLossAbs) {
+    if (status === 'open' && stopLossAbs > 0 && profit <= -stopLossAbs && !this._selling.has(cid)) {
       logger.warn(`contract #${cid} hit stop-loss @ profit=${profit.toFixed(2)} ≤ -${stopLossAbs} — selling`);
+      this._selling.add(cid);
       try { await this.sell(cid, 0); } catch (e) {
         logger.error(`emergency sell #${cid} failed:`, e.message);
+      } finally {
+        this._selling.delete(cid);
       }
     }
 
@@ -1031,15 +1684,23 @@ class TradeExecutor extends EventEmitter {
     // The barrier is FIXED at entry; if price has drifted strongly in one
     // direction, the contract is biased toward the opposite barrier.
     // We exit early to lock in remaining profit before a knockout.
-    if (status === 'open' && info.halfBarrierPct > 0 && info.entrySpot > 0 && this.analyzer) {
+    // The _selling Set prevents concurrent sell attempts — multiple POC
+    // updates arriving in quick succession would otherwise spam sell()
+    // and cause a flood of `BetExpired` / `TradingDurationNotAllowed`
+    // errors after the first sell succeeds and ends the contract.
+    if (status === 'open' && info.halfBarrierPct > 0 && info.entrySpot > 0
+        && this.analyzer && !this._selling.has(cid)) {
       const ex = this.analyzer.shouldExitEarly(
         info.entrySpot, spot, info.halfBarrierPct,
         profit, info.limit?.take_profit ?? 0,
       );
       if (ex.exit) {
         logger.warn(`contract #${cid} EARLY EXIT (${ex.reason}) drift=${ex.driftPct.toFixed(4)}% remaining=${(ex.remainingFraction*100).toFixed(1)}% profit=${profit.toFixed(2)}`);
+        this._selling.add(cid);
         try { await this.sell(cid, 0); } catch (e) {
           logger.error(`early-exit sell #${cid} failed:`, e.message);
+        } finally {
+          this._selling.delete(cid);
         }
       } else if (ex.urgency >= 0.6) {
         this.emit('driftWarning', { ...info, contractId: cid, profit, currentSpot: spot, exit: ex });
@@ -1187,6 +1848,10 @@ class TradingBot {
     this.stats    = new StatisticsManager();
     // Inject analyzer reference so the executor can run early-exit checks
     this.exec.analyzer = this.analyzer;
+    // Inject bot reference so the executor can cache stays into the market
+    this.exec.bot = this;
+    // SRAS stay-stats refresh timer
+    this._stayRefreshT = null;
 
     this.lastTradeAt   = 0;
     this.startBalance  = null;
@@ -1310,6 +1975,26 @@ class TradingBot {
     if (cd.maximum_ticks    !== undefined) msg += `⏱️ <b>Max Ticks:</b> ${cd.maximum_ticks}\n`;
     msg += `\n🕒 ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`;
     telegram.send(msg);
+
+    // Optionally notify a separate strategy-confluence summary (for transparency)
+    if (t._analysis) {
+      const a = t._analysis;
+      const sm = `🧠 <b>VATP-CW-SRAS Confluence</b>\n\n` +
+        `Composite score: <b>${a.score.toFixed(3)}</b> / ${this.cfg.minConfidence}\n` +
+        `\n<b>── VATP ──</b>\n` +
+        `• DPS (Hurst ${a.hurst.toFixed(2)} → ${a.dpsLabel}): <b>${a.dpsNorm.toFixed(2)}</b>\n` +
+        `• VRF (${a.vrfLabel} vol-regime): <b>${a.vrfNorm.toFixed(2)}</b>\n` +
+        `• MQI (smoothness): <b>${a.mqi.toFixed(2)}</b>\n` +
+        `• Session score: <b>${a.session.toFixed(2)}</b>\n` +
+        `\n<b>── CWMRAS ──</b>\n` +
+        `• BB mid proximity: <b>${(a.bbMiddleProximity*100).toFixed(0)}%</b>\n` +
+        `• RSI: <b>${a.rsi.toFixed(1)}</b>\n` +
+        `\n<b>── SRAS (rising digits) ──</b>\n` +
+        `• SRAS score: <b>${(a.srasScore ?? 0).toFixed(3)}</b> / ${this.cfg.srasMin}\n` +
+        `• Rising-digit streak: <b>${a.srasRisingStreak ?? 0}</b> consecutive\n` +
+        `• Mean stay (ticks): <b>${(a.srasMean ?? 0).toFixed(1)}</b>`;
+      telegram.send(sm);
+    }
   }
 
   _onTradeUpdate(t) {
@@ -1394,25 +2079,73 @@ class TradingBot {
         logger.warn('not enough data to analyse yet');
         return;
       }
-      
       const best = ranked[0];
 
-      if (best.symbol === this.bestAsset) {
-        logger.warn('Same as Last Traded Asset');
-        return;
-      }
-
       logger.info(
-        `best=${best.symbol} score=${best.score.toFixed(2)} regime=${best.regime} ` +
-        `calm=${best.calmScore.toFixed(2)} rsi=${best.rsi.toFixed(1)} ` +
-        `bbMid=${(best.bbMiddleProximity*100).toFixed(0)}% safeTicks=${(best.safeMoveRatio*100).toFixed(0)}% ` +
+        `best=${best.symbol} score=${best.score.toFixed(2)} | ` +
+        `VATP[hurst=${best.hurst.toFixed(2)}(${best.dpsLabel}) ` +
+        `vol=${best.vrfLabel} mqi=${best.mqi.toFixed(2)} sess=${best.session.toFixed(2)}] | ` +
+        `CW[calm=${best.calmScore.toFixed(2)} rsi=${best.rsi.toFixed(1)} ` +
+        `bbMid=${(best.bbMiddleProximity*100).toFixed(0)}% safeTicks=${(best.safeMoveRatio*100).toFixed(0)}%] ` +
         `[${best.reasons.join(',')}]`,
       );
 
-      // ── Decision ──
-      if (!best.recommendTrade) {
-        logger.debug(`score too low (${best.score.toFixed(2)}) — skipping`);
+      // ── Decision (VATP gates) ──
+      // Hard gates: reject if any factor is outside the configured envelope.
+      if (best.hurst > this.cfg.maxHurst) {
+        logger.debug(`hurst too high (${best.hurst.toFixed(2)} > ${this.cfg.maxHurst}) — skipping`);
         return;
+      }
+      if (best.volRegime > this.cfg.maxVolRegime) {
+        logger.debug(`vol regime too high (${best.vrfLabel} > ${this.cfg.maxVolRegime}) — skipping`);
+        return;
+      }
+      if (best.score < this.cfg.minConfidence) {
+        logger.debug(`score below MIN_CONFIDENCE (${best.score.toFixed(2)} < ${this.cfg.minConfidence}) — skipping`);
+        return;
+      }
+
+      // ── SRAS: Stay-Regime gate ──
+      // Exploit the user's observed "rising digits" pattern: if recent
+      // ticks_stayed_in values trend UP, the per-tick survival probability
+      // is rising — a stable regime. We use this as an additional gate
+      // (and as a bonus confluence factor).
+      const cachedStays = this.market.getStays(best.symbol, this.exec.currentGrowthRate ?? this.cfg.multiplier)
+                        ?? this.market.getStays(best.symbol, this.cfg.multiplier);
+      let srasScore = 0;
+      let srasRisingStreak = 0;
+      let srasMean = 0;
+      if (cachedStays?.ticks_stayed_in) {
+        const stays = this.analyzer.analyzeStays(cachedStays.ticks_stayed_in);
+        if (stays) {
+          srasScore = stays.score;
+          srasRisingStreak = this.analyzer.risingDigitStreak(cachedStays.ticks_stayed_in);
+          srasMean = stays.mean;
+          // SRAS gate: rising digits (streak >= 2) AND score >= SRAS_MIN
+          const srasMin = this.cfg.srasMin ?? 0.40;
+          const minRisingStreak = this.cfg.minRisingStreak ?? 2;
+          if (srasScore < srasMin) {
+            logger.debug(`SRAS score too low (${srasScore.toFixed(2)} < ${srasMin}) — skipping`);
+            return;
+          }
+          if (srasRisingStreak < minRisingStreak) {
+            logger.debug(`SRAS minRisingStreak too low (${srasRisingStreak} < ${minRisingStreak}) — skipping`);
+            return;
+          } 
+          logger.debug(`SRAS ok: score=${srasScore.toFixed(2)} mean=${srasMean.toFixed(1)} ticks rising-streak=${srasRisingStreak} trend=${stays.trendNorm.toFixed(3)} above-med=${(stays.aboveMedian*100).toFixed(0)}%`);
+        } else {
+          // No stay data yet — soft pass (don't block; just lower confidence)
+          logger.debug('SRAS: no cached stays yet — soft pass');
+        }
+      } else {
+        // If we have NO stay data, fetch fresh proposals to populate the cache.
+        // Throttled: every STAY_REFRESH_MS or on first run.
+        if (!this._stayRefreshT) {
+          this._refreshStays();
+          this._stayRefreshT = setInterval(() => this._refreshStays(),
+                                           this.cfg.stayRefreshMs ?? 60_000);
+        }
+        // Soft pass for now (first trades won't have stay data)
       }
 
       // ── Regime-aware sizing ──
@@ -1424,14 +2157,27 @@ class TradingBot {
       const takeProfit = Math.min(best.recommendedTp, this.cfg.takeProfit || best.recommendedTp);
       const stopLoss   = this.cfg.stopLoss;
 
+      // Build the analysis payload NOW and pass it into buy() so the
+      // executor can attach it to `info` BEFORE emitting 'open'.
+      // (Previously this was set AFTER `await`, which was too late —
+      //  the 'open' listener fired synchronously inside buy() and never
+      //  saw _analysis.)
+      const analysis = {
+        score: best.score, hurst: best.hurst, dpsLabel: best.dpsLabel, dpsNorm: best.dpsNorm,
+        vrfLabel: best.vrfLabel, vrfNorm: best.vrfNorm, volRegime: best.volRegime,
+        mqi: best.mqi, session: best.session,
+        bbMiddleProximity: best.bbMiddleProximity, rsi: best.rsi,
+        // SRAS additions
+        srasScore, srasRisingStreak, srasMean,
+      };
       const trade = await this.exec.buy(
         best.symbol,
         growthRate,
         this.cfg.stake,
         { stop_loss: stopLoss, take_profit: takeProfit },
+        analysis,                                  // 5th arg: pre-built analysis
       );
       logger.info(`trade placed #${trade.contractId} ${best.symbol} growth=${growthRate} tp=${takeProfit} barrier=±${trade.halfBarrierPct.toFixed(4)}%`);
-      this.bestAsset =  best.symbol;
     } catch (e) {
       logger.error('analyse/trade error:', e.message);
     }
@@ -1441,6 +2187,19 @@ class TradingBot {
   _onDriftWarning(t) {
     if (!t?.exit) return;
     logger.debug(`drift warning #${t.contractId} ${t.exit.reason} urgency=${t.exit.urgency.toFixed(2)} drift=${t.exit.driftPct.toFixed(4)}%`);
+  }
+
+  // ── SRAS: refresh ticks_stayed_in for all assets ─────────────
+  async _refreshStays() {
+    try {
+      if (!this.client.authorized) return;
+      // Use the current growth rate (or default multiplier)
+      const gr = this.exec.currentGrowthRate ?? this.cfg.multiplier;
+      await this.market.refreshStays(this.cfg.assets, gr);
+      logger.debug('SRAS: stay cache refreshed for all assets');
+    } catch (e) {
+      logger.debug('SRAS refresh error:', e.message);
+    }
   }
 
   // ── Summaries ───────────────────────────────────────────────
