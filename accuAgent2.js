@@ -133,7 +133,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot3_001.log',
+  logFile : 'deriv_bot3_002.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
@@ -1892,10 +1892,15 @@ class TradingBot {
           srasMean = stays.mean;
           // SRAS gate: rising digits (streak >= 2) AND score >= SRAS_MIN
           const srasMin = this.cfg.srasMin ?? 0.40;
+          const minRisingStreak = this.cfg.minRisingStreak ?? 2;
           if (srasScore < srasMin) {
             logger.debug(`SRAS score too low (${srasScore.toFixed(2)} < ${srasMin}) — skipping`);
             return;
-          }
+          } 
+          if (srasRisingStreak < minRisingStreak) {
+            logger.debug(`SRAS minRisingStreak too low (${srasRisingStreak} < ${minRisingStreak}) — skipping`);
+            return;
+          } 
           logger.debug(`SRAS ok: score=${srasScore.toFixed(2)} mean=${srasMean.toFixed(1)} ticks rising-streak=${srasRisingStreak} trend=${stays.trendNorm.toFixed(3)} above-med=${(stays.aboveMedian*100).toFixed(0)}%`);
         } else {
           // No stay data yet — soft pass (don't block; just lower confidence)
