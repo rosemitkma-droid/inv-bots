@@ -44,7 +44,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2n_13_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2n_14_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -321,7 +321,7 @@ class EnhancedDerivTradingBot {
         // Check individual thresholds for recent values
         const recentThresholds = (
             // stayedInArray[99] >= stayedInArray[98] && stayedInArray[99] <= (stayedInArray[98] + 1) &&
-            stayedInArray[99] <= 10 &&
+            // stayedInArray[99] <= 10 &&
             stayedInArray[98] > stayedInArray[97]  
             &&
             stayedInArray[97] > stayedInArray[96] 
@@ -1763,7 +1763,7 @@ const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     takeProfitMultiplier: 0.12, //25% of Stake Amount
     takeProfitMultiplier2: 0.12, //15% of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 2400, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 2200, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
 
     // ── StayedIn trend filter (NEW) ──────────────────────────────────────────
