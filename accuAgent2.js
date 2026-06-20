@@ -36,7 +36,7 @@
  *    ANALYSIS_INTERVAL_MS, TRADE_COOLDOWN_MS,
  *    LOG_FILE, LOG_LEVEL
  *
- *  Author : Arena.ai
+ *  Author : Kenny O.
  *  License: MIT
  * =====================================================================
  */
@@ -83,7 +83,7 @@ loadEnv();
 // 2.  CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
-   // ─ Deriv API ─
+  // ─ Deriv API ─
   apiToken: ('0P94g4WdSrSrzir').trim(),
   appId   : '1089',
   wsUrl   : 'wss://ws.derivws.com/websockets/v3',
@@ -91,20 +91,20 @@ const CONFIG = Object.freeze({
 
   // ─ Trade parameters ─
   stake          : parseFloat('1.0'),
-  multiplier     : parseFloat('0.02'),  // 2 % growth rate
+  multiplier     : parseFloat('0.05'),  // 2 % growth rate
   multiplierStep : parseFloat('0.0'),   // grow after wins
   stopLoss       : parseFloat('110.0'),
   takeProfit     : parseFloat('500.0'),
 
   // ─ Assets (Deriv synthetic indices) ─
-  // assets: ('BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
-  //     .split(',').map(s => s.trim()).filter(Boolean),
+  assets: ('BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
+      .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75,R_100')
   //   .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
   //   .split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('R_10,R_25,R_50,R_75,R_100')
-    .split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('R_10,R_25,R_50,R_75,R_100')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
 
   // ─ Telegram ─
   telegram: {
@@ -133,16 +133,16 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot4_001.log',
+  logFile : 'deriv_bot3_001.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
   // 4-factor composite score, normalized to [0,1]. The bot enters a trade
   // iff score >= minConfidence AND hurst <= maxHurst AND volRegime <= maxVolRegime.
-  minConfidence: parseFloat('0.55'),
+  minConfidence: parseFloat('0.75'),
   maxHurst     : parseFloat('0.65'),  // 0.5 = random; >0.65 = strong trend (risky)
-  maxVolRegime : parseInt  ('1',    10), // 0=low 1=normal 2=high 3=extreme
-  sessionWeighting: ('true').toLowerCase() !== 'false',
+  maxVolRegime : parseInt  ('0',    10), // 0=low 1=normal 2=high 3=extreme
+  sessionWeighting: true,
 
   // Weights for the 4 VATP factors + CWMRAS components.
   // Sum should be ~1.0; tune per asset class.
@@ -853,9 +853,9 @@ class MarketAnalyzer {
     const hurst = this._hurst(q);
     let dpsNorm;
     if (hurst >= 0.45 && hurst <= 0.58)      dpsNorm = 1.0;          // sweet spot
-    else if (hurst < 0.45)                   dpsNorm = 0.6;          // mean-reverting (whipsaw risk)
-    else if (hurst <= 0.65)                  dpsNorm = 0.7;          // mildly trending
-    else                                      dpsNorm = 0.2;          // strong trend (barrier risk)
+    else if (hurst < 0.45)                   dpsNorm = 0.1;          // mean-reverting (whipsaw risk)
+    else if (hurst <= 0.65)                  dpsNorm = 0.2;          // mildly trending
+    else                                      dpsNorm = 0.0;          // strong trend (barrier risk)
     const dpsLabel = hurst < 0.45 ? 'mean-reverting' :
                      hurst <= 0.58 ? 'calm-persistent' :
                      hurst <= 0.65 ? 'trending' : 'strong-trend';
@@ -882,14 +882,14 @@ class MarketAnalyzer {
 
     // 1) Calm regime (most important — volatility is the #1 killer)
     if (calmScore < 0.55)      { score += 0.35; reasonParts.push('very-calm'); }
-    else if (calmScore < 0.75) { score += 0.25; reasonParts.push('calm'); }
-    else if (calmScore < 1.0)  { score += 0.10; reasonParts.push('normal'); }
+    else if (calmScore < 0.75) { score += 0.05; reasonParts.push('calm'); }
+    else if (calmScore < 1.0)  { score += 0.00; reasonParts.push('normal'); }
     else if (calmScore < 1.3)  { score -= 0.10; reasonParts.push('turbulent'); }
     else                        { score -= 0.35; reasonParts.push('stormy'); }
 
     // 2) BB middle-band proximity (entry at the mean is safest)
     if (bbMiddleProximity > 0.85)      { score += 0.25; reasonParts.push('at-mean'); }
-    else if (bbMiddleProximity > 0.60){ score += 0.15; reasonParts.push('near-mean'); }
+    else if (bbMiddleProximity > 0.60){ score += 0.05; reasonParts.push('near-mean'); }
     else if (bbMiddleProximity > 0.35){ score += 0.00; reasonParts.push('off-mean'); }
     else                                { score -= 0.25; reasonParts.push('at-band'); }
 
@@ -905,8 +905,8 @@ class MarketAnalyzer {
     else                                                  { score -= 0.20; reasonParts.push('extreme-trend'); }
 
     // 5) Mean reversion (high reversion → whipsaw)
-    if (meanReversion > 0.55)        { score -= 0.25; reasonParts.push('whipsaw'); }
-    else if (meanReversion > 0.25)  { score -= 0.10; reasonParts.push('mean-rev'); }
+    if (meanReversion > 0.50)        { score -= 0.25; reasonParts.push('whipsaw'); }
+    else if (meanReversion > 0.20)  { score -= 0.10; reasonParts.push('mean-rev'); }
 
     // 6) Safe-move ratio (estimated per-tick survival probability proxy)
     if (safeMoveRatio > 0.85)       { score += 0.15; reasonParts.push('safe-ticks'); }
@@ -941,9 +941,9 @@ class MarketAnalyzer {
     const targetSigmaCoverage = 2.0;     // we want barrier ≥ 2 × per-tick σ
     const perTickStdevPct = (shortStats.stdev / Math.abs(price)) * 100;
     // For each growth rate, approximate the barrier% (slightly conservative)
-    const barrierByGrowth = { 0.01: 0.061, 0.02: 0.056, 0.03: 0.053, 0.04: 0.050, 0.05: 0.048 };
+    const barrierByGrowth = { 0.04: 0.050, 0.05: 0.048 };
     if (perTickStdevPct > 0) {
-      for (const g of [0.01, 0.02, 0.03, 0.04, 0.05]) {
+      for (const g of [0.04, 0.05]) {
         // barrier is on EACH side; we need barrier_pct ≥ target × per_tick_stdev_pct
         if (barrierByGrowth[g] >= targetSigmaCoverage * perTickStdevPct) {
           suggestedGrowth = g;
@@ -1336,7 +1336,7 @@ class TradeExecutor extends EventEmitter {
     this.analyzer = null;          // injected by TradingBot
   }
 
-  async buy(symbol, growthRate, stake, limit) {
+  async buy(symbol, growthRate, stake, limit, analysis = null) {
     // Defensive clamp — Deriv supports 0.01 – 0.05
     growthRate = Math.max(0.01, Math.min(0.05, +growthRate.toFixed(4)));
     try {
@@ -1407,6 +1407,12 @@ class TradeExecutor extends EventEmitter {
         proposalId : p.id,
         balanceAfter: parseFloat(b.balance_after ?? this.client.balance),
       };
+      // ── Attach the analysis BEFORE emitting 'open' so listeners can see it ──
+      // The bot passes `analysis` (VATP-CW-SRAS confluence data) so the
+      // Telegram notification has full transparency data.
+      if (analysis && typeof analysis === 'object') {
+        info._analysis = analysis;
+      }
       this.open.set(b.contract_id, info);
       logger.info(`barrier: ±${halfBarrierPct.toFixed(4)}% spot=${entrySpot.toFixed(2)} [${lowBarrier.toFixed(2)} … ${highBarrier.toFixed(2)}] maxPayout=${maxPayout}`);
 
@@ -1420,6 +1426,7 @@ class TradeExecutor extends EventEmitter {
         { proposal_open_contract: 1, contract_id: b.contract_id },
         msg => this._onUpdate(msg, info),
       );
+      // Emit AFTER everything (including _analysis) is attached.
       this.emit('open', info);
       return info;
     } catch (e) {
@@ -1903,6 +1910,7 @@ class TradingBot {
                                            this.cfg.stayRefreshMs ?? 60_000);
         }
         // Soft pass for now (first trades won't have stay data)
+        return;
       }
 
       // ── Regime-aware sizing ──
@@ -1914,14 +1922,12 @@ class TradingBot {
       const takeProfit = Math.min(best.recommendedTp, this.cfg.takeProfit || best.recommendedTp);
       const stopLoss   = this.cfg.stopLoss;
 
-      const trade = await this.exec.buy(
-        best.symbol,
-        growthRate,
-        this.cfg.stake,
-        { stop_loss: stopLoss, take_profit: takeProfit },
-      );
-      // Attach the analysis object so Telegram confluence message can show it
-      trade._analysis = {
+      // Build the analysis payload NOW and pass it into buy() so the
+      // executor can attach it to `info` BEFORE emitting 'open'.
+      // (Previously this was set AFTER `await`, which was too late —
+      //  the 'open' listener fired synchronously inside buy() and never
+      //  saw _analysis.)
+      const analysis = {
         score: best.score, hurst: best.hurst, dpsLabel: best.dpsLabel, dpsNorm: best.dpsNorm,
         vrfLabel: best.vrfLabel, vrfNorm: best.vrfNorm, volRegime: best.volRegime,
         mqi: best.mqi, session: best.session,
@@ -1929,6 +1935,13 @@ class TradingBot {
         // SRAS additions
         srasScore, srasRisingStreak, srasMean,
       };
+      const trade = await this.exec.buy(
+        best.symbol,
+        growthRate,
+        this.cfg.stake,
+        { stop_loss: stopLoss, take_profit: takeProfit },
+        analysis,                                  // 5th arg: pre-built analysis
+      );
       logger.info(`trade placed #${trade.contractId} ${best.symbol} growth=${growthRate} tp=${takeProfit} barrier=±${trade.halfBarrierPct.toFixed(4)}%`);
     } catch (e) {
       logger.error('analyse/trade error:', e.message);
