@@ -36,7 +36,7 @@
  *    ANALYSIS_INTERVAL_MS, TRADE_COOLDOWN_MS,
  *    LOG_FILE, LOG_LEVEL
  *
- *  Author : Kehinde Otaru
+ *  Author : Arena.ai
  *  License: MIT
  * =====================================================================
  */
@@ -83,7 +83,7 @@ loadEnv();
 // 2.  CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
-  // ─ Deriv API ─
+   // ─ Deriv API ─
   apiToken: ('0P94g4WdSrSrzir').trim(),
   appId   : '1089',
   wsUrl   : 'wss://ws.derivws.com/websockets/v3',
@@ -91,10 +91,10 @@ const CONFIG = Object.freeze({
 
   // ─ Trade parameters ─
   stake          : parseFloat('1.0'),
-  multiplier     : parseFloat('0.05'),  // 2 % growth rate
+  multiplier     : parseFloat('0.02'),  // 2 % growth rate
   multiplierStep : parseFloat('0.0'),   // grow after wins
   stopLoss       : parseFloat('110.0'),
-  takeProfit     : parseFloat('500000.0'),
+  takeProfit     : parseFloat('500.0'),
 
   // ─ Assets (Deriv synthetic indices) ─
   // assets: ('BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
@@ -133,13 +133,13 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot3_01.log',
+  logFile : 'deriv_bot4_001.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
   // 4-factor composite score, normalized to [0,1]. The bot enters a trade
   // iff score >= minConfidence AND hurst <= maxHurst AND volRegime <= maxVolRegime.
-  minConfidence: parseFloat('0.65'),
+  minConfidence: parseFloat('0.55'),
   maxHurst     : parseFloat('0.65'),  // 0.5 = random; >0.65 = strong trend (risky)
   maxVolRegime : parseInt  ('1',    10), // 0=low 1=normal 2=high 3=extreme
   sessionWeighting: ('true').toLowerCase() !== 'false',
@@ -154,6 +154,13 @@ const CONFIG = Object.freeze({
     rsi     : parseFloat('0.10'),   // RSI neutrality
     session : parseFloat('0.10'),   // Hour-of-day soft preference
   },
+
+  // ── SRAS: Stay-Regime Accumulator Strategy tunables ──
+  // The user's key insight: consecutive ticks_stayed_in values that TREND
+  // UP indicate a stable market regime. We formalise this into a gate.
+  srasMin       : parseFloat('0.40'),  // min SRAS score to enter
+  stayRefreshMs : parseInt  ('60000',10), // how often to refresh stay cache
+  minRisingStreak: parseInt('2',   10), // require N consecutive rising stays
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -521,11 +528,76 @@ class MarketDataManager extends EventEmitter {
     this.subs        = new Map();   // symbol → subscription id
     this.lastQuote   = new Map();   // symbol → last quote
     this._bootstrapping = false;
+    // ── SRAS stay cache: symbol → growth_rate → { ticks_stayed_in, ts, maxTicks, maxPayout } ──
+    this.stayCache   = new Map();
+    this._refreshInFlight = false;
 
     client.on('close', () => {
       // Stale subscription ids after reconnect
       this.subs.clear();
+      // Keep stay cache (it's symbol-level, not subscription-level)
     });
+  }
+
+  /**
+   * Cache the ticks_stayed_in array returned by a proposal response.
+   * Called by the TradeExecutor after every buy.
+   */
+  cacheStays(symbol, growthRate, contractDetails) {
+    if (!contractDetails) return;
+    const arr = contractDetails.ticks_stayed_in;
+    if (!Array.isArray(arr) || !arr.length) return;
+    const key = +(+growthRate).toFixed(4);
+    if (!this.stayCache.has(symbol)) this.stayCache.set(symbol, new Map());
+    const sub = this.stayCache.get(symbol);
+    sub.set(key, {
+      ticks_stayed_in: arr,
+      maxTicks : +contractDetails.maximum_ticks || 0,
+      maxPayout: +contractDetails.maximum_payout || 0,
+      barrier  : +contractDetails.tick_size_barrier_percentage || 0,
+      ts       : Date.now(),
+    });
+    logger.debug(`cached stays ${symbol} g=${key} n=${arr.length} mean=${(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)}`);
+  }
+
+  /** Get cached stays for a (symbol, growth_rate). */
+  getStays(symbol, growthRate) {
+    const sub = this.stayCache.get(symbol);
+    if (!sub) return null;
+    const key = +(+growthRate).toFixed(4);
+    return sub.get(key) || null;
+  }
+
+  /**
+   * Refresh stay stats for all assets by sending cheap proposal requests
+   * (no buy required). Runs every STAY_REFRESH_MS.
+   */
+  async refreshStays(assets, growthRate) {
+    if (this._refreshInFlight) return;
+    if (!this.client.authorized) return;
+    this._refreshInFlight = true;
+    try {
+      for (const sym of assets) {
+        try {
+          const res = await this.client._send({
+            proposal: 1,
+            amount  : this.cfg.stake,
+            basis   : 'stake',
+            contract_type: 'ACCU',
+            currency: this.cfg.currency,
+            symbol  : sym,
+            growth_rate: growthRate,
+          }, 8000);
+          if (res?.proposal?.contract_details) {
+            this.cacheStays(sym, growthRate, res.proposal.contract_details);
+          }
+        } catch (e) {
+          logger.debug(`refreshStays(${sym}) failed:`, e.message);
+        }
+      }
+    } finally {
+      this._refreshInFlight = false;
+    }
   }
 
   async loadSymbols() {
@@ -781,9 +853,9 @@ class MarketAnalyzer {
     const hurst = this._hurst(q);
     let dpsNorm;
     if (hurst >= 0.45 && hurst <= 0.58)      dpsNorm = 1.0;          // sweet spot
-    else if (hurst < 0.45)                   dpsNorm = 0.05;          // mean-reverting (whipsaw risk)
-    else if (hurst <= 0.65)                  dpsNorm = 0.1;          // mildly trending
-    else                                      dpsNorm = 0.0;          // strong trend (barrier risk)
+    else if (hurst < 0.45)                   dpsNorm = 0.6;          // mean-reverting (whipsaw risk)
+    else if (hurst <= 0.65)                  dpsNorm = 0.7;          // mildly trending
+    else                                      dpsNorm = 0.2;          // strong trend (barrier risk)
     const dpsLabel = hurst < 0.45 ? 'mean-reverting' :
                      hurst <= 0.58 ? 'calm-persistent' :
                      hurst <= 0.65 ? 'trending' : 'strong-trend';
@@ -811,7 +883,7 @@ class MarketAnalyzer {
     // 1) Calm regime (most important — volatility is the #1 killer)
     if (calmScore < 0.55)      { score += 0.35; reasonParts.push('very-calm'); }
     else if (calmScore < 0.75) { score += 0.25; reasonParts.push('calm'); }
-    else if (calmScore < 1.0)  { score += 0.00; reasonParts.push('normal'); }
+    else if (calmScore < 1.0)  { score += 0.10; reasonParts.push('normal'); }
     else if (calmScore < 1.3)  { score -= 0.10; reasonParts.push('turbulent'); }
     else                        { score -= 0.35; reasonParts.push('stormy'); }
 
@@ -833,8 +905,8 @@ class MarketAnalyzer {
     else                                                  { score -= 0.20; reasonParts.push('extreme-trend'); }
 
     // 5) Mean reversion (high reversion → whipsaw)
-    if (meanReversion > 0.50)        { score -= 0.30; reasonParts.push('whipsaw'); }
-    else if (meanReversion > 0.20)  { score -= 0.15; reasonParts.push('mean-rev'); }
+    if (meanReversion > 0.55)        { score -= 0.25; reasonParts.push('whipsaw'); }
+    else if (meanReversion > 0.25)  { score -= 0.10; reasonParts.push('mean-rev'); }
 
     // 6) Safe-move ratio (estimated per-tick survival probability proxy)
     if (safeMoveRatio > 0.85)       { score += 0.15; reasonParts.push('safe-ticks'); }
@@ -869,15 +941,15 @@ class MarketAnalyzer {
     const targetSigmaCoverage = 2.0;     // we want barrier ≥ 2 × per-tick σ
     const perTickStdevPct = (shortStats.stdev / Math.abs(price)) * 100;
     // For each growth rate, approximate the barrier% (slightly conservative)
-    const barrierByGrowth = { 0.04: 0.050, 0.05: 0.048 };
+    const barrierByGrowth = { 0.01: 0.061, 0.02: 0.056, 0.03: 0.053, 0.04: 0.050, 0.05: 0.048 };
     if (perTickStdevPct > 0) {
-      for (const g of [0.04, 0.05]) {
+      for (const g of [0.01, 0.02, 0.03, 0.04, 0.05]) {
         // barrier is on EACH side; we need barrier_pct ≥ target × per_tick_stdev_pct
         if (barrierByGrowth[g] >= targetSigmaCoverage * perTickStdevPct) {
           suggestedGrowth = g;
           break;
         }
-        // suggestedGrowth = g;  // last fallback
+        suggestedGrowth = g;  // last fallback
       }
     }
 
@@ -1142,6 +1214,112 @@ class MarketAnalyzer {
     return w[hour] ?? 0.5;
   }
 
+  // ────────────────────────────────────────────────────────────────
+  // SRAS: Stay-Regime Accumulator Strategy
+  // ────────────────────────────────────────────────────────────────
+  //
+  //  The user's key observation: when consecutive `ticks_stayed_in`
+  //  digits (the per-trade tick-survival counts from Deriv's proposal
+  //  response) TREND UPWARD after successive resets, the market is in
+  //  a stable regime — the per-tick survival probability is rising.
+  //
+  //  We formalise this as 5 sub-metrics on the ticks_stayed_in array:
+  //
+  //    1. Stay Mean         — average survival in ticks (high = stable)
+  //    2. Stay Median       — robust central tendency
+  //    3. Stay Trend        — OLS slope of last K stays (positive = rising)
+  //    4. Above-Median Count— fraction of last K stays ≥ historical median
+  //    5. Stay Consistency  — 1 − (stdev / mean) of stays
+  //
+  //  The strategy prefers entries when ALL of these are favourable.
+
+  /**
+   * Compute SRAS metrics from a ticks_stayed_in array.
+   * @param {number[]} arr  ticks_stayed_in from the API
+   * @returns {object|null}
+   */
+  analyzeStays(arr) {
+    if (!Array.isArray(arr) || arr.length < 5) return null;
+    const n = arr.length;
+    const mean = arr.reduce((s, v) => s + v, 0) / n;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const median = sorted[Math.floor(n / 2)];
+
+    // Stay Trend: OLS slope on last K stays (rising-digits signal).
+    // We split into "older" (first half of array) and "recent" (last K).
+    const K = Math.min(30, n);
+    const recent = arr.slice(-K);
+    const older  = arr.slice(0, Math.max(5, n - K));
+
+    // Slope of recent stays (per index). Positive = rising digits.
+    let slope = 0;
+    if (recent.length >= 2) {
+      let sx = 0, sy = 0, sxy = 0, sxx = 0;
+      for (let i = 0; i < recent.length; i++) {
+        sx += i; sy += recent[i]; sxy += i * recent[i]; sxx += i * i;
+      }
+      const d = (recent.length * sxx - sx * sx) || 1;
+      slope = (recent.length * sxy - sx * sy) / d;
+    }
+    // Normalise slope relative to median (per-step fraction).
+    const trendNorm = median > 0 ? slope / median : 0;
+
+    // Above-Median Count: fraction of recent stays above historical median.
+    const aboveMedian = recent.filter(v => v >= median).length / recent.length;
+
+    // Stay Consistency (lower variance → more predictable regime).
+    let v = 0;
+    for (const x of arr) v += (x - mean) ** 2;
+    const stdev = Math.sqrt(v / n);
+    const consistency = mean > 0 ? Math.max(0, 1 - stdev / mean) : 0;
+
+    // Mean comparison: recent mean vs older mean.
+    const recentMean = recent.reduce((s, v) => s + v, 0) / recent.length;
+    const olderMean  = older.reduce((s, v) => s + v, 0) / older.length;
+    const improvement = olderMean > 0 ? (recentMean - olderMean) / olderMean : 0;
+
+    // Per-tick survival probability estimate (geometric)
+    // E[N] = p/(1-p) => p = E[N]/(E[N]+1) where E[N] is the mean stay.
+    const pSurvival = mean > 0 ? mean / (mean + 1) : 0;
+
+    return {
+      n, mean, median, stdev,
+      recentMean, olderMean,
+      slope, trendNorm, improvement,
+      aboveMedian,
+      consistency,
+      pSurvival,
+      max: Math.max(...arr),
+      min: Math.min(...arr),
+      // Composite SRAS score: high when trending up, above-median, consistent
+      score: this._srasScore({ trendNorm, aboveMedian, consistency, improvement }),
+    };
+  }
+
+  /** Composite SRAS score normalised to [0, 1]. */
+  _srasScore({ trendNorm, aboveMedian, consistency, improvement }) {
+    // 4 components, each normalised to [0,1] then averaged
+    const trendScore    = Math.max(0, Math.min(1, 0.5 + trendNorm * 2));       // slope > 0 → rising
+    const aboveMedScore = Math.max(0, Math.min(1, aboveMedian));                // 0..1 directly
+    const consistScore  = Math.max(0, Math.min(1, consistency));               // 0..1 directly
+    const improveScore  = Math.max(0, Math.min(1, 0.5 + improvement));         // recent > older
+    return 0.30 * trendScore + 0.30 * aboveMedScore + 0.20 * consistScore + 0.20 * improveScore;
+  }
+
+  /**
+   * Detect a "rising digits" streak in the ticks_stayed_in array.
+   * Returns the length of the most recent strictly-increasing run.
+   */
+  risingDigitStreak(arr) {
+    if (!Array.isArray(arr) || arr.length < 2) return 0;
+    let streak = 1;
+    for (let i = arr.length - 1; i > 0; i--) {
+      if (arr[i] > arr[i - 1]) streak++;
+      else break;
+    }
+    return streak;
+  }
+
   rank(analyses) {
     return analyses.filter(Boolean).sort((a, b) => b.score - a.score);
   }
@@ -1232,7 +1410,12 @@ class TradeExecutor extends EventEmitter {
       this.open.set(b.contract_id, info);
       logger.info(`barrier: ±${halfBarrierPct.toFixed(4)}% spot=${entrySpot.toFixed(2)} [${lowBarrier.toFixed(2)} … ${highBarrier.toFixed(2)}] maxPayout=${maxPayout}`);
 
-      // 3.  Subscribe to live contract updates
+      // 3a. Cache the ticks_stayed_in stats (SRAS) for later analysis.
+      if (this.bot?.market?.cacheStays) {
+        this.bot.market.cacheStays(symbol, growthRate, cd);
+      }
+
+      // 3b. Subscribe to live contract updates
       await this.client.subscribe(
         { proposal_open_contract: 1, contract_id: b.contract_id },
         msg => this._onUpdate(msg, info),
@@ -1427,6 +1610,10 @@ class TradingBot {
     this.stats    = new StatisticsManager();
     // Inject analyzer reference so the executor can run early-exit checks
     this.exec.analyzer = this.analyzer;
+    // Inject bot reference so the executor can cache stays into the market
+    this.exec.bot = this;
+    // SRAS stay-stats refresh timer
+    this._stayRefreshT = null;
 
     this.lastTradeAt   = 0;
     this.startBalance  = null;
@@ -1535,7 +1722,6 @@ class TradingBot {
   // ── Trade callbacks ────────────────────────────────────────
   _onTradeOpen(t) {
     const cd = t.contractDetails || {};
-    const a = t._analysis;
     let msg =
       `🟢 <b>TRADE OPENED</b>\n\n` +
       `🎫 <b>Contract:</b> #${t.contractId}\n` +
@@ -1543,31 +1729,32 @@ class TradingBot {
       `📈 <b>Growth Rate:</b> ${(t.growthRate*100).toFixed(2)}%\n` +
       `💵 <b>Stake:</b> ${t.stake.toFixed(2)} ${this.currency()}\n` +
       `💰 <b>Buy Price:</b> ${t.buyPrice.toFixed(2)}\n` +
+      `🎁 <b>Max Payout:</b> ${t.payout.toFixed(2)}\n` +
       `🛑 <b>Stop Loss:</b> ${t.limit.stop_loss ?? '–'}\n` +
-      `🎯 <b>Take Profit:</b> ${t.limit.take_profit ?? '–'}\n`
-      // `🧠 <b>VATP-CW Confluence</b>\n\n` +
-      //   `Composite score: <b>${a.score.toFixed(3)}</b> / ${this.cfg.minConfidence}\n` +
-      //   `• DPS (Hurst ${a.hurst.toFixed(2)} → ${a.dpsLabel}): <b>${a.dpsNorm.toFixed(2)}</b>\n` +
-      //   `• VRF (${a.vrfLabel} vol-regime): <b>${a.vrfNorm.toFixed(2)}</b>\n` +
-      //   `• MQI (smoothness): <b>${a.mqi.toFixed(2)}</b>\n` +
-      //   `• Session score: <b>${a.session.toFixed(2)}</b>\n` +
-      //   `• BB mid proximity: <b>${(a.bbMiddleProximity*100).toFixed(0)}%</b>\n` +
-      //   `• RSI: <b>${a.rsi.toFixed(1)}</b>\n`;
+      `🎯 <b>Take Profit:</b> ${t.limit.take_profit ?? '–'}\n`;
+    if (cd.maximum_payout   !== undefined) msg += `⚠️ <b>Max Payout (cap):</b> ${cd.maximum_payout}\n`;
     if (cd.tick_size_barrier!== undefined) msg += `🚧 <b>Barrier size:</b> ${cd.tick_size_barrier}\n`;
+    if (cd.maximum_ticks    !== undefined) msg += `⏱️ <b>Max Ticks:</b> ${cd.maximum_ticks}\n`;
     msg += `\n🕒 ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`;
     telegram.send(msg);
 
     // Optionally notify a separate strategy-confluence summary (for transparency)
     if (t._analysis) {
       const a = t._analysis;
-      const sm = `🧠 <b>VATP-CW Confluence</b>\n\n` +
+      const sm = `🧠 <b>VATP-CW-SRAS Confluence</b>\n\n` +
         `Composite score: <b>${a.score.toFixed(3)}</b> / ${this.cfg.minConfidence}\n` +
+        `\n<b>── VATP ──</b>\n` +
         `• DPS (Hurst ${a.hurst.toFixed(2)} → ${a.dpsLabel}): <b>${a.dpsNorm.toFixed(2)}</b>\n` +
         `• VRF (${a.vrfLabel} vol-regime): <b>${a.vrfNorm.toFixed(2)}</b>\n` +
         `• MQI (smoothness): <b>${a.mqi.toFixed(2)}</b>\n` +
         `• Session score: <b>${a.session.toFixed(2)}</b>\n` +
+        `\n<b>── CWMRAS ──</b>\n` +
         `• BB mid proximity: <b>${(a.bbMiddleProximity*100).toFixed(0)}%</b>\n` +
-        `• RSI: <b>${a.rsi.toFixed(1)}</b>\n`;
+        `• RSI: <b>${a.rsi.toFixed(1)}</b>\n` +
+        `\n<b>── SRAS (rising digits) ──</b>\n` +
+        `• SRAS score: <b>${(a.srasScore ?? 0).toFixed(3)}</b> / ${this.cfg.srasMin}\n` +
+        `• Rising-digit streak: <b>${a.srasRisingStreak ?? 0}</b> consecutive\n` +
+        `• Mean stay (ticks): <b>${(a.srasMean ?? 0).toFixed(1)}</b>`;
       telegram.send(sm);
     }
   }
@@ -1656,11 +1843,6 @@ class TradingBot {
       }
       const best = ranked[0];
 
-      if (best.symbol === this.bestAsset) {
-        logger.warn('Same as Last Traded Asset');
-        return;
-      }
-
       logger.info(
         `best=${best.symbol} score=${best.score.toFixed(2)} | ` +
         `VATP[hurst=${best.hurst.toFixed(2)}(${best.dpsLabel}) ` +
@@ -1685,6 +1867,44 @@ class TradingBot {
         return;
       }
 
+      // ── SRAS: Stay-Regime gate ──
+      // Exploit the user's observed "rising digits" pattern: if recent
+      // ticks_stayed_in values trend UP, the per-tick survival probability
+      // is rising — a stable regime. We use this as an additional gate
+      // (and as a bonus confluence factor).
+      const cachedStays = this.market.getStays(best.symbol, this.exec.currentGrowthRate ?? this.cfg.multiplier)
+                        ?? this.market.getStays(best.symbol, this.cfg.multiplier);
+      let srasScore = 0;
+      let srasRisingStreak = 0;
+      let srasMean = 0;
+      if (cachedStays?.ticks_stayed_in) {
+        const stays = this.analyzer.analyzeStays(cachedStays.ticks_stayed_in);
+        if (stays) {
+          srasScore = stays.score;
+          srasRisingStreak = this.analyzer.risingDigitStreak(cachedStays.ticks_stayed_in);
+          srasMean = stays.mean;
+          // SRAS gate: rising digits (streak >= 2) AND score >= SRAS_MIN
+          const srasMin = this.cfg.srasMin ?? 0.40;
+          if (srasScore < srasMin) {
+            logger.debug(`SRAS score too low (${srasScore.toFixed(2)} < ${srasMin}) — skipping`);
+            return;
+          }
+          logger.debug(`SRAS ok: score=${srasScore.toFixed(2)} mean=${srasMean.toFixed(1)} ticks rising-streak=${srasRisingStreak} trend=${stays.trendNorm.toFixed(3)} above-med=${(stays.aboveMedian*100).toFixed(0)}%`);
+        } else {
+          // No stay data yet — soft pass (don't block; just lower confidence)
+          logger.debug('SRAS: no cached stays yet — soft pass');
+        }
+      } else {
+        // If we have NO stay data, fetch fresh proposals to populate the cache.
+        // Throttled: every STAY_REFRESH_MS or on first run.
+        if (!this._stayRefreshT) {
+          this._refreshStays();
+          this._stayRefreshT = setInterval(() => this._refreshStays(),
+                                           this.cfg.stayRefreshMs ?? 60_000);
+        }
+        // Soft pass for now (first trades won't have stay data)
+      }
+
       // ── Regime-aware sizing ──
       // Use the analyzer\'s suggestion (it picks the smallest growth_rate
       // whose barrier still covers ≥ 2σ of recent moves).
@@ -1706,9 +1926,10 @@ class TradingBot {
         vrfLabel: best.vrfLabel, vrfNorm: best.vrfNorm, volRegime: best.volRegime,
         mqi: best.mqi, session: best.session,
         bbMiddleProximity: best.bbMiddleProximity, rsi: best.rsi,
+        // SRAS additions
+        srasScore, srasRisingStreak, srasMean,
       };
       logger.info(`trade placed #${trade.contractId} ${best.symbol} growth=${growthRate} tp=${takeProfit} barrier=±${trade.halfBarrierPct.toFixed(4)}%`);
-      this.bestAsset =  best.symbol;
     } catch (e) {
       logger.error('analyse/trade error:', e.message);
     }
@@ -1718,6 +1939,19 @@ class TradingBot {
   _onDriftWarning(t) {
     if (!t?.exit) return;
     logger.debug(`drift warning #${t.contractId} ${t.exit.reason} urgency=${t.exit.urgency.toFixed(2)} drift=${t.exit.driftPct.toFixed(4)}%`);
+  }
+
+  // ── SRAS: refresh ticks_stayed_in for all assets ─────────────
+  async _refreshStays() {
+    try {
+      if (!this.client.authorized) return;
+      // Use the current growth rate (or default multiplier)
+      const gr = this.exec.currentGrowthRate ?? this.cfg.multiplier;
+      await this.market.refreshStays(this.cfg.assets, gr);
+      logger.debug('SRAS: stay cache refreshed for all assets');
+    } catch (e) {
+      logger.debug('SRAS refresh error:', e.message);
+    }
   }
 
   // ── Summaries ───────────────────────────────────────────────
