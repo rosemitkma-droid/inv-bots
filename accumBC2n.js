@@ -44,7 +44,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2n_02_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2n_04_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -320,11 +320,11 @@ class EnhancedDerivTradingBot {
 
         // Check individual thresholds for recent values
         const recentThresholds = (
-            stayedInArray[99] >= 0 
+            // stayedInArray[99] >= stayedInArray[98] && stayedInArray[99] <= (stayedInArray[98] + 1) &&
+            stayedInArray[99] <= 0 &&
+            stayedInArray[98] > stayedInArray[97]  
             &&
-            stayedInArray[98] > 50
-            // &&
-            // stayedInArray[97] < 20
+            stayedInArray[97] > stayedInArray[96] 
             // &&
             // stayedInArray[96] < 100
             // &&
@@ -1763,13 +1763,13 @@ const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     takeProfitMultiplier: 0.12, //25% of Stake Amount
     takeProfitMultiplier2: 0.12, //15% of Stake Amount
     filterNum: 4,
-    STAYED_IN_THRESHOLD: 2000, // Threshold for asset filtering
+    STAYED_IN_THRESHOLD: 2100, // Threshold for asset filtering
     scanTimer: 60000, //Set Timer for Bot to Re-scan for Assets that are ready for Trade execution.
 
     // ── StayedIn trend filter (NEW) ──────────────────────────────────────────
     enableTrendFilter: true,  // Only trade when stayedInArray sum is freshly trending upward
     trendSampleSize: 10,       // How many recent stayedIn samples to retain per asset
-    trendConfirmCount: 1,     // Consecutive upward steps required to confirm a fresh uptrend
+    trendConfirmCount: 2,     // Consecutive upward steps required to confirm a fresh uptrend
     trendMinDelta: 1,         // Minimum increase per step to count as "up" (raise to filter noise)
     trendMaxAgeMs: 12000000,    //120000 Ignore trend data older than this (stale safeguard)
 
