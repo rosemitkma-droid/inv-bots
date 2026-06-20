@@ -44,7 +44,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2n_11_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2n_12_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1147,7 +1147,7 @@ class EnhancedDerivTradingBot {
             console.log(`   ⏳ ${asset}: entry conditions met but stayedIn trend is ${trendDirection} — waiting for a FRESH upward trend before entering`);
         }
 
-        if (trendingUp) {
+        if (entrySignal && trendingUp) {
             console.log(`   Entry condition: ✅ MET | Trend: ${trendDirection}`);
 
             this.tradedDigitArray.push(this.stayedInArray[99]);
