@@ -98,14 +98,14 @@ const CONFIG = Object.freeze({
   takeProfit     : parseFloat('500.0'),
 
   // ─ Assets (Deriv synthetic indices) ─
-  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
-      .split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  //     .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75,R_100')
   //   .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
   //   .split(',').map(s => s.trim()).filter(Boolean),
-  // assets: ('R_10,R_25,R_50,R_75,R_100')
-  //   .split(',').map(s => s.trim()).filter(Boolean),
+  assets: ('R_10,R_25,R_50,R_75,R_100')
+    .split(',').map(s => s.trim()).filter(Boolean),
 
   // ─ Telegram ─
   telegram: {
@@ -134,7 +134,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot2_003.log',
+  logFile : 'deriv_bot2b_01.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
@@ -566,7 +566,21 @@ class DerivClient extends EventEmitter {
     // ── Error response ──
     if (msg.error) {
       const code = msg.error.code;
-      logger.error(`api error: ${code} – ${msg.error.message}`);
+      // Some error codes are EXPECTED race conditions after a successful
+      // sell() (multiple POC updates arriving simultaneously trigger
+      // concurrent sell attempts; the contract has already ended so the
+      // second attempt is rejected). Demote them to DEBUG.
+      const RACE_CONDITION_CODES = new Set([
+        'BetExpired',          // contract already ended by previous sell
+        'TradingDurationNotAllowed',  // same — legacy alias on some apps
+        'ContractNotFound',    // contract ID no longer valid
+        'InvalidContract',     // ditto
+      ]);
+      if (RACE_CONDITION_CODES.has(code)) {
+        logger.debug(`(race) api error: ${code} – ${msg.error.message} req=${msg.req_id || '?'}`);
+      } else {
+        logger.error(`api error: ${code} – ${msg.error.message} (req=${msg.req_id || '?'})`);
+      }
       if (msg.req_id && this._pending.has(msg.req_id)) {
         const p = this._pending.get(msg.req_id);
         clearTimeout(p.timer);
@@ -1534,6 +1548,7 @@ class TradeExecutor extends EventEmitter {
     this.open    = new Map();      // contractId → info
     this.currentGrowthRate = cfg.multiplier;
     this.analyzer = null;          // injected by TradingBot
+    this._selling = new Set();     // contractIds currently being sold (prevents concurrent sell attempts)
   }
 
   async buy(symbol, growthRate, stake, limit, analysis = null) {
@@ -1655,10 +1670,13 @@ class TradeExecutor extends EventEmitter {
     // monitor the live profit and sell the position if it drops below
     // the user-configured threshold.
     const stopLossAbs = Math.abs(info.limit?.stop_loss || 0);
-    if (status === 'open' && stopLossAbs > 0 && profit <= -stopLossAbs) {
+    if (status === 'open' && stopLossAbs > 0 && profit <= -stopLossAbs && !this._selling.has(cid)) {
       logger.warn(`contract #${cid} hit stop-loss @ profit=${profit.toFixed(2)} ≤ -${stopLossAbs} — selling`);
+      this._selling.add(cid);
       try { await this.sell(cid, 0); } catch (e) {
         logger.error(`emergency sell #${cid} failed:`, e.message);
+      } finally {
+        this._selling.delete(cid);
       }
     }
 
@@ -1666,15 +1684,23 @@ class TradeExecutor extends EventEmitter {
     // The barrier is FIXED at entry; if price has drifted strongly in one
     // direction, the contract is biased toward the opposite barrier.
     // We exit early to lock in remaining profit before a knockout.
-    if (status === 'open' && info.halfBarrierPct > 0 && info.entrySpot > 0 && this.analyzer) {
+    // The _selling Set prevents concurrent sell attempts — multiple POC
+    // updates arriving in quick succession would otherwise spam sell()
+    // and cause a flood of `BetExpired` / `TradingDurationNotAllowed`
+    // errors after the first sell succeeds and ends the contract.
+    if (status === 'open' && info.halfBarrierPct > 0 && info.entrySpot > 0
+        && this.analyzer && !this._selling.has(cid)) {
       const ex = this.analyzer.shouldExitEarly(
         info.entrySpot, spot, info.halfBarrierPct,
         profit, info.limit?.take_profit ?? 0,
       );
       if (ex.exit) {
         logger.warn(`contract #${cid} EARLY EXIT (${ex.reason}) drift=${ex.driftPct.toFixed(4)}% remaining=${(ex.remainingFraction*100).toFixed(1)}% profit=${profit.toFixed(2)}`);
+        this._selling.add(cid);
         try { await this.sell(cid, 0); } catch (e) {
           logger.error(`early-exit sell #${cid} failed:`, e.message);
+        } finally {
+          this._selling.delete(cid);
         }
       } else if (ex.urgency >= 0.6) {
         this.emit('driftWarning', { ...info, contractId: cid, profit, currentSpot: spot, exit: ex });
