@@ -134,13 +134,13 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot2_007.log',
+  logFile : 'deriv_bot2_008.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
   // 4-factor composite score, normalized to [0,1]. The bot enters a trade
   // iff score >= minConfidence AND hurst <= maxHurst AND volRegime <= maxVolRegime.
-  minConfidence: parseFloat('0.75'),
+  minConfidence: parseFloat('0.70'),
   maxHurst     : parseFloat('0.65'),  // 0.5 = random; >0.65 = strong trend (risky)
   maxVolRegime : parseInt  ('0',    10), // 0=low 1=normal 2=high 3=extreme
   sessionWeighting: true,
