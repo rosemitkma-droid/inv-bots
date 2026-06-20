@@ -44,7 +44,7 @@ const path = require('path');
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC2n_14_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC2n_15_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -980,7 +980,7 @@ class EnhancedDerivTradingBot {
         // Allow the focus asset through even if it's been moved to
         // pendingAssets (its stayedInArray resets low after a loss, so
         // isAssetReady() would wrongly block its own recovery trade)
-        if (!this.isAssetReady(asset) && asset !== this.focusAsset) return;
+        // if (!this.isAssetReady(asset) && asset !== this.focusAsset) return;
 
         // Minimum time between trades
         if (Date.now() - (this.lastTradeTime[asset] || 0) < this.config.minTimeBetweenTrades) return;
@@ -1653,7 +1653,7 @@ class EnhancedDerivTradingBot {
             if (!this.isAssetAllowed(asset)) continue;
 
             // Allow focus asset through even if its stayedInArray is low post-loss
-            if (!this.isAssetReady(asset) && asset !== this.focusAsset) continue;
+            // if (!this.isAssetReady(asset) && asset !== this.focusAsset) continue;
 
             if (this.tradeInProgress) break;
             if (this.activeTrades[asset]) continue;
