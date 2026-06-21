@@ -94,8 +94,8 @@ const CONFIG = Object.freeze({
   stake          : parseFloat('1.0'),
   multiplier     : parseFloat('0.05'),  // 2 % growth rate
   multiplierStep : parseFloat('0.0'),   // grow after wins
-  stopLoss       : parseFloat('10.0'),
-  takeProfit     : parseFloat('5000.0'),
+  stopLoss       : parseFloat('110.0'),
+  takeProfit     : parseFloat('500.0'),
 
   // ── Martingale (loss-recovery stake multiplier) ──
   // Set MARTINGALE=0 to disable. After `lossesBeforeMartingale` consecutive
@@ -103,7 +103,7 @@ const CONFIG = Object.freeze({
   // loss adds `martingaleStep` to the multiplier. A win resets to 1.0.
   martingale          : parseFloat('100'),    // base multiplier when active (0 = off)
   martingaleStep      : parseFloat('0.5'),  // added per extra consecutive loss
-  lossesBeforeMartingale: parseInt('0'),  // N losses before martingale kicks in
+  lossesBeforeMartingale: parseInt('1'),  // N losses before martingale kicks in
 
   // ─ Assets (Deriv synthetic indices) ─
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
@@ -142,14 +142,14 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot2b_04.log',
+  logFile : 'deriv_bot1a_01.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
   // 4-factor composite score, normalized to [0,1]. The bot enters a trade
   // iff score >= minConfidence AND hurst <= maxHurst AND volRegime <= maxVolRegime.
-  minConfidence: parseFloat('0.65'),
-  maxHurst     : parseFloat('0.65'),  // 0.5 = random; >0.65 = strong trend (risky)
+  minConfidence: parseFloat('0.75'),
+  maxHurst     : parseFloat('0.58'),  // 0.5 = random; >0.65 = strong trend (risky)
   maxVolRegime : parseInt  ('0',    10), // 0=low 1=normal 2=high 3=extreme
   sessionWeighting: true,
 
@@ -176,7 +176,7 @@ const CONFIG = Object.freeze({
   // The analyzer maps per-tick σ to the smallest growth_rate whose barrier
   // still covers ≥ 2σ of recent moves. Restricting to a narrow band means:
   // we only enter when the market is calm enough to safely use higher rates.
-  minGrowth : parseFloat('0.02'),
+  minGrowth : parseFloat('0.01'),
   maxGrowth : parseFloat('0.05'),
 });
 
@@ -1083,8 +1083,8 @@ class MarketAnalyzer {
     const hurst = this._hurst(q);
     let dpsNorm;
     if (hurst >= 0.45 && hurst <= 0.58)      dpsNorm = 1.0;          // sweet spot
-    else if (hurst < 0.45)                   dpsNorm = 0.6;          // mean-reverting (whipsaw risk)
-    else if (hurst <= 0.65)                  dpsNorm = 0.7;          // mildly trending
+    else if (hurst < 0.45)                   dpsNorm = 0.05;          // mean-reverting (whipsaw risk)
+    else if (hurst <= 0.65)                  dpsNorm = 0.07;          // mildly trending
     else                                      dpsNorm = 0.2;          // strong trend (barrier risk)
     const dpsLabel = hurst < 0.45 ? 'mean-reverting' :
                      hurst <= 0.58 ? 'calm-persistent' :
@@ -1113,21 +1113,21 @@ class MarketAnalyzer {
     // 1) Calm regime (most important — volatility is the #1 killer)
     if (calmScore < 0.55)      { score += 0.35; reasonParts.push('very-calm'); }
     else if (calmScore < 0.75) { score += 0.25; reasonParts.push('calm'); }
-    else if (calmScore < 1.0)  { score += 0.10; reasonParts.push('normal'); }
-    else if (calmScore < 1.3)  { score -= 0.10; reasonParts.push('turbulent'); }
+    else if (calmScore < 1.0)  { score += 0.00; reasonParts.push('normal'); }
+    else if (calmScore < 1.3)  { score -= 0.25; reasonParts.push('turbulent'); }
     else                        { score -= 0.35; reasonParts.push('stormy'); }
 
     // 2) BB middle-band proximity (entry at the mean is safest)
     if (bbMiddleProximity > 0.85)      { score += 0.25; reasonParts.push('at-mean'); }
-    else if (bbMiddleProximity > 0.60){ score += 0.15; reasonParts.push('near-mean'); }
-    else if (bbMiddleProximity > 0.35){ score += 0.00; reasonParts.push('off-mean'); }
+    else if (bbMiddleProximity > 0.60){ score += 0.00; reasonParts.push('near-mean'); }
+    else if (bbMiddleProximity > 0.35){ score -= 0.15; reasonParts.push('off-mean'); }
     else                                { score -= 0.25; reasonParts.push('at-band'); }
 
     // 3) RSI in neutral zone (40–60) means no extreme momentum
     if (rsi >= 45 && rsi <= 55)        { score += 0.15; reasonParts.push('rsi-neutral'); }
-    else if (rsi >= 35 && rsi <= 65)   { score += 0.05; reasonParts.push('rsi-mild'); }
+    else if (rsi >= 35 && rsi <= 65)   { score -= 0.10; reasonParts.push('rsi-mild'); }
     else if (rsi < 25 || rsi > 75)     { score -= 0.25; reasonParts.push('rsi-extreme'); }
-    else                                { score -= 0.10; reasonParts.push('rsi-tilted'); }
+    else                                { score -= 0.15; reasonParts.push('rsi-tilted'); }
 
     // 4) Trend strength (moderate trend ok; no trend = whipsaw risk; strong trend = barrier risk)
     if (trendStrength >= 0.4 && trendStrength <= 2.0)   { score += 0.10; reasonParts.push('good-trend'); }
@@ -1135,13 +1135,13 @@ class MarketAnalyzer {
     else                                                  { score -= 0.20; reasonParts.push('extreme-trend'); }
 
     // 5) Mean reversion (high reversion → whipsaw)
-    if (meanReversion > 0.55)        { score -= 0.25; reasonParts.push('whipsaw'); }
-    else if (meanReversion > 0.25)  { score -= 0.10; reasonParts.push('mean-rev'); }
+    if (meanReversion > 0.45)        { score -= 0.30; reasonParts.push('whipsaw'); }
+    else if (meanReversion > 0.15)  { score -= 0.15; reasonParts.push('mean-rev'); }
 
     // 6) Safe-move ratio (estimated per-tick survival probability proxy)
     if (safeMoveRatio > 0.85)       { score += 0.15; reasonParts.push('safe-ticks'); }
-    else if (safeMoveRatio > 0.70)  { score += 0.05; reasonParts.push('ok-ticks'); }
-    else                              { score -= 0.20; reasonParts.push('risky-ticks'); }
+    else if (safeMoveRatio > 0.70)  { score += 0.00; reasonParts.push('ok-ticks'); }
+    else                              { score -= 0.25; reasonParts.push('risky-ticks'); }
 
     // VATP factor contributions (added on top of CWMRAS components)
     score += w.dps     * dpsNorm;
@@ -1183,10 +1183,22 @@ class MarketAnalyzer {
       }
     }
 
+    // const barrierByGrowth = { 0.04: 0.050, 0.05: 0.048 };
+    // if (perTickStdevPct > 0) {
+    //   for (const g of [0.04, 0.05]) {
+    //     // barrier is on EACH side; we need barrier_pct ≥ target × per_tick_stdev_pct
+    //     if (barrierByGrowth[g] >= targetSigmaCoverage * perTickStdevPct) {
+    //       suggestedGrowth = g;
+    //       break;
+    //     }
+    //     suggestedGrowth = g;  // last fallback
+    //   }
+    // }
+
     // ── Recommended take-profit (scale with safety) ──
     // In a calm regime we can hold longer → larger TP
     // In a turbulent regime → tighter TP
-    const baseTpFactor = 1.5;          // TP = stake × factor
+    const baseTpFactor = 0.12;          // TP = stake × factor
     const tpFactor = Math.max(0.8, baseTpFactor * (0.5 + score));
     const recommendedTp = +(this.cfg.stake * tpFactor).toFixed(2);
 
@@ -2211,6 +2223,7 @@ class TradingBot {
           srasMean = stays.mean;
           // SRAS gate #1: composite score must meet minimum
           const srasMin = this.cfg.srasMin ?? 0.40;
+          
           if (srasScore < srasMin) {
             logger.debug(`SRAS score too low (${srasScore.toFixed(2)} < ${srasMin}) — skipping`);
             return;
@@ -2228,6 +2241,7 @@ class TradingBot {
         } else {
           // No stay data yet — soft pass (don't block; just lower confidence)
           logger.debug('SRAS: no cached stays yet — soft pass');
+          return;
         }
       } else {
         // If we have NO stay data, fetch fresh proposals to populate the cache.
