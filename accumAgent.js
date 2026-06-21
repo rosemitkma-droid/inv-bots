@@ -94,15 +94,15 @@ const CONFIG = Object.freeze({
   stake          : parseFloat('1.0'),
   multiplier     : parseFloat('0.05'),  // 2 % growth rate
   multiplierStep : parseFloat('0.0'),   // grow after wins
-  stopLoss       : parseFloat('110.0'),
-  takeProfit     : parseFloat('500.0'),
+  stopLoss       : parseFloat('400.0'),
+  takeProfit     : parseFloat('100.0'),
 
   // ── Martingale (loss-recovery stake multiplier) ──
   // Set MARTINGALE=0 to disable. After `lossesBeforeMartingale` consecutive
   // losses the next stake is multiplied by `martingale`. Each subsequent
   // loss adds `martingaleStep` to the multiplier. A win resets to 1.0.
   martingale          : parseFloat('100'),    // base multiplier when active (0 = off)
-  martingaleStep      : parseFloat('0.5'),  // added per extra consecutive loss
+  martingaleStep      : parseFloat('100.0'),  // added per extra consecutive loss
   lossesBeforeMartingale: parseInt('1'),  // N losses before martingale kicks in
 
   // ─ Assets (Deriv synthetic indices) ─
@@ -142,7 +142,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot1a_01.log',
+  logFile : 'deriv_bot1a_03.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
@@ -1171,21 +1171,9 @@ class MarketAnalyzer {
     const targetSigmaCoverage = 2.0;     // we want barrier ≥ 2 × per-tick σ
     const perTickStdevPct = (shortStats.stdev / Math.abs(price)) * 100;
     // For each growth rate, approximate the barrier% (slightly conservative)
-    const barrierByGrowth = { 0.01: 0.061, 0.02: 0.056, 0.03: 0.053, 0.04: 0.050, 0.05: 0.048 };
-    if (perTickStdevPct > 0) {
-      for (const g of [0.01, 0.02, 0.03, 0.04, 0.05]) {
-        // barrier is on EACH side; we need barrier_pct ≥ target × per_tick_stdev_pct
-        if (barrierByGrowth[g] >= targetSigmaCoverage * perTickStdevPct) {
-          suggestedGrowth = g;
-          break;
-        }
-        suggestedGrowth = g;  // last fallback
-      }
-    }
-
-    // const barrierByGrowth = { 0.04: 0.050, 0.05: 0.048 };
+    // const barrierByGrowth = { 0.01: 0.061, 0.02: 0.056, 0.03: 0.053, 0.04: 0.050, 0.05: 0.048 };
     // if (perTickStdevPct > 0) {
-    //   for (const g of [0.04, 0.05]) {
+    //   for (const g of [0.01, 0.02, 0.03, 0.04, 0.05]) {
     //     // barrier is on EACH side; we need barrier_pct ≥ target × per_tick_stdev_pct
     //     if (barrierByGrowth[g] >= targetSigmaCoverage * perTickStdevPct) {
     //       suggestedGrowth = g;
@@ -1195,12 +1183,25 @@ class MarketAnalyzer {
     //   }
     // }
 
+    const barrierByGrowth = { 0.04: 0.050, 0.05: 0.048 };
+    if (perTickStdevPct > 0) {
+      for (const g of [0.04, 0.05]) {
+        // barrier is on EACH side; we need barrier_pct ≥ target × per_tick_stdev_pct
+        if (barrierByGrowth[g] >= targetSigmaCoverage * perTickStdevPct) {
+          suggestedGrowth = g;
+          break;
+        }
+        suggestedGrowth = g;  // last fallback
+      }
+    }
+
     // ── Recommended take-profit (scale with safety) ──
     // In a calm regime we can hold longer → larger TP
     // In a turbulent regime → tighter TP
-    const baseTpFactor = 0.12;          // TP = stake × factor
+    const baseTpFactor = 0.10;          // TP = stake × factor
     const tpFactor = Math.max(0.8, baseTpFactor * (0.5 + score));
-    const recommendedTp = +(this.cfg.stake * tpFactor).toFixed(2);
+    // const recommendedTp = +(this.cfg.stake * tpFactor).toFixed(2);
+    const recommendedTp = baseTpFactor;
 
     return {
       symbol,
