@@ -97,6 +97,14 @@ const CONFIG = Object.freeze({
   stopLoss       : parseFloat('110.0'),
   takeProfit     : parseFloat('500.0'),
 
+  // ── Martingale (loss-recovery stake multiplier) ──
+  // Set MARTINGALE=0 to disable. After `lossesBeforeMartingale` consecutive
+  // losses the next stake is multiplied by `martingale`. Each subsequent
+  // loss adds `martingaleStep` to the multiplier. A win resets to 1.0.
+  martingale          : parseFloat('100'),    // base multiplier when active (0 = off)
+  martingaleStep      : parseFloat('0.5'),  // added per extra consecutive loss
+  lossesBeforeMartingale: parseInt('1'),  // N losses before martingale kicks in
+
   // ─ Assets (Deriv synthetic indices) ─
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
   //     .split(',').map(s => s.trim()).filter(Boolean),
@@ -134,15 +142,15 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot2b_01.log',
+  logFile : 'deriv_bot2a_01.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
   // 4-factor composite score, normalized to [0,1]. The bot enters a trade
   // iff score >= minConfidence AND hurst <= maxHurst AND volRegime <= maxVolRegime.
   minConfidence: parseFloat('0.75'),
-  maxHurst     : parseFloat('0.65'),  // 0.5 = random; >0.65 = strong trend (risky)
-  maxVolRegime : parseInt  ('0',    10), // 0=low 1=normal 2=high 3=extreme
+  maxHurst     : parseFloat('0.58'),  // 0.5 = random; >0.65 = strong trend (risky)
+  maxVolRegime : parseInt  ('1',    10), // 0=low 1=normal 2=high 3=extreme
   sessionWeighting: true,
 
   // Weights for the 4 VATP factors + CWMRAS components.
@@ -162,6 +170,14 @@ const CONFIG = Object.freeze({
   srasMin       : parseFloat('0.40'),  // min SRAS score to enter
   stayRefreshMs : parseInt  ('60000',10), // how often to refresh stay cache
   minRisingStreak: parseInt('2',   10), // require N consecutive rising stays
+
+  // ── Growth-rate filter (barrierByGrowth analysis gate) ──
+  // Only trade when the analyzer's suggestedGrowth falls inside this range.
+  // The analyzer maps per-tick σ to the smallest growth_rate whose barrier
+  // still covers ≥ 2σ of recent moves. Restricting to a narrow band means:
+  // we only enter when the market is calm enough to safely use higher rates.
+  minGrowth : parseFloat('0.01'),
+  maxGrowth : parseFloat('0.05'),
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1067,8 +1083,8 @@ class MarketAnalyzer {
     const hurst = this._hurst(q);
     let dpsNorm;
     if (hurst >= 0.45 && hurst <= 0.58)      dpsNorm = 1.0;          // sweet spot
-    else if (hurst < 0.45)                   dpsNorm = 0.6;          // mean-reverting (whipsaw risk)
-    else if (hurst <= 0.65)                  dpsNorm = 0.7;          // mildly trending
+    else if (hurst < 0.45)                   dpsNorm = 0.05;          // mean-reverting (whipsaw risk)
+    else if (hurst <= 0.65)                  dpsNorm = 0.07;          // mildly trending
     else                                      dpsNorm = 0.2;          // strong trend (barrier risk)
     const dpsLabel = hurst < 0.45 ? 'mean-reverting' :
                      hurst <= 0.58 ? 'calm-persistent' :
@@ -1096,22 +1112,22 @@ class MarketAnalyzer {
 
     // 1) Calm regime (most important — volatility is the #1 killer)
     if (calmScore < 0.55)      { score += 0.35; reasonParts.push('very-calm'); }
-    else if (calmScore < 0.75) { score += 0.05; reasonParts.push('calm'); }
+    else if (calmScore < 0.75) { score += 0.25; reasonParts.push('calm'); }
     else if (calmScore < 1.0)  { score += 0.00; reasonParts.push('normal'); }
-    else if (calmScore < 1.3)  { score -= 0.10; reasonParts.push('turbulent'); }
+    else if (calmScore < 1.3)  { score -= 0.25; reasonParts.push('turbulent'); }
     else                        { score -= 0.35; reasonParts.push('stormy'); }
 
     // 2) BB middle-band proximity (entry at the mean is safest)
     if (bbMiddleProximity > 0.85)      { score += 0.25; reasonParts.push('at-mean'); }
-    else if (bbMiddleProximity > 0.60){ score += 0.05; reasonParts.push('near-mean'); }
-    else if (bbMiddleProximity > 0.35){ score += 0.00; reasonParts.push('off-mean'); }
+    else if (bbMiddleProximity > 0.60){ score += 0.00; reasonParts.push('near-mean'); }
+    else if (bbMiddleProximity > 0.35){ score -= 0.15; reasonParts.push('off-mean'); }
     else                                { score -= 0.25; reasonParts.push('at-band'); }
 
     // 3) RSI in neutral zone (40–60) means no extreme momentum
     if (rsi >= 45 && rsi <= 55)        { score += 0.15; reasonParts.push('rsi-neutral'); }
-    else if (rsi >= 35 && rsi <= 65)   { score += 0.05; reasonParts.push('rsi-mild'); }
+    else if (rsi >= 35 && rsi <= 65)   { score -= 0.10; reasonParts.push('rsi-mild'); }
     else if (rsi < 25 || rsi > 75)     { score -= 0.25; reasonParts.push('rsi-extreme'); }
-    else                                { score -= 0.10; reasonParts.push('rsi-tilted'); }
+    else                                { score -= 0.15; reasonParts.push('rsi-tilted'); }
 
     // 4) Trend strength (moderate trend ok; no trend = whipsaw risk; strong trend = barrier risk)
     if (trendStrength >= 0.4 && trendStrength <= 2.0)   { score += 0.10; reasonParts.push('good-trend'); }
@@ -1119,13 +1135,13 @@ class MarketAnalyzer {
     else                                                  { score -= 0.20; reasonParts.push('extreme-trend'); }
 
     // 5) Mean reversion (high reversion → whipsaw)
-    if (meanReversion > 0.50)        { score -= 0.25; reasonParts.push('whipsaw'); }
-    else if (meanReversion > 0.20)  { score -= 0.10; reasonParts.push('mean-rev'); }
+    if (meanReversion > 0.45)        { score -= 0.30; reasonParts.push('whipsaw'); }
+    else if (meanReversion > 0.15)  { score -= 0.15; reasonParts.push('mean-rev'); }
 
     // 6) Safe-move ratio (estimated per-tick survival probability proxy)
     if (safeMoveRatio > 0.85)       { score += 0.15; reasonParts.push('safe-ticks'); }
-    else if (safeMoveRatio > 0.70)  { score += 0.05; reasonParts.push('ok-ticks'); }
-    else                              { score -= 0.20; reasonParts.push('risky-ticks'); }
+    else if (safeMoveRatio > 0.70)  { score += 0.00; reasonParts.push('ok-ticks'); }
+    else                              { score -= 0.25; reasonParts.push('risky-ticks'); }
 
     // VATP factor contributions (added on top of CWMRAS components)
     score += w.dps     * dpsNorm;
@@ -1155,6 +1171,17 @@ class MarketAnalyzer {
     const targetSigmaCoverage = 2.0;     // we want barrier ≥ 2 × per-tick σ
     const perTickStdevPct = (shortStats.stdev / Math.abs(price)) * 100;
     // For each growth rate, approximate the barrier% (slightly conservative)
+    // const barrierByGrowth = { 0.01: 0.061, 0.02: 0.056, 0.03: 0.053, 0.04: 0.050, 0.05: 0.048 };
+    // if (perTickStdevPct > 0) {
+    //   for (const g of [0.01, 0.02, 0.03, 0.04, 0.05]) {
+    //     // barrier is on EACH side; we need barrier_pct ≥ target × per_tick_stdev_pct
+    //     if (barrierByGrowth[g] >= targetSigmaCoverage * perTickStdevPct) {
+    //       suggestedGrowth = g;
+    //       break;
+    //     }
+    //     suggestedGrowth = g;  // last fallback
+    //   }
+    // }
     const barrierByGrowth = { 0.04: 0.050, 0.05: 0.048 };
     if (perTickStdevPct > 0) {
       for (const g of [0.04, 0.05]) {
@@ -1862,6 +1889,14 @@ class TradingBot {
     this._eodT         = null;
     this._hourlyBoot   = null;
     this._eodBoot      = null;
+
+    // ── Martingale state ──
+    // lossesStreak counts consecutive losses; martingaleMultiplier is the
+    // current stake multiplier (1.0 = no martingale). Updated in
+    // _onTradeResult; consumed by currentStake() before each buy.
+    this.lossesStreak = 0;
+    this.martingaleMultiplier = 1.0;
+    this._lastTradeWon = true;   // start in a "fresh" state
   }
 
   async start() {
@@ -1921,6 +1956,9 @@ class TradingBot {
 
     await this.market.loadSymbols();
 
+    const martingaleLine = (this.cfg.martingale && this.cfg.martingale > 0)
+      ? `♻️ <b>Martingale:</b> ×${this.cfg.martingale} (after ${this.cfg.lossesBeforeMartingale} losses, +${this.cfg.martingaleStep}/loss)\n`
+      : '';
     telegram.send(
       `🤖 <b>Bot Online</b>\n\n` +
       `👤 <b>Account:</b> ${info.loginid}\n` +
@@ -1928,9 +1966,12 @@ class TradingBot {
       `💰 <b>Balance:</b> ${this.startBalance.toFixed(2)} ${this.currency()}\n` +
       `📊 <b>Assets:</b> ${this.cfg.assets.length}\n` +
       `💵 <b>Stake:</b> ${this.cfg.stake}\n` +
-      `📈 <b>Multiplier:</b> ${(this.cfg.multiplier*100).toFixed(2)}%\n` +
+      `📈 <b>Multiplier (base):</b> ${(this.cfg.multiplier*100).toFixed(2)}%\n` +
       `🛑 <b>Stop Loss:</b> ${this.cfg.stopLoss}\n` +
-      `🎯 <b>Take Profit:</b> ${this.cfg.takeProfit}\n`,
+      `🎯 <b>Take Profit:</b> ${this.cfg.takeProfit}\n` +
+      `📏 <b>Growth range:</b> ${(this.cfg.minGrowth*100).toFixed(0)}%–${(this.cfg.maxGrowth*100).toFixed(0)}%\n` +
+      `📈 <b>Min rising streak:</b> ${this.cfg.minRisingStreak}\n` +
+      martingaleLine,
     );
 
     // Subscribe to all assets and backfill
@@ -1960,16 +2001,24 @@ class TradingBot {
   // ── Trade callbacks ────────────────────────────────────────
   _onTradeOpen(t) {
     const cd = t.contractDetails || {};
+    // Martingale annotation in the trade message
+    const mFactor = (t._analysis && t._analysis.martingaleMultiplier) || 1;
+    const lossesStreak = (t._analysis && t._analysis.lossesStreak) || 0;
+    const stakeNote = mFactor > 1
+      ? `${t.stake.toFixed(2)} (base ${t._analysis.baseStake} × ${mFactor.toFixed(2)})`
+      : `${t.stake.toFixed(2)}`;
+    const martingaleNote = mFactor > 1
+      ? `\n♻️ <b>Martingale:</b> ×${mFactor.toFixed(2)} (${lossesStreak} consecutive losses)` : '';
     let msg =
       `🟢 <b>TRADE OPENED</b>\n\n` +
       `🎫 <b>Contract:</b> #${t.contractId}\n` +
       `📊 <b>Symbol:</b> <code>${t.symbol}</code>\n` +
       `📈 <b>Growth Rate:</b> ${(t.growthRate*100).toFixed(2)}%\n` +
-      `💵 <b>Stake:</b> ${t.stake.toFixed(2)} ${this.currency()}\n` +
+      `💵 <b>Stake:</b> ${stakeNote} ${this.currency()}\n` +
       `💰 <b>Buy Price:</b> ${t.buyPrice.toFixed(2)}\n` +
       `🎁 <b>Max Payout:</b> ${t.payout.toFixed(2)}\n` +
       `🛑 <b>Stop Loss:</b> ${t.limit.stop_loss ?? '–'}\n` +
-      `🎯 <b>Take Profit:</b> ${t.limit.take_profit ?? '–'}\n`;
+      `🎯 <b>Take Profit:</b> ${t.limit.take_profit ?? '–'}\n` + martingaleNote;
     if (cd.maximum_payout   !== undefined) msg += `⚠️ <b>Max Payout (cap):</b> ${cd.maximum_payout}\n`;
     if (cd.tick_size_barrier!== undefined) msg += `🚧 <b>Barrier size:</b> ${cd.tick_size_barrier}\n`;
     if (cd.maximum_ticks    !== undefined) msg += `⏱️ <b>Max Ticks:</b> ${cd.maximum_ticks}\n`;
@@ -2046,7 +2095,57 @@ class TradingBot {
       `• Profit factor: ${s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2)}\n`;
 
     telegram.send(msg);
+    this._updateMartingale(t.status);
     this.lastTradeAt = Date.now();
+  }
+
+  // ── Martingale helpers ─────────────────────────────────────────
+  /**
+   * Compute the stake to use on the next trade. Applies the current
+   * martingale multiplier (1.0 if no martingale is active).
+   * Returns the BASE stake when martingale is disabled
+   * (martingale==0 OR lossesStreak <= threshold).
+   */
+  currentStake() {
+    const base = this.cfg.stake;
+    const m    = this.cfg.martingale || 0;
+    if (m <= 0) return base;
+    // Martingale is only active if losses exceed the threshold
+    if (this.lossesStreak <= (this.cfg.lossesBeforeMartingale || 0)) return base;
+    return +(base * this.martingaleMultiplier).toFixed(2);
+  }
+
+  /**
+   * Update martingale state after a trade closes.
+   * A win resets the multiplier to 1.0; each consecutive loss
+   * increases the multiplier by `martingaleStep` (once the threshold
+   * has been exceeded).
+   */
+  _updateMartingale(tradeResult) {
+    if (!this.cfg.martingale || this.cfg.martingale <= 0) {
+      // Martingale disabled — keep state pristine
+      this.lossesStreak = 0;
+      this.martingaleMultiplier = 1.0;
+      this._lastTradeWon = tradeResult === 'won';
+      return;
+    }
+    const threshold = this.cfg.lossesBeforeMartingale || 0;
+    if (tradeResult === 'won') {
+      this.lossesStreak = 0;
+      this.martingaleMultiplier = 1.0;
+    } else {
+      this.lossesStreak++;
+      if (this.lossesStreak > threshold) {
+        const stepNum = this.lossesStreak - threshold - 1;
+        this.martingaleMultiplier =
+          this.cfg.martingale + this.cfg.martingaleStep * stepNum;
+        logger.info(
+          `martingale: ${this.lossesStreak} losses streak → ` +
+          `stake × ${this.martingaleMultiplier.toFixed(2)}`,
+        );
+      }
+    }
+    this._lastTradeWon = tradeResult === 'won';
   }
 
   // ── Strategy loop (CWMRAS) ────────────────────────────────────
@@ -2121,18 +2220,22 @@ class TradingBot {
           srasScore = stays.score;
           srasRisingStreak = this.analyzer.risingDigitStreak(cachedStays.ticks_stayed_in);
           srasMean = stays.mean;
-          // SRAS gate: rising digits (streak >= 2) AND score >= SRAS_MIN
+          // SRAS gate #1: composite score must meet minimum
           const srasMin = this.cfg.srasMin ?? 0.40;
-          const minRisingStreak = this.cfg.minRisingStreak ?? 2;
           if (srasScore < srasMin) {
             logger.debug(`SRAS score too low (${srasScore.toFixed(2)} < ${srasMin}) — skipping`);
             return;
           }
-          if (srasRisingStreak < minRisingStreak) {
-            logger.debug(`SRAS minRisingStreak too low (${srasRisingStreak} < ${minRisingStreak}) — skipping`);
+          // SRAS gate #2: rising-digit streak must meet minimum (the
+          // "rising digits" guard the user requested). The streak is the
+          // length of the strictly-rising tail at the end of the recent
+          // ticks_stayed_in history.
+          const minStreak = this.cfg.minRisingStreak || 0;
+          if (minStreak > 0 && srasRisingStreak < minStreak) {
+            logger.debug(`SRAS rising streak too low (${srasRisingStreak} < ${minStreak}) — skipping`);
             return;
-          } 
-          logger.debug(`SRAS ok: score=${srasScore.toFixed(2)} mean=${srasMean.toFixed(1)} ticks rising-streak=${srasRisingStreak} trend=${stays.trendNorm.toFixed(3)} above-med=${(stays.aboveMedian*100).toFixed(0)}%`);
+          }
+          logger.debug(`SRAS ok: score=${srasScore.toFixed(2)} mean=${srasMean.toFixed(1)} rising-streak=${srasRisingStreak}/${minStreak} trend=${stays.trendNorm.toFixed(3)} above-med=${(stays.aboveMedian*100).toFixed(0)}%`);
         } else {
           // No stay data yet — soft pass (don't block; just lower confidence)
           logger.debug('SRAS: no cached stays yet — soft pass');
@@ -2154,14 +2257,31 @@ class TradingBot {
       const growthRate = best.suggestedGrowth
                        ?? this.exec.currentGrowthRate
                        ?? this.cfg.multiplier;
+
+      // ── Growth-rate range gate (barrierByGrowth filter) ──
+      // Only enter when the analyzer's suggested growth_rate falls inside
+      // [MIN_GROWTH, MAX_GROWTH] (defaults 0.04..0.05). This effectively
+      // requires the market to be calm enough to safely use the higher
+      // rates — narrower barriers, faster compounding — and SKIPS trades
+      // when conditions only permit the slower rates (0.01..0.03).
+      if (growthRate < this.cfg.minGrowth || growthRate > this.cfg.maxGrowth) {
+        logger.debug(
+          `growth rate ${growthRate} outside [${this.cfg.minGrowth}, ${this.cfg.maxGrowth}] — ` +
+          `skipping (regime not calm enough)`,
+        );
+        return;
+      }
+
       const takeProfit = Math.min(best.recommendedTp, this.cfg.takeProfit || best.recommendedTp);
       const stopLoss   = this.cfg.stopLoss;
 
+      // ── Martingale-aware stake ──
+      // currentStake() returns base stake when martingale is inactive,
+      // and base × martingaleMultiplier after the loss threshold.
+      const stake = this.currentStake();
+
       // Build the analysis payload NOW and pass it into buy() so the
       // executor can attach it to `info` BEFORE emitting 'open'.
-      // (Previously this was set AFTER `await`, which was too late —
-      //  the 'open' listener fired synchronously inside buy() and never
-      //  saw _analysis.)
       const analysis = {
         score: best.score, hurst: best.hurst, dpsLabel: best.dpsLabel, dpsNorm: best.dpsNorm,
         vrfLabel: best.vrfLabel, vrfNorm: best.vrfNorm, volRegime: best.volRegime,
@@ -2169,15 +2289,25 @@ class TradingBot {
         bbMiddleProximity: best.bbMiddleProximity, rsi: best.rsi,
         // SRAS additions
         srasScore, srasRisingStreak, srasMean,
+        // Martingale state for transparency in the Telegram message
+        martingaleMultiplier: this.martingaleMultiplier,
+        lossesStreak: this.lossesStreak,
+        baseStake: this.cfg.stake,
       };
       const trade = await this.exec.buy(
         best.symbol,
         growthRate,
-        this.cfg.stake,
+        stake,
         { stop_loss: stopLoss, take_profit: takeProfit },
         analysis,                                  // 5th arg: pre-built analysis
       );
-      logger.info(`trade placed #${trade.contractId} ${best.symbol} growth=${growthRate} tp=${takeProfit} barrier=±${trade.halfBarrierPct.toFixed(4)}%`);
+      const martingaleNote = this.martingaleMultiplier > 1
+        ? ` martingale × ${this.martingaleMultiplier.toFixed(2)} (${this.lossesStreak} losses)`
+        : '';
+      logger.info(
+        `trade placed #${trade.contractId} ${best.symbol} growth=${growthRate} ` +
+        `stake=${stake}${martingaleNote} tp=${takeProfit} barrier=±${trade.halfBarrierPct.toFixed(4)}%`,
+      );
     } catch (e) {
       logger.error('analyse/trade error:', e.message);
     }
