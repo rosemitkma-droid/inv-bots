@@ -94,8 +94,8 @@ const CONFIG = Object.freeze({
   stake          : parseFloat('1.0'),
   multiplier     : parseFloat('0.05'),  // 2 % growth rate
   multiplierStep : parseFloat('0.0'),   // grow after wins
-  stopLoss       : parseFloat('400.0'),
-  takeProfit     : parseFloat('100.0'),
+  stopLoss       : parseFloat('100.0'),
+  takeProfit     : parseFloat('500.0'),
 
   // ── Martingale (loss-recovery stake multiplier) ──
   // Set MARTINGALE=0 to disable. After `lossesBeforeMartingale` consecutive
