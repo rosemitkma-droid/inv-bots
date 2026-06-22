@@ -1753,10 +1753,10 @@ class EnhancedDerivTradingBot {
 const bot = new EnhancedDerivTradingBot('0P94g4WdSrSrzir', {
     initialStake: 1,
     initialStake2: 25,
-    multiplier: 1,
+    multiplier: 10,
     multiplier2: 2,
     recoveryWinNum: 100,
-    maxConsecutiveLosses: 10,
+    maxConsecutiveLosses: 3,
     stopLoss: 127,
     takeProfit: 2500,
     growthRate: 0.04,
