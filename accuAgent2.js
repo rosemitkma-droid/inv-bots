@@ -94,7 +94,7 @@ const CONFIG = Object.freeze({
   stake          : parseFloat('1.0'),
   multiplier     : parseFloat('0.05'),  // 2 % growth rate
   multiplierStep : parseFloat('0.0'),   // grow after wins
-  stopLoss       : parseFloat('110.0'),
+  stopLoss       : parseFloat('100.0'),
   takeProfit     : parseFloat('500.0'),
 
   // ── Martingale (loss-recovery stake multiplier) ──
@@ -104,6 +104,7 @@ const CONFIG = Object.freeze({
   martingale          : parseFloat('100'),    // base multiplier when active (0 = off)
   martingaleStep      : parseFloat('0.5'),  // added per extra consecutive loss
   lossesBeforeMartingale: parseInt('1'),  // N losses before martingale kicks in
+  maxMartingaleStep   : parseFloat('3'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
 
   // ─ Assets (Deriv synthetic indices) ─
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
@@ -142,7 +143,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot2a_01.log',
+  logFile : 'deriv_bot1b_001.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
@@ -170,6 +171,12 @@ const CONFIG = Object.freeze({
   srasMin       : parseFloat('0.40'),  // min SRAS score to enter
   stayRefreshMs : parseInt  ('60000',10), // how often to refresh stay cache
   minRisingStreak: parseInt('2',   10), // require N consecutive rising stays
+
+  // ── State persistence ──
+  stateFile           : 'accuAgentBotb_state.json',  // path to JSON state file
+  stateSaveOnTrade    : true,
+  stateSaveOnShutdown : true,
+
 
   // ── Growth-rate filter (barrierByGrowth analysis gate) ──
   // Only trade when the analyzer's suggestedGrowth falls inside this range.
@@ -1924,6 +1931,9 @@ class TradingBot {
     process.on('SIGINT',  () => this.stop('SIGINT'));
     process.on('SIGTERM', () => this.stop('SIGTERM'));
 
+    // ── State persistence: restore previous session ──
+    this._loadState();
+
     this.client.connect();
     this._scheduleSummaries();
   }
@@ -2097,6 +2107,9 @@ class TradingBot {
     telegram.send(msg);
     this._updateMartingale(t.status);
     this.lastTradeAt = Date.now();
+    // Persist state so a crash/restart/network-drop preserves the
+    // martingale streak and balance tracking across days.
+    this._saveState('after-trade');
   }
 
   // ── Martingale helpers ─────────────────────────────────────────
@@ -2119,7 +2132,9 @@ class TradingBot {
    * Update martingale state after a trade closes.
    * A win resets the multiplier to 1.0; each consecutive loss
    * increases the multiplier by `martingaleStep` (once the threshold
-   * has been exceeded).
+   * has been exceeded). The multiplier is HARD-CAPPED at
+   * `cfg.maxMartingaleStep` so a long losing streak cannot blow up
+   * the stake to absurd levels.
    */
   _updateMartingale(tradeResult) {
     if (!this.cfg.martingale || this.cfg.martingale <= 0) {
@@ -2130,6 +2145,7 @@ class TradingBot {
       return;
     }
     const threshold = this.cfg.lossesBeforeMartingale || 0;
+    const cap = this.cfg.maxMartingaleStep || Infinity;
     if (tradeResult === 'won') {
       this.lossesStreak = 0;
       this.martingaleMultiplier = 1.0;
@@ -2137,12 +2153,16 @@ class TradingBot {
       this.lossesStreak++;
       if (this.lossesStreak > threshold) {
         const stepNum = this.lossesStreak - threshold - 1;
-        this.martingaleMultiplier =
-          this.cfg.martingale + this.cfg.martingaleStep * stepNum;
-        logger.info(
-          `martingale: ${this.lossesStreak} losses streak → ` +
-          `stake × ${this.martingaleMultiplier.toFixed(2)}`,
-        );
+        const raw = this.cfg.martingale + this.cfg.martingaleStep * stepNum;
+        const capped = Math.min(raw, cap);
+        if (capped !== this.martingaleMultiplier) {
+          this.martingaleMultiplier = capped;
+          const note = raw > cap ? ` (raw ×${raw.toFixed(2)} capped at ×${cap})` : '';
+          logger.info(
+            `martingale: ${this.lossesStreak} losses streak → ` +
+            `stake × ${this.martingaleMultiplier.toFixed(2)}${note}`,
+          );
+        }
       }
     }
     this._lastTradeWon = tradeResult === 'won';
@@ -2332,6 +2352,77 @@ class TradingBot {
     }
   }
 
+  // ── State persistence (save/load) ──────────────────────────
+  /**
+   * Persist the trading state to a JSON file. We save:
+   *   - loss streak / martingale multiplier (so we resume cleanly after
+   *     network drops or restarts)
+   *   - daily summaries (so previous days' reports survive restart)
+   *   - start-of-day balance + last-known balance (so the daily P/L
+   *     report is accurate even after a restart)
+   *   - last shutdown timestamp (for diagnostics)
+   *
+   * Writes are atomic (write to .tmp then rename) so a crash mid-write
+   * can't corrupt the file.
+   */
+  _saveState(reason = 'checkpoint') {
+    if (!this.cfg.stateSaveOnTrade && reason === 'after-trade') return;
+    if (!this.cfg.stateSaveOnShutdown && reason === 'shutdown') return;
+    try {
+      const payload = {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        savedReason: reason,
+        lossesStreak:        this.lossesStreak        ?? 0,
+        martingaleMultiplier: this.martingaleMultiplier ?? 1.0,
+        startBalance:        this.startBalance,
+        lastBalance:         this.lastBalance,
+        lastDayISODate:      this._lastDayISODate || this._todayISO(),
+        dailySummaries:      this.stats.dailySummaries || [],
+        // Persist today's open trades too in case of mid-trade restart
+        todayOpenTrades:     (this.stats.todayTrades() || []),
+      };
+      const file = this.cfg.stateFile;
+      const tmp = file + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(payload, null, 2));
+      fs.renameSync(tmp, file);
+      logger.debug(`state saved (${reason}) → ${file}`);
+    } catch (e) {
+      logger.warn('state save failed:', e.message);
+    }
+  }
+
+  /**
+   * Restore persisted state on startup. Silently no-op if the file
+   * doesn't exist (fresh install) or is corrupt (logs a warning).
+   */
+  _loadState() {
+    const file = this.cfg.stateFile;
+    if (!fs.existsSync(file)) {
+      logger.debug(`no state file at ${file} (fresh start)`);
+      return;
+    }
+    try {
+      const raw = fs.readFileSync(file, 'utf8');
+      const data = JSON.parse(raw);
+      if (data.lossesStreak != null)        this.lossesStreak = data.lossesStreak;
+      if (data.martingaleMultiplier != null) this.martingaleMultiplier = data.martingaleMultiplier;
+      if (data.startBalance  != null) this.startBalance  = data.startBalance;
+      if (data.lastBalance   != null) this.lastBalance   = data.lastBalance;
+      if (data.lastDayISODate)            this._lastDayISODate = data.lastDayISODate;
+      if (Array.isArray(data.dailySummaries)) this.stats.dailySummaries = data.dailySummaries;
+      logger.info(
+        `state restored from ${file} (saved ${data.savedAt}, reason: ${data.savedReason || '?'}): ` +
+        `lossesStreak=${this.lossesStreak} mult=${this.martingaleMultiplier.toFixed(2)} ` +
+        `dailySummaries=${this.stats.dailySummaries.length}`,
+      );
+    } catch (e) {
+      logger.warn(`state load failed (${file}):`, e.message);
+    }
+  }
+
+  _todayISO() { return new Date().toISOString().slice(0, 10); }
+
   // ── Summaries ───────────────────────────────────────────────
   _sendHourly() {
     const s = this.stats.previousHourSummary();
@@ -2355,47 +2446,85 @@ class TradingBot {
   }
 
   _sendEod() {
-    const s = this.stats.previousDaySummary();
-    // Archive old days so the in-memory list doesn't grow forever.
-    this.stats.archiveOldDays();
-    // Reset start-of-day balance so tomorrow's EOD is accurate.
-    this.startBalance = this.client.balance ?? this.lastBalance ?? this.startBalance;
-    if (!s.trades.length) {
-      telegram.send(`🌙 <b>End-of-day (${s.date})</b>\n\nNo trades yesterday.`);
-      return;
+    // ── Archive yesterday into dailySummaries before reporting today ──
+    // previousDaySummary() returns yesterday's trades (UTC date).
+    const yesterday = this.stats.previousDaySummary();
+    if (yesterday.trades.length) {
+      this.stats.dailySummaries.push(yesterday);
     }
-    const balStart = this.startBalance ?? 0;
-    const balNow   = this.lastBalance  ?? balStart;
-    const balDelta = balNow - balStart;
-    const balPct   = balStart ? (balDelta / balStart) * 100 : 0;
-    let msg =
-      `🌙 <b>End-of-Day Summary</b>\n` +
-      `📅 ${s.date}\n\n` +
-      `📊 <b>Total trades:</b> ${s.stats.count}\n` +
-      `✅ <b>Wins:</b> ${s.stats.wins}    ❌ <b>Losses:</b> ${s.stats.losses}\n` +
-      `📈 <b>Win rate:</b> ${s.stats.winRate.toFixed(1)}%\n` +
-      `💵 <b>Total stake:</b> ${s.stats.stake.toFixed(2)} ${this.currency()}\n` +
-      `💰 <b>Gross win:</b> +${s.stats.grossWin.toFixed(2)}\n` +
-      `📉 <b>Gross loss:</b> -${s.stats.grossLoss.toFixed(2)}\n` +
-      `💼 <b>Net P/L:</b> ${s.stats.totalProfit >= 0 ? '+' : ''}${s.stats.totalProfit.toFixed(2)} ${this.currency()}\n` +
-      `🏆 <b>Profit factor:</b> ${s.stats.profitFactor === Infinity ? '∞' : s.stats.profitFactor.toFixed(2)}\n` +
-      `📊 <b>Avg profit/trade:</b> ${s.stats.avgProfit.toFixed(2)}\n` +
-      `💼 <b>Balance:</b> ${balStart.toFixed(2)} → ${balNow.toFixed(2)} ` +
-      `(${balDelta >= 0 ? '+' : ''}${balDelta.toFixed(2)} / ${balPct >= 0 ? '+' : ''}${balPct.toFixed(2)}%)\n\n`;
+    // archiveOldDays keeps the in-memory list bounded.
+    this.stats.archiveOldDays();
 
-    // Group trades by symbol for clarity
-    const byHour = {};
-    s.trades.forEach(t => {
-      (byHour[t.hour] = byHour[t.hour] || []).push(t);
-    });
-    msg += `<b>📋 All trades (${s.trades.length}):</b>\n`;
-    s.trades.forEach((t, i) => {
-      const e = t.status === 'won' ? '✅' : '❌';
-      const time = new Date(t.timestamp).toISOString().slice(11, 19);
-      msg += `${i+1}. ${e} [${time}] #${t.contractId} ${t.symbol} @ ` +
-             `${(t.growthRate*100).toFixed(1)}% | ${t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)}\n`;
-    });
+    // ── Build today's report ──
+    const todayList = this.stats.todayTrades();
+    const todayStats = this.stats.stats(todayList);
+    const balStart   = this.startBalance ?? 0;
+    const balNow     = this.lastBalance  ?? balStart;
+    const balDelta   = balNow - balStart;
+    const balPct     = balStart ? (balDelta / balStart) * 100 : 0;
+
+    let msg = `🌙 <b>DAILY REPORT</b>\n` +
+              `📅 Today: <b>${this._todayISO()}</b>\n\n`;
+
+    if (todayList.length) {
+      msg += `<b>── Today's trading ──</b>\n` +
+             `📊 Trades: ${todayStats.count} (✅${todayStats.wins} ❌${todayStats.losses})\n` +
+             `📈 Win rate: ${todayStats.winRate.toFixed(1)}%\n` +
+             `💵 Total stake: ${todayStats.stake.toFixed(2)} ${this.currency()}\n` +
+             `💰 Gross win: +${todayStats.grossWin.toFixed(2)}\n` +
+             `📉 Gross loss: -${todayStats.grossLoss.toFixed(2)}\n` +
+             `💼 <b>Today's Net P/L: ${todayStats.totalProfit >= 0 ? '+' : ''}${todayStats.totalProfit.toFixed(2)} ${this.currency()}</b>\n` +
+             `🏆 Profit factor: ${todayStats.profitFactor === Infinity ? '∞' : todayStats.profitFactor.toFixed(2)}\n\n`;
+    } else {
+      msg += `<b>── Today's trading ──</b>\n` +
+             `No trades today.\n\n`;
+    }
+
+    // Balance summary (today's change)
+    msg += `<b>── Balance ──</b>\n` +
+           `💼 ${balStart.toFixed(2)} → ${balNow.toFixed(2)} ${this.currency()} ` +
+           `(${balDelta >= 0 ? '+' : ''}${balDelta.toFixed(2)} / ${balPct >= 0 ? '+' : ''}${balPct.toFixed(2)}%)\n\n`;
+
+    // ── Yesterday's summary (if any) ──
+    if (yesterday.trades.length) {
+      const ys = yesterday.stats;
+      msg += `<b>── Yesterday (${yesterday.date}) ──</b>\n` +
+             `📊 Trades: ${ys.count} (✅${ys.wins} ❌${ys.losses})\n` +
+             `📈 Win rate: ${ys.winRate.toFixed(1)}%\n` +
+             `💼 <b>Net P/L: ${ys.totalProfit >= 0 ? '+' : ''}${ys.totalProfit.toFixed(2)} ${this.currency()}</b>\n\n`;
+    }
+
+    // ── Last 7-day roll-up ──
+    const recent = (this.stats.dailySummaries || []).slice(-7);
+    if (recent.length > 0) {
+      const totalPL = recent.reduce((s, d) => s + (d.stats?.totalProfit || 0), 0);
+      const totalTrades = recent.reduce((s, d) => s + (d.stats?.count || 0), 0);
+      const totalWins = recent.reduce((s, d) => s + (d.stats?.wins || 0), 0);
+      msg += `<b>── Last ${recent.length} day(s) ──</b>\n` +
+             `📊 Trades: ${totalTrades} (✅${totalWins} ❌${totalTrades - totalWins})\n` +
+             `💼 <b>Net P/L: ${totalPL >= 0 ? '+' : ''}${totalPL.toFixed(2)} ${this.currency()}</b>\n\n`;
+    }
+
+    // ── Today's trade details ──
+    if (todayList.length) {
+      msg += `<b>📋 Today's trades (${todayList.length}):</b>\n`;
+      todayList.forEach((t, i) => {
+        const e = t.status === 'won' ? '✅' : '❌';
+        const time = new Date(t.timestamp).toISOString().slice(11, 19);
+        const mFactor = (t.martingaleMultiplier || 1).toFixed(2);
+        const stakeNote = (t.martingaleMultiplier || 1) > 1 ? ` ×${mFactor}` : '';
+        msg += `${i+1}. ${e} [${time}] #${t.contractId} ${t.symbol} @ ` +
+               `${(t.growthRate*100).toFixed(1)}% | stake ${t.stake.toFixed(2)}${stakeNote} | ` +
+               `${t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)}\n`;
+      });
+    }
+
     telegram.send(msg);
+    // Persist updated dailySummaries (we just appended yesterday)
+    this._saveState('eod-archive');
+
+    // Reset start-of-day balance for tomorrow's EOD math.
+    this.startBalance = this.client.balance ?? this.lastBalance ?? this.startBalance;
   }
 
   currency() { return this.client.currency || this.cfg.currency; }
@@ -2410,6 +2539,9 @@ class TradingBot {
     if (this._eodT)       clearInterval(this._eodT);
     if (this._hourlyBoot) clearTimeout(this._hourlyBoot);
     if (this._eodBoot)    clearTimeout(this._eodBoot);
+    // Persist state on graceful shutdown so the next session resumes
+    // from exactly where we left off.
+    this._saveState('shutdown');
     this.client.stop();
     setTimeout(() => process.exit(0), 2500);
   }
