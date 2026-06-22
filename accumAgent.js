@@ -103,7 +103,7 @@ const CONFIG = Object.freeze({
   // loss adds `martingaleStep` to the multiplier. A win resets to 1.0.
   martingale          : parseFloat('100'),    // base multiplier when active (0 = off)
   martingaleStep      : parseFloat('100.0'),  // added per extra consecutive loss
-  lossesBeforeMartingale: parseInt('1'),  // N losses before martingale kicks in
+  lossesBeforeMartingale: parseInt('0'),  // N losses before martingale kicks in
 
   // ─ Assets (Deriv synthetic indices) ─
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
@@ -142,7 +142,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot1a_03.log',
+  logFile : 'deriv_bot1a_04.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
