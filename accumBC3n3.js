@@ -118,7 +118,7 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3n4_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3n3_01_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
