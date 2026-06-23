@@ -143,7 +143,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot1a_01.log',
+  logFile : 'deriv_bot1b1_01.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
@@ -173,7 +173,7 @@ const CONFIG = Object.freeze({
   minRisingStreak: parseInt('2',   10), // require N consecutive rising stays
 
   // ── State persistence ──
-  stateFile           : 'accuAgentBot_state.json',  // path to JSON state file
+  stateFile           : 'accuAgentBotb1_state.json',  // path to JSON state file
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -1126,9 +1126,9 @@ class MarketAnalyzer {
 
     // 2) BB middle-band proximity (entry at the mean is safest)
     if (bbMiddleProximity > 0.85)      { score += 0.25; reasonParts.push('at-mean'); }
-    else if (bbMiddleProximity > 0.60){ score += 0.00; reasonParts.push('near-mean'); }
-    else if (bbMiddleProximity > 0.35){ score -= 0.15; reasonParts.push('off-mean'); }
-    else                                { score -= 0.25; reasonParts.push('at-band'); }
+    else if (bbMiddleProximity > 0.60){ score -= 0.15; reasonParts.push('near-mean'); }
+    else if (bbMiddleProximity > 0.35){ score -= 0.25; reasonParts.push('off-mean'); }
+    else                                { score -= 0.35; reasonParts.push('at-band'); }
 
     // 3) RSI in neutral zone (40–60) means no extreme momentum
     if (rsi >= 45 && rsi <= 55)        { score += 0.15; reasonParts.push('rsi-neutral'); }
@@ -1147,7 +1147,7 @@ class MarketAnalyzer {
 
     // 6) Safe-move ratio (estimated per-tick survival probability proxy)
     if (safeMoveRatio > 0.85)       { score += 0.15; reasonParts.push('safe-ticks'); }
-    else if (safeMoveRatio > 0.70)  { score += 0.00; reasonParts.push('ok-ticks'); }
+    else if (safeMoveRatio > 0.70)  { score -= 0.15; reasonParts.push('ok-ticks'); }
     else                              { score -= 0.25; reasonParts.push('risky-ticks'); }
 
     // VATP factor contributions (added on top of CWMRAS components)
@@ -1207,8 +1207,8 @@ class MarketAnalyzer {
     // In a turbulent regime → tighter TP
     const baseTpFactor = 0.10;          // TP = stake × factor
     const tpFactor = Math.max(0.8, baseTpFactor * (0.5 + score));
-    // const recommendedTp = +(this.cfg.stake * tpFactor).toFixed(2);
-    const recommendedTp = baseTpFactor;
+    const recommendedTp = +(this.cfg.stake * tpFactor).toFixed(2);
+    // const recommendedTp = baseTpFactor;
 
     return {
       symbol,
@@ -1242,7 +1242,8 @@ class MarketAnalyzer {
       recommendTrade:
         score >= (this.cfg.minConfidence ?? 0.55) &&
         hurst <= (this.cfg.maxHurst ?? 0.70) &&
-        volRegime <= (this.cfg.maxVolRegime ?? 1),
+        volRegime <= (this.cfg.maxVolRegime ?? 1) &&
+        bbMiddleProximity > 0.85,
       // Sizing
       suggestedGrowth,
       recommendedTp,
@@ -2294,7 +2295,7 @@ class TradingBot {
         return;
       }
 
-      const takeProfit = Math.min(best.recommendedTp, this.cfg.takeProfit || best.recommendedTp);
+      const takeProfit = Math.max(best.recommendedTp, this.cfg.takeProfit || best.recommendedTp);
       const stopLoss   = this.cfg.stopLoss;
 
       // ── Martingale-aware stake ──
