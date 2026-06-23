@@ -143,7 +143,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot1a_01.log',
+  logFile : 'deriv_bot1a1_03.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
@@ -152,6 +152,7 @@ const CONFIG = Object.freeze({
   minConfidence: parseFloat('0.75'),
   maxHurst     : parseFloat('0.58'),  // 0.5 = random; >0.65 = strong trend (risky)
   maxVolRegime : parseInt  ('0',    10), // 0=low 1=normal 2=high 3=extreme
+  bbMiddleProximity: parseFloat('0.85'), // Bollinger Middle Band Proximity > 0.85 = Safest
   sessionWeighting: true,
 
   // Weights for the 4 VATP factors + CWMRAS components.
@@ -173,7 +174,7 @@ const CONFIG = Object.freeze({
   minRisingStreak: parseInt('2',   10), // require N consecutive rising stays
 
   // ── State persistence ──
-  stateFile           : 'accuAgentBot_state.json',  // path to JSON state file
+  stateFile           : 'accuAgentBota3_state.json',  // path to JSON state file
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -1205,10 +1206,10 @@ class MarketAnalyzer {
     // ── Recommended take-profit (scale with safety) ──
     // In a calm regime we can hold longer → larger TP
     // In a turbulent regime → tighter TP
-    const baseTpFactor = 0.10;          // TP = stake × factor
+    const baseTpFactor = 0.12;          // TP = stake × factor
     const tpFactor = Math.max(0.8, baseTpFactor * (0.5 + score));
-    const recommendedTp = +(this.cfg.stake * tpFactor).toFixed(2);
-    // const recommendedTp = baseTpFactor;
+    // const recommendedTp = +(this.cfg.stake * tpFactor).toFixed(2);
+    const recommendedTp = baseTpFactor;
 
     return {
       symbol,
@@ -1732,13 +1733,13 @@ class TradeExecutor extends EventEmitter {
         profit, info.limit?.take_profit ?? 0,
       );
       if (ex.exit) {
-        logger.warn(`contract #${cid} EARLY EXIT (${ex.reason}) drift=${ex.driftPct.toFixed(4)}% remaining=${(ex.remainingFraction*100).toFixed(1)}% profit=${profit.toFixed(2)}`);
-        this._selling.add(cid);
-        try { await this.sell(cid, 0); } catch (e) {
-          logger.error(`early-exit sell #${cid} failed:`, e.message);
-        } finally {
-          this._selling.delete(cid);
-        }
+        // logger.warn(`contract #${cid} EARLY EXIT (${ex.reason}) drift=${ex.driftPct.toFixed(4)}% remaining=${(ex.remainingFraction*100).toFixed(1)}% profit=${profit.toFixed(2)}`);
+        // this._selling.add(cid);
+        // try { await this.sell(cid, 0); } catch (e) {
+        //   logger.error(`early-exit sell #${cid} failed:`, e.message);
+        // } finally {
+        //   this._selling.delete(cid);
+        // }
       } else if (ex.urgency >= 0.6) {
         this.emit('driftWarning', { ...info, contractId: cid, profit, currentSpot: spot, exit: ex });
       }
@@ -2218,6 +2219,10 @@ class TradingBot {
         logger.debug(`hurst too high (${best.hurst.toFixed(2)} > ${this.cfg.maxHurst}) — skipping`);
         return;
       }
+      if (best.bbMiddleProximity < this.cfg.bbMiddleProximity) {
+        logger.debug(`bbMiddleProximity too low (${best.bbMiddleProximity.toFixed(2)} > ${this.cfg.bbMiddleProximity}) — skipping`);
+        return;
+      }
       if (best.volRegime > this.cfg.maxVolRegime) {
         logger.debug(`vol regime too high (${best.vrfLabel} > ${this.cfg.maxVolRegime}) — skipping`);
         return;
@@ -2295,13 +2300,16 @@ class TradingBot {
         return;
       }
 
-      const takeProfit = Math.max(best.recommendedTp, this.cfg.takeProfit || best.recommendedTp);
-      const stopLoss   = this.cfg.stopLoss;
+      // const takeProfit = Math.max(best.recommendedTp, this.cfg.takeProfit || best.recommendedTp);
+      // const stopLoss   = this.cfg.stopLoss;
 
       // ── Martingale-aware stake ──
       // currentStake() returns base stake when martingale is inactive,
       // and base × martingaleMultiplier after the loss threshold.
       const stake = this.currentStake();
+
+      const takeProfit = stake * best.recommendedTp;
+      const stopLoss   = this.cfg.stopLoss;
 
       // Build the analysis payload NOW and pass it into buy() so the
       // executor can attach it to `info` BEFORE emitting 'open'.
