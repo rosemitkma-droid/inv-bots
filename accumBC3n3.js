@@ -118,7 +118,7 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3n3_01_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3n3_02_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -473,10 +473,15 @@ class AMRATradingBot {
         const prevRegime = this.assetRegimes[asset];
         const newRegime = this.detectMarketRegime(asset);
         this.assetRegimes[asset] = newRegime;
+        this.trade = false;
+
 
         if (prevRegime !== newRegime) {
             const emoji = newRegime === 'calm' ? '🟢' : newRegime === 'normal' ? '🟡' : '🔴';
             console.log(`${emoji} ${asset} regime: ${prevRegime} → ${newRegime} (velocity: ${this.priceVelocity[asset]?.toExponential(3)})`);
+            if(prevRegime === 'normal' && newRegime === 'calm') {
+                this.trade = true;
+            }
         }
     }
 
@@ -1274,9 +1279,9 @@ class AMRATradingBot {
         if (Date.now() - (this.lastTradeTime[asset] || 0) < this.config.minTimeBetweenTrades) return;
 
         // Update regime every 10 ticks
-        if (this.tickCounts[asset] % 10 === 0) {
+        // if (this.tickCounts[asset] % 10 === 0) {
             this.updateMarketRegime(asset);
-        }
+        // }
 
         this.evaluateAndTrade(asset);
     }
@@ -1451,6 +1456,7 @@ class AMRATradingBot {
         const totalStayedIn = this.calculateTotalStayedIn(stayedInArray);
         this.totalStayedInArray = totalStayedIn;
         this.maxTotalStayedIn = this.config.STAYED_IN_THRESHOLD;
+        
         const conditionB = totalStayedIn > this.config.STAYED_IN_THRESHOLD;
 
         // Condition C: Statistical confirmation — green flow + trend
@@ -1471,7 +1477,14 @@ class AMRATradingBot {
         const confirmationConditions = conditionC && conditionE;
         const finalEntry = primaryConditions && (confirmationConditions || conditionD);
 
-        if (finalEntry) {
+        console.log(`\n   AMRA Entry Signal: ${asset}`);
+        console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
+        console.log(`   A(stayIn pattern): ${conditionA || 'NA'} | B(total>${this.config.STAYED_IN_THRESHOLD}): ${conditionB}`);
+        console.log(`   C(greenFlow): ${conditionC || 'NA'} | D(conf>${threshold}): ${conditionD || 'NA'} | E(last6<160): ${conditionE || 'NA'}`);
+        console.log(`   stayIn trend: ${stats?.trend?.toFixed(2) || '?'} | p25: ${stats?.p25 || '?'} | greenFlow: ${stats?.greenFlow?.toFixed(2) || '?'}`);
+
+
+        if (this.trade && conditionC) {
             console.log(`\n   AMRA Entry Signal: ${asset}`);
             console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
             console.log(`   A(stayIn pattern): ${conditionA} | B(total>${this.config.STAYED_IN_THRESHOLD}): ${conditionB}`);
