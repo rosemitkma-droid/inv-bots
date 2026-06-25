@@ -118,7 +118,7 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3n3_04_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3n3_06_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1474,16 +1474,9 @@ class AMRATradingBot {
         // ── Decision ────────────────────────────────────────────────────────
         const primaryConditions = conditionA && conditionB;
         const confirmationConditions = conditionC && conditionE;
-        const finalEntry = primaryConditions && (confirmationConditions || conditionD);
+        const finalEntry = primaryConditions && confirmationConditions && conditionD && this.trade;
 
-        console.log(`\n   AMRA Entry Signal: ${asset}`);
-        console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
-        console.log(`   A(stayIn pattern): ${conditionA || 'NA'} | B(total>${this.config.STAYED_IN_THRESHOLD}): ${conditionB}`);
-        console.log(`   C(greenFlow): ${conditionC || 'NA'} | D(conf>${threshold}): ${conditionD || 'NA'} | E(last6<160): ${conditionE || 'NA'}`);
-        console.log(`   stayIn trend: ${stats?.trend?.toFixed(2) || '?'} | p25: ${stats?.p25 || '?'} | greenFlow: ${stats?.greenFlow?.toFixed(2) || '?'}`);
-
-
-        if (confirmationConditions && conditionD) {
+        if (finalEntry) {
             console.log(`\n   AMRA Entry Signal: ${asset}`);
             console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
             console.log(`   A(stayIn pattern): ${conditionA} | B(total>${this.config.STAYED_IN_THRESHOLD}): ${conditionB}`);
