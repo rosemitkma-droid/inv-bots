@@ -118,7 +118,7 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3n3_02_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3n3_03_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1484,7 +1484,7 @@ class AMRATradingBot {
         console.log(`   stayIn trend: ${stats?.trend?.toFixed(2) || '?'} | p25: ${stats?.p25 || '?'} | greenFlow: ${stats?.greenFlow?.toFixed(2) || '?'}`);
 
 
-        if (this.trade && conditionC) {
+        if (this.trade && conditionC && conditionD && conditionE) {
             console.log(`\n   AMRA Entry Signal: ${asset}`);
             console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
             console.log(`   A(stayIn pattern): ${conditionA} | B(total>${this.config.STAYED_IN_THRESHOLD}): ${conditionB}`);
@@ -1919,7 +1919,7 @@ class AMRATradingBot {
             // The stake will be calculated in placeTrade() using calculateSmartRecoveryStake()
             this.currentStake = Math.max(
                 this.config.initialStake,
-                this.currentStake * 1.5
+                this.currentStake * 7.5
             );
         }
 
