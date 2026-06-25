@@ -118,7 +118,7 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3n3_06_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3n3_05_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -512,10 +512,10 @@ class AMRATradingBot {
         const p75 = sorted[p75Index];
         const mean = stayedInArray.reduce((a, b) => a + b, 0) / n;
 
-        // Green flow: fraction of recent ticks where the price stayed within the barrier (v > 0)
-        // Low = volatile/breached market, High = calm/staying market
+        // Green flow: fraction of values above the median of their local window
         const recentWindow = stayedInArray.slice(-this.config.tickFlowLookback);
-        const greenCount = recentWindow.filter(v => v > 0).length;
+        const windowMedian = [...recentWindow].sort((a, b) => a - b)[Math.floor(recentWindow.length / 2)];
+        const greenCount = recentWindow.filter(v => v >= windowMedian).length;
         const greenFlow = greenCount / recentWindow.length;
 
         // Trend: are recent values rising or falling?
@@ -531,6 +531,7 @@ class AMRATradingBot {
             mean,
             greenFlow,
             trend: newerMean - olderMean,
+            windowMedian,
         };
     }
 
@@ -1474,9 +1475,16 @@ class AMRATradingBot {
         // ── Decision ────────────────────────────────────────────────────────
         const primaryConditions = conditionA && conditionB;
         const confirmationConditions = conditionC && conditionE;
-        const finalEntry = primaryConditions && confirmationConditions && conditionD && this.trade;
+        const finalEntry = primaryConditions && (confirmationConditions || conditionD);
 
-        if (finalEntry) {
+        console.log(`\n   AMRA Entry Signal: ${asset}`);
+        console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
+        console.log(`   A(stayIn pattern): ${conditionA || 'NA'} | B(total>${this.config.STAYED_IN_THRESHOLD}): ${conditionB}`);
+        console.log(`   C(greenFlow): ${conditionC || 'NA'} | D(conf>${threshold}): ${conditionD || 'NA'} | E(last6<160): ${conditionE || 'NA'}`);
+        console.log(`   stayIn trend: ${stats?.trend?.toFixed(2) || '?'} | p25: ${stats?.p25 || '?'} | greenFlow: ${stats?.greenFlow?.toFixed(2) || '?'}`);
+
+
+        if (this.trade && conditionD) {
             console.log(`\n   AMRA Entry Signal: ${asset}`);
             console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
             console.log(`   A(stayIn pattern): ${conditionA} | B(total>${this.config.STAYED_IN_THRESHOLD}): ${conditionB}`);
@@ -2092,7 +2100,7 @@ const bot = new AMRATradingBot('0P94g4WdSrSrzir', {
     // ── Position Sizing ────────────────────────────────────────────────────
     initialStake: 1,
     maxRecoveryMultiplier: 8,
-    maxConsecutiveLosses: 10,
+    maxConsecutiveLosses: 3,
     stopLoss: 127,
     takeProfit: 2500,
 
@@ -2107,8 +2115,8 @@ const bot = new AMRATradingBot('0P94g4WdSrSrzir', {
     takeProfitMultiplierBase: 0.12,
 
     // ── Confidence Scoring ─────────────────────────────────────────────────
-    minConfidenceThreshold: 0.80,
-    recoveryConfidenceThreshold: 0.50,
+    minConfidenceThreshold: 0.58,
+    recoveryConfidenceThreshold: 0.58,
 
     // ── Dynamic Filter ─────────────────────────────────────────────────────
     minFilterNum: 3,
@@ -2122,7 +2130,7 @@ const bot = new AMRATradingBot('0P94g4WdSrSrzir', {
 
     // ── Tick Flow ──────────────────────────────────────────────────────────
     tickFlowLookback: 20,
-    greenFlowThreshold: 1.00,
+    greenFlowThreshold: 0.55,
 
     // ── Asset Filtering ────────────────────────────────────────────────────
     STAYED_IN_THRESHOLD: 600,
