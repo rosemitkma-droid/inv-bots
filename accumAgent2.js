@@ -143,7 +143,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot1b1_02.log',
+  logFile : 'deriv_bot1b1_03.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
@@ -166,6 +166,9 @@ const CONFIG = Object.freeze({
     session : parseFloat('0.10'),   // Hour-of-day soft preference
   },
 
+  // ── Trade Watchdog (stuck contract recovery) ──
+  tradeWatchdogMs: parseInt('120000', 10),
+
   // ── SRAS: Stay-Regime Accumulator Strategy tunables ──
   // The user's key insight: consecutive ticks_stayed_in values that TREND
   // UP indicate a stable market regime. We formalise this into a gate.
@@ -174,7 +177,7 @@ const CONFIG = Object.freeze({
   minRisingStreak: parseInt('2',   10), // require N consecutive rising stays
 
   // ── State persistence ──
-  stateFile           : 'accuAgentBotb2_state.json',  // path to JSON state file
+  stateFile           : 'accuAgentBotb2_01_state.json',  // path to JSON state file
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -1888,6 +1891,11 @@ class TradingBot {
     this.exec.analyzer = this.analyzer;
     // Inject bot reference so the executor can cache stays into the market
     this.exec.bot = this;
+    // ── Trade Watchdog (stuck contract recovery) ──
+    this._tradeWatchdogTimer = null;
+    this._tradeWatchdogPollTimer = null;
+    this.tradeWatchdogMs = this.cfg.tradeWatchdogMs;
+    this.tradeStartTime = null;
     // SRAS stay-stats refresh timer
     this._stayRefreshT = null;
 
@@ -2002,6 +2010,7 @@ class TradingBot {
   }
 
   _onDisconnected(code, reason, wasAuthorized) {
+    this._clearWatchdogTimers();
     telegram.send(
       `⚠️ <b>Connection lost</b>\n` +
       `code: <code>${code}</code>\n` +
@@ -2015,6 +2024,9 @@ class TradingBot {
   // ── Trade callbacks ────────────────────────────────────────
   _onTradeOpen(t) {
     const cd = t.contractDetails || {};
+    // ── Start trade watchdog ──
+    this.tradeStartTime = Date.now();
+    this._startTradeWatchdog(t.contractId);
     // Martingale annotation in the trade message
     const mFactor = (t._analysis && t._analysis.martingaleMultiplier) || 1;
     const lossesStreak = (t._analysis && t._analysis.lossesStreak) || 0;
@@ -2066,6 +2078,8 @@ class TradingBot {
   }
 
   _onTradeResult(t) {
+    this._clearWatchdogTimers();
+    this.tradeStartTime = null;
     this.stats.record(t);
     const emoji = t.status === 'won' ? '✅' : '❌';
     const label = t.status === 'won' ? 'WIN' : 'LOSS';
@@ -2170,6 +2184,126 @@ class TradingBot {
       }
     }
     this._lastTradeWon = tradeResult === 'won';
+  }
+
+  // ── Trade Watchdog (stuck contract recovery) ─────────────────
+  /**
+   * Start the trade watchdog timer for a given contract.
+   * If the contract doesn't settle within `tradeWatchdogMs`, we poll it.
+   * If polling also times out, we force-recover the stuck trade.
+   */
+  _startTradeWatchdog(contractId) {
+    this._clearWatchdogTimers();
+    const timeoutMs = this.tradeWatchdogMs;
+    this._tradeWatchdogTimer = setTimeout(() => {
+      const openTrades = this.exec.openTrades();
+      const hasActiveTrade = openTrades.some(t => t.contractId);
+      if (!hasActiveTrade) {
+        this._clearWatchdogTimers();
+        return;
+      }
+      logger.warn(
+        `WATCHDOG FIRED — Contract ${contractId || 'unknown'} open for ` +
+        `${(timeoutMs / 1000).toFixed(0)}s with no settlement`,
+      );
+      if (contractId && this.client.authorized && this.client.connected) {
+        logger.info(`Polling contract ${contractId} for current status…`);
+        this.client._send({
+          proposal_open_contract: 1,
+          contract_id: contractId,
+          subscribe: 1,
+        }).catch(e => {
+          logger.warn(`watchdog poll failed: ${e.message}`);
+          this._recoverStuckTrade('watchdog-poll-failed');
+        });
+        this._tradeWatchdogPollTimer = setTimeout(() => {
+          const stillActive = this.exec.count() > 0;
+          if (!stillActive) {
+            this._clearWatchdogTimers();
+            return;
+          }
+          logger.error(
+            `WATCHDOG: Poll timed out — contract ${contractId} still unresolved, ` +
+            `force-releasing lock`,
+          );
+          this._recoverStuckTrade('watchdog-force');
+        }, 15000);
+      } else {
+        this._recoverStuckTrade('watchdog-offline');
+      }
+    }, timeoutMs);
+  }
+
+  _clearWatchdogTimers() {
+    if (this._tradeWatchdogTimer) {
+      clearTimeout(this._tradeWatchdogTimer);
+      this._tradeWatchdogTimer = null;
+    }
+    if (this._tradeWatchdogPollTimer) {
+      clearTimeout(this._tradeWatchdogPollTimer);
+      this._tradeWatchdogPollTimer = null;
+    }
+  }
+
+  async _recoverStuckTrade(reason) {
+    this._clearWatchdogTimers();
+    const openTrades = this.exec.openTrades();
+    const stuckTrade = openTrades[0];
+    if (!stuckTrade) {
+      logger.warn('No active trade found for stuck trade recovery');
+      return;
+    }
+    const contractId = stuckTrade.contractId || 'unknown';
+    const symbol = stuckTrade.symbol;
+    const stake = stuckTrade.stake || 0;
+    const entryTime = this.tradeStartTime || (stuckTrade.buyTime ? stuckTrade.buyTime * 1000 : Date.now());
+    const openSeconds = Math.round((Date.now() - entryTime) / 1000);
+    logger.error(
+      `\nSTUCK TRADE RECOVERY [${reason}]` +
+      `\n   Contract: ${contractId}` +
+      `\n   Asset: ${symbol}` +
+      `\n   Stake: $${stake.toFixed(2)}` +
+      `\n   Open for: ${openSeconds}s`,
+    );
+    // Attempt emergency sell
+    if (contractId !== 'unknown' && this.client.authorized && this.client.connected) {
+      logger.info(`Attempting emergency sell of contract ${contractId}…`);
+      try {
+        await this.exec.sell(contractId, 0);
+      } catch (e) {
+        logger.warn(`emergency sell failed: ${e.message}`);
+      }
+    }
+    // Remove from open trades
+    this.exec.open.delete(contractId);
+    // Record as loss
+    const finishedTrade = {
+      contractId,
+      symbol,
+      stake,
+      profit: -stake,
+      status: 'lost',
+      sellPrice: 0,
+      sellTime: Date.now() / 1000,
+      buyTime: entryTime / 1000,
+      growthRate: stuckTrade.growthRate || this.cfg.multiplier,
+    };
+    this.stats.record(finishedTrade);
+    this.lastTradeAt = Date.now();
+    this.tradeStartTime = null;
+    logger.info(
+      `\n   Trade lock released — bot can now trade again` +
+      `\n   Stake $${stake.toFixed(2)} recorded as loss`,
+    );
+    telegram.send(
+      `<b>STUCK TRADE RECOVERED [${reason}]</b>\n\n` +
+      `Contract: ${contractId}\n` +
+      `Asset: ${symbol}\n` +
+      `Stake: $${stake.toFixed(2)}\n` +
+      `Open for: ${openSeconds}s\n` +
+      `Action: Emergency sell attempted, trade lock released`,
+    );
+    this._saveState('stuck-trade-recovery');
   }
 
   // ── Strategy loop (CWMRAS) ────────────────────────────────────
@@ -2543,6 +2677,7 @@ class TradingBot {
   stop(signal) {
     if (this.stopped) return;
     this.stopped = true;
+    this._clearWatchdogTimers();
     logger.info(`stopping (signal: ${signal})`);
     telegram.send(`🛑 <b>Bot stopped</b>\nSignal: ${signal}`);
     if (this._analysisT)  clearInterval(this._analysisT);
