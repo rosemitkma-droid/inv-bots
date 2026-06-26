@@ -118,7 +118,7 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3n3_05_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3n3_04_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -1447,9 +1447,10 @@ class AMRATradingBot {
         // ── AMRA Entry Conditions ───────────────────────────────────────────
         // Condition A: Original stay-in pattern (price exhaustion signal)
         const conditionA = (
-            stayedInArray[99] <= 0 &&
-            stayedInArray[98] > stayedInArray[97] &&
-            stayedInArray[97] > stayedInArray[96]
+            stayedInArray[99] <= 20 
+            // &&
+            // stayedInArray[98] > stayedInArray[97] &&
+            // stayedInArray[97] > stayedInArray[96]
         );
 
         // Condition B: Total stayedIn exceeds threshold (enough data collected)
@@ -1464,7 +1465,7 @@ class AMRATradingBot {
         const conditionC = stats && stats.greenFlow >= this.config.greenFlowThreshold;
 
         // Condition D: Confidence score exceeds threshold
-        const conditionD = confidenceScore >= this.config.minConfidenceThreshold;
+        const conditionD = confidenceScore >= threshold;
 
         // Condition E: Last 6 stayed-in values sum < 160 (short-term range check)
         const totalLast6 = stayedInArray2.reduce((a, b) => a + b, 0);
@@ -1477,14 +1478,15 @@ class AMRATradingBot {
         const confirmationConditions = conditionC && conditionE;
         const finalEntry = primaryConditions && (confirmationConditions || conditionD);
 
-        console.log(`\n   AMRA Entry Signal: ${asset}`);
-        console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
-        console.log(`   A(stayIn pattern): ${conditionA || 'NA'} | B(total>${this.config.STAYED_IN_THRESHOLD}): ${conditionB}`);
-        console.log(`   C(greenFlow): ${conditionC || 'NA'} | D(conf>${threshold}): ${conditionD || 'NA'} | E(last6<160): ${conditionE || 'NA'}`);
-        console.log(`   stayIn trend: ${stats?.trend?.toFixed(2) || '?'} | p25: ${stats?.p25 || '?'} | greenFlow: ${stats?.greenFlow?.toFixed(2) || '?'}`);
+        // console.log(`\n   AMRA Entry Signal: ${asset}`);
+        // console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
+        // console.log(`   A(stayIn pattern): ${conditionA || 'NA'} | B(total>${this.config.STAYED_IN_THRESHOLD}): ${conditionB}`);
+        // console.log(`   C(greenFlow): ${conditionC || 'NA'} | D(conf>${threshold}): ${conditionD || 'NA'} | E(last6<160): ${conditionE || 'NA'}`);
+        // console.log(`   stayIn trend: ${stats?.trend?.toFixed(2) || '?'} | p25: ${stats?.p25 || '?'} | greenFlow: ${stats?.greenFlow?.toFixed(2) || '?'}`);
 
 
-        if (this.trade && conditionD) {
+        // if (this.trade && confirmationConditions) {
+        if (stats?.greenFlow?.toFixed(2) > 0.50) {
             console.log(`\n   AMRA Entry Signal: ${asset}`);
             console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
             console.log(`   A(stayIn pattern): ${conditionA} | B(total>${this.config.STAYED_IN_THRESHOLD}): ${conditionB}`);
@@ -2093,14 +2095,14 @@ class AMRATradingBot {
 // Generate PAT at https://app.deriv.com/account/api-token
 // Register app at https://developers.deriv.com/
 // ══════════════════════════════════════════════════════════════════════════════
-const bot = new AMRATradingBot('0P94g4WdSrSrzir', {
-    appId: '1089',
+const bot = new AMRATradingBot('pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee', {
+    appId: '33uslPtthXBEkQOdfKfoY',
     accountType: 'demo',
 
     // ── Position Sizing ────────────────────────────────────────────────────
     initialStake: 1,
     maxRecoveryMultiplier: 8,
-    maxConsecutiveLosses: 3,
+    maxConsecutiveLosses: 10,
     stopLoss: 127,
     takeProfit: 2500,
 
@@ -2115,8 +2117,8 @@ const bot = new AMRATradingBot('0P94g4WdSrSrzir', {
     takeProfitMultiplierBase: 0.12,
 
     // ── Confidence Scoring ─────────────────────────────────────────────────
-    minConfidenceThreshold: 0.58,
-    recoveryConfidenceThreshold: 0.58,
+    minConfidenceThreshold: 0.55,
+    recoveryConfidenceThreshold: 0.50,
 
     // ── Dynamic Filter ─────────────────────────────────────────────────────
     minFilterNum: 3,
