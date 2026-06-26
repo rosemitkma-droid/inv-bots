@@ -118,7 +118,7 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3n3_04_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3n4_01_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -2117,8 +2117,8 @@ const bot = new AMRATradingBot('pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d
     takeProfitMultiplierBase: 0.12,
 
     // ── Confidence Scoring ─────────────────────────────────────────────────
-    minConfidenceThreshold: 0.55,
-    recoveryConfidenceThreshold: 0.50,
+    minConfidenceThreshold: 0.60,
+    recoveryConfidenceThreshold: 0.60,
 
     // ── Dynamic Filter ─────────────────────────────────────────────────────
     minFilterNum: 3,
