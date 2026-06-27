@@ -118,7 +118,7 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // STATE PERSISTENCE MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'accumBC3n4_02_state.json');
+const STATE_FILE = path.join(__dirname, 'accumBC3n4_04_state.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 class StatePersistence {
@@ -799,7 +799,8 @@ class AMRATradingBot {
         const lossFactor = Math.min(this.consecutiveLosses, 6);
         const rawMultiplier = 1 + lossFactor * confidenceFactor;
 
-        const cappedMultiplier = Math.min(maxMult, rawMultiplier);
+        // const cappedMultiplier = Math.min(maxMult, rawMultiplier);
+        const cappedMultiplier = rawMultiplier;
         const recoveryStake = Math.ceil(base * cappedMultiplier * 100) / 100;
 
         console.log(`   Smart Recovery: conf=${bestScore.toFixed(2)} losses=${this.consecutiveLosses} → ${cappedMultiplier.toFixed(1)}x = $${recoveryStake.toFixed(2)}`);
@@ -1447,7 +1448,7 @@ class AMRATradingBot {
         // ── AMRA Entry Conditions ───────────────────────────────────────────
         // Condition A: Original stay-in pattern (price exhaustion signal)
         const conditionA = (
-            stayedInArray[99] <= 20 
+            stayedInArray[99] < 20 
             // &&
             // stayedInArray[98] > stayedInArray[97] &&
             // stayedInArray[97] > stayedInArray[96]
@@ -1476,7 +1477,7 @@ class AMRATradingBot {
         // ── Decision ────────────────────────────────────────────────────────
         const primaryConditions = conditionA && conditionB;
         const confirmationConditions = conditionC && conditionE;
-        const finalEntry = primaryConditions && (confirmationConditions || conditionD);
+        const finalEntry = primaryConditions && confirmationConditions && conditionD;
 
         // console.log(`\n   AMRA Entry Signal: ${asset}`);
         // console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
@@ -1486,7 +1487,7 @@ class AMRATradingBot {
 
 
         // if (this.trade && confirmationConditions) {
-        if (stats?.greenFlow?.toFixed(2) > 0.50 && conditionD && confirmationConditions) {
+        if (stats?.greenFlow?.toFixed(2) > 0.50 && finalEntry) {
             console.log(`\n   AMRA Entry Signal: ${asset}`);
             console.log(`   Regime: ${regime} | Confidence: ${confidenceScore.toFixed(2)} | Filter: ${this.filterNum}`);
             console.log(`   A(stayIn pattern): ${conditionA} | B(total>${this.config.STAYED_IN_THRESHOLD}): ${conditionB}`);
@@ -2095,19 +2096,19 @@ class AMRATradingBot {
 // Generate PAT at https://app.deriv.com/account/api-token
 // Register app at https://developers.deriv.com/
 // ══════════════════════════════════════════════════════════════════════════════
-const bot = new AMRATradingBot('pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee', {
-    appId: '33uslPtthXBEkQOdfKfoY',
+const bot = new AMRATradingBot('0P94g4WdSrSrzir', {
+    appId: '1089',
     accountType: 'demo',
 
     // ── Position Sizing ────────────────────────────────────────────────────
     initialStake: 1,
     maxRecoveryMultiplier: 8,
-    maxConsecutiveLosses: 10,
+    maxConsecutiveLosses: 3,
     stopLoss: 127,
     takeProfit: 2500,
 
     // ── Adaptive Growth Rates ──────────────────────────────────────────────
-    growthRateCalm: 0.04,      // 4% in calm regime (moderate barriers, good compounding)
+    growthRateCalm: 0.02,      // 4% in calm regime (moderate barriers, good compounding)
     growthRateNormal: 0.02,    // 2% in normal regime (wider barriers, safer)
 
     // ── Statistical Take-Profit ────────────────────────────────────────────
