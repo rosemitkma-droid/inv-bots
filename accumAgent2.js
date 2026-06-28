@@ -101,7 +101,7 @@ const CONFIG = Object.freeze({
   // Set MARTINGALE=0 to disable. After `lossesBeforeMartingale` consecutive
   // losses the next stake is multiplied by `martingale`. Each subsequent
   // loss adds `martingaleStep` to the multiplier. A win resets to 1.0.
-  martingale          : parseFloat('20'),    // base multiplier when active (0 = off)
+  martingale          : parseFloat('10'),    // base multiplier when active (0 = off)
   martingaleStep      : parseFloat('200'),  // added per extra consecutive loss
   lossesBeforeMartingale: parseInt('0'),  // N losses before martingale kicks in
   maxMartingaleStep   : parseFloat('220'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
@@ -143,7 +143,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot1b1_05.log',
+  logFile : 'deriv_bot1b1_06.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
@@ -177,7 +177,7 @@ const CONFIG = Object.freeze({
   minRisingStreak: parseInt('2',   10), // require N consecutive rising stays
 
   // ── State persistence ──
-  stateFile           : 'accuAgentBotb2_03_state.json',  // path to JSON state file
+  stateFile           : 'accuAgentBotb2_06_state.json',  // path to JSON state file
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -188,7 +188,7 @@ const CONFIG = Object.freeze({
   // still covers ≥ 2σ of recent moves. Restricting to a narrow band means:
   // we only enter when the market is calm enough to safely use higher rates.
   minGrowth : parseFloat('0.01'),
-  maxGrowth : parseFloat('0.05'),
+  maxGrowth : parseFloat('0.04'),
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1194,9 +1194,9 @@ class MarketAnalyzer {
     //   }
     // }
 
-    const barrierByGrowth = { 0.04: 0.050, 0.05: 0.048 };
+    const barrierByGrowth = { 0.04: 0.050};
     if (perTickStdevPct > 0) {
-      for (const g of [0.04, 0.05]) {
+      for (const g of [0.04]) {
         // barrier is on EACH side; we need barrier_pct ≥ target × per_tick_stdev_pct
         if (barrierByGrowth[g] >= targetSigmaCoverage * perTickStdevPct) {
           suggestedGrowth = g;
