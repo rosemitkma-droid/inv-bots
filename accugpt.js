@@ -104,12 +104,14 @@ async function patConnect() {
     });
     ws.on('close', () => {
       connected = false;
+      proposalPending = false;
       console.error('Disconnected. Reconnecting...');
       setTimeout(connect, reconnectDelay());
     });
   } catch (error) {
     console.error('PAT connection failed:', error.message);
     await notify(`❌ PAT connection failed: ${error.message}. Reconnecting...`);
+    proposalPending = false;
     setTimeout(connect, reconnectDelay());
   }
 }
@@ -125,9 +127,10 @@ let watchdogTimer = null;
 let hourlyTimer = null;
 let endDayTimer = null;
 let tradingPausedUntil = 0;
+let proposalPending = false;
+let lastTradeAttempt = 0;
 const pending = new Map();
 const tickBooks = new Map(CONFIG.symbols.map((symbol) => [symbol, []]));
-const proposals = new Map();
 
 function defaultState() {
   return {
@@ -209,10 +212,12 @@ function connect() {
   });
   ws.on('close', () => {
     connected = false;
+    proposalPending = false;
     console.error('Disconnected. Reconnecting...');
     setTimeout(connect, reconnectDelay());
   });
 }
+
 
 function reconnectDelay() {
   reconnectAttempt += 1;
@@ -293,7 +298,7 @@ function indicators(book) {
 
 async function evaluateMarket() {
   rolloverDayIfNeeded();
-  if (currentContract || Date.now() < tradingPausedUntil || CONFIG.dryRun) return;
+  if (currentContract || proposalPending || Date.now() < tradingPausedUntil || Date.now() - lastTradeAttempt < 5000 || CONFIG.dryRun) return;
   const day = ensureDay();
   if (day.profit <= -Math.abs(CONFIG.maxDailyLoss) || day.profit >= CONFIG.dailyProfitTarget) return;
   if (hourTradeCount() >= CONFIG.maxTradesPerHour) return;
@@ -317,40 +322,46 @@ function nextStake() {
 }
 
 async function openAccumulator(candidate) {
+  if (proposalPending) return;
+  proposalPending = true;
+  lastTradeAttempt = Date.now();
   const stake = nextStake();
   const analysis = candidate.stats;
+  const growthRate = Math.max(0.01, Math.min(0.05, +(+CONFIG.growthRate).toFixed(4)));
   const symbolKey = _isPat ? 'underlying_symbol' : 'symbol';
-  const proposalPayload = {
-    proposal: 1,
-    amount: stake,
-    basis: 'stake',
-    contract_type: 'ACCU',
-    currency: CONFIG.currency,
-    [symbolKey]: candidate.symbol,
-    growth_rate: CONFIG.growthRate,
-  };
 
   try {
-    const proposal = await api(proposalPayload);
-    const proposalId = proposal.proposal && proposal.proposal.id;
-    if (!proposalId) throw new Error('No proposal id returned');
-    proposals.set(proposalId, { candidate, stake, analysis });
-    const buy = await api({ buy: proposalId, price: stake });
-    const contractId = buy.buy.contract_id;
+    const pres = await api({
+      proposal: 1,
+      amount: stake,
+      basis: 'stake',
+      contract_type: 'ACCU',
+      currency: CONFIG.currency,
+      [symbolKey]: candidate.symbol,
+      growth_rate: growthRate,
+    }, 20000);
+    const p = pres.proposal;
+    if (!p?.id) throw new Error('No proposal id returned');
+    const bres = await api({ buy: p.id, price: p.ask_price }, 20000);
+    const b = bres.buy;
+    if (!b?.contract_id) throw new Error('Buy did not return contract_id');
+    const contractId = b.contract_id;
     currentContract = {
       id: contractId,
       symbol: candidate.symbol,
       stake,
       openedAt: Date.now(),
       analysis,
-      buyPrice: Number(buy.buy.buy_price || stake),
+      buyPrice: Number(b.buy_price || stake),
     };
-    await notify(`📈 Trade opened\nSymbol: ${candidate.symbol}\nStake: ${stake} ${CONFIG.currency}\nGrowth: ${(CONFIG.growthRate * 100).toFixed(2)}%\nScore: ${analysis.score.toFixed(3)} Vol: ${analysis.vol.toExponential(2)}\nOverall P/L: ${state.overallProfit.toFixed(2)} ${CONFIG.currency}\nConsecutive losses: ${state.consecutiveLosses}`);
+    proposalPending = false;
+    await notify(`📈 Trade opened\nSymbol: ${candidate.symbol}\nStake: ${stake} ${CONFIG.currency}\nGrowth: ${(growthRate * 100).toFixed(2)}%\nScore: ${analysis.score.toFixed(3)} Vol: ${analysis.vol.toExponential(2)}\nOverall P/L: ${state.overallProfit.toFixed(2)} ${CONFIG.currency}\nConsecutive losses: ${state.consecutiveLosses}`);
     await api({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 });
     startWatchdog(contractId);
   } catch (error) {
     console.error('Open trade failed:', error.message);
     await notify(`❌ Trade open failed: ${error.message}`);
+    proposalPending = false;
   }
 }
 
@@ -403,6 +414,7 @@ async function recoverStuckTrade(contractId) {
     state.stuckTrades.push({ ...currentContract, forcedRecoveredAt: new Date().toISOString() });
     await notify(`🧯 Forced recovery for stuck contract ${contractId}. Bot state cleared; verify contract manually in Deriv.`);
     currentContract = null;
+    proposalPending = false;
     saveState();
   }
 }
@@ -447,6 +459,7 @@ async function finalizeTrade(contract, profit) {
   }
 
   currentContract = null;
+  proposalPending = false;
   saveState();
   await notify(formatTradeResult(trade, day));
 }
