@@ -163,7 +163,7 @@ const CONFIG = Object.freeze({
   proposalScanTopN: intEnv('PROPOSAL_SCAN_TOP_N', 3),
 
   // Optional limited loss recovery; disabled by default. Safer than the pasted 10x/100x martingale.
-  recoveryEnabled: boolEnv('RECOVERY_ENABLED', false),
+  recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
   recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,1.35,1.8,2.4').map(Number).filter(Number.isFinite),
 
   // GMT/UTC reporting
