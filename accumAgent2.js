@@ -91,20 +91,20 @@ const CONFIG = Object.freeze({
   accountType: ('demo').toLowerCase(),  // 'demo' | 'real'
 
   // ─ Trade parameters ─
-  stake          : parseFloat('1.0'),
+  stake          : parseFloat('2.0'),
   multiplier     : parseFloat('0.05'),  // 2 % growth rate
   multiplierStep : parseFloat('0.0'),   // grow after wins
-  stopLoss       : parseFloat('100.0'),
+  stopLoss       : parseFloat('200.0'),
   takeProfit     : parseFloat('500.0'),
 
   // ── Martingale (loss-recovery stake multiplier) ──
   // Set MARTINGALE=0 to disable. After `lossesBeforeMartingale` consecutive
   // losses the next stake is multiplied by `martingale`. Each subsequent
   // loss adds `martingaleStep` to the multiplier. A win resets to 1.0.
-  martingale          : parseFloat('10'),    // base multiplier when active (0 = off)
-  martingaleStep      : parseFloat('100'),  // added per extra consecutive loss
+  martingale          : parseFloat('20'),    // base multiplier when active (0 = off)
+  martingaleStep      : parseFloat('200'),  // added per extra consecutive loss
   lossesBeforeMartingale: parseInt('0'),  // N losses before martingale kicks in
-  maxMartingaleStep   : parseFloat('110'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
+  maxMartingaleStep   : parseFloat('220'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
 
   // ─ Assets (Deriv synthetic indices) ─
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
@@ -143,7 +143,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot1b1_03.log',
+  logFile : 'deriv_bot1b1_05.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
@@ -177,7 +177,7 @@ const CONFIG = Object.freeze({
   minRisingStreak: parseInt('2',   10), // require N consecutive rising stays
 
   // ── State persistence ──
-  stateFile           : 'accuAgentBotb2_01_state.json',  // path to JSON state file
+  stateFile           : 'accuAgentBotb2_03_state.json',  // path to JSON state file
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -1794,7 +1794,7 @@ class StatisticsManager {
     this.today = this._todayStr();
   }
   _todayStr() { return new Date().toISOString().slice(0, 10); }
-  _now()      { return { date: this._todayStr(), hour: new Date().getHours(), ts: Date.now() }; }
+  _now()      { return { date: this._todayStr(), hour: new Date().getUTCHours(), ts: Date.now() }; }
 
   record(trade) {
     const n = this._now();
@@ -1840,11 +1840,11 @@ class StatisticsManager {
   _tradesForDate(date) {
     return this.trades.filter(t => t.date === date);
   }
-  /** Summary for the PREVIOUS hour (called at HH:00:00). */
+  /** Summary for the PREVIOUS hour (called at HH:00:00 GMT). */
   previousHourSummary() {
     const now = new Date();
     const prev = new Date(now.getTime() - 3600_000);
-    const hour = prev.getHours();
+    const hour = prev.getUTCHours();
     const date = prev.toISOString().slice(0, 10);
     const list = this._tradesForHour(hour, date);
     return { hour, date, trades: list, stats: this.stats(list) };
@@ -1916,6 +1916,21 @@ class TradingBot {
     this.lossesStreak = 0;
     this.martingaleMultiplier = 1.0;
     this._lastTradeWon = true;   // start in a "fresh" state
+
+    // ── Cumulative performance tracking (ported from bizIndexRiseFall2) ──
+    // overallProfit  : lifetime net P/L across every trade day (persisted)
+    // consecutiveLosses: alias for lossesStreak, exposed for clarity in
+    //                   notifications and persistence
+    // hadFirstLoss   : sticky flag — once the bot books its first loss, the
+    //                   MQI ≥ 0.01 gate stays active for every subsequent
+    //                   trade until the state file is cleared
+    // dailyHistory   : date(YYYY-MM-DD, GMT) → { count, wins, losses,
+    //                   netPL, grossWin, grossLoss, stake } — the per-day
+    //                   ledger shown in the end-of-day report
+    this.overallProfit     = 0;
+    this.consecutiveLosses = 0;
+    this.hadFirstLoss      = false;
+    this.dailyHistory      = {};
   }
 
   async start() {
@@ -1951,23 +1966,31 @@ class TradingBot {
   }
 
   _scheduleSummaries() {
+    // All summary timers are anchored to GMT/UTC so a Telegram subscriber
+    // anywhere on Earth sees the EOD message land at the same instant the
+    // trade-day rolls (00:00:00 UTC) — not the host's local midnight.
     const now = new Date();
-    const msToNextHour =
-      (59 - now.getMinutes()) * 60_000 +
-      (60 - now.getSeconds()) * 1000;
+    const nextHour = new Date(now);
+    nextHour.setUTCHours(nextHour.getUTCHours() + 1, 0, 0, 0);
+    const msToNextHour = nextHour.getTime() - now.getTime();
     this._hourlyBoot = setTimeout(() => {
       this._sendHourly();
       this._hourlyT = setInterval(() => this._sendHourly(), 3600_000);
     }, msToNextHour);
 
-    const msToMidnight =
-      (23 - now.getHours()) * 3600_000 +
-      (59 - now.getMinutes()) * 60_000  +
-      (60 - now.getSeconds()) * 1000;
+    const nextMidnight = new Date(now);
+    nextMidnight.setUTCDate(nextMidnight.getUTCDate() + 1);
+    nextMidnight.setUTCHours(0, 0, 0, 0);
+    const msToMidnight = nextMidnight.getTime() - now.getTime();
     this._eodBoot = setTimeout(() => {
       this._sendEod();
       this._eodT = setInterval(() => this._sendEod(), 86_400_000);
     }, msToMidnight);
+
+    logger.info(
+      `GMT timers scheduled: next hourly in ${(msToNextHour/60000).toFixed(1)}m, ` +
+      `next EOD in ${(msToMidnight/3600000).toFixed(2)}h`,
+    );
   }
 
   // ── Authorised ─────────────────────────────────────────────
@@ -2048,7 +2071,9 @@ class TradingBot {
     if (cd.maximum_payout   !== undefined) msg += `⚠️ <b>Max Payout (cap):</b> ${cd.maximum_payout}\n`;
     if (cd.tick_size_barrier!== undefined) msg += `🚧 <b>Barrier size:</b> ${cd.tick_size_barrier}\n`;
     if (cd.maximum_ticks    !== undefined) msg += `⏱️ <b>Max Ticks:</b> ${cd.maximum_ticks}\n`;
-    msg += `\n🕒 ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`;
+    msg += `\n🏦 <b>Overall Profit:</b> ${this.overallProfit >= 0 ? '+' : ''}${this.overallProfit.toFixed(2)} ${this.currency()}`;
+    msg += `\n🔻 <b>Consecutive Losses:</b> ${this.consecutiveLosses}`;
+    msg += `\n\n🕒 ${this._gmtNowStr()} GMT`;
     telegram.send(msg);
 
     // Optionally notify a separate strategy-confluence summary (for transparency)
@@ -2087,6 +2112,20 @@ class TradingBot {
     const dur = Math.max(0, (t.sellTime || Date.now()/1000) - (t.buyTime || 0));
     this.lastBalance = (this.lastBalance ?? this.client.balance ?? 0) + t.profit;
 
+    // ── Cumulative tracking ──
+    // Overall profit accumulates across every trade day, the daily ledger
+    // is keyed by GMT date so the EOD report can dump the full per-day
+    // history. consecutiveLosses mirrors lossesStreak but is updated in
+    // step with the day ledger for transparency.
+    this.overallProfit += t.profit;
+    this._recordDay(t);
+    if (t.status === 'lost') {
+      this.consecutiveLosses += 1;
+      this.hadFirstLoss = true;
+    } else if (t.status === 'won') {
+      this.consecutiveLosses = 0;
+    }
+
     // Adaptive multiplier
     if (this.cfg.multiplierStep > 0) {
       if (t.status === 'won') {
@@ -2120,7 +2159,9 @@ class TradingBot {
       `• Trades: ${s.count} (✅${s.wins} ❌${s.losses})\n` +
       `• Win rate: ${s.winRate.toFixed(1)}%\n` +
       `• Net P/L: ${s.totalProfit >= 0 ? '+' : ''}${s.totalProfit.toFixed(2)} ${this.currency()}\n` +
-      `• Profit factor: ${s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2)}\n`;
+      `• Profit factor: ${s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2)}\n\n` +
+      `🏦 <b>Overall Profit:</b> ${this.overallProfit >= 0 ? '+' : ''}${this.overallProfit.toFixed(2)} ${this.currency()}\n` +
+      `🔻 <b>Consecutive Losses:</b> ${this.consecutiveLosses}\n`;
 
     telegram.send(msg);
     this._updateMartingale(t.status);
@@ -2366,6 +2407,15 @@ class TradingBot {
         return;
       }
 
+      // ── Post-loss MQI (Smoothness) gate ──
+      // Once the bot has booked its first loss, every subsequent trade
+      // requires MQI ≥ 0.01 (smooth, low-chop momentum) before entry.
+      // The gate is sticky: it stays active for the life of the state file.
+      if (this.hadFirstLoss && (best.mqi ?? 0) < 0.01) {
+        logger.debug(`post-loss MQI gate: mqi=${(best.mqi ?? 0).toFixed(4)} < 0.01 — skipping`);
+        return;
+      }
+
       // ── SRAS: Stay-Regime gate ──
       // Exploit the user's observed "rising digits" pattern: if recent
       // ticks_stayed_in values trend UP, the per-tick survival probability
@@ -2567,6 +2617,42 @@ class TradingBot {
   }
 
   _todayISO() { return new Date().toISOString().slice(0, 10); }
+
+  /** "YYYY-MM-DD HH:MM:SS" in GMT for log lines / message footers. */
+  _gmtNowStr() {
+    return new Date().toISOString().replace('T', ' ').slice(0, 19);
+  }
+
+  /**
+   * Append a settled trade into the per-day GMT ledger. The ledger is the
+   * authoritative source used by the end-of-day report (every previous
+   * trade day is rendered from it).
+   */
+  _recordDay(t) {
+    const date = this._todayISO();
+    if (!this.dailyHistory[date]) {
+      this.dailyHistory[date] = {
+        date,
+        count: 0, wins: 0, losses: 0,
+        grossWin: 0, grossLoss: 0,
+        netPL: 0, stake: 0,
+        startBalance: this.lastBalance ?? this.startBalance ?? null,
+        endBalance:   null,
+      };
+    }
+    const d = this.dailyHistory[date];
+    d.count += 1;
+    d.stake += (+t.stake || 0);
+    if (t.status === 'won') {
+      d.wins     += 1;
+      d.grossWin += (+t.profit || 0);
+    } else {
+      d.losses    += 1;
+      d.grossLoss += Math.abs(+t.profit || 0);
+    }
+    d.netPL    += (+t.profit || 0);
+    d.endBalance = this.lastBalance;
+  }
 
   // ── Summaries ───────────────────────────────────────────────
   _sendHourly() {
