@@ -24,21 +24,21 @@ const CONFIG = {
   telegramChatId: '752497117',
   currency: 'USD',
   stake: Number(1),
-  maxStake: Number(10),
+  maxStake: Number(110),
   growthRate: Number(0.01),
   maxOpenSeconds: Number(240),
-  targetProfitPct: Number(0.35),
-  stopLossPct: Number(0.28),
+  targetProfitPct: Number(0.12),
+  stopLossPct: Number(0.99),
   maxTradesPerHour: Number(8000),
-  maxDailyLoss: Number(20),
-  dailyProfitTarget: Number(25),
+  maxDailyLoss: Number(110),
+  dailyProfitTarget: Number(25000),
   cooldownAfterLossMs: Number(180000),
   tradeWatchdogMs: Number(180000),
   pollTimeoutMs: Number(90000),
   tickWindow: Number(80),
   reconnectBaseMs: Number(1000),
   reconnectMaxMs: Number(60000),
-  stateFile: path.join(__dirname, 'bot-state.json'),
+  stateFile: path.join(__dirname, 'bot-state1.json'),
   symbols: ('R_10,R_25,R_50,R_75,R_100').split(',').map((s) => s.trim()).filter(Boolean),
   dryRun: false,
 };
@@ -317,7 +317,7 @@ function hourTradeCount() {
 }
 
 function nextStake() {
-  const base = CONFIG.stake * (state.consecutiveLosses >= 2 ? 0.75 : 1);
+  const base = CONFIG.stake * (state.consecutiveLosses >= 1 ? 10 : 1);
   return Math.min(CONFIG.maxStake, Math.max(0.35, Number(base.toFixed(2))));
 }
 
