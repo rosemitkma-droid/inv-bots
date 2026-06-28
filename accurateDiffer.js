@@ -119,13 +119,13 @@ function listEnv(name, def) {
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
   // Deriv API
-  apiToken : strEnv('DERIV_API_TOKEN', 'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee'),
-  appId    : strEnv('DERIV_APP_ID', '33uslPtthXBEkQOdfKfoY'),//1089
-  accountId: strEnv('DERIV_ACCOUNT_ID', ''), // recommended/required for PAT new API
-  accountType: strEnv('DERIV_ACCOUNT_TYPE', 'demo').toLowerCase(), // demo | real
-  legacyWsUrl: strEnv('DERIV_LEGACY_WS_URL', 'wss://ws.derivws.com/websockets/v3'),
-  restBaseUrl: strEnv('DERIV_REST_BASE_URL', 'https://api.derivws.com'),
-  currency: strEnv('CURRENCY', 'USD').toUpperCase(),
+  apiToken : 'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
+  appId    : '33uslPtthXBEkQOdfKfoY',//1089
+  accountId: '', // recommended/required for PAT new API
+  accountType: 'demo', // demo | real
+  legacyWsUrl: 'wss://ws.derivws.com/websockets/v3',
+  restBaseUrl: 'https://api.derivws.com',
+  currency: 'USD',
 
   // Trade setup
   stake: numEnv('STAKE', 1.00),
