@@ -148,8 +148,8 @@ const CONFIG = Object.freeze({
   stake: numEnv('STAKE', 1.00),
   durationTicks: intEnv('DURATION_TICKS', 1), // Digit contracts normally 1-10 ticks
   minStake: numEnv('MIN_STAKE', 0.35),
-  maxStake: numEnv('MAX_STAKE', 550.00),
-  assets: listEnv('ASSETS', 'R_10,R_25,R_50,R_75,R_100'),
+  maxStake: numEnv('MAX_STAKE', 650.00),
+  assets: ['R_10','R_25','R_50','R_75','R_100'],
 
   // Trading frequency / limits
   tickWindow: intEnv('TICK_WINDOW', 1000),
@@ -157,7 +157,7 @@ const CONFIG = Object.freeze({
   analysisIntervalMs: intEnv('ANALYSIS_INTERVAL_MS', 3000),
   tradeCooldownMs: intEnv('TRADE_COOLDOWN_MS', 2500),
   maxOpenTrades: intEnv('MAX_OPEN_TRADES', 1),
-  dailyMaxLoss: numEnv('DAILY_MAX_LOSS', 550),
+  dailyMaxLoss: numEnv('DAILY_MAX_LOSS', 650),
   dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0), // 0 disables profit target stop
   dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 20000),
 
@@ -189,7 +189,7 @@ const CONFIG = Object.freeze({
   // Cross-signal agreement: how many of {dirichlet, markov, momentum} must co-rank the
   // chosen digit in their respective bottom-K least-likely set.
   agreementK: intEnv('AGREEMENT_K', 2),
-  agreementRequired: intEnv('AGREEMENT_REQUIRED', 2),
+  agreementRequired: intEnv('AGREEMENT_REQUIRED', 3),
   proposalScanTopN: intEnv('PROPOSAL_SCAN_TOP_N', 3),
   // Confidence-scaled fractional staking (layered on recovery multiplier).
   confidenceStakeMin: numEnv('CONF_STAKE_MIN', 0.6),
@@ -197,7 +197,7 @@ const CONFIG = Object.freeze({
 
   // Optional limited loss recovery; disabled by default. Safer than 10x/100x martingale.
   recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
-  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,5.5,11.3,11.3').map(Number).filter(Number.isFinite),
+  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,5.5,57.0,570.0').map(Number).filter(Number.isFinite),
 
   // GMT/UTC reporting
   eodTimeGmt: strEnv('TRADE_DAY_END_GMT', '00:00'), // default midnight GMT; report date is previous UTC day
@@ -205,8 +205,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'deriv_prism_differ_state.json'),
-  logFile: strEnv('LOG_FILE', 'deriv_rism_differ_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'deriv_prism_differ1_state.json'),
+  logFile: strEnv('LOG_FILE', 'deriv_prism_differ1_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
