@@ -91,20 +91,20 @@ const CONFIG = Object.freeze({
   accountType: ('demo').toLowerCase(),  // 'demo' | 'real'
 
   // ─ Trade parameters ─
-  stake          : parseFloat('2.0'),
+  stake          : parseFloat('1.0'),
   multiplier     : parseFloat('0.05'),  // 2 % growth rate
   multiplierStep : parseFloat('0.0'),   // grow after wins
-  stopLoss       : parseFloat('200.0'),
-  takeProfit     : parseFloat('500.0'),
+  stopLoss       : parseFloat('110.0'),
+  takeProfit     : parseFloat('10000.0'),
 
   // ── Martingale (loss-recovery stake multiplier) ──
   // Set MARTINGALE=0 to disable. After `lossesBeforeMartingale` consecutive
   // losses the next stake is multiplied by `martingale`. Each subsequent
   // loss adds `martingaleStep` to the multiplier. A win resets to 1.0.
   martingale          : parseFloat('10'),    // base multiplier when active (0 = off)
-  martingaleStep      : parseFloat('200'),  // added per extra consecutive loss
+  martingaleStep      : parseFloat('100'),  // added per extra consecutive loss
   lossesBeforeMartingale: parseInt('0'),  // N losses before martingale kicks in
-  maxMartingaleStep   : parseFloat('220'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
+  maxMartingaleStep   : parseFloat('110'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
 
   // ─ Assets (Deriv synthetic indices) ─
   // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
@@ -143,7 +143,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_bot1b1_06.log',
+  logFile : 'deriv_bot1b1_07.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ── VATP (Volatility-Adjusted Trend Persistence) strategy tunables ──
@@ -177,7 +177,7 @@ const CONFIG = Object.freeze({
   minRisingStreak: parseInt('2',   10), // require N consecutive rising stays
 
   // ── State persistence ──
-  stateFile           : 'accuAgentBotb2_06_state.json',  // path to JSON state file
+  stateFile           : 'accuAgentBotb1_07_state.json',  // path to JSON state file
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
