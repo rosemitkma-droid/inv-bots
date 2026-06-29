@@ -172,15 +172,15 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ2_state.json'),
-  logFile: strEnv('LOG_FILE', 'deriv_digit_differ2_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ4_state.json'),
+  logFile: strEnv('LOG_FILE', 'deriv_digit_differ4_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
   telegram: {
     enabled : true,
-    botToken: strEnv('TELEGRAM_BOT_TOKEN', '8106601008:AAEMyCma6mvPYIHEvw3RHQX2tkD5-wUe1o0'),
-    chatId  : strEnv('TELEGRAM_CHAT_ID', '752497117'),
+    botToken: '8106601008:AAEMyCma6mvPYIHEvw3RHQX2tkD5-wUe1o0',
+    chatId  : '752497117',
   },
 
   reconnect: {
