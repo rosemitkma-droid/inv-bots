@@ -138,7 +138,7 @@ const CONFIG = Object.freeze({
   // but martingale is forced OFF (see _updateSizing).
   multiplier     : parseFloat('0.04'),   // default growth rate hint (PULSE overrides per-trade)
   multiplierStep : parseFloat('0.0'),
-  stopLoss       : parseFloat('1.0'),    // hard $ stop per contract (manual sell)
+  stopLoss       : parseFloat('1000.0'),    // hard $ stop per contract (manual sell)
   takeProfit     : parseFloat('10000.0'),
  
   // ─ Sizing (PULSE: flat stake, optional capped edge-scaled sizing) ─
@@ -178,7 +178,7 @@ const CONFIG = Object.freeze({
   },
  
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot.log',
+  logFile : 'deriv_pulse_bot1.log',
   logLevel: ('INFO').toUpperCase(),
  
   // ════════════════════════════════════════════════════════════════
@@ -216,7 +216,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
  
   // ─ State persistence ─
-  stateFile           : 'deriv_pulse_bot_state.json',
+  stateFile           : 'deriv_pulse_bot1_state.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 });
@@ -925,10 +925,10 @@ class DerivClient extends EventEmitter {
       const scaled = 1 + (evFrac / this.cfg.edgeScaleEdgeRef) * (this.cfg.edgeScaleMax - 1);
       mult = Math.max(1, Math.min(this.cfg.edgeScaleMax, scaled));
     }
-    if (this.cfg.downscaleAfterLoss && this.lossesStreak > 0) {
-      // shrink 15% per consecutive loss, floor at 0.5x
-      mult *= Math.max(0.5, Math.pow(0.85, this.lossesStreak));
-    }
+    // if (this.cfg.downscaleAfterLoss && this.lossesStreak > 0) {
+    //   // shrink 15% per consecutive loss, floor at 0.5x
+    //   mult *= Math.max(0.5, Math.pow(0.85, this.lossesStreak));
+    // }
     this.activeStakeMult = mult;
     return +(base * mult).toFixed(2);
   }
