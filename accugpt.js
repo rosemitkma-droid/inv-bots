@@ -26,24 +26,28 @@ const CONFIG = {
   stake: Number(1),
   multiplier: Number(10),
   multiplier2: Number(110),
-  maxStake: Number(120),
-  confidence: Number(0.76), //0.72
+  multiplier3: Number(1110),
+  maxStake: Number(1220),
+  confidence: Number(0.77), //0.72
+  confidence2: Number(0.77), 
   momentum: Number(0.0008), //0.0012
-  drift: Number(0.00020), //0.00025
+  drift: Number(0.00020), //0.00025 
+  volume: Number(0.00020),
+  rangePosition: Number(0.00020),
   growthRate: Number(0.02),
   maxOpenSeconds: Number(240),
   targetProfitPct: Number(0.12),
   stopLossPct: Number(0.99),
   maxTradesPerHour: Number(8000),
   maxDailyLoss: Number(110),
-  dailyProfitTarget: Number(25000),
+  dailyProfitTarget: Number(10000),
   cooldownAfterLossMs: Number(180000),
   tradeWatchdogMs: Number(180000),
   pollTimeoutMs: Number(90000),
   tickWindow: Number(80),
   reconnectBaseMs: Number(1000),
   reconnectMaxMs: Number(60000),
-  stateFile: path.join(__dirname, 'bot-state_01.json'),
+  stateFile: path.join(__dirname, 'bot-state_03.json'),
   symbols: ('R_10,R_25,R_50,R_75,R_100').split(',').map((s) => s.trim()).filter(Boolean),
   dryRun: false,
 };
@@ -130,6 +134,7 @@ let currentContract = null;
 let contractSubscriptionId = null;
 let watchdogTimer = null;
 let hourlyTimer = null;
+let hourlyBootTimer = null;
 let endDayTimer = null;
 let tradingPausedUntil = 0;
 let proposalPending = false;
@@ -308,12 +313,17 @@ async function evaluateMarket() {
   if (day.profit <= -Math.abs(CONFIG.maxDailyLoss) || day.profit >= CONFIG.dailyProfitTarget) return;
   if (hourTradeCount() >= CONFIG.maxTradesPerHour) return;
 
-  const ranked = CONFIG.symbols
+//   const ranked = CONFIG.symbols
+//     .map((symbol) => ({ symbol, stats: indicators(tickBooks.get(symbol) || []) }))
+//     .filter((x) => x.stats && state.consecutiveLosses <= 0 ? x.stats.score >= CONFIG.confidence : x.stats.score >= CONFIG.confidence2 && Math.abs(x.stats.drift) < CONFIG.drift && Math.abs(x.stats.momentum5) < CONFIG.momentum && x.stats.vol > CONFIG.volume && x.stats.rangePosition > CONFIG.rangePosition)
+//     .sort((a, b) => b.stats.score - a.stats.score);
+
+const ranked = CONFIG.symbols
     .map((symbol) => ({ symbol, stats: indicators(tickBooks.get(symbol) || []) }))
     .filter((x) => x.stats && x.stats.score >= CONFIG.confidence && Math.abs(x.stats.drift) < CONFIG.drift && Math.abs(x.stats.momentum5) < CONFIG.momentum)
     .sort((a, b) => b.stats.score - a.stats.score);
 
-  if (!ranked.length) return;
+if (!ranked.length) return;
   await openAccumulator(ranked[0]);
 }
 
@@ -322,7 +332,7 @@ function hourTradeCount() {
 }
 
 function nextStake() {
-  const base = CONFIG.stake * (state.consecutiveLosses === 1 ? CONFIG.multiplier : state.consecutiveLosses === 2 ? CONFIG.multiplier2 : 1);
+  const base = CONFIG.stake * (state.consecutiveLosses === 1 ? CONFIG.multiplier : state.consecutiveLosses === 2 ? CONFIG.multiplier2 : state.consecutiveLosses === 3 ? CONFIG.multiplier3 : 1);
   return Math.min(CONFIG.maxStake, Math.max(0.35, Number(base.toFixed(2))));
 }
 
@@ -360,7 +370,7 @@ async function openAccumulator(candidate) {
       buyPrice: Number(b.buy_price || stake),
     };
     proposalPending = false;
-    await notify(`📈 Trade opened\nSymbol: ${candidate.symbol}\nStake: ${stake} ${CONFIG.currency}\nGrowth: ${(growthRate * 100).toFixed(2)}%\nScore: ${analysis.score.toFixed(3)} Vol: ${analysis.vol.toExponential(2)}\nOverall P/L: ${state.overallProfit.toFixed(2)} ${CONFIG.currency}\nConsecutive losses: ${state.consecutiveLosses}`);
+    await notify(`📈 Trade opened\nSymbol: ${candidate.symbol}\nStake: ${stake} ${CONFIG.currency}\nGrowth: ${(growthRate * 100).toFixed(2)}%\nScore: ${analysis.score.toFixed(3)} Vol: ${analysis.vol.toExponential(2)}\nDrift: ${analysis.drift}\nMomentum: ${analysis.momentum5}\nRange: ${analysis.rangePosition}\nOverall P/L: ${state.overallProfit.toFixed(2)} ${CONFIG.currency}\nConsecutive losses: ${state.consecutiveLosses}`);
     await api({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 });
     startWatchdog(contractId);
   } catch (error) {
@@ -451,6 +461,7 @@ async function finalizeTrade(contract, profit) {
   if (won) {
     state.wins += 1; day.wins += 1; hour.wins += 1;
     state.consecutiveLosses = 0; day.consecutiveLosses = 0;
+    CONFIG.confidence = CONFIG.confidence2;
   } else {
     state.losses += 1; day.losses += 1; hour.losses += 1;
     state.consecutiveLosses += 1; day.consecutiveLosses += 1;
@@ -461,6 +472,7 @@ async function finalizeTrade(contract, profit) {
     if (day.consecutiveLosses === 3) day.lossStreakBuckets.x3 += 1;
     if (day.consecutiveLosses === 4) day.lossStreakBuckets.x4 += 1;
     tradingPausedUntil = Date.now() + CONFIG.cooldownAfterLossMs * Math.min(state.consecutiveLosses, 4);
+    CONFIG.confidence += 0.05;
   }
 
   currentContract = null;
@@ -470,12 +482,20 @@ async function finalizeTrade(contract, profit) {
 }
 
 function formatTradeResult(trade, day) {
-  return `🏁 Trade result\nContract: ${trade.contractId}\nSymbol: ${trade.symbol}\nResult: ${trade.won ? 'WIN' : 'LOSS'}\nP/L: ${trade.profit.toFixed(2)} ${CONFIG.currency}\nDay P/L: ${day.profit.toFixed(2)} ${CONFIG.currency}\nOverall P/L: ${state.overallProfit.toFixed(2)} ${CONFIG.currency}\nConsecutive losses: ${state.consecutiveLosses}\nLoss streaks x2/x3/x4: ${state.lossStreakBuckets.x2}/${state.lossStreakBuckets.x3}/${state.lossStreakBuckets.x4}`;
+  return `🏁 Trade result\nContract: ${trade.contractId}\nSymbol: ${trade.symbol}\nResult: ${trade.won ? 'WIN' : 'LOSS'}\nP/L: ${trade.profit.toFixed(2)} ${CONFIG.currency}\nDay P/L: ${day.profit.toFixed(2)} ${CONFIG.currency}\nDay W/L: ${day.wins}/${day.losses}\nOverall P/L: ${state.overallProfit.toFixed(2)} ${CONFIG.currency}\nConsecutive losses: ${state.consecutiveLosses}\nLoss streaks x2/x3/x4: ${state.lossStreakBuckets.x2}/${state.lossStreakBuckets.x3}/${state.lossStreakBuckets.x4}`;
 }
 
 function scheduleReports() {
-  hourlyTimer = setInterval(() => sendHourlyReport().catch(console.error), 60 * 60 * 1000);
+  const now = new Date();
+  const nextHour = new Date(now);
+  nextHour.setUTCHours(nextHour.getUTCHours() + 1, 0, 0, 0);
+  const msToNextHour = nextHour.getTime() - now.getTime();
+  hourlyBootTimer = setTimeout(() => {
+    sendHourlyReport();
+    hourlyTimer = setInterval(() => sendHourlyReport(), 3600_000);
+  }, msToNextHour);
   scheduleEndOfDayReport();
+  console.log(`Hourly report: first in ${(msToNextHour / 60000).toFixed(1)}m, then every 60m`);
 }
 
 function scheduleEndOfDayReport() {
@@ -489,10 +509,45 @@ function scheduleEndOfDayReport() {
   }, next.getTime() - now.getTime());
 }
 
+function money(n) {
+  const x = Number(n || 0);
+  return `${x >= 0 ? '+' : ''}${x.toFixed(2)} ${CONFIG.currency}`;
+}
+function pad(n) { return String(n).padStart(2, '0'); }
+
 async function sendHourlyReport() {
-  const day = ensureDay();
-  const hour = ensureHour(gmtDateKey());
-  await notify(`🕐 Hourly Telegram Trade notification (Tr) ${gmtHourKey()}\nTrades: ${hour.trades}\nWins/Losses: ${hour.wins}/${hour.losses}\nHour P/L: ${hour.profit.toFixed(2)} ${CONFIG.currency}\nDay P/L: ${day.profit.toFixed(2)} ${CONFIG.currency}\nOverall P/L: ${state.overallProfit.toFixed(2)} ${CONFIG.currency}`);
+  const now = new Date();
+  const prev = new Date(now.getTime() - 3600_000);
+  const hour = prev.getUTCHours();
+  const date = prev.toISOString().slice(0, 10);
+  const trades = (state.trades || []).filter(t => {
+    const d = new Date(t.closedAt || t.openedAt);
+    return d.getUTCHours() === hour && d.toISOString().slice(0, 10) === date;
+  });
+  const wins = trades.filter(t => t.won);
+  const losses = trades.filter(t => !t.won);
+  const total = trades.reduce((s, t) => s + Number(t.profit || 0), 0);
+  const gw = wins.reduce((s, t) => s + Number(t.profit || 0), 0);
+  const gl = Math.abs(losses.reduce((s, t) => s + Number(t.profit || 0), 0));
+  const pf = gl > 0 ? gw / gl : (gw > 0 ? Infinity : 0);
+
+  if (!trades.length) {
+    await notify(`⏰ Hourly summary (${pad(hour)}:00 – ${pad(hour)}:59)\n\nNo trades this hour.`);
+    return;
+  }
+
+  let msg =
+    `⏰ Hourly Summary (${pad(hour)}:00 – ${pad(hour)}:59)\n\n` +
+    `📊 Trades: ${trades.length}  ✅${wins.length}  ❌${losses.length}\n` +
+    `📈 Win rate: ${trades.length ? ((wins.length / trades.length) * 100).toFixed(1) : 0}%\n` +
+    `💰 P/L: ${money(total)}\n` +
+    `🏆 Profit factor: ${pf === Infinity ? '∞' : pf.toFixed(2)}\n` +
+    `📋 Detail:\n`;
+  trades.forEach((t, i) => {
+    const e = t.won ? '✅' : '❌';
+    msg += `  ${i + 1}. ${e} #${t.contractId} ${t.symbol} ${money(t.profit)}\n`;
+  });
+  await notify(msg);
 }
 
 async function sendEndOfDayReport() {
