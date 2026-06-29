@@ -30,8 +30,8 @@ const CONFIG = {
   maxStake: Number(1220),
   confidence: Number(0.77), //0.72
   confidence2: Number(0.77), 
-  momentum: Number(0.0008), //0.0012
-  drift: Number(0.00020), //0.00025 
+  momentum: Number(0.00008), //0.0008
+  drift: Number(0.0000025), //0.00025 
   volume: Number(0.00020),
   rangePosition: Number(0.00020),
   growthRate: Number(0.02),
@@ -47,7 +47,7 @@ const CONFIG = {
   tickWindow: Number(80),
   reconnectBaseMs: Number(1000),
   reconnectMaxMs: Number(60000),
-  stateFile: path.join(__dirname, 'bot-state_03.json'),
+  stateFile: path.join(__dirname, 'bot-state_04.json'),
   symbols: ('R_10,R_25,R_50,R_75,R_100').split(',').map((s) => s.trim()).filter(Boolean),
   dryRun: false,
 };
@@ -461,7 +461,7 @@ async function finalizeTrade(contract, profit) {
   if (won) {
     state.wins += 1; day.wins += 1; hour.wins += 1;
     state.consecutiveLosses = 0; day.consecutiveLosses = 0;
-    CONFIG.confidence = CONFIG.confidence2;
+    // CONFIG.confidence = CONFIG.confidence2;
   } else {
     state.losses += 1; day.losses += 1; hour.losses += 1;
     state.consecutiveLosses += 1; day.consecutiveLosses += 1;
@@ -472,7 +472,7 @@ async function finalizeTrade(contract, profit) {
     if (day.consecutiveLosses === 3) day.lossStreakBuckets.x3 += 1;
     if (day.consecutiveLosses === 4) day.lossStreakBuckets.x4 += 1;
     tradingPausedUntil = Date.now() + CONFIG.cooldownAfterLossMs * Math.min(state.consecutiveLosses, 4);
-    CONFIG.confidence += 0.05;
+    // CONFIG.confidence += 0.05;
   }
 
   currentContract = null;
