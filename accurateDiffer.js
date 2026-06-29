@@ -131,7 +131,7 @@ const CONFIG = Object.freeze({
   stake: numEnv('STAKE', 1.00),
   durationTicks: intEnv('DURATION_TICKS', 1), // Digit contracts normally 1-10 ticks
   minStake: numEnv('MIN_STAKE', 0.35),
-  maxStake: numEnv('MAX_STAKE', 10.00),
+  maxStake: numEnv('MAX_STAKE', 550.00),
   assets: listEnv('ASSETS', 'R_10,R_25,R_50,R_75,R_100'),
 
   // Trading frequency / limits
@@ -140,7 +140,7 @@ const CONFIG = Object.freeze({
   analysisIntervalMs: intEnv('ANALYSIS_INTERVAL_MS', 3000),
   tradeCooldownMs: intEnv('TRADE_COOLDOWN_MS', 2500),
   maxOpenTrades: intEnv('MAX_OPEN_TRADES', 1),
-  dailyMaxLoss: numEnv('DAILY_MAX_LOSS', 25),
+  dailyMaxLoss: numEnv('DAILY_MAX_LOSS', 550),
   dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0), // 0 disables profit target stop
   dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 20000),
 
@@ -148,7 +148,7 @@ const CONFIG = Object.freeze({
   frequencyWindows: listEnv('FREQUENCY_WINDOWS', '30,60,120,300,600').map(x => parseInt(x, 10)).filter(Number.isFinite),
   transitionLookback: intEnv('TRANSITION_LOOKBACK', 900),
   ewmaAlpha: numEnv('EWMA_ALPHA', 0.045),
-  minEdge: numEnv('MIN_EDGE', 0.0040),          //0.0040 absolute probability gap, e.g. 0.4 percentage point
+  minEdge: numEnv('MIN_EDGE', 0.0050),          //0.0040 absolute probability gap, e.g. 0.4 percentage point
   safetyMargin: numEnv('SAFETY_MARGIN', 0.0025),
   modelRiskMargin: numEnv('MODEL_RISK_MARGIN', 0.0020),
   zScore: numEnv('EDGE_ZSCORE', 1.15),          // conservative upper bound
@@ -164,7 +164,7 @@ const CONFIG = Object.freeze({
 
   // Optional limited loss recovery; disabled by default. Safer than the pasted 10x/100x martingale.
   recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
-  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,1.35,1.8,2.4').map(Number).filter(Number.isFinite),
+  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,5.5,11.3,11.3').map(Number).filter(Number.isFinite),
 
   // GMT/UTC reporting
   eodTimeGmt: strEnv('TRADE_DAY_END_GMT', '00:00'), // default midnight GMT; report date is previous UTC day
@@ -172,8 +172,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ4_state.json'),
-  logFile: strEnv('LOG_FILE', 'deriv_digit_differ4_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ5_state.json'),
+  logFile: strEnv('LOG_FILE', 'deriv_digit_differ5_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
