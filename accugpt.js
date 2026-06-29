@@ -26,14 +26,15 @@ const CONFIG = {
   stake: Number(1),
   multiplier: Number(10),
   multiplier2: Number(110),
-  multiplier3: Number(1110),
-  maxStake: Number(1220),
+  multiplier3: Number(1000),
+  maxStake: Number(1000),
   confidence: Number(0.77), //0.72
   confidence2: Number(0.77), 
-  momentum: Number(0.00008), //0.0008
+  momentum: Number(0.00004), //0.0008
   drift: Number(0.0000025), //0.00025 
+  drift2: Number(-0.0000005), //0.00025 
   volume: Number(0.00020),
-  rangePosition: Number(0.00020),
+  rangePosition: Number(0.04),
   growthRate: Number(0.02),
   maxOpenSeconds: Number(240),
   targetProfitPct: Number(0.12),
@@ -47,7 +48,7 @@ const CONFIG = {
   tickWindow: Number(80),
   reconnectBaseMs: Number(1000),
   reconnectMaxMs: Number(60000),
-  stateFile: path.join(__dirname, 'bot-state_04.json'),
+  stateFile: path.join(__dirname, 'bot-state_05.json'),
   symbols: ('R_10,R_25,R_50,R_75,R_100').split(',').map((s) => s.trim()).filter(Boolean),
   dryRun: false,
 };
@@ -320,7 +321,7 @@ async function evaluateMarket() {
 
 const ranked = CONFIG.symbols
     .map((symbol) => ({ symbol, stats: indicators(tickBooks.get(symbol) || []) }))
-    .filter((x) => x.stats && x.stats.score >= CONFIG.confidence && Math.abs(x.stats.drift) < CONFIG.drift && Math.abs(x.stats.momentum5) < CONFIG.momentum)
+    .filter((x) => x.stats && x.stats.score >= CONFIG.confidence && Math.abs(x.stats.drift) < CONFIG.drift && Math.abs(x.stats.drift) > CONFIG.drift2 && Math.abs(x.stats.momentum5) < CONFIG.momentum && x.stats.rangePosition < CONFIG.rangePosition)
     .sort((a, b) => b.stats.score - a.stats.score);
 
 if (!ranked.length) return;
