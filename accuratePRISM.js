@@ -179,8 +179,8 @@ const CONFIG = Object.freeze({
   // PRISM-Δ edge / value filters
   zScore: numEnv('EDGE_ZSCORE', 1.15),               // Beta posterior upper-bound z
   baseSafetyMargin: numEnv('SAFETY_MARGIN', 0.0030), //0.0030 base break-even margin (regime-scaled)
-  minEdge: numEnv('MIN_EDGE', 0.00005),               //0.0045 min raw value edge (probability points)
-  minStandardizedEdge: numEnv('MIN_STD_EDGE', 0.005), //0.50 min cross-asset z edge
+  minEdge: numEnv('MIN_EDGE', 0.020),               //0.0045 min raw value edge (probability points)
+  minStandardizedEdge: numEnv('MIN_STD_EDGE', 1.0), //0.50 min cross-asset z edge
   maxLossProb: numEnv('MAX_LOSS_PROB', 0.092),       // never take if upper-bound loss digit > 9.2%
   minProbabilityGap: numEnv('MIN_PROBABILITY_GAP', 0.0050), // gap between best & 2nd best
   minEntropy: numEnv('MIN_ENTROPY', 0.985),          // require near-uniform long-run (sanity)
@@ -205,8 +205,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'deriv_prism_differ8_state.json'),
-  logFile: strEnv('LOG_FILE', 'deriv_prism_differ8_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'deriv_prism_differ_01_state.json'),
+  logFile: strEnv('LOG_FILE', 'deriv_prism_differ_01_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
@@ -1625,11 +1625,15 @@ class TradingBot {
     proposalCandidates.sort((a, b) => b.valueEdge - a.valueEdge || b.stdEdge - a.stdEdge);
     const best = proposalCandidates[0];
 
+    console.log('valueEdge:', best.valueEdge, '|', this.cfg.minEdge)
+    console.log('stdEdge:', best.stdEdge, '|', this.cfg.minStandardizedEdge);
     if (best.valueEdge < this.cfg.minEdge) {
       logger.info(`skip: edge ${best.valueEdge.toFixed(4)} < minEdge ${this.cfg.minEdge} (${best.analysis.symbol} d${best.candidate.digit})`);
       return;
     }
-    if (best.stdEdge < this.cfg.minStandardizedEdge) {
+
+    // console.log('stdEdge:', best.stdEdge, '|', this.cfg.minStandardizedEdge);
+    if (best.stdEdge <= this.cfg.minStandardizedEdge) {
       logger.info(`skip: stdEdge ${best.stdEdge.toFixed(2)} < ${this.cfg.minStandardizedEdge} (${best.analysis.symbol} d${best.candidate.digit})`);
       return;
     }
