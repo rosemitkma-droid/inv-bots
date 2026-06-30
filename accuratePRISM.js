@@ -180,8 +180,8 @@ const CONFIG = Object.freeze({
   zScore: numEnv('EDGE_ZSCORE', 1.15),               // Beta posterior upper-bound z
   baseSafetyMargin: numEnv('SAFETY_MARGIN', 0.0030), // base break-even margin (regime-scaled)
   minEdge: numEnv('MIN_EDGE', 0.0045),               // min raw value edge (probability points)
-  minStandardizedEdge: numEnv('MIN_STD_EDGE', 0.30), // min cross-asset z edge
-  maxLossProb: numEnv('MAX_LOSS_PROB', 0.092),       // never take if upper-bound loss digit > 9.2%
+  minStandardizedEdge: numEnv('MIN_STD_EDGE', 0.50), // min cross-asset z edge
+  maxLossProb: numEnv('MAX_LOSS_PROB', 0.062),       // never take if upper-bound loss digit > 9.2%
   minProbabilityGap: numEnv('MIN_PROBABILITY_GAP', 0.0050), // gap between best & 2nd best
   minEntropy: numEnv('MIN_ENTROPY', 0.985),          // require near-uniform long-run (sanity)
   // Statistical-significance gate on the chosen digit's deviation from 0.1.
@@ -189,10 +189,10 @@ const CONFIG = Object.freeze({
   // Cross-signal agreement: how many of {dirichlet, markov, momentum} must co-rank the
   // chosen digit in their respective bottom-K least-likely set.
   agreementK: intEnv('AGREEMENT_K', 2),
-  agreementRequired: intEnv('AGREEMENT_REQUIRED', 3),
+  agreementRequired: intEnv('AGREEMENT_REQUIRED', 2),
   proposalScanTopN: intEnv('PROPOSAL_SCAN_TOP_N', 3),
   // Confidence-scaled fractional staking (layered on recovery multiplier).
-  confidenceStakeMin: numEnv('CONF_STAKE_MIN', 0.6),
+  confidenceStakeMin: numEnv('CONF_STAKE_MIN', 0.63),
   confidenceStakeMax: numEnv('CONF_STAKE_MAX', 1.0),
 
   // Optional limited loss recovery; disabled by default. Safer than 10x/100x martingale.
@@ -205,8 +205,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'deriv_prism_differ1_state.json'),
-  logFile: strEnv('LOG_FILE', 'deriv_prism_differ1_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'deriv_prism_differ2_state.json'),
+  logFile: strEnv('LOG_FILE', 'deriv_prism_differ2_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
