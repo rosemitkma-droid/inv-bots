@@ -131,7 +131,7 @@ const CONFIG = Object.freeze({
   accountType: ('demo').toLowerCase(),  // 'demo' | 'real'
  
   // ─ Trade parameters ─
-  stake          : parseFloat('2.0'),
+  stake          : parseFloat('3.0'),
  
   // NOTE: PULSE does NOT use Martingale. These legacy knobs are kept
   // only so the saved-state file / Telegram messages stay compatible,
@@ -178,7 +178,7 @@ const CONFIG = Object.freeze({
   },
  
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot3.log',
+  logFile : 'deriv_pulse_bot4.log',
   logLevel: ('INFO').toUpperCase(),
  
   // ════════════════════════════════════════════════════════════════
@@ -202,21 +202,21 @@ const CONFIG = Object.freeze({
  
   // Volatility-regime gate (calm-only). ratio = recentσ / longσ.
   pulseCalmMaxRatio   : parseFloat('1.05'),   // recent vol must be ≤ ~long vol
-  pulseStormyMinRatio : parseFloat('1.35'),   // hard reject above this
+  pulseStormyMinRatio : parseFloat('1.20'),   // hard reject above this
  
   // Barrier refresh (pull real barriers from proposal responses)
   barrierRefreshMs    : parseInt('45000', 10),
  
   // Adaptive early-exit (live re-simulation during an open trade)
   pulseExitProfitLockFrac : parseFloat('0.55'), // lock if realised ≥ frac × best expected remaining
-  pulseExitDriftFrac      : parseFloat('0.60'), // danger-lock if drift ≥ frac of barrier
+  pulseExitDriftFrac      : parseFloat('0.50'), // danger-lock if drift ≥ frac of barrier
   pulseExitNextTickEdge   : parseFloat('1.00'), // exit if next-tick (1+g)·p1 < this (≤1 = no edge left)
  
   // ─ Trade Watchdog (stuck contract recovery) ─
   tradeWatchdogMs: parseInt('90000', 10),
  
   // ─ State persistence ─
-  stateFile           : 'deriv_pulse_bot3_state.json',
+  stateFile           : 'deriv_pulse_bot4_state.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 });
