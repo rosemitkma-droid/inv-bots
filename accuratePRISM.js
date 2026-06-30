@@ -178,9 +178,9 @@ const CONFIG = Object.freeze({
 
   // PRISM-Δ edge / value filters
   zScore: numEnv('EDGE_ZSCORE', 1.15),               // Beta posterior upper-bound z
-  baseSafetyMargin: numEnv('SAFETY_MARGIN', 0.0020), //0.0030 base break-even margin (regime-scaled)
-  minEdge: numEnv('MIN_EDGE', 0.0045),               // min raw value edge (probability points)
-  minStandardizedEdge: numEnv('MIN_STD_EDGE', 0.50), // min cross-asset z edge
+  baseSafetyMargin: numEnv('SAFETY_MARGIN', 0.0030), //0.0030 base break-even margin (regime-scaled)
+  minEdge: numEnv('MIN_EDGE', 0.0030),               //0.0045 min raw value edge (probability points)
+  minStandardizedEdge: numEnv('MIN_STD_EDGE', 0.35), //0.50 min cross-asset z edge
   maxLossProb: numEnv('MAX_LOSS_PROB', 0.092),       // never take if upper-bound loss digit > 9.2%
   minProbabilityGap: numEnv('MIN_PROBABILITY_GAP', 0.0050), // gap between best & 2nd best
   minEntropy: numEnv('MIN_ENTROPY', 0.985),          // require near-uniform long-run (sanity)
@@ -197,7 +197,7 @@ const CONFIG = Object.freeze({
 
   // Optional limited loss recovery; disabled by default. Safer than 10x/100x martingale.
   recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
-  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,5.5,57.0,570.0').map(Number).filter(Number.isFinite),
+  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,5.5,60.5').map(Number).filter(Number.isFinite),
 
   // GMT/UTC reporting
   eodTimeGmt: strEnv('TRADE_DAY_END_GMT', '00:00'), // default midnight GMT; report date is previous UTC day
