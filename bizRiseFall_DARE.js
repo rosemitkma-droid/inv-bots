@@ -122,8 +122,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'dare_01-state_v3.json');
-const HISTORY_FILE        = path.join(__dirname, 'dare_01-history_v3.json');
+const STATE_FILE          = path.join(__dirname, 'dare_02-state_v3.json');
+const HISTORY_FILE        = path.join(__dirname, 'dare_02-history_v3.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED]
@@ -150,7 +150,7 @@ const CONFIG = {
     WS_URL:       'wss://ws.derivws.com/websockets/v3',
     // ── Capital & Risk ────────────────────────────────────────
     INITIAL_CAPITAL:            250,
-    BASE_RISK_PERCENT_PER_TRADE: 0.50, // % of capital per trade (Kelly-fractional base)
+    BASE_RISK_PERCENT_PER_TRADE: 0.05, // % of capital per trade (Kelly-fractional base)
     MIN_STAKE:                  1,
     MAX_STAKE:                  150,
     MAX_RISK_PCT:               1.50,  // Hard cap: never risk >1.5% of capital on a single trade
@@ -175,7 +175,7 @@ const CONFIG = {
     TIMEFRAME_LABEL:            '5m',
     CANDLES_TO_LOAD:            200,     // larger window for percentile + VR(q) stability
     MAX_CANDLES_STORED:         300,
-    DURATION:                   58,
+    DURATION:                   294,
     DURATION_UNIT:              's',
     MIN_CANDLES_REQUIRED:       80,      // raised — VR & percentile need warmup
     // ── LAYER 1: Regime Classifier ───────────────────────────
@@ -1060,7 +1060,7 @@ class StatePersistence {
                         a.profit      = saved.profit      || 0;
                         a.loss        = saved.loss        || 0;
                         a.activePositions = (saved.activePositions || []).map(p => ({ ...p }));
-                        LOGGER.info(`📊 ${symbol}: Recovery=${a.recoveryStep}, Stake=$${a.currentStake.toFixed(2)}, P/L=$${a.netPL.toFixed(2)}, CooldownCandles:${a.cooldownCandles}`);
+                        LOGGER.info(`📊 ${symbol}: Recovery=${a.recoveryStep}, Stake=$${(a.currentStake || 0).toFixed(2)}, P/L=$${(a.netPL || 0).toFixed(2)}, CooldownCandles:${a.cooldownCandles}`);
                     }
                 });
             }
@@ -1121,7 +1121,7 @@ class TelegramService {
             if (sig.warnings?.length) lines.push(`⚠️ Warnings: ${sig.warnings.join(', ')}`);
         }
         if (details.profit !== undefined) {
-            const pl = details.profit;
+            const pl = Number(details.profit) || 0;
             lines.push(`Profit: ${pl >= 0 ? '+' : ''}$${pl.toFixed(2)}`);
             lines.push(``);
             lines.push(`📋 <b>${symbol} Stats:</b>`);
@@ -1145,7 +1145,7 @@ class TelegramService {
         CONFIG.ACTIVE_ASSETS.forEach(sym => {
             const a = state.assets[sym];
             if (a?.tradesCount > 0) {
-                assetInfo += `\n  ${sym}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L $${a.netPL.toFixed(2)} Rec:${a.recoveryStep}`;
+                assetInfo += `\n  ${sym}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L $${(a.netPL || 0).toFixed(2)} Rec:${a.recoveryStep}`;
             }
         });
         await this.sendMessage([
@@ -1168,14 +1168,14 @@ class TelegramService {
             const a = state.assets[sym];
             if (a?.tradesCount > 0) {
                 const pairWr = a.tradesCount > 0 ? ((a.winsCount / a.tradesCount) * 100).toFixed(1) : '0.0';
-                pairBreakdown += `\n  ${sym}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L (${pairWr}%) $${a.netPL.toFixed(2)}`;
+                pairBreakdown += `\n  ${sym}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L (${pairWr}%) $${(a.netPL || 0).toFixed(2)}`;
             }
         });
         await this.sendMessage([
             `📊 <b>DARE v3 SESSION SUMMARY</b>`,
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
-            `Session P/L: $${stats.netPL.toFixed(2)}`,
+            `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
             `Today P/L: $${(today.netPL || 0).toFixed(2)}`,
             ``,
             `📋 <b>Overall:</b> ${overall.tradesCount} trades | WR: ${wr}% | P/L: $${(overall.netPL || 0).toFixed(2)}`,
@@ -1238,7 +1238,7 @@ class TelegramService {
 class SessionManager {
     static isSessionActive() { return state.session.isActive; }
     static checkSessionTargets() {
-        const { netPL } = state.session;
+        const netPL = state.session?.netPL || 0;
         if (netPL >= CONFIG.SESSION_PROFIT_TARGET) {
             LOGGER.trade(`🎯 Session profit target reached: $${netPL.toFixed(2)}`);
             this.endSession('PROFIT_TARGET');
@@ -1251,7 +1251,7 @@ class SessionManager {
         }
         const today = TradeHistoryManager.getTodayStats();
         if (today.netPL <= CONFIG.DAILY_STOP_LOSS) {
-            LOGGER.error(`🛑 Daily stop-loss reached: $${today.netPL.toFixed(2)}`);
+            LOGGER.error(`🛑 Daily stop-loss reached: $${(today?.netPL || 0).toFixed(2)}`);
             this.endSession('DAILY_STOP_LOSS');
             return true;
         }
@@ -1330,7 +1330,7 @@ class SessionManager {
             a.cooldownCandles   = 0;
             a.currentStake      = StakeCalculator.calculate(state.capital);
             a.lastTradeWasWin   = true;
-            LOGGER.trade(`✅ [${symbol}] WIN +$${profit.toFixed(2)} | ${direction} | P/L: $${a.netPL.toFixed(2)}`);
+            LOGGER.trade(`✅ [${symbol}] WIN +$${(profit || 0).toFixed(2)} | ${direction} | P/L: $${(a.netPL || 0).toFixed(2)}`);
         } else {
             state.session.lossesCount++;
             state.session.loss     += Math.abs(profit);
@@ -1361,7 +1361,7 @@ class SessionManager {
                     `Capital: $${state.capital.toFixed(2)}`
                 );
             }
-            LOGGER.trade(`❌ [${symbol}] LOSS -$${Math.abs(profit).toFixed(2)} | ${direction} | Next Stake: $${a.currentStake.toFixed(2)} (recoup=${a.recoveryStep})`);
+            LOGGER.trade(`❌ [${symbol}] LOSS -$${Math.abs(profit || 0).toFixed(2)} | ${direction} | Next Stake: $${(a.currentStake || 0).toFixed(2)} (recoup=${a.recoveryStep})`);
         }
         TradeHistoryManager.recordTrade(symbol, profit, a.recoveryStep);
     }
@@ -1728,7 +1728,7 @@ class ConnectionManager {
         bot._clearAllWatchdogTimers();
         const a      = state.assets[ownerSym];
         const pos    = a.activePositions[posIdx];
-        const profit = contract.profit;
+        const profit = Number(contract.profit);
         SessionManager.recordTradeResult(ownerSym, profit, pos.direction);
         TelegramService.sendTradeAlert(
             profit >= 0 ? 'WIN' : 'LOSS',
@@ -1844,7 +1844,7 @@ class ConnectionManager {
             }, delay);
         } else {
             LOGGER.error('Max reconnection attempts reached — giving up');
-            TelegramService.sendMessage(`🛑 <b>BOT STOPPED</b> — Max reconnections\nFinal P/L: $${state.session.netPL.toFixed(2)}`);
+            TelegramService.sendMessage(`🛑 <b>BOT STOPPED</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -2239,11 +2239,11 @@ const statusInterval = setInterval(() => {
             const vol     = p.indicators?.volClass    ? `${p.indicators.volClass[0]}`     : '?';
             const vr      = p.indicators?.vr          ? `VR:${p.indicators.vr}`           : '';
             const cdwn    = p.cooldownCandles > 0      ? ` ❄️CD:${p.cooldownCandles}`     : '';
-            pairLines += `\n  ${sym}: ${pers}/${vol} ${vr} Rec${p.recoveryStep} $${p.currentStake.toFixed(2)} | ${p.trades}t ${p.wins}W/${p.losses}L $${p.netPL.toFixed(2)} | Pos:${p.activePositions}${cdwn} | ${sig}`;
+            pairLines += `\n  ${sym}: ${pers}/${vol} ${vr} Rec${p.recoveryStep} $${(p.currentStake || 0).toFixed(2)} | ${p.trades}t ${p.wins}W/${p.losses}L $${(p.netPL || 0).toFixed(2)} | Pos:${p.activePositions}${cdwn} | ${sig}`;
         }
     });
-    console.log(`\n📊 ${getGMTTime()} | Session: ${status.session.trades}t ${status.session.winRate} $${status.session.netPL.toFixed(2)} | Capital: $${status.capital.toFixed(2)}`);
-    console.log(`📋 Overall: ${status.overall.tradesCount}t | P/L: $${status.overall.netPL.toFixed(2)} | Days: ${TradeHistoryManager.getAllDays().length}`);
+    console.log(`\n📊 ${getGMTTime()} | Session: ${status.session.trades}t ${status.session.winRate} $${(status.session.netPL || 0).toFixed(2)} | Capital: $${status.capital.toFixed(2)}`);
+    console.log(`📋 Overall: ${status.overall.tradesCount}t | P/L: $${(status.overall.netPL || 0).toFixed(2)} | Days: ${TradeHistoryManager.getAllDays().length}`);
     console.log(`🕐 ${TradingSessionManager.getStatusString()}`);
     console.log(`📈 Assets:${pairLines}`);
 }, 60000);
