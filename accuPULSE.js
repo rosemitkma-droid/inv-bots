@@ -178,7 +178,7 @@ const CONFIG = Object.freeze({
   },
  
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot4.log',
+  logFile : 'deriv_pulse_bot6.log',
   logLevel: ('INFO').toUpperCase(),
  
   // ════════════════════════════════════════════════════════════════
@@ -194,7 +194,7 @@ const CONFIG = Object.freeze({
   // EV gates — the heart of "only positive-EV entries"
   pulseEdgeThreshold  : parseFloat('1.015'),  // (1+g)^N·p_N must clear this (≥1.015 = +1.5% gross EV)
   pulseMinEV          : parseFloat('0.004'),  // min EV as fraction of stake (+0.4%)
-  pulseMinSurvival    : parseFloat('0.95'),   // p_{N*} floor — never bet on a coin-flip-ish survival
+  pulseMinSurvival    : parseFloat('0.99'),   // p_{N*} floor — never bet on a coin-flip-ish survival
   pulseMaxHorizon     : parseInt('6',    10), // never hold longer than this many ticks even if "optimal"
  
   // Growth-rate candidates (Deriv supports 0.01–0.05)
@@ -216,7 +216,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
  
   // ─ State persistence ─
-  stateFile           : 'deriv_pulse_bot4_state.json',
+  stateFile           : 'deriv_pulse_bot5_state.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 });
@@ -1543,7 +1543,7 @@ class PulseAnalyzer {
         }
       }
 
-      if (bestN > 0) {
+      if (bestN > 0 && regime === 'calm') {
         const pN = survivalCounts[bestN] / trials;
         const p1 = survivalCounts[1] / trials;
         const suggestedTakeProfit = Math.pow(1 + growthRate, bestN) - 1;
