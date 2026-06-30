@@ -132,7 +132,7 @@ const CONFIG = Object.freeze({
   durationTicks: intEnv('DURATION_TICKS', 1), // Digit contracts normally 1-10 ticks
   minStake: numEnv('MIN_STAKE', 0.35),
   maxStake: numEnv('MAX_STAKE', 670.00),
-  assets: listEnv('ASSETS', 'R_10,R_25,R_50,R_75,R_100'),
+  assets: ['R_10','R_25','R_50','R_75','R_100'],
 
   // Trading frequency / limits
   tickWindow: intEnv('TICK_WINDOW', 1000),
@@ -148,7 +148,7 @@ const CONFIG = Object.freeze({
   frequencyWindows: listEnv('FREQUENCY_WINDOWS', '30,60,120,300,600').map(x => parseInt(x, 10)).filter(Number.isFinite),
   transitionLookback: intEnv('TRANSITION_LOOKBACK', 900),
   ewmaAlpha: numEnv('EWMA_ALPHA', 0.045),
-  minEdge: numEnv('MIN_EDGE', 0.0070),          //0.0040 absolute probability gap, e.g. 0.4 percentage point
+  minEdge: numEnv('MIN_EDGE', 0.0060),          //0.0040 absolute probability gap, e.g. 0.4 percentage point
   safetyMargin: numEnv('SAFETY_MARGIN', 0.0025),
   modelRiskMargin: numEnv('MODEL_RISK_MARGIN', 0.0020),
   zScore: numEnv('EDGE_ZSCORE', 1.15),          // conservative upper bound
@@ -172,8 +172,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ7_state.json'),
-  logFile: strEnv('LOG_FILE', 'deriv_digit_differ7_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ9_state.json'),
+  logFile: strEnv('LOG_FILE', 'deriv_digit_differ9_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
@@ -1309,10 +1309,20 @@ class TradingBot {
       logger.debug('no proposal candidates after model gates');
       return;
     }
+
+    // console.log('valueEdge:', best.valueEdge, '|', this.cfg.minEdge)
+    
     if (best.valueEdge < this.cfg.minEdge) {
       logger.info(`skip: best edge ${best.valueEdge.toFixed(4)} < minEdge ${this.cfg.minEdge} (${best.analysis.symbol} d${best.candidate.digit})`);
       return;
     }
+
+    if (this.tradedAsset === best.analysis.symbol) {
+      logger.info(`skip: best asset ${best.valueEdge.toFixed(4)} === previousAsset (${best.analysis.symbol} | ${this.tradedAsset})`);
+      return;
+    }
+
+    this.tradedAsset = best.analysis.symbol;
 
     const a = best.analysis;
     const c = best.candidate;
@@ -1336,6 +1346,7 @@ class TradingBot {
     };
 
     const trade = await this.exec.buy(a.symbol, c.digit, stake, payload);
+    
     this.lastTradeAt = Date.now();
     logger.info(`trade placed #${trade.contractId} ${a.symbol} DIGITDIFF differs ${c.digit} edge=${best.valueEdge.toFixed(4)} pLossU=${c.pLossUpper.toFixed(4)} qBE=${best.breakEvenLossProb.toFixed(4)}`);
   }
