@@ -205,8 +205,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'deriv_prism_differ_01_state.json'),
-  logFile: strEnv('LOG_FILE', 'deriv_prism_differ_01_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'deriv_prism_differ_03_state.json'),
+  logFile: strEnv('LOG_FILE', 'deriv_prism_differ_03_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
@@ -1625,8 +1625,8 @@ class TradingBot {
     proposalCandidates.sort((a, b) => b.valueEdge - a.valueEdge || b.stdEdge - a.stdEdge);
     const best = proposalCandidates[0];
 
-    console.log('valueEdge:', best.valueEdge, '|', this.cfg.minEdge)
-    console.log('stdEdge:', best.stdEdge, '|', this.cfg.minStandardizedEdge);
+    // console.log('valueEdge:', best.valueEdge, '|', this.cfg.minEdge)
+    // console.log('stdEdge:', best.stdEdge, '|', this.cfg.minStandardizedEdge);
     if (best.valueEdge < this.cfg.minEdge) {
       logger.info(`skip: edge ${best.valueEdge.toFixed(4)} < minEdge ${this.cfg.minEdge} (${best.analysis.symbol} d${best.candidate.digit})`);
       return;
@@ -1637,6 +1637,13 @@ class TradingBot {
       logger.info(`skip: stdEdge ${best.stdEdge.toFixed(2)} < ${this.cfg.minStandardizedEdge} (${best.analysis.symbol} d${best.candidate.digit})`);
       return;
     }
+
+    if (this.tradedAsset === best.analysis.symbol) {
+      logger.info(`skip: best Asset same as Last Traded Best Asset (${best.analysis.symbol} | ${this.tradedAsset})`);
+      return;
+    }
+
+    this.tradedAsset = best.analysis.symbol;
 
     const a = best.analysis;
     const c = best.candidate;
