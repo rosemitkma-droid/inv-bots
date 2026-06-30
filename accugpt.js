@@ -34,7 +34,7 @@ const CONFIG = {
   drift: Number(0.0000025), //0.00025 
   drift2: Number(-0.0000005), //0.00025 
   volume: Number(0.00020),
-  rangePosition: Number(0.04),
+  rangePosition: Number(0.4),
   growthRate: Number(0.02),
   maxOpenSeconds: Number(240),
   targetProfitPct: Number(0.12),
@@ -48,7 +48,7 @@ const CONFIG = {
   tickWindow: Number(80),
   reconnectBaseMs: Number(1000),
   reconnectMaxMs: Number(60000),
-  stateFile: path.join(__dirname, 'bot-state_05.json'),
+  stateFile: path.join(__dirname, 'bot-state_06.json'),
   symbols: ('R_10,R_25,R_50,R_75,R_100').split(',').map((s) => s.trim()).filter(Boolean),
   dryRun: false,
 };
