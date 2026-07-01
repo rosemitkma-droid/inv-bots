@@ -131,14 +131,14 @@ const CONFIG = Object.freeze({
   accountType: ('demo').toLowerCase(),  // 'demo' | 'real'
  
   // ─ Trade parameters ─
-  stake          : parseFloat('3.0'),
+  stake          : parseFloat('2.5'),
  
   // NOTE: PULSE does NOT use Martingale. These legacy knobs are kept
   // only so the saved-state file / Telegram messages stay compatible,
   // but martingale is forced OFF (see _updateSizing).
   multiplier     : parseFloat('0.04'),   // default growth rate hint (PULSE overrides per-trade)
   multiplierStep : parseFloat('0.0'),
-  stopLoss       : parseFloat('1000.0'),    // hard $ stop per contract (manual sell)
+  stopLoss       : parseFloat('110.0'),    // hard $ stop per contract (manual sell)
   takeProfit     : parseFloat('10000.0'),
  
   // ─ Sizing (PULSE: flat stake, optional capped edge-scaled sizing) ─
@@ -178,7 +178,7 @@ const CONFIG = Object.freeze({
   },
  
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot6.log',
+  logFile : 'deriv_pulse_bot7.log',
   logLevel: ('INFO').toUpperCase(),
  
   // ════════════════════════════════════════════════════════════════
@@ -216,7 +216,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
  
   // ─ State persistence ─
-  stateFile           : 'deriv_pulse_bot5_state.json',
+  stateFile           : 'deriv_pulse_bot7_state.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 });
@@ -885,6 +885,8 @@ class DerivClient extends EventEmitter {
   }
  
   _onTradeOpen(t) {
+    this.tradeStartTime = Date.now();
+    this._startTradeWatchdog(t.contractId);
     let msg =
       `🟢 <b>PULSE TRADE OPENED</b>\n\n` +
       `🎫 <b>Contract:</b> #${t.contractId}\n` +
@@ -947,13 +949,16 @@ class DerivClient extends EventEmitter {
     this._tradeWatchdogTimer = setTimeout(() => {
       const hasActiveTrade = this.exec.openTrades().some(t => t.contractId);
       if (!hasActiveTrade) { this._clearWatchdogTimers(); return; }
-      logger.warn(`WATCHDOG FIRED — #${contractId} open ${timeoutMs/1000}s no settlement`);
+      logger.warn(`WATCHDOG FIRED — Contract ${contractId || 'unknown'} open for ${(timeoutMs/1000).toFixed(0)}s with no settlement`);
       if (contractId && this.authorized && this.connected) {
+        logger.info(`Polling contract ${contractId} for current status…`);
         this._send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 })
           .catch(e => { logger.warn(`watchdog poll failed: ${e.message}`); this._recoverStuckTrade('watchdog-poll-failed'); });
         this._tradeWatchdogPollTimer = setTimeout(() => {
-          if (this.exec.count() > 0) this._recoverStuckTrade('watchdog-force');
-          else this._clearWatchdogTimers();
+          const stillActive = this.exec.count() > 0;
+          if (!stillActive) { this._clearWatchdogTimers(); return; }
+          logger.error(`WATCHDOG: Poll timed out — contract ${contractId} still unresolved, force-releasing lock`);
+          this._recoverStuckTrade('watchdog-force');
         }, 15000);
       } else {
         this._recoverStuckTrade('watchdog-offline');
@@ -969,7 +974,10 @@ class DerivClient extends EventEmitter {
   async _recoverStuckTrade(reason) {
     this._clearWatchdogTimers();
     const stuck = this.exec.openTrades()[0];
-    if (!stuck) return;
+    if (!stuck) {
+      logger.warn('No active trade found for stuck trade recovery');
+      return;
+    }
     const contractId = stuck.contractId || 'unknown';
     const symbol = stuck.symbol;
     const stake = stuck.stake || 0;
