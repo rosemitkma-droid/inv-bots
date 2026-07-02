@@ -122,8 +122,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'dare2_03-state_v3.json');
-const HISTORY_FILE        = path.join(__dirname, 'dare2_03-history_v3.json');
+const STATE_FILE          = path.join(__dirname, 'dare2_04-state_v3.json');
+const HISTORY_FILE        = path.join(__dirname, 'dare2_04-history_v3.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED]
@@ -855,7 +855,7 @@ class StakeCalculator {
             const frac  = Math.max(0, Math.min(0.5, kelly * 0.5)); // half-Kelly, capped
             const riskCapital = capital * (CONFIG.BASE_RISK_PERCENT_PER_TRADE / 100);
             stake = riskCapital * (0.5 + frac); // scale within base risk envelope
-        } else if (recoveryStep === 1) {
+        } else if (recoveryStep >= 1) {
             const riskCapital = capital * (CONFIG.BASE_RISK_PERCENT_PER_TRADE / 100);
             stake = riskCapital * CONFIG.RECOVERY_MULTIPLIER;
         } else {
@@ -1349,7 +1349,7 @@ class SessionManager {
             a.forceRecoverDirection = a.lastTradeDirection;  // loss → force same direction on next candle
             // Single capped recoup step ONLY (no ladder, no force-trade)
             if (CONFIG.RECOVERY_ENABLED && a.recoveryStep < CONFIG.MAX_RECOVERY_STEPS) {
-                a.recoveryStep = 1;
+                a.recoveryStep++;
             } else {
                 a.recoveryStep = 0; // recoup already used / disabled → reset to base stake
             }
