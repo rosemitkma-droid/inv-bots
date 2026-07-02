@@ -142,6 +142,7 @@ const CONFIG = Object.freeze({
  
   // ─ Trade parameters ─
   stake          : parseFloat('1.0'),
+  currentStake    : parseFloat('1.0'),
  
   // NOTE: PULSE does NOT use Martingale. These legacy knobs are kept
   // only so the saved-state file / Telegram messages stay compatible,
