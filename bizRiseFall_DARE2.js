@@ -122,8 +122,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'dare2_02-state_v3.json');
-const HISTORY_FILE        = path.join(__dirname, 'dare2_02-history_v3.json');
+const STATE_FILE          = path.join(__dirname, 'dare2_03-state_v3.json');
+const HISTORY_FILE        = path.join(__dirname, 'dare2_03-history_v3.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED]
@@ -149,7 +149,7 @@ const CONFIG = {
     ACCOUNT_TYPE: 'demo',          // 'demo' | 'real' (PAT mode only)
     WS_URL:       'wss://ws.derivws.com/websockets/v3',
     // ── Capital & Risk ────────────────────────────────────────
-    INITIAL_CAPITAL:            250,
+    INITIAL_CAPITAL:            100,
     BASE_RISK_PERCENT_PER_TRADE: 0.01, // % of capital per trade (Kelly-fractional base)
     MIN_STAKE:                  1,
     MAX_STAKE:                  150,
@@ -162,13 +162,13 @@ const CONFIG = {
     // ── Single capped recoup step (NOT martingale) ────────────
     RECOVERY_ENABLED:       true,
     RECOVERY_MULTIPLIER:    2.00,   // ONE recoup step only
-    MAX_RECOVERY_STEPS:     6,      // Hard rule: never more than 1 recoup (no ladder)
+    MAX_RECOVERY_STEPS:     7,      // Hard rule: never more than 1 recoup (no ladder)
     MAX_RECOVERY_STAKE_PCT: 100.0,    // Recoup stake capped at 1.5% of capital
     // ── Session / daily guards [RETAINED structure] ───────────
     SESSION_PROFIT_TARGET:      5000,
     SESSION_STOP_LOSS:          -1500,
     DAILY_STOP_LOSS:            -2000,
-    MAX_CONSECUTIVE_LOSSES:     3,
+    MAX_CONSECUTIVE_LOSSES:     7,
     COOLDOWN_CANDLES:           5,
     // ── Candle / Contract Settings ────────────────────────────
     GRANULARITY:                300,     // 5-minute candles
