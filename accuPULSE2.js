@@ -202,7 +202,7 @@ const CONFIG = Object.freeze({
   },
  
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot_02.log',
+  logFile : 'deriv_pulse_bot_03.log',
   logLevel: ('INFO').toUpperCase(),
  
   // ════════════════════════════════════════════════════════════════
@@ -240,7 +240,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
  
   // ─ State persistence ─
-  stateFile           : 'deriv_pulse_bot_02_state.json',
+  stateFile           : 'deriv_pulse_bot_03_state.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 });
@@ -954,7 +954,7 @@ class DerivClient extends EventEmitter {
    *                 after a loss.
    */
   currentStake(edge) {
-    const base = this.currentStake2;
+    const base = this.stats.currentLossStreak > 0 ? this.currentStake2 : this.cfg.stake;
     let mult = 1.0;
     if (this.cfg.sizingMode === 'edge' && edge && edge > 1) {
       const evFrac = Math.max(0, edge - 1);
@@ -972,7 +972,7 @@ class DerivClient extends EventEmitter {
     return +(base * mult).toFixed(2);
   }
  
-  _updateMartingale(tradeResult, stake) {
+  _updateMartingale(tradeResult) {
     if (!this.cfg.martingale || this.cfg.martingale <= 0) {
       this.lossesStreak = 0;
       this.martingaleMultiplier = 1.0;
@@ -984,7 +984,7 @@ class DerivClient extends EventEmitter {
     if (tradeResult === 'won') {
       this.lossesStreak = 0;
       this.martingaleMultiplier = 1.0;
-      // this.currentStake2 = this.cfg.stake;
+      this.currentStake2 = this.cfg.stake;
     } else {
       this.lossesStreak++;
       if (this.lossesStreak > threshold) {
