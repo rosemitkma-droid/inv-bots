@@ -148,7 +148,7 @@ const CONFIG = Object.freeze({
   // but martingale is forced OFF (see _updateSizing).
   multiplier     : parseFloat('0.04'),   // default growth rate hint (PULSE overrides per-trade)
   multiplierStep : parseFloat('0.0'),
-  stopLoss       : parseFloat('840.0'),    // hard $ stop per contract (manual sell)
+  stopLoss       : parseFloat('900.0'),    // hard $ stop per contract (manual sell)
   takeProfit     : parseFloat('10000.0'),
 
   // ── Martingale (loss-recovery stake multiplier) ──
@@ -156,9 +156,9 @@ const CONFIG = Object.freeze({
   // losses the next stake is multiplied by `martingale`. Each subsequent
   // loss adds `martingaleStep` to the multiplier. A win resets to 1.0.
   martingale          : parseFloat('30'),    // base multiplier when active (0 = off)
-  martingaleStep      : parseFloat('800'),  // added per extra consecutive loss
+  martingaleStep      : parseFloat('900'),  // added per extra consecutive loss
   lossesBeforeMartingale: parseInt('0'),  // N losses before martingale kicks in
-  maxMartingaleStep   : parseFloat('840'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
+  maxMartingaleStep   : parseFloat('900'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
  
   // ─ Sizing (PULSE: flat stake, optional capped edge-scaled sizing) ─
   sizingMode        : 'flat',            // 'flat' | 'edge'
