@@ -148,8 +148,17 @@ const CONFIG = Object.freeze({
   // but martingale is forced OFF (see _updateSizing).
   multiplier     : parseFloat('0.04'),   // default growth rate hint (PULSE overrides per-trade)
   multiplierStep : parseFloat('0.0'),
-  stopLoss       : parseFloat('110.0'),    // hard $ stop per contract (manual sell)
+  stopLoss       : parseFloat('840.0'),    // hard $ stop per contract (manual sell)
   takeProfit     : parseFloat('10000.0'),
+
+  // ── Martingale (loss-recovery stake multiplier) ──
+  // Set MARTINGALE=0 to disable. After `lossesBeforeMartingale` consecutive
+  // losses the next stake is multiplied by `martingale`. Each subsequent
+  // loss adds `martingaleStep` to the multiplier. A win resets to 1.0.
+  martingale          : parseFloat('30'),    // base multiplier when active (0 = off)
+  martingaleStep      : parseFloat('800'),  // added per extra consecutive loss
+  lossesBeforeMartingale: parseInt('0'),  // N losses before martingale kicks in
+  maxMartingaleStep   : parseFloat('840'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
  
   // ─ Sizing (PULSE: flat stake, optional capped edge-scaled sizing) ─
   sizingMode        : 'flat',            // 'flat' | 'edge'
@@ -193,7 +202,7 @@ const CONFIG = Object.freeze({
   },
  
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot9.log',
+  logFile : 'deriv_pulse_bot_01.log',
   logLevel: ('INFO').toUpperCase(),
  
   // ════════════════════════════════════════════════════════════════
@@ -205,15 +214,6 @@ const CONFIG = Object.freeze({
   pulseHorizon        : parseInt('20',   10), // max ticks simulated forward
   pulseTrials         : parseInt('10000', 10), // MC paths per (asset,growth)
   pulseMinTrials      : parseInt('4000',  10), //800 adaptive: lower trials when many assets
-
-  // ── Martingale (loss-recovery stake multiplier) ──
-  // Set MARTINGALE=0 to disable. After `lossesBeforeMartingale` consecutive
-  // losses the next stake is multiplied by `martingale`. Each subsequent
-  // loss adds `martingaleStep` to the multiplier. A win resets to 1.0.
-  martingale          : parseFloat('10'),    // base multiplier when active (0 = off)
-  martingaleStep      : parseFloat('100'),  // added per extra consecutive loss
-  lossesBeforeMartingale: parseInt('0'),  // N losses before martingale kicks in
-  maxMartingaleStep   : parseFloat('110'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
  
   // EV gates — the heart of "only positive-EV entries"
   pulseEdgeThreshold  : parseFloat('1.015'),  // (1+g)^N·p_N must clear this (≥1.015 = +1.5% gross EV)
@@ -240,7 +240,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
  
   // ─ State persistence ─
-  stateFile           : 'deriv_pulse_bot9_state.json',
+  stateFile           : 'deriv_pulse_bot_01_state.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 });
@@ -880,7 +880,7 @@ class DerivClient extends EventEmitter {
     this.lastBalance = (this.lastBalance ?? this.balance ?? 0) + t.profit;
  
     this.overallProfit += t.profit;
-    this._updateMartingale(t.status);
+    this._updateMartingale(t.status, t.stake.toFixed(2));
 
     const martingaleLine = this.martingaleMultiplier > 1
       ? `♻️ <b>Martingale:</b> ×${this.martingaleMultiplier.toFixed(2)} (${this.lossesStreak} consecutive losses)\n`
@@ -952,7 +952,7 @@ class DerivClient extends EventEmitter {
    *                 after a loss.
    */
   currentStake(edge) {
-    const base = this.cfg.stake;
+    const base = this.cfg.currentStake;
     let mult = 1.0;
     if (this.cfg.sizingMode === 'edge' && edge && edge > 1) {
       const evFrac = Math.max(0, edge - 1);
@@ -970,7 +970,7 @@ class DerivClient extends EventEmitter {
     return +(base * mult).toFixed(2);
   }
  
-  _updateMartingale(tradeResult) {
+  _updateMartingale(tradeResult, stake) {
     if (!this.cfg.martingale || this.cfg.martingale <= 0) {
       this.lossesStreak = 0;
       this.martingaleMultiplier = 1.0;
@@ -982,14 +982,17 @@ class DerivClient extends EventEmitter {
     if (tradeResult === 'won') {
       this.lossesStreak = 0;
       this.martingaleMultiplier = 1.0;
+      this.cfg.currentStake = this.cfg.stake;
     } else {
       this.lossesStreak++;
+      this.cfg.currentStake = stake;
       if (this.lossesStreak > threshold) {
         const stepNum = this.lossesStreak - threshold - 1;
         const raw = this.cfg.martingale + this.cfg.martingaleStep * stepNum;
         const capped = Math.min(raw, cap);
         if (capped !== this.martingaleMultiplier) {
-          this.martingaleMultiplier = capped;
+          // this.martingaleMultiplier = capped;
+          this.martingaleMultiplier = this.cfg.martingale;
           const note = raw > cap ? ` (raw ×${raw.toFixed(2)} capped at ×${cap})` : '';
           logger.info(
             `martingale: ${this.lossesStreak} losses streak → ` +
