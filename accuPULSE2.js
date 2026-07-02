@@ -449,6 +449,7 @@ class DerivClient extends EventEmitter {
     // ── Martingale state ──
     this.lossesStreak = 0;
     this.martingaleMultiplier = 1.0;
+    this.currentStake2 = cfg.stake;
     this._lastTradeWon = true;
   }
 
@@ -880,7 +881,8 @@ class DerivClient extends EventEmitter {
     this.lastBalance = (this.lastBalance ?? this.balance ?? 0) + t.profit;
  
     this.overallProfit += t.profit;
-    this._updateMartingale(t.status, t.stake.toFixed(2));
+    this._updateMartingale(t.status);
+    t.status === 'Won' ? this.currentStake2 = this.cfg.stake : this.currentStake2 = t.stake.toFixed(2);
 
     const martingaleLine = this.martingaleMultiplier > 1
       ? `♻️ <b>Martingale:</b> ×${this.martingaleMultiplier.toFixed(2)} (${this.lossesStreak} consecutive losses)\n`
@@ -982,10 +984,9 @@ class DerivClient extends EventEmitter {
     if (tradeResult === 'won') {
       this.lossesStreak = 0;
       this.martingaleMultiplier = 1.0;
-      this.currentStake2 = this.cfg.stake;
+      // this.currentStake2 = this.cfg.stake;
     } else {
       this.lossesStreak++;
-      this.currentStake2 = stake;
       if (this.lossesStreak > threshold) {
         const stepNum = this.lossesStreak - threshold - 1;
         const raw = this.cfg.martingale + this.cfg.martingaleStep * stepNum;
