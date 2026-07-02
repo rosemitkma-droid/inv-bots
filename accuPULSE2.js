@@ -142,7 +142,6 @@ const CONFIG = Object.freeze({
  
   // ─ Trade parameters ─
   stake          : parseFloat('1.0'),
-  currentStake    : parseFloat('1.0'),
  
   // NOTE: PULSE does NOT use Martingale. These legacy knobs are kept
   // only so the saved-state file / Telegram messages stay compatible,
@@ -953,7 +952,7 @@ class DerivClient extends EventEmitter {
    *                 after a loss.
    */
   currentStake(edge) {
-    const base = this.cfg.currentStake;
+    const base = this.currentStake2;
     let mult = 1.0;
     if (this.cfg.sizingMode === 'edge' && edge && edge > 1) {
       const evFrac = Math.max(0, edge - 1);
@@ -983,10 +982,10 @@ class DerivClient extends EventEmitter {
     if (tradeResult === 'won') {
       this.lossesStreak = 0;
       this.martingaleMultiplier = 1.0;
-      this.cfg.currentStake = this.cfg.stake;
+      this.currentStake2 = this.cfg.stake;
     } else {
       this.lossesStreak++;
-      this.cfg.currentStake = stake;
+      this.currentStake2 = stake;
       if (this.lossesStreak > threshold) {
         const stepNum = this.lossesStreak - threshold - 1;
         const raw = this.cfg.martingale + this.cfg.martingaleStep * stepNum;
