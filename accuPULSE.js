@@ -118,6 +118,16 @@ function loadEnv(filePath = path.join(process.cwd(), '.env')) {
   }
 }
 loadEnv();
+
+function money(n, currency = CONFIG.currency) {
+  const x = Number(n || 0);
+  return `${x >= 0 ? '+' : ''}${x.toFixed(2)} ${currency}`;
+}
+function utcDateStr(d = new Date()) { return d.toISOString().slice(0, 10); }
+function previousUtcDateStr(d = new Date()) {
+  return new Date(d.getTime() - 86_400_000).toISOString().slice(0, 10);
+}
+function utcHour(d = new Date()) { return d.getUTCHours(); }
  
 // ─────────────────────────────────────────────────────────────────────
 // 2.  CONFIGURATION
@@ -131,7 +141,7 @@ const CONFIG = Object.freeze({
   accountType: ('demo').toLowerCase(),  // 'demo' | 'real'
  
   // ─ Trade parameters ─
-  stake          : parseFloat('2.5'),
+  stake          : parseFloat('2.0'),
  
   // NOTE: PULSE does NOT use Martingale. These legacy knobs are kept
   // only so the saved-state file / Telegram messages stay compatible,
@@ -142,10 +152,10 @@ const CONFIG = Object.freeze({
   takeProfit     : parseFloat('10000.0'),
  
   // ─ Sizing (PULSE: flat stake, optional capped edge-scaled sizing) ─
-  sizingMode        : 'edge',            // 'flat' | 'edge'
+  sizingMode        : 'flat',            // 'flat' | 'edge'
   edgeScaleMax      : parseFloat('2.0'), // at edge-scaled mode, max multiplier on base stake
   edgeScaleEdgeRef  : parseFloat('0.05'),// edge (EV fraction) at which we hit the cap
-  downscaleAfterLoss: true,              // shrink stake after a loss (anti-ruin)
+  downscaleAfterLoss: false,              // shrink stake after a loss (anti-ruin)
  
   // ─ Assets (Deriv synthetic indices) ─
   assets: ('R_10,R_25,R_50,R_75,R_100')
@@ -168,6 +178,11 @@ const CONFIG = Object.freeze({
   // ─ Daily limits ─
   dailyMaxLoss  : parseFloat('50'),
   dailyMaxTrades: parseInt  ('2000000000'),
+
+  // ─ GMT/UTC reporting (matching accurateDiffer style) ─
+  eodTimeGmt         : '00:00',
+  eodSendDelaySeconds: parseInt('10', 10),
+  hourlySummary      : true,
  
   // ─ Reconnect ─
   reconnect: {
@@ -178,7 +193,7 @@ const CONFIG = Object.freeze({
   },
  
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot7.log',
+  logFile : 'deriv_pulse_bot8.log',
   logLevel: ('INFO').toUpperCase(),
  
   // ════════════════════════════════════════════════════════════════
@@ -216,7 +231,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
  
   // ─ State persistence ─
-  stateFile           : 'deriv_pulse_bot7_state.json',
+  stateFile           : 'deriv_pulse_bot8_state.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 });
@@ -409,9 +424,6 @@ class DerivClient extends EventEmitter {
     this.lastBalance      = null;
     this.stopped          = false;
     this.overallProfit    = 0;
-    this.consecutiveLosses= 0;
-    this.lossesStreak     = 0;
-    this.activeStakeMult  = 1.0;
     this._analysisT       = null;
     this._hourlyT         = null;
     this._eodT            = null;
@@ -470,7 +482,9 @@ class DerivClient extends EventEmitter {
       `📈 <b>Growth rates:</b> ${this.cfg.pulseGrowthRates.map(g => (g*100).toFixed(0)+'%').join(', ')}\n` +
       `🎯 <b>Edge threshold:</b> ${((this.cfg.pulseEdgeThreshold-1)*100).toFixed(1)}%\n\n` +
       `⚡ <b>PULSE engine active</b>\n` +
-      `MC trials: ${this.cfg.pulseTrials} · Horizon: ${this.cfg.pulseHorizon} ticks`,
+      `MC trials: ${this.cfg.pulseTrials} · Horizon: ${this.cfg.pulseHorizon} ticks\n\n` +
+      `💼 <b>Overall Profit:</b> ${money(this.stats.overallProfit, this.currencyStr())}\n` +
+      `❌ Loss streak: current ${this.stats.currentLossStreak}, x2=${this.stats.lossStreakEvents.x2}, x3=${this.stats.lossStreakEvents.x3}, x4=${this.stats.lossStreakEvents.x4}`,
     );
 
     Promise.all([
@@ -499,28 +513,24 @@ class DerivClient extends EventEmitter {
   }
 
   _scheduleSummaries() {
-    const now = new Date();
-    const nextHour = new Date(now);
-    nextHour.setUTCHours(nextHour.getUTCHours() + 1, 0, 0, 0);
-    const msToNextHour = nextHour.getTime() - now.getTime();
-    this._hourlyBoot = setTimeout(() => {
-      this._sendHourly();
-      this._hourlyT = setInterval(() => this._sendHourly(), 3600_000);
-    }, msToNextHour);
+    if (this.cfg.hourlySummary) {
+      const now = new Date();
+      const msToNextHour = ((59 - now.getUTCMinutes()) * 60_000) + ((60 - now.getUTCSeconds()) * 1000) + 50;
+      this._hourlyBoot = setTimeout(() => {
+        this._sendHourly();
+        this._hourlyT = setInterval(() => this._sendHourly(), 3600_000);
+      }, Math.max(1000, msToNextHour));
+    }
 
-    const nextMidnight = new Date(now);
-    nextMidnight.setUTCDate(nextMidnight.getUTCDate() + 1);
-    nextMidnight.setUTCHours(0, 0, 0, 0);
-    const msToMidnight = nextMidnight.getTime() - now.getTime();
-    this._eodBoot = setTimeout(() => {
-      this._sendEod();
-      this._eodT = setInterval(() => this._sendEod(), 86_400_000);
-    }, msToMidnight);
-
-    logger.info(
-      `GMT timers scheduled: next hourly in ${(msToNextHour/60000).toFixed(1)}m, ` +
-      `next EOD in ${(msToMidnight/3600000).toFixed(2)}h`,
-    );
+    const scheduleNextEod = () => {
+      const delay = this._msToNextEod();
+      this._eodBoot = setTimeout(() => {
+        this._sendEod('scheduled');
+        scheduleNextEod();
+      }, delay);
+      logger.info(`next GMT EOD report in ${(delay / 3600000).toFixed(2)}h`);
+    };
+    scheduleNextEod();
   }
 
   _nextReqId() { return ++this._reqId; }
@@ -845,18 +855,16 @@ class DerivClient extends EventEmitter {
   _onTradeResult(t) {
     this._clearWatchdogTimers();
     this.tradeStartTime = null;
-    this.stats.record(t);
+    const rec = this.stats.record(t);
     const emoji = t.status === 'won' ? '✅' : '❌';
     const label = t.status === 'won' ? 'WIN' : 'LOSS';
     const dur = Math.max(0, (t.sellTime || Date.now()/1000) - (t.buyTime || 0));
     this.lastBalance = (this.lastBalance ?? this.balance ?? 0) + t.profit;
  
     this.overallProfit += t.profit;
-    this._recordDay(t);
-    if (t.status === 'lost') { this.consecutiveLosses += 1; this.lossesStreak += 1; }
-    else if (t.status === 'won') { this.consecutiveLosses = 0; this.lossesStreak = 0; }
- 
     this._updateSizing(t.status);
+ 
+    const todayStats = this.stats.stats(this.stats.todayTrades(rec.date));
  
     let msg =
       `${emoji} <b>PULSE TRADE ${label}</b>\n\n` +
@@ -867,18 +875,15 @@ class DerivClient extends EventEmitter {
       `💰 <b>Sell:</b> ${t.sellPrice.toFixed(2)}\n` +
       `${t.profit >= 0 ? '📈' : '📉'} <b>Profit:</b> ${t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)} ${this.currencyStr()}\n` +
       `⏱️ <b>Duration:</b> ${dur.toFixed(1)}s\n` +
-      `💼 <b>Balance:</b> ${this.lastBalance.toFixed(2)} ${this.currencyStr()}\n\n`;
- 
-    const today = this.stats.todayTrades();
-    const s = this.stats.stats(today);
-    msg +=
-      `📊 <b>Today</b>\n` +
-      `• Trades: ${s.count} (✅${s.wins} ❌${s.losses})\n` +
-      `• Win rate: ${s.winRate.toFixed(1)}%\n` +
-      `• Net P/L: ${s.totalProfit >= 0 ? '+' : ''}${s.totalProfit.toFixed(2)} ${this.currencyStr()}\n` +
-      `• Profit factor: ${s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2)}\n\n` +
-      `🏦 <b>Overall:</b> ${this.overallProfit >= 0 ? '+' : ''}${this.overallProfit.toFixed(2)} ${this.currencyStr()}\n` +
-      `🔻 <b>Consec. losses:</b> ${this.consecutiveLosses}`;
+      `💼 <b>Balance:</b> ${this.lastBalance.toFixed(2)} ${this.currencyStr()}\n\n` +
+      `📅 <b>GMT Day Stats (${rec.date})</b>\n` +
+      `• Trades: ${todayStats.count} (✅${todayStats.wins} ❌${todayStats.losses})\n` +
+      `• Win rate: ${todayStats.winRate.toFixed(1)}%\n` +
+      `• Net P/L: ${todayStats.totalProfit >= 0 ? '+' : ''}${todayStats.totalProfit.toFixed(2)} ${this.currencyStr()}\n` +
+      `• Profit factor: ${todayStats.profitFactor === Infinity ? '∞' : todayStats.profitFactor.toFixed(2)}\n\n` +
+      `💼 <b>Overall:</b> ${this.overallProfit >= 0 ? '+' : ''}${this.overallProfit.toFixed(2)} ${this.currencyStr()}\n` +
+      `❌ <b>Consecutive Losses:</b> current ${this.stats.currentLossStreak} | max ${this.stats.maxLossStreak}\n` +
+      `   x2=${this.stats.lossStreakEvents.x2}  x3=${this.stats.lossStreakEvents.x3}  x4=${this.stats.lossStreakEvents.x4}`;
     telegram.send(msg);
     this.lastTradeAt = Date.now();
     this._saveState('after-trade');
@@ -894,7 +899,8 @@ class DerivClient extends EventEmitter {
       `📈 <b>Growth Rate:</b> ${(t.growthRate*100).toFixed(2)}%\n` +
       `💵 <b>Stake:</b> ${t.stake.toFixed(2)} ${this.currencyStr()}\n` +
       `🎯 <b>Take Profit:</b> ${t.limit?.take_profit ?? '–'}\n` +
-      `🏦 <b>Overall Profit:</b> ${this.overallProfit >= 0 ? '+' : ''}${this.overallProfit.toFixed(2)} ${this.currencyStr()}\n\n` +
+      `🏦 <b>Overall Profit:</b> ${this.overallProfit >= 0 ? '+' : ''}${this.overallProfit.toFixed(2)} ${this.currencyStr()}\n` +
+      `❌ <b>Loss streak:</b> ${this.stats.currentLossStreak}\n\n` +
       `🧠 <b>PULSE Analysis</b>\n` +
       `• Edge: ${((t._analysis?.edge ?? 0)*100).toFixed(2)}%\n` +
       `• EV: ${((t._analysis?.ev ?? 0)*100).toFixed(2)}%\n` +
@@ -927,11 +933,9 @@ class DerivClient extends EventEmitter {
       const scaled = 1 + (evFrac / this.cfg.edgeScaleEdgeRef) * (this.cfg.edgeScaleMax - 1);
       mult = Math.max(1, Math.min(this.cfg.edgeScaleMax, scaled));
     }
-    if (this.cfg.downscaleAfterLoss && this.lossesStreak > 0) {
-      // shrink 15% per consecutive loss, floor at 0.5x
-      mult *= Math.max(0.5, Math.pow(0.85, this.lossesStreak));
+    if (this.cfg.downscaleAfterLoss && this.stats.currentLossStreak > 0) {
+      mult *= Math.max(0.5, Math.pow(0.85, this.stats.currentLossStreak));
     }
-    this.activeStakeMult = mult;
     return +(base * mult).toFixed(2);
   }
  
@@ -1068,7 +1072,6 @@ class DerivClient extends EventEmitter {
         pN: best.pN, p1: best.p1, regime: best.regime,
         vrRatio: best.vrRatio, sigma: best.sigma,
         growthRate: best.growthRate, halfBarrierFrac: best.halfBarrierFrac,
-        stakeMult: this.activeStakeMult,
       };
  
       const trade = await this.exec.buy(
@@ -1078,7 +1081,7 @@ class DerivClient extends EventEmitter {
       );
       logger.info(
         `trade placed #${trade.contractId} ${best.symbol} g=${best.growthRate} ` +
-        `stake=${stake}(×${this.activeStakeMult.toFixed(2)}) tp=${takeProfit} ` +
+        `stake=${stake} tp=${takeProfit} ` +
         `barrier=±${trade.halfBarrierPct.toFixed(4)}%`,
       );
     } catch (e) {
@@ -1098,28 +1101,26 @@ class DerivClient extends EventEmitter {
   }
  
   // ── State persistence ──────────────────────────────────────
+  _statePayload(reason) {
+    return {
+      version: 2,
+      engine: 'PULSE',
+      savedAt: new Date().toISOString(),
+      savedReason: reason,
+      startBalance: this.startBalance,
+      lastBalance: this.lastBalance,
+      lastDayISODate: this._lastDayISODate || this._todayISO(),
+      dailyHistory: this.dailyHistory || {},
+      stats: this.stats.serialize(),
+    };
+  }
   _saveState(reason = 'checkpoint') {
     if (!this.cfg.stateSaveOnTrade && reason === 'after-trade') return;
     if (!this.cfg.stateSaveOnShutdown && reason === 'shutdown') return;
     try {
-      const payload = {
-        version: 2,
-        engine: 'PULSE',
-        savedAt: new Date().toISOString(),
-        savedReason: reason,
-        lossesStreak       : this.lossesStreak       ?? 0,
-        activeStakeMult    : this.activeStakeMult    ?? 1.0,
-        overallProfit      : this.overallProfit      ?? 0,
-        consecutiveLosses  : this.consecutiveLosses  ?? 0,
-        startBalance       : this.startBalance,
-        lastBalance        : this.lastBalance,
-        lastDayISODate     : this._lastDayISODate || this._todayISO(),
-        dailySummaries     : this.stats.dailySummaries || [],
-        dailyHistory       : this.dailyHistory || {},
-      };
       const file = this.cfg.stateFile;
       const tmp = file + '.tmp';
-      fs.writeFileSync(tmp, JSON.stringify(payload, null, 2));
+      fs.writeFileSync(tmp, JSON.stringify(this._statePayload(reason), null, 2));
       fs.renameSync(tmp, file);
       logger.debug(`state saved (${reason}) → ${file}`);
     } catch (e) {
@@ -1132,94 +1133,117 @@ class DerivClient extends EventEmitter {
     if (!fs.existsSync(file)) { logger.debug(`no state file (fresh start)`); return; }
     try {
       const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (data.lossesStreak != null)      this.lossesStreak      = data.lossesStreak;
-      if (data.activeStakeMult != null)   this.activeStakeMult   = data.activeStakeMult;
-      if (data.overallProfit != null)     this.overallProfit     = data.overallProfit;
-      if (data.consecutiveLosses != null) this.consecutiveLosses = data.consecutiveLosses;
-      if (data.startBalance  != null)     this.startBalance      = data.startBalance;
-      if (data.lastBalance   != null)     this.lastBalance       = data.lastBalance;
-      if (data.lastDayISODate)            this._lastDayISODate   = data.lastDayISODate;
-      if (Array.isArray(data.dailySummaries)) this.stats.dailySummaries = data.dailySummaries;
-      if (data.dailyHistory)              this.dailyHistory      = data.dailyHistory;
+      if (data.startBalance != null)  this.startBalance  = data.startBalance;
+      if (data.lastBalance  != null)  this.lastBalance   = data.lastBalance;
+      if (data.lastDayISODate)        this._lastDayISODate = data.lastDayISODate;
+      if (data.dailyHistory)          this.dailyHistory  = data.dailyHistory;
+      this.stats = new StatisticsManager(data.stats || data);
       logger.info(
-        `state restored (PULSE): lossesStreak=${this.lossesStreak} ` +
-        `overall=${this.overallProfit.toFixed(2)} mult=${this.activeStakeMult.toFixed(2)}`,
+        `state restored (PULSE): overallProfit=${this.stats.overallProfit.toFixed(2)} ` +
+        `lossStreak=${this.stats.currentLossStreak}`,
       );
     } catch (e) {
       logger.warn(`state load failed:`, e.message);
     }
   }
  
-  _todayISO()   { return new Date().toISOString().slice(0, 10); }
+  _todayISO()   { return utcDateStr(); }
   _gmtNowStr()  { return new Date().toISOString().replace('T', ' ').slice(0, 19); }
  
-  _recordDay(t) {
-    const date = this._todayISO();
-    if (!this.dailyHistory[date]) {
-      this.dailyHistory[date] = { date, count:0, wins:0, losses:0, grossWin:0, grossLoss:0, netPL:0, stake:0 };
-    }
-    const d = this.dailyHistory[date];
-    d.count += 1; d.stake += (+t.stake || 0);
-    if (t.status === 'won') { d.wins += 1; d.grossWin += (+t.profit || 0); }
-    else                    { d.losses += 1; d.grossLoss += Math.abs(+t.profit || 0); }
-    d.netPL += (+t.profit || 0);
-  }
  
   // ── Summaries ───────────────────────────────────────────────
   _sendHourly() {
-    const s = this.stats.previousHourSummary();
-    if (!s.trades.length) {
-      telegram.send(`⏰ <b>Hourly (${pad(s.hour)}:00–${pad(s.hour)}:59)</b>\nNo trades this hour.`);
+    const now = new Date();
+    const prev = new Date(now.getTime() - 3600_000);
+    const date = utcDateStr(prev);
+    const hour = utcHour(prev);
+    const list = this.stats.tradesForHour(date, hour);
+    const s = this.stats.stats(list);
+    if (!list.length) {
+      telegram.send(`⏰ <b>Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\nNo trades this hour.\n\n💼 Overall Profit: ${money(this.stats.overallProfit, this.currencyStr())}`);
       return;
     }
     let msg =
-      `⏰ <b>Hourly (${pad(s.hour)}:00–${pad(s.hour)}:59)</b>\n\n` +
-      `📊 Trades: ${s.stats.count}  ✅${s.stats.wins}  ❌${s.stats.losses}\n` +
-      `📈 Win rate: ${s.stats.winRate.toFixed(1)}%\n` +
-      `💰 P/L: ${s.stats.totalProfit >= 0 ? '+' : ''}${s.stats.totalProfit.toFixed(2)} ${this.currencyStr()}\n` +
-      `🏆 PF: ${s.stats.profitFactor === Infinity ? '∞' : s.stats.profitFactor.toFixed(2)}\n`;
-    s.trades.forEach((t, i) => {
-      const e = t.status === 'won' ? '✅' : '❌';
-      msg += `  ${i+1}. ${e} #${t.contractId} ${t.symbol} ${t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)}\n`;
+      `⏰ <b>Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\n` +
+      `📊 Trades: ${s.count} (✅${s.wins} ❌${s.losses})\n` +
+      `📈 Win rate: ${s.winRate.toFixed(1)}%\n` +
+      `💰 P/L: <b>${money(s.totalProfit, this.currencyStr())}</b>\n` +
+      `💼 Overall Profit: <b>${money(this.stats.overallProfit, this.currencyStr())}</b>\n` +
+      `❌ Loss streak current ${this.stats.currentLossStreak} | x2=${this.stats.lossStreakEvents.x2} x3=${this.stats.lossStreakEvents.x3} x4=${this.stats.lossStreakEvents.x4}\n\n` +
+      `📋 Detail:\n`;
+    list.slice(-20).forEach((t, i) => {
+      msg += `${i + 1}. ${t.status === 'won' ? '✅' : '❌'} #${t.contractId} ${t.symbol} ${money(t.profit, this.currencyStr())}\n`;
     });
     telegram.send(msg);
   }
  
-  _sendEod() {
-    const yesterday = this.stats.previousDaySummary();
-    if (yesterday.trades.length) this.stats.dailySummaries.push(yesterday);
-    this.stats.archiveOldDays();
- 
-    const todayList  = this.stats.todayTrades();
-    const todayStats = this.stats.stats(todayList);
-    const balStart   = this.startBalance ?? 0;
-    const balNow     = this.lastBalance  ?? balStart;
-    const balDelta   = balNow - balStart;
-    const balPct     = balStart ? (balDelta / balStart) * 100 : 0;
- 
-    let msg = `🌙 <b>PULSE DAILY REPORT</b>\n📅 ${this._todayISO()}\n\n`;
-    if (todayList.length) {
-      msg += `<b>── Today ──</b>\n` +
-             `📊 Trades: ${todayStats.count} (✅${todayStats.wins} ❌${todayStats.losses})\n` +
-             `📈 Win rate: ${todayStats.winRate.toFixed(1)}%\n` +
-             `💼 <b>Net P/L: ${todayStats.totalProfit >= 0 ? '+' : ''}${todayStats.totalProfit.toFixed(2)} ${this.currencyStr()}</b>\n` +
-             `🏆 PF: ${todayStats.profitFactor === Infinity ? '∞' : todayStats.profitFactor.toFixed(2)}\n\n`;
-    } else {
-      msg += `<b>── Today ──</b>\nNo trades today.\n\n`;
+  _parseEodTime() {
+    const m = String(this.cfg.eodTimeGmt || '00:00').match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return { h: 0, min: 0 };
+    return { h: Math.max(0, Math.min(23, Number(m[1]))), min: Math.max(0, Math.min(59, Number(m[2]))) };
+  }
+  _msToNextEod(now = new Date()) {
+    const { h, min } = this._parseEodTime();
+    const target = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, min, this.cfg.eodSendDelaySeconds, 0));
+    if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+    return target.getTime() - now.getTime();
+  }
+  _eodReportDate(now = new Date()) {
+    const { h, min } = this._parseEodTime();
+    if (h === 0 && min === 0) return previousUtcDateStr(now);
+    return utcDateStr(now);
+  }
+
+  _sendEod(reason = 'manual') {
+    const date = this._eodReportDate(new Date());
+    if (this.stats.isEodSent(date) && reason === 'scheduled') {
+      logger.info(`EOD ${date} already sent; skipping duplicate`);
+      return;
     }
+    const summary = this.stats.archiveDate(date);
+    const ds = summary.stats;
+    const balStart = this.startBalance ?? 0;
+    const balNow = this.lastBalance ?? balStart;
+    const balDelta = balNow - balStart;
+    const balPct = balStart ? (balDelta / balStart) * 100 : 0;
+
+    let msg = `🌙 <b>PULSE END OF TRADE DAY — GMT</b>\n` +
+              `📅 Trade day ended: <b>${date}</b>\n\n` +
+              `<b>── Current Day Stats ──</b>\n`;
+    if (ds.count) {
+      msg += `📊 Trades: ${ds.count} (✅${ds.wins} ❌${ds.losses})\n` +
+             `📈 Win rate: ${ds.winRate.toFixed(1)}%\n` +
+             `💵 Total stake: ${ds.stake.toFixed(2)} ${this.currencyStr()}\n` +
+             `💰 Gross win: +${ds.grossWin.toFixed(2)}\n` +
+             `📉 Gross loss: -${ds.grossLoss.toFixed(2)}\n` +
+             `💼 <b>Net P/L: ${money(ds.totalProfit, this.currencyStr())}</b>\n` +
+             `🏆 Profit factor: ${ds.profitFactor === Infinity ? '∞' : ds.profitFactor.toFixed(2)}\n` +
+             `❌ Max loss streak today: ${ds.maxLossStreak}\n\n`;
+    } else {
+      msg += `No trades recorded for this GMT trade day.\n\n`;
+    }
+
     msg += `<b>── Balance ──</b>\n${balStart.toFixed(2)} → ${balNow.toFixed(2)} ` +
            `(${balDelta >= 0 ? '+' : ''}${balDelta.toFixed(2)} / ${balPct >= 0 ? '+' : ''}${balPct.toFixed(2)}%)\n\n`;
-    const recent = (this.stats.dailySummaries || []).slice(-7);
-    if (recent.length) {
-      const totalPL = recent.reduce((s, d) => s + (d.stats?.totalProfit || 0), 0);
-      const totalTr = recent.reduce((s, d) => s + (d.stats?.count || 0), 0);
-      const totalW  = recent.reduce((s, d) => s + (d.stats?.wins || 0), 0);
-      msg += `<b>── Last ${recent.length}d ──</b>\n` +
-             `📊 ${totalTr} (✅${totalW} ❌${totalTr - totalW})  ` +
-             `💼 ${totalPL >= 0 ? '+' : ''}${totalPL.toFixed(2)} ${this.currencyStr()}\n`;
+
+    msg += `<b>── Overall / Stored Stats ──</b>\n` +
+           `💼 Overall Profit: <b>${money(this.stats.overallProfit, this.currencyStr())}</b>\n` +
+           `❌ Consecutive losses: current ${this.stats.currentLossStreak} | max ${this.stats.maxLossStreak}\n` +
+           `   x2=${this.stats.lossStreakEvents.x2}  x3=${this.stats.lossStreakEvents.x3}  x4=${this.stats.lossStreakEvents.x4}\n\n`;
+
+    const rows = this.stats.allDailyRows(date);
+    if (rows.length) {
+      msg += `<b>── All Trade Days By Date ──</b>\n`;
+      for (const row of rows.slice(-60)) {
+        const s = row.stats;
+        msg += `${row.date}: ${s.count} trades (✅${s.wins}/❌${s.losses}) | WR ${s.winRate.toFixed(1)}% | P/L ${money(s.totalProfit, this.currencyStr())}\n`;
+      }
+      if (rows.length > 60) msg += `…showing last 60 of ${rows.length} stored trade days.\n`;
     }
+
     telegram.send(msg);
-    this._saveState('eod-archive');
+    this.stats.markEodSent(date);
+    this._saveState(`eod-${reason}`);
     this.startBalance = this.balance ?? this.lastBalance ?? this.startBalance;
   }
  
@@ -1551,7 +1575,7 @@ class PulseAnalyzer {
         }
       }
 
-      if (bestN > 0 && regime === 'calm') {
+      if (bestN > 0 && regime === 'stormy') { 
         const pN = survivalCounts[bestN] / trials;
         const p1 = survivalCounts[1] / trials;
         const suggestedTakeProfit = Math.pow(1 + growthRate, bestN) - 1;
@@ -1735,90 +1759,125 @@ class TradeExecutor extends EventEmitter {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// 9.  STATISTICS MANAGER
+// 9.  STATISTICS MANAGER  (matching accurateDiffer style)
 // ─────────────────────────────────────────────────────────────────────
 class StatisticsManager {
-  constructor() {
+  constructor(saved = null) {
     this.trades = [];
-    this.dailySummaries = [];
-    this.today = this._todayStr();
+    this.dailySummaries = {};
+    this.overallProfit = 0;
+    this.currentLossStreak = 0;
+    this.maxLossStreak = 0;
+    this.lossStreakEvents = { x2: 0, x3: 0, x4: 0 };
+    this.eodSentDates = [];
+    if (saved) this.load(saved);
   }
-  _todayStr() { return new Date().toISOString().slice(0, 10); }
-  _now()      { return { date: this._todayStr(), hour: new Date().getUTCHours(), ts: Date.now() }; }
-
+  load(saved) {
+    if (Array.isArray(saved.trades)) this.trades = saved.trades;
+    if (saved.dailySummaries && typeof saved.dailySummaries === 'object') this.dailySummaries = saved.dailySummaries;
+    this.overallProfit = Number(saved.overallProfit || 0);
+    this.currentLossStreak = Number(saved.currentLossStreak || 0);
+    this.maxLossStreak = Number(saved.maxLossStreak || 0);
+    this.lossStreakEvents = {
+      x2: Number(saved.lossStreakEvents?.x2 || 0),
+      x3: Number(saved.lossStreakEvents?.x3 || 0),
+      x4: Number(saved.lossStreakEvents?.x4 || 0),
+    };
+    this.eodSentDates = Array.isArray(saved.eodSentDates) ? saved.eodSentDates : [];
+  }
+  serialize() {
+    return {
+      trades: this.trades.slice(-5000),
+      dailySummaries: this.dailySummaries,
+      overallProfit: this.overallProfit,
+      currentLossStreak: this.currentLossStreak,
+      maxLossStreak: this.maxLossStreak,
+      lossStreakEvents: this.lossStreakEvents,
+      eodSentDates: this.eodSentDates.slice(-400),
+    };
+  }
+  _stamp(trade) {
+    const tsMs = Number(trade.sellTime || trade.buyTime || Date.now() / 1000) * 1000;
+    const d = new Date(tsMs);
+    return { timestamp: tsMs, date: utcDateStr(d), hour: utcHour(d) };
+  }
   record(trade) {
-    const n = this._now();
-    this.trades.push({ ...trade, timestamp: n.ts, date: n.date, hour: n.hour });
-    if (n.date !== this.today) {
-      this._rollDay();
-      this.today = n.date;
+    const stamp = this._stamp(trade);
+    const rec = { ...trade, timestamp: stamp.timestamp, date: stamp.date, hour: stamp.hour };
+    this.trades.push(rec);
+    this.overallProfit += Number(rec.profit || 0);
+
+    if (rec.status === 'lost') {
+      this.currentLossStreak += 1;
+      if (this.currentLossStreak === 2) this.lossStreakEvents.x2 += 1;
+      if (this.currentLossStreak === 3) this.lossStreakEvents.x3 += 1;
+      if (this.currentLossStreak === 4) this.lossStreakEvents.x4 += 1;
+      this.maxLossStreak = Math.max(this.maxLossStreak, this.currentLossStreak);
+    } else if (rec.status === 'won') {
+      this.currentLossStreak = 0;
     }
+    return rec;
   }
-  _rollDay() {
-    const day = this.today;
-    const trades = this.trades.filter(t => t.date === day);
-    if (trades.length) this.dailySummaries.push({ date: day, trades, stats: this.stats(trades) });
-  }
-  todayTrades() {
-    const d = this._todayStr();
-    return this.trades.filter(t => t.date === d);
-  }
+  tradesForDate(date) { return this.trades.filter(t => t.date === date); }
+  tradesForHour(date, hour) { return this.trades.filter(t => t.date === date && t.hour === hour); }
+  todayTrades(date = utcDateStr()) { return this.tradesForDate(date); }
   stats(list) {
     const wins   = list.filter(t => t.status === 'won');
     const losses = list.filter(t => t.status === 'lost');
-    const total  = list.reduce((s, t) => s + (t.profit || 0), 0);
-    const gw     = wins.reduce((s, t)   => s + (t.profit || 0), 0);
-    const gl     = Math.abs(losses.reduce((s, t) => s + (t.profit || 0), 0));
-    const stake  = list.reduce((s, t) => s + (t.stake || 0), 0);
+    const total  = list.reduce((s, t) => s + Number(t.profit || 0), 0);
+    const gw     = wins.reduce((s, t)   => s + Number(t.profit || 0), 0);
+    const gl     = Math.abs(losses.reduce((s, t) => s + Number(t.profit || 0), 0));
+    const stake  = list.reduce((s, t) => s + Number(t.stake || 0), 0);
+    const maxLossStreak = (() => {
+      let cur = 0, max = 0;
+      for (const t of list) {
+        if (t.status === 'lost') { cur += 1; max = Math.max(max, cur); }
+        else if (t.status === 'won') cur = 0;
+      }
+      return max;
+    })();
     return {
       count       : list.length,
       wins        : wins.length,
       losses      : losses.length,
-      winRate     : list.length ? (wins.length / list.length) * 100 : 0,
+      winRate     : list.length ? wins.length / list.length * 100 : 0,
       grossWin    : gw,
       grossLoss   : gl,
-      netPL       : gw - gl,
       totalProfit : total,
+      netPL       : total,
       profitFactor: gl > 0 ? gw / gl : (gw > 0 ? Infinity : 0),
       avgProfit   : list.length ? total / list.length : 0,
       stake,
+      maxLossStreak,
     };
   }
-  _tradesForHour(hour, date = this._todayStr()) {
-    return this.trades.filter(t => t.date === date && t.hour === hour);
+  summaryForDate(date) {
+    const list = this.tradesForDate(date);
+    const stats = this.stats(list);
+    return { date, trades: list, stats };
   }
-  _tradesForDate(date) {
-    return this.trades.filter(t => t.date === date);
+  archiveDate(date) {
+    const summary = this.summaryForDate(date);
+    this.dailySummaries[date] = summary.stats;
+    return summary;
   }
-  previousHourSummary() {
-    const now = new Date();
-    const prev = new Date(now.getTime() - 3600_000);
-    const hour = prev.getUTCHours();
-    const date = prev.toISOString().slice(0, 10);
-    const list = this._tradesForHour(hour, date);
-    return { hour, date, trades: list, stats: this.stats(list) };
+  markEodSent(date) {
+    if (!this.eodSentDates.includes(date)) this.eodSentDates.push(date);
+    this.eodSentDates = this.eodSentDates.slice(-400);
   }
-  previousDaySummary() {
-    const now = new Date();
-    const prev = new Date(now.getTime() - 86_400_000);
-    const date = prev.toISOString().slice(0, 10);
-    const list = this._tradesForDate(date);
-    return { date, trades: list, stats: this.stats(list) };
-  }
-  archiveOldDays() {
-    const today = this._todayStr();
-    const old = this.trades.filter(t => t.date !== today);
-    if (!old.length) return;
-    const byDate = {};
-    for (const t of old) (byDate[t.date] = byDate[t.date] || []).push(t);
-    for (const date of Object.keys(byDate)) {
-      this.dailySummaries.push({
-        date,
-        trades: byDate[date],
-        stats: this.stats(byDate[date]),
-      });
-    }
-    this.trades = this.trades.filter(t => t.date === today);
+  isEodSent(date) { return this.eodSentDates.includes(date); }
+  allDailyRows(includeDate = null) {
+    const rows = [];
+    const dates = new Set(Object.keys(this.dailySummaries));
+    for (const t of this.trades) dates.add(t.date);
+    if (includeDate) dates.add(includeDate);
+    [...dates].sort().forEach(date => {
+      let stats = this.dailySummaries[date];
+      const live = this.tradesForDate(date);
+      if (live.length) stats = this.stats(live);
+      if (stats && stats.count > 0) rows.push({ date, stats });
+    });
+    return rows;
   }
 }
 
