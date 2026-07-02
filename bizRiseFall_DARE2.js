@@ -122,8 +122,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'dare2_06-state_v3.json');
-const HISTORY_FILE        = path.join(__dirname, 'dare2_06-history_v3.json');
+const STATE_FILE          = path.join(__dirname, 'dare2_07-state_v3.json');
+const HISTORY_FILE        = path.join(__dirname, 'dare2_07-history_v3.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED]
@@ -856,8 +856,7 @@ class StakeCalculator {
             const riskCapital = capital * (CONFIG.BASE_RISK_PERCENT_PER_TRADE / 100);
             stake = riskCapital * (0.5 + frac); // scale within base risk envelope
         } else if (recoveryStep >= 1) {
-            const riskCapital = capital * (CONFIG.BASE_RISK_PERCENT_PER_TRADE / 100);
-            stake = riskCapital * Math.pow(CONFIG.RECOVERY_MULTIPLIER, recoveryStep);
+            stake = CONFIG.MIN_STAKE * Math.pow(CONFIG.RECOVERY_MULTIPLIER, recoveryStep);
         } else {
             // Hard rule: never more than 1 recovery step.
             const riskCapital = capital * (CONFIG.BASE_RISK_PERCENT_PER_TRADE / 100);
@@ -2010,7 +2009,7 @@ class IndexBot {
                 symbol, direction: dir, stake, duration: CONFIG.DURATION,
                 durationUnit: CONFIG.DURATION_UNIT, entryTime: Date.now(),
                 contractId: null, reqId: null, currentProfit: 0, buyPrice: 0,
-                signal: { reason: 'FORCED TRADE AFTER LOSS - Same direction recovery', warnings: ['FORCED_TRADE'] },
+                signal: { reason: 'FORCED TRADE AFTER LOSS - Same direction recovery', warnings: ['FORCED_TRADE'], method: 'FORCED_RECOVERY', pWin: 0, components: [], regime: { persistence: 'RECOVERY', volClass: 'RECOVERY' } },
                 indicators: {},
             };
             a.activePositions.push(pos);
