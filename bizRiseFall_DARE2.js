@@ -122,8 +122,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'dare2_04-state_v3.json');
-const HISTORY_FILE        = path.join(__dirname, 'dare2_04-history_v3.json');
+const STATE_FILE          = path.join(__dirname, 'dare2_06-state_v3.json');
+const HISTORY_FILE        = path.join(__dirname, 'dare2_06-history_v3.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED]
@@ -857,7 +857,7 @@ class StakeCalculator {
             stake = riskCapital * (0.5 + frac); // scale within base risk envelope
         } else if (recoveryStep >= 1) {
             const riskCapital = capital * (CONFIG.BASE_RISK_PERCENT_PER_TRADE / 100);
-            stake = riskCapital * CONFIG.RECOVERY_MULTIPLIER;
+            stake = riskCapital * Math.pow(CONFIG.RECOVERY_MULTIPLIER, recoveryStep);
         } else {
             // Hard rule: never more than 1 recovery step.
             const riskCapital = capital * (CONFIG.BASE_RISK_PERCENT_PER_TRADE / 100);
@@ -1051,7 +1051,7 @@ class StatePersistence {
                         a.lastTradeWasWin             = saved.lastTradeWasWin     ?? null;
                         a.forceRecoverDirection       = saved.forceRecoverDirection ?? null;
                         a.recoveryStep                = saved.recoveryStep        || 0;
-                        a.currentStake                = saved.currentStake        || StakeCalculator.calculate(CONFIG.INITIAL_CAPITAL);
+                        a.currentStake                = saved.currentStake        || StakeCalculator.calculate(state.capital);
                         a.consecutiveWins             = saved.consecutiveWins     || 0;
                         a.consecutiveLosses           = saved.consecutiveLosses   || 0;
                         a.cooldownCandles             = saved.cooldownCandles      || 0;
@@ -1329,7 +1329,7 @@ class SessionManager {
             a.consecutiveLosses = 0;
             a.recoveryStep      = 0;       // win resets recoup
             a.cooldownCandles   = 0;
-            a.currentStake      = StakeCalculator.calculate(CONFIG.INITIAL_CAPITAL);
+            a.currentStake      = StakeCalculator.calculate(state.capital);
             a.lastTradeWasWin   = true;
             a.forceRecoverDirection = null;  // win exits forced recovery mode
             LOGGER.trade(`✅ [${symbol}] WIN +$${(profit || 0).toFixed(2)} | ${direction} | P/L: $${(a.netPL || 0).toFixed(2)}`);
@@ -1353,7 +1353,7 @@ class SessionManager {
             } else {
                 a.recoveryStep = 0; // recoup already used / disabled → reset to base stake
             }
-            a.currentStake = StakeCalculator.calculate(CONFIG.INITIAL_CAPITAL, a.recoveryStep);
+            a.currentStake = StakeCalculator.calculate(state.capital, a.recoveryStep);
             if (a.consecutiveLosses >= CONFIG.MAX_CONSECUTIVE_LOSSES) {
                 a.cooldownCandles = CONFIG.COOLDOWN_CANDLES;
                 a.forceRecoverDirection = null;
@@ -1544,7 +1544,7 @@ class ConnectionManager {
                     lastTradeWasWin:             null,
                     forceRecoverDirection:       null,
                     recoveryStep:                0,
-                    currentStake:                StakeCalculator.calculate(CONFIG.INITIAL_CAPITAL),
+                    currentStake:                StakeCalculator.calculate(state.capital),
                     canTrade:                    false,
                     consecutiveWins:             0,
                     consecutiveLosses:           0,
@@ -1975,11 +1975,11 @@ class IndexBot {
             }
         }
         const stake = a.currentStake;
-        if (CONFIG.INITIAL_CAPITAL < stake) {
-            LOGGER.error(`[${symbol}] Stake $${stake.toFixed(2)} exceeds INITIAL_CAPITAL $${CONFIG.INITIAL_CAPITAL.toFixed(2)}`);
+        if (state.capital < stake) {
+            LOGGER.error(`[${symbol}] Stake $${stake.toFixed(2)} exceeds capital $${state.capital.toFixed(2)}`);
             a.recoveryStep = 0;
             a.forceRecoverDirection = null;
-            a.currentStake = StakeCalculator.calculate(CONFIG.INITIAL_CAPITAL);
+            a.currentStake = StakeCalculator.calculate(state.capital);
             a.canTrade = false;
             return;
         }
@@ -1999,7 +1999,6 @@ class IndexBot {
             this._tradeLocked = true;
             a.canTrade = false;
             const dir = a.forceRecoverDirection;
-            a.forceRecoverDirection = null;
             a.lastTradeDirection = dir;
             const stake = a.currentStake;
             const recNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
@@ -2054,7 +2053,7 @@ class IndexBot {
         this._tradeLocked = true;
         a.canTrade = false;
         a.lastTradeDirection = signal.direction;
-        const finalStake = StakeCalculator.calculate(CONFIG.INITIAL_CAPITAL, a.recoveryStep, signal.pWin);
+        const finalStake = StakeCalculator.calculate(state.capital, a.recoveryStep, signal.pWin);
         a.currentStake = finalStake;
         LOGGER.trade(
             `🎯 [${symbol}] ${signal.direction === 'CALLE' ? '📈 CALLE' : '📉 PUTE'} | ` +
