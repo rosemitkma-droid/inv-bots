@@ -155,10 +155,10 @@ const CONFIG = Object.freeze({
   // Set MARTINGALE=0 to disable. After `lossesBeforeMartingale` consecutive
   // losses the next stake is multiplied by `martingale`. Each subsequent
   // loss adds `martingaleStep` to the multiplier. A win resets to 1.0.
-  martingale          : parseFloat('30'),    // base multiplier when active (0 = off)
-  martingaleStep      : parseFloat('900'),  // added per extra consecutive loss
+  martingale          : parseFloat('25'),    // base multiplier when active (0 = off)
+  martingaleStep      : parseFloat('651'),  // added per extra consecutive loss
   lossesBeforeMartingale: parseInt('0'),  // N losses before martingale kicks in
-  maxMartingaleStep   : parseFloat('900'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
+  maxMartingaleStep   : parseFloat('651'),    // HARD CAP on the multiplier (e.g. 5 = never stake more than 5x base)
  
   // ─ Sizing (PULSE: flat stake, optional capped edge-scaled sizing) ─
   sizingMode        : 'flat',            // 'flat' | 'edge'
@@ -202,7 +202,7 @@ const CONFIG = Object.freeze({
   },
  
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot_01.log',
+  logFile : 'deriv_pulse_bot_02.log',
   logLevel: ('INFO').toUpperCase(),
  
   // ════════════════════════════════════════════════════════════════
@@ -216,13 +216,13 @@ const CONFIG = Object.freeze({
   pulseMinTrials      : parseInt('4000',  10), //800 adaptive: lower trials when many assets
  
   // EV gates — the heart of "only positive-EV entries"
-  pulseEdgeThreshold  : parseFloat('1.015'),  // (1+g)^N·p_N must clear this (≥1.015 = +1.5% gross EV)
+  pulseEdgeThreshold  : parseFloat('1.020'),  // (1+g)^N·p_N must clear this (≥1.015 = +1.5% gross EV)
   pulseMinEV          : parseFloat('0.004'),  // min EV as fraction of stake (+0.4%)
   pulseMinSurvival    : parseFloat('0.99'),   // p_{N*} floor — never bet on a coin-flip-ish survival
   pulseMaxHorizon     : parseInt('6',    10), // never hold longer than this many ticks even if "optimal"
  
   // Growth-rate candidates (Deriv supports 0.01–0.05)
-  pulseGrowthRates    : [0.01, 0.02, 0.03, 0.04],
+  pulseGrowthRates    : [0.04, 0.05],
  
   // Volatility-regime gate (calm-only). ratio = recentσ / longσ.
   pulseCalmMaxRatio   : parseFloat('1.05'),   // recent vol must be ≤ ~long vol
@@ -240,7 +240,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
  
   // ─ State persistence ─
-  stateFile           : 'deriv_pulse_bot_01_state.json',
+  stateFile           : 'deriv_pulse_bot_02_state.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 });
