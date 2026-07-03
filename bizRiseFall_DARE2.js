@@ -122,8 +122,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'dare2_08-state_v3.json');
-const HISTORY_FILE        = path.join(__dirname, 'dare2_08-history_v3.json');
+const STATE_FILE          = path.join(__dirname, 'dare2_09-state_v3.json');
+const HISTORY_FILE        = path.join(__dirname, 'dare2_09-history_v3.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED]
@@ -1997,7 +1997,8 @@ class IndexBot {
         if (a.forceRecoverDirection) {
             this._tradeLocked = true;
             a.canTrade = false;
-            const dir = a.forceRecoverDirection === CALLE ?  PUTE : CALLE;
+            const dir = a.forceRecoverDirection;
+            const dir2 = dir === 'CALLE' ? 'PUTE' : 'CALLE'
             a.lastTradeDirection = dir;
             const stake = a.currentStake;
             const recNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
@@ -2006,7 +2007,7 @@ class IndexBot {
                 `Stake: $${stake.toFixed(2)} | FORCED AFTER LOSS`
             );
             const pos = {
-                symbol, direction: dir, stake, duration: CONFIG.DURATION,
+                symbol, direction: dir2, stake, duration: CONFIG.DURATION,
                 durationUnit: CONFIG.DURATION_UNIT, entryTime: Date.now(),
                 contractId: null, reqId: null, currentProfit: 0, buyPrice: 0,
                 signal: { reason: 'FORCED TRADE AFTER LOSS - Same direction recovery', warnings: ['FORCED_TRADE'], method: 'FORCED_RECOVERY', pWin: 0, components: [], regime: { persistence: 'RECOVERY', volClass: 'RECOVERY' } },
@@ -2016,7 +2017,7 @@ class IndexBot {
             const reqId = this.connection.send({
                 buy: 1, subscribe: 1, price: stake.toFixed(2),
                 parameters: {
-                    contract_type: dir,
+                    contract_type: dir2,
                     [this.connection._isPat ? 'underlying_symbol' : 'symbol']: symbol,
                     currency: 'USD', amount: stake.toFixed(2),
                     duration: CONFIG.DURATION, duration_unit: CONFIG.DURATION_UNIT, basis: 'stake',
