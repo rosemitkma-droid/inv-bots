@@ -122,8 +122,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'dare2_07-state_v3.json');
-const HISTORY_FILE        = path.join(__dirname, 'dare2_07-history_v3.json');
+const STATE_FILE          = path.join(__dirname, 'dare2_08-state_v3.json');
+const HISTORY_FILE        = path.join(__dirname, 'dare2_08-history_v3.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED]
@@ -163,7 +163,7 @@ const CONFIG = {
     RECOVERY_ENABLED:       true,
     RECOVERY_MULTIPLIER:    2.00,   // ONE recoup step only
     MAX_RECOVERY_STEPS:     7,      // Hard rule: never more than 1 recoup (no ladder)
-    MAX_RECOVERY_STAKE_PCT: 100.0,    // Recoup stake capped at 1.5% of capital
+    MAX_RECOVERY_STAKE_PCT: 64.0,    // Recoup stake capped at 1.5% of capital
     // ── Session / daily guards [RETAINED structure] ───────────
     SESSION_PROFIT_TARGET:      5000,
     SESSION_STOP_LOSS:          -1500,
@@ -1997,7 +1997,7 @@ class IndexBot {
         if (a.forceRecoverDirection) {
             this._tradeLocked = true;
             a.canTrade = false;
-            const dir = a.forceRecoverDirection;
+            const dir = a.forceRecoverDirection === CALLE ?  PUTE : CALLE;
             a.lastTradeDirection = dir;
             const stake = a.currentStake;
             const recNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
