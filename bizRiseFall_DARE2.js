@@ -122,8 +122,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'dare2_09-state_v3.json');
-const HISTORY_FILE        = path.join(__dirname, 'dare2_09-history_v3.json');
+const STATE_FILE          = path.join(__dirname, 'dare2_11-state_v3.json');
+const HISTORY_FILE        = path.join(__dirname, 'dare2_11-history_v3.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED]
@@ -2003,14 +2003,14 @@ class IndexBot {
             const stake = a.currentStake;
             const recNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
             LOGGER.trade(
-                `🔄 [${symbol}]${recNote} FORCE RECOVERY ${dir === 'CALLE' ? '📈 CALLE' : '📉 PUTE'} | ` +
+                `🔄 [${symbol}]${recNote} FORCE RECOVERY ${dir2 === 'CALLE' ? '📈 CALLE' : '📉 PUTE'} | ` +
                 `Stake: $${stake.toFixed(2)} | FORCED AFTER LOSS`
             );
             const pos = {
                 symbol, direction: dir2, stake, duration: CONFIG.DURATION,
                 durationUnit: CONFIG.DURATION_UNIT, entryTime: Date.now(),
                 contractId: null, reqId: null, currentProfit: 0, buyPrice: 0,
-                signal: { reason: 'FORCED TRADE AFTER LOSS - Same direction recovery', warnings: ['FORCED_TRADE'], method: 'FORCED_RECOVERY', pWin: 0, components: [], regime: { persistence: 'RECOVERY', volClass: 'RECOVERY' } },
+                signal: { reason: 'FORCED TRADE AFTER LOSS - Opposite direction recovery', warnings: ['FORCED_TRADE'], method: 'FORCED_RECOVERY', pWin: 0, components: [], regime: { persistence: 'RECOVERY', volClass: 'RECOVERY' } },
                 indicators: {},
             };
             a.activePositions.push(pos);
@@ -2023,6 +2023,7 @@ class IndexBot {
                     duration: CONFIG.DURATION, duration_unit: CONFIG.DURATION_UNIT, basis: 'stake',
                 },
             });
+            a.forceRecoverDirection = dir2; //Update Recovery trade Direction with the new Direction.
             pos.reqId = reqId;
             setTimeout(() => {
                 if (this._tradeLocked && !pos.contractId) {
