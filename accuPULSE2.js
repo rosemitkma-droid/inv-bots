@@ -185,7 +185,7 @@ const CONFIG = Object.freeze({
   martingale:            parseFloat('25'),   // 0 = off
   martingaleStep:        parseFloat('2'),
   lossesBeforeMartingale:parseInt  ('0'),
-  maxMartingaleStep:     parseFloat('5'),
+  maxMartingaleStep:     parseFloat('25'),
 
   // ─ Sizing ─
   sizingMode:        'flat',            // 'flat' | 'edge'
@@ -232,7 +232,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot2_02.log',
+  logFile : 'deriv_pulse_bot2_03.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -279,7 +279,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_pulse_bot2_02_state.json',
+  stateFile          : 'deriv_pulse_bot2_03_state.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
 
@@ -306,7 +306,7 @@ const CONFIG = Object.freeze({
   backtestBatchSize   : parseInt('5000',   10),
   backtestStepEvery   : parseInt('1',      10),
   backtestReportEvery : parseInt('10000',  10),
-  backtestOutFile     : 'pulse_backtest_report_2.json',
+  backtestOutFile     : 'pulse_backtest_report_3.json',
 
   backtestEdge        : process.env.BACKTEST_EDGE        ? parseFloat(process.env.BACKTEST_EDGE)        : null,
   backtestMinEV       : process.env.BACKTEST_MIN_EV      ? parseFloat(process.env.BACKTEST_MIN_EV)      : null,
