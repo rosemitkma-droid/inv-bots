@@ -168,8 +168,8 @@ const pad = n => String(n).padStart(2, '0');
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
   // ─ Deriv API ─
-  apiToken:    ('0P94g4WdSrSrzir').trim(),
-  appId:       '1089',
+  apiToken: ('pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee').trim(),
+  appId   : '33uslPtthXBEkQOdfKfoY',
   wsUrl:       'wss://ws.derivws.com/websockets/v3',
   currency:    ('USD').toUpperCase(),
   accountType: ('demo').toLowerCase(), // 'demo'|'real'
@@ -194,7 +194,7 @@ const CONFIG = Object.freeze({
   downscaleAfterLoss:false,
 
   // ─ Assets ─
-  assets: (process.env.ASSETS || '1HZ10V,1HZ25V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75')
+  assets: ('1HZ10V,1HZ25V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // assets: ('R_10')
@@ -232,7 +232,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot2_01.log',
+  logFile : 'deriv_pulse_bot2_02.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -279,7 +279,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_pulse_bot2_01_state.json',
+  stateFile          : 'deriv_pulse_bot2_02_state.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
 
@@ -306,7 +306,7 @@ const CONFIG = Object.freeze({
   backtestBatchSize   : parseInt('5000',   10),
   backtestStepEvery   : parseInt('1',      10),
   backtestReportEvery : parseInt('10000',  10),
-  backtestOutFile     : 'pulse_backtest_report.json',
+  backtestOutFile     : 'pulse_backtest_report_2.json',
 
   backtestEdge        : process.env.BACKTEST_EDGE        ? parseFloat(process.env.BACKTEST_EDGE)        : null,
   backtestMinEV       : process.env.BACKTEST_MIN_EV      ? parseFloat(process.env.BACKTEST_MIN_EV)      : null,
