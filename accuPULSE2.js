@@ -202,7 +202,7 @@ const CONFIG = Object.freeze({
   },
  
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot_03.log',
+  logFile : 'deriv_pulse_bot_04.log',
   logLevel: ('INFO').toUpperCase(),
  
   // ════════════════════════════════════════════════════════════════
@@ -218,11 +218,11 @@ const CONFIG = Object.freeze({
   // EV gates — the heart of "only positive-EV entries"
   pulseEdgeThreshold  : parseFloat('1.020'),  // (1+g)^N·p_N must clear this (≥1.015 = +1.5% gross EV)
   pulseMinEV          : parseFloat('0.004'),  // min EV as fraction of stake (+0.4%)
-  pulseMinSurvival    : parseFloat('0.99'),   // p_{N*} floor — never bet on a coin-flip-ish survival
+  pulseMinSurvival    : parseFloat('0.90'),   // p_{N*} floor — never bet on a coin-flip-ish survival
   pulseMaxHorizon     : parseInt('6',    10), // never hold longer than this many ticks even if "optimal"
  
   // Growth-rate candidates (Deriv supports 0.01–0.05)
-  pulseGrowthRates    : [0.04, 0.05],
+  pulseGrowthRates    : [0.01, 0.02, 0.03, 0.04, 0.05],
  
   // Volatility-regime gate (calm-only). ratio = recentσ / longσ.
   pulseCalmMaxRatio   : parseFloat('1.05'),   // recent vol must be ≤ ~long vol
@@ -240,7 +240,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
  
   // ─ State persistence ─
-  stateFile           : 'deriv_pulse_bot_03_state.json',
+  stateFile           : 'deriv_pulse_bot_04_state.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 });
@@ -932,6 +932,7 @@ class DerivClient extends EventEmitter {
       `🧠 <b>PULSE Analysis</b>\n` +
       `• Edge: ${((t._analysis?.edge ?? 0)*100).toFixed(2)}%\n` +
       `• EV: ${((t._analysis?.ev ?? 0)*100).toFixed(2)}%\n` +
+      `• pN: ${((t._analysis?.pN ?? 0)*100).toFixed(2)}%\n` +
       `• N*: ${t._analysis?.bestN ?? '?'}\n` +
       `• Regime: ${t._analysis?.regime ?? '?'}\n` +
       `• σ: ${((t._analysis?.sigma ?? 0)*1e4).toFixed(2)}e-4`;
@@ -1110,6 +1111,20 @@ class DerivClient extends EventEmitter {
           );
         }
         return;
+      }
+
+      //Gate for Filtering Trades
+      if (ranked.length) {
+        const b = ranked[0];
+        if(!b.edgeOK || !b.evOK || !b.survOK || !b.calmOK) {
+          logger.info(
+            `Edge: ${b.edgeOK} (${b.edge})` +
+            `| EV: ${b.evOK} (${b.ev})` +
+            `| Suvival: ${b.survOK} (${b.pN})` +
+            `| Calm: ${b.calmOK} (${b.regime})`,
+          );
+          return;
+        }
       }
  
       const best = candidates[0];
@@ -1540,6 +1555,9 @@ class MarketDataManager {
 // ─────────────────────────────────────────────────────────────────────
 // 7.  PULSE ANALYZER  (Monte-Carlo Survival Engine)
 // ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// 7.  PULSE ANALYZER  (Monte-Carlo Survival Engine)
+// ─────────────────────────────────────────────────────────────────────
 class PulseAnalyzer {
   constructor(cfg) {
     this.cfg = cfg;
@@ -1548,131 +1566,229 @@ class PulseAnalyzer {
   /**
    * Bootstrap log-return distribution from recent ticks, then Monte-Carlo
    * simulate barrier survival for each growth rate and horizon.
-   * Returns the best (asset, growth, N*) candidate or null.
+   *
+   * @param {string}            symbol
+   * @param {Array<{quote}>}    ticks   - raw tick history
+   * @param {MarketDataManager} market
+   * @param {number|null}       currentSpot - live spot during an open trade
+   *                                          (null = entry analysis)
+   * @returns analysis object or null
    */
-  analyze(symbol, ticks, market) {
+  analyze(symbol, ticks, market, currentSpot = null) {
     if (!ticks || ticks.length < this.cfg.minTicksForAnalysis) return null;
 
     const window = Math.min(this.cfg.pulseReturnWindow, ticks.length);
     const q = ticks.slice(-window).map(t => t.quote);
     if (q.length < 10) return null;
 
-    // Per-tick log returns
+    // ── 1. Per-tick log returns (bootstrapped from recent window) ──────
     const returns = [];
     for (let i = 1; i < q.length; i++) {
-      if (q[i-1] > 0) returns.push(Math.log(q[i] / q[i-1]));
+      if (q[i - 1] > 0) returns.push(Math.log(q[i] / q[i - 1]));
     }
     if (returns.length < 5) return null;
 
-    const price = q[q.length - 1];
-    const n = returns.length;
+    // ── 2. Current price  (FIX: price is now used throughout) ──────────
+    // If a live spot is provided (re-simulation during an open trade) use
+    // that; otherwise use the last tick in the bootstrapped window.
+    const price = currentSpot != null && currentSpot > 0
+      ? currentSpot
+      : q[q.length - 1];
+
+    // ── 3. Distribution statistics ─────────────────────────────────────
+    const n    = returns.length;
     const mean = returns.reduce((s, v) => s + v, 0) / n;
     let variance = 0;
     for (const v of returns) variance += (v - mean) ** 2;
     const sigma = Math.sqrt(variance / n);
 
-    // Volatility regime check: ratio of recent σ to long σ
-    const longReturns = [];
-    for (let i = 1; i < q.length; i++) {
-      if (q[i-1] > 0) longReturns.push(Math.log(q[i] / q[i-1]));
+    // Drift per tick (μ) — measured from bootstrapped data.
+    // Used in danger-lock and reported in analysis.
+    const mu = mean; // == per-tick log-return drift
+
+    // ── 4. Volatility regime: recent σ vs full-window σ ────────────────
+    // We already computed the full-window σ above (sigma).
+    // For the "long" baseline we use the older half of the window.
+    const halfIdx  = Math.floor(q.length / 2);
+    const oldSlice = q.slice(0, halfIdx);
+    const oldRets  = [];
+    for (let i = 1; i < oldSlice.length; i++) {
+      if (oldSlice[i - 1] > 0) oldRets.push(Math.log(oldSlice[i] / oldSlice[i - 1]));
     }
-    const longSigma = longReturns.length > 20
-      ? Math.sqrt(longReturns.reduce((s, v) => s + v, 0) ** 2 / longReturns.length) || sigma
-      : sigma;
+    let longSigma = sigma; // fallback
+    if (oldRets.length > 5) {
+      const om = oldRets.reduce((s, v) => s + v, 0) / oldRets.length;
+      let ov = 0;
+      for (const v of oldRets) ov += (v - om) ** 2;
+      longSigma = Math.sqrt(ov / oldRets.length) || sigma;
+    }
 
     const vrRatio = sigma / Math.max(longSigma, 1e-12);
-    const regime = vrRatio < this.cfg.pulseCalmMaxRatio ? 'calm'
-                 : vrRatio < this.cfg.pulseStormyMinRatio ? 'normal'
-                 : 'stormy';
+    const regime  = vrRatio < this.cfg.pulseCalmMaxRatio   ? 'calm'
+                  : vrRatio < this.cfg.pulseStormyMinRatio ? 'normal'
+                  : 'stormy';
 
-    // Estimate barrier from market data (or cached proposal)
-    const barrierInfo = market ? market.getBarrier(symbol, this.cfg.pulseGrowthRates[2] || 0.03) : null;
-    const halfBarrierFrac = barrierInfo ? barrierInfo.halfBarrierPct / 100 : 0.0005;
+    // ── 5. Barrier lookup ───────────────────────────────────────────────
+    // Use first configured growth rate as reference for barrier when no
+    // per-rate cache is available.
+    const refGr = this.cfg.pulseGrowthRates[0] || 0.03;
+    const barrierInfoRef = market ? market.getBarrier(symbol, refGr) : null;
 
-    // Number of MC trials
-    const trials = this.cfg.pulseTrials;
+    // Base half-barrier fraction (expressed as a fraction of price, not %).
+    // When a real proposal barrier is cached we use its absolute prices so
+    // the MC paths are anchored to `price` rather than to zero.
+    const baseHalfBarrierFrac = barrierInfoRef
+      ? barrierInfoRef.halfBarrierPct / 100
+      : 0.0005;
 
-    // Evaluate each growth rate
-    let best = null;
+    // ── 6. MC loop over growth rates ────────────────────────────────────
+    const trials  = this.cfg.pulseTrials;
+    const horizon = Math.min(this.cfg.pulseHorizon, this.cfg.pulseMaxHorizon + 5);
+
+    let best     = null;
     let bestEdge = 0;
 
     for (const growthRate of this.cfg.pulseGrowthRates) {
-      // Get barrier for this growth rate
+      // Barrier for this growth rate (real proposal values when available)
       const grBarrier = market ? market.getBarrier(symbol, growthRate) : null;
-      const barrierFrac = grBarrier ? grBarrier.halfBarrierPct / 100
-                         : halfBarrierFrac * (1 + (growthRate - 0.03) * 2);
 
-      if (barrierFrac <= 0) continue;
+      // halfBarrierFrac is the ±percentage around the spot at contract open.
+      // When we have real high/low barrier prices AND a valid price, we
+      // compute the exact log-distance the path must stay within.
+      let logBarrierHalf;
+      if (grBarrier && grBarrier.highBarrier > 0 && grBarrier.lowBarrier > 0 && price > 0) {
+        // Use the real barrier prices anchored to current price.
+        // The barrier is symmetric around the entry spot in log space.
+        const logHigh = Math.log(grBarrier.highBarrier / price);
+        const logLow  = Math.log(price / grBarrier.lowBarrier);
+        logBarrierHalf = Math.min(logHigh, logLow); // conservative (smaller side)
+      } else {
+        // Fallback: derive from halfBarrierPct
+        const barrierFrac = grBarrier
+          ? grBarrier.halfBarrierPct / 100
+          : baseHalfBarrierFrac * (1 + (growthRate - refGr) * 2);
+        logBarrierHalf = Math.log(1 + barrierFrac);
+      }
 
-      // Simulate survival
-      const horizon = Math.min(this.cfg.pulseHorizon, this.cfg.pulseMaxHorizon + 5);
+      if (logBarrierHalf <= 0) continue;
+
+      // ── MC simulation ─────────────────────────────────────────────────
+      // Each path starts at `price` (in log space: offset = 0 relative to
+      // entry).  A path is knocked out when |cumulative log return| ≥
+      // logBarrierHalf.  This is the correct way to use `price`: the
+      // barrier is expressed relative to the starting spot, so MC paths
+      // implicitly represent the price process p_t = price · exp(Σ r_i).
       const survivalCounts = new Array(horizon + 1).fill(0);
-      let survivedAll = 0;
 
-      for (let t = 0; t < trials; t++) {
-        let pos = 0;
-        let survived = true;
+      for (let trial = 0; trial < trials; trial++) {
+        let pos = 0; // cumulative log return (starts at 0 = current price)
         for (let tick = 1; tick <= horizon; tick++) {
-          // Bootstrap: pick a random return from history
+          // Bootstrap resample: pick a random historical log return.
           const r = returns[Math.floor(Math.random() * returns.length)];
           pos += r;
-          const logBarrier = Math.log(1 + barrierFrac);
-          if (Math.abs(pos) >= logBarrier) {
-            survived = false;
-            break;
+          if (Math.abs(pos) >= logBarrierHalf) break; // knocked out
+          survivalCounts[tick]++; // survived through tick `tick`
+        }
+      }
+
+      // ── EV-optimal horizon ────────────────────────────────────────────
+      let bestN   = 0;
+      let bestEvN = -Infinity;
+      let bestPayoutN = 0;
+
+      for (let tick = 1; tick <= Math.min(horizon, this.cfg.pulseMaxHorizon); tick++) {
+        const pTick = survivalCounts[tick] / trials;
+        const grossReturn = Math.pow(1 + growthRate, tick);
+        const spreadCost = 0.002; // e.g. 0.2% round-trip estimate
+        const edge = grossReturn * pTick - spreadCost;   // EV ratio (1 = breakeven)
+        const ev   = edge - 1;              // EV as fraction of stake
+
+        // Gate: must clear both the edge threshold and the minimum EV.
+        if (
+          edge >= this.cfg.pulseEdgeThreshold &&
+          ev   >= this.cfg.pulseMinEV
+        ) {
+          // Choose the tick with the HIGHEST EV (not just the first one).
+          if (ev > bestEvN) {
+            bestEvN     = ev;
+            bestN       = tick;
+            bestPayoutN = edge;
           }
-          if (survived) survivalCounts[tick]++;
-        }
-        if (survived) survivedAll++;
-      }
-
-      // Compute p_t for each t, find EV-optimal horizon
-      let bestN = 0;
-      let bestPayout = 0;
-      const minEV = this.cfg.pulseMinEV;
-      const edgeThreshold = this.cfg.pulseEdgeThreshold;
-
-      for (let n = 1; n <= Math.min(horizon, this.cfg.pulseMaxHorizon); n++) {
-        const pN = survivalCounts[n] / trials;
-        const grossReturn = Math.pow(1 + growthRate, n);
-        const edge = grossReturn * pN;
-        const ev = edge - 1;
-
-        if (edge >= edgeThreshold && ev >= minEV && edge > bestEdge) {
-          bestEdge = edge;
-          bestN = n;
-          bestPayout = edge;
         }
       }
 
-      if (bestN > 0 && regime === 'stormy') { 
+      if (bestEdge < bestPayoutN) bestEdge = bestPayoutN;
+
+      if (bestN > 0) {
         const pN = survivalCounts[bestN] / trials;
-        const p1 = survivalCounts[1] / trials;
-        const suggestedTakeProfit = Math.pow(1 + growthRate, bestN) - 1;
+        const p1 = survivalCounts[1]     / trials;
 
-        best = {
+        // ── Adaptive take-profit fraction ─────────────────────────────
+        // suggestedTakeProfit = (1+g)^N* - 1   expressed as fraction of
+        // stake (i.e. the gross profit the MC says is EV-optimal).
+        // This is the maximum rational hold; the live exit logic may
+        // exit earlier if the re-simulation edge deteriorates.
+        const suggestedTakeProfit = Math.max(
+          Math.pow(1 + growthRate, bestN) - 1,
+          0.005,
+        );
+
+        // ── Drift danger fraction ─────────────────────────────────────
+        // How far has the spot drifted (in log space) relative to the
+        // barrier?  At entry this is zero; it is updated each tick by
+        // the live re-simulation path in _onUpdate.
+        // We report `mu` (per-tick drift) and `logBarrierHalf` so the
+        // executor can compute (mu * ticksHeld) / logBarrierHalf.
+        const halfBarrierFrac = logBarrierHalf; // store log-space barrier
+
+        const candidate = {
           symbol,
           growthRate,
-          edge: bestEdge,
-          ev: bestPayout - 1,
+          edge            : bestPayoutN,
+          ev              : bestEvN,
           bestN,
           pN,
-          p1: p1 || 0.5,
+          p1              : p1 || 0.5,
           regime,
           vrRatio,
           sigma,
-          halfBarrierFrac,
-          suggestedTakeProfit: Math.max(suggestedTakeProfit, 0.005),
-          recommend: true,
-          edgeOK: true,
-          evOK: true,
-          survOK: pN >= this.cfg.pulseMinSurvival,
-          calmOK: regime === 'calm',
+          mu,                        // ← per-tick drift (now used in exit)
+          halfBarrierFrac,           // ← log-space barrier (used in exit)
+          price,                     // ← anchoring spot (now actually used)
+          logBarrierHalf,            // ← same as halfBarrierFrac, explicit
+          survivalCounts,            // ← needed for live re-simulation
+          returns,                   // ← needed for live re-simulation
+          suggestedTakeProfit,
+          recommend       : true,
+          edgeOK          : true,
+          evOK            : true,
+          survOK          : pN >= this.cfg.pulseMinSurvival,
+          calmOK          : regime === 'calm',
         };
+
+        // Keep best candidate across all growth rates.
+        if (!best || candidate.edge > best.edge) best = candidate;
       }
     }
 
     return best;
+  }
+
+  /**
+   * Re-analyze from the current live spot during an open trade.
+   * Returns the same shape as analyze() but MC paths start at
+   * currentSpot and survive against the real cached barrier.
+   */
+  reanalyze(symbol, ticks, market, currentSpot, growthRate) {
+    // Re-run analyze with the live spot injected.
+    // Temporarily force only the relevant growth rate.
+    const savedRates = this.cfg.pulseGrowthRates;
+    // We monkey-patch cfg temporarily to isolate this growth rate.
+    // This is safe because analyze() is synchronous.
+    this.cfg = { ...this.cfg, pulseGrowthRates: [growthRate] };
+    const result = this.analyze(symbol, ticks, market, currentSpot);
+    this.cfg = { ...this.cfg, pulseGrowthRates: savedRates };
+    return result;
   }
 
   rank(analyses) {
@@ -1686,10 +1802,10 @@ class PulseAnalyzer {
 class TradeExecutor extends EventEmitter {
   constructor(client, cfg) {
     super();
-    this.client  = client;
-    this.cfg     = cfg;
-    this.open    = new Map();
-    this.analyzer = null;
+    this.client   = client;
+    this.cfg      = cfg;
+    this.open     = new Map();
+    this.analyzer = null;   // set by bot after construction
     this._selling = new Set();
   }
 
@@ -1698,63 +1814,72 @@ class TradeExecutor extends EventEmitter {
     try {
       const symbolKey = this.client._isPat ? 'underlying_symbol' : 'symbol';
       const pres = await this.client._send({
-        proposal    : 1,
-        amount      : stake,
-        basis       : 'stake',
-        contract_type: 'ACCU',
-        currency    : this.cfg.currency,
-        [symbolKey] : symbol,
-        growth_rate : growthRate,
+        proposal      : 1,
+        amount        : stake,
+        basis         : 'stake',
+        contract_type : 'ACCU',
+        currency      : this.cfg.currency,
+        [symbolKey]   : symbol,
+        growth_rate   : growthRate,
         ...((limit.take_profit != null && limit.take_profit > 0)
             ? { limit_order: { take_profit: limit.take_profit } }
             : {}),
       }, 20000);
+
       const p = pres.proposal;
       if (!p?.id) throw new Error('No proposal id returned');
-      logger.info(`proposal id=${p.id} ask=${p.ask_price} payout=${p.payout} spot=${p.spot}`);
+      logger.info(
+        `proposal id=${p.id} ask=${p.ask_price} payout=${p.payout} spot=${p.spot}`,
+      );
       if (pres.error) throw new Error(pres.error.message);
 
-      const bres = await this.client._send({
-        buy  : p.id,
-        price: p.ask_price,
-      }, 20000);
-      const b = bres.buy;
+      const bres = await this.client._send({ buy: p.id, price: p.ask_price }, 20000);
+      const b    = bres.buy;
       if (!b?.contract_id) throw new Error('Buy did not return contract_id');
       logger.info(`bought ACCU #${b.contract_id} for ${b.buy_price}`);
 
-      const cd = p.contract_details || {};
-      const entrySpot = parseFloat(p.spot ?? cd.current_spot ?? 0);
+      const cd             = p.contract_details || {};
+      const entrySpot      = parseFloat(p.spot ?? cd.current_spot ?? 0);
       const halfBarrierPct = entrySpot
         ? (parseFloat(cd.barrier_spot_distance ?? 0) / entrySpot) * 100
         : 0;
-      const highBarrier = parseFloat(cd.high_barrier ?? 0);
-      const lowBarrier  = parseFloat(cd.low_barrier  ?? 0);
+      const highBarrier = parseFloat(cd.high_barrier  ?? 0);
+      const lowBarrier  = parseFloat(cd.low_barrier   ?? 0);
       const maxPayout   = parseFloat(cd.maximum_payout ?? 0);
 
       const info = {
-        contractId : b.contract_id,
+        contractId      : b.contract_id,
         symbol,
         growthRate,
         stake,
-        buyPrice   : parseFloat(b.buy_price),
-        payout     : parseFloat(b.payout),
-        buyTime    : b.purchase_time || (Date.now()/1000),
-        limit      : { stop_loss: limit.stop_loss ?? null, take_profit: limit.take_profit ?? null },
+        buyPrice        : parseFloat(b.buy_price),
+        payout          : parseFloat(b.payout),
+        buyTime         : b.purchase_time || (Date.now() / 1000),
+        limit           : {
+          stop_loss    : limit.stop_loss    ?? null,
+          take_profit  : limit.take_profit  ?? null,
+        },
         contractDetails : cd,
         entrySpot,
         halfBarrierPct,
         highBarrier,
         lowBarrier,
         maxPayout,
-        proposalId : p.id,
-        balanceAfter: parseFloat(b.balance_after ?? this.client.balance),
+        proposalId      : p.id,
+        balanceAfter    : parseFloat(b.balance_after ?? this.client.balance),
+        ticksHeld       : 0,        // incremented each update tick
+        peakProfit      : 0,        // highest profit seen so far
       };
 
       if (analysis && typeof analysis === 'object') {
         info._analysis = analysis;
       }
+
       this.open.set(b.contract_id, info);
-      logger.info(`barrier: ±${halfBarrierPct.toFixed(4)}% spot=${entrySpot.toFixed(2)} [${lowBarrier.toFixed(2)} … ${highBarrier.toFixed(2)}] maxPayout=${maxPayout}`);
+      logger.info(
+        `barrier: ±${halfBarrierPct.toFixed(4)}% spot=${entrySpot.toFixed(2)} ` +
+        `[${lowBarrier.toFixed(2)} … ${highBarrier.toFixed(2)}] maxPayout=${maxPayout}`,
+      );
 
       if (this.bot?.market?.cacheStays) {
         this.bot.market.cacheStays(symbol, growthRate, cd);
@@ -1772,44 +1897,220 @@ class TradeExecutor extends EventEmitter {
     }
   }
 
-  async _onUpdate(msg, info) {
-    const c = msg.proposal_open_contract;
-    if (!c) return;
-    const cid  = c.contract_id ?? info.contractId;
-    const profit = parseFloat(c.profit ?? 0);
-    const spot   = parseFloat(c.current_spot ?? 0);
-    const status = c.status;
+  // ── Adaptive early-exit decision engine ──────────────────────────────
+  /**
+   * Called every live tick while a contract is open.
+   *
+   * Returns { exit: bool, reason: string, urgency: number }
+   *
+   * Three adaptive exit signals (all configurable via CONFIG):
+   *
+   *  A) PROFIT-LOCK
+   *     Realised profit ≥ pulseExitProfitLockFrac × best expected
+   *     remaining payout computed by re-simulating from current spot.
+   *     This is NOT "exit at first profit"; we only lock when current
+   *     profit is already a large fraction of what the MC says we can
+   *     still expect to gain from holding further.
+   *
+   *  B) NEXT-TICK EDGE
+   *     The one-tick forward survival probability p1 multiplied by the
+   *     growth factor (1+g) no longer clears pulseExitNextTickEdge.
+   *     i.e. the very next tick is EV-negative: no reason to hold.
+   *
+   *  C) DRIFT DANGER
+   *     The spot has drifted ≥ pulseExitDriftFrac of the log-space
+   *     barrier.  We are close to a knock-out; exit while we still
+   *     have sell value.
+   */
+  _adaptiveExitDecision(info, currentProfit, currentSpot) {
+    const cfg      = this.cfg;
+    const analysis = info._analysis;
 
-    logger.debug(`contract #${cid} status=${status} profit=${profit.toFixed(3)} spot=${spot}`);
+    // Without analysis data we cannot make a PULSE decision; fall through
+    // to the stop-loss only path in _onUpdate.
+    if (!analysis) return { exit: false, reason: 'no-analysis', urgency: 0 };
 
-    const stopLossAbs = Math.abs(info.limit?.stop_loss || 0);
-    if (status === 'open' && stopLossAbs > 0 && profit <= -stopLossAbs && !this._selling.has(cid)) {
-      logger.warn(`contract #${cid} hit stop-loss @ profit=${profit.toFixed(2)} ≤ -${stopLossAbs} — selling`);
-      this._selling.add(cid);
-      try { await this.sell(cid, 0); } catch (e) {
-        logger.error(`emergency sell #${cid} failed:`, e.message);
-      } finally {
-        this._selling.delete(cid);
+    const growthRate      = info.growthRate;
+    const ticksHeld       = info.ticksHeld;
+    const stake           = info.stake;
+
+    // ── Re-simulate from current spot ──────────────────────────────────
+    // Use the analyzer attached to the bot if available, else skip.
+    const analyzer = this.bot?.analyzer ?? this.analyzer;
+    const market   = this.bot?.market   ?? null;
+    const ticks    = market?.historyFor(info.symbol) ?? [];
+
+    let p1Live    = analysis.p1     ?? 0.99; // per-tick survival
+    let pNLive    = analysis.pN     ?? 0.99; // N*-tick survival (live)
+    let bestEVLive= analysis.ev     ?? 0;
+    let bestNLive = analysis.bestN  ?? 1;
+
+    if (analyzer && ticks.length >= cfg.minTicksForAnalysis && currentSpot > 0) {
+      try {
+        const live = analyzer.reanalyze(
+          info.symbol, ticks, market, currentSpot, growthRate,
+        );
+        if (live) {
+          p1Live     = live.p1     ?? p1Live;
+          pNLive     = live.pN     ?? pNLive;
+          bestEVLive = live.ev     ?? bestEVLive;
+          bestNLive  = live.bestN  ?? bestNLive;
+        }
+      } catch (e) {
+        logger.debug(`reanalyze error #${info.contractId}: ${e.message}`);
       }
     }
 
+    // ── Signal A: Profit-lock ──────────────────────────────────────────
+    // Best expected remaining payout if we hold to re-simulated N*:
+    //   expectedRemaining = stake × EV_{live}
+    // We exit if current profit ≥ lockFrac × expectedRemaining.
+    // Note: when live EV is ≤ 0 this signal fires immediately (no edge left).
+    const lockFrac           = cfg.pulseExitProfitLockFrac;   // e.g. 0.55
+    const expectedRemaining  = stake * Math.max(bestEVLive, 0);
+    const profitLockThreshold = lockFrac * expectedRemaining;
+
+    // Only fire profit-lock when there IS a meaningful profit to lock.
+    // Never fire at zero or negative profit (that's the danger-lock's job).
+    const profitLock = currentProfit > 0 && currentProfit >= profitLockThreshold;
+
+    // ── Signal B: Next-tick edge ───────────────────────────────────────
+    // One-tick gross return: (1+g)·p1.  If this is < pulseExitNextTickEdge
+    // the next tick is EV-negative.  Default threshold = 1.00 (breakeven).
+    const nextTickEdge    = (1 + growthRate) * p1Live;
+    const nextTickExit    = nextTickEdge < cfg.pulseExitNextTickEdge;
+
+    // ── Signal C: Drift danger ────────────────────────────────────────
+    // Cumulative log return from entry to now:
+    //   logDrift = |log(currentSpot / entrySpot)|
+    // We compare this against the log-space barrier.
+    let driftExit = false;
+    let driftFrac = 0;
+    if (info.entrySpot > 0 && currentSpot > 0) {
+      const logDrift        = Math.abs(Math.log(currentSpot / info.entrySpot));
+      const logBarrierHalf  = analysis.logBarrierHalf
+        ?? Math.log(1 + (info.halfBarrierPct ?? 0.05) / 100);
+      driftFrac  = logDrift / Math.max(logBarrierHalf, 1e-12);
+      driftExit  = driftFrac >= cfg.pulseExitDriftFrac;  // e.g. ≥ 0.50
+    }
+
+    // ── Combine signals ───────────────────────────────────────────────
+    // Urgency: 0..1 scale for logging / Telegram.
+    const urgency = Math.max(
+      profitLock  ? lockFrac                           : 0,
+      nextTickExit? 1 - nextTickEdge                   : 0,
+      driftExit   ? driftFrac                          : 0,
+    );
+
+    if (profitLock) {
+      return {
+        exit   : true,
+        reason : `profit-lock: realised ${currentProfit.toFixed(3)} ≥ `  +
+                 `${lockFrac}×${expectedRemaining.toFixed(3)}` +
+                 ` (live-EV=${(bestEVLive*100).toFixed(2)}% N*=${bestNLive})`,
+        urgency,
+      };
+    }
+    if (driftExit) {
+      return {
+        exit   : true,
+        reason : `drift-danger: logDrift=${(driftFrac*100).toFixed(1)}% of barrier`,
+        urgency,
+      };
+    }
+    if (nextTickExit) {
+      return {
+        exit   : true,
+        reason : `next-tick-edge: (1+g)·p1=${nextTickEdge.toFixed(4)} < ${cfg.pulseExitNextTickEdge}`,
+        urgency,
+      };
+    }
+
+    return { exit: false, reason: 'hold', urgency };
+  }
+
+  async _onUpdate(msg, info) {
+    const c = msg.proposal_open_contract;
+    if (!c) return;
+
+    const cid         = c.contract_id ?? info.contractId;
+    const profit      = parseFloat(c.profit       ?? 0);
+    const currentSpot = parseFloat(c.current_spot ?? 0);
+    const status      = c.status;
+
+    // Track tick count and peak profit on the live info object.
+    if (status === 'open') {
+      info.ticksHeld  = (info.ticksHeld ?? 0) + 1;
+      info.peakProfit = Math.max(info.peakProfit ?? 0, profit);
+    }
+
+    logger.debug(
+      `contract #${cid} status=${status} profit=${profit.toFixed(3)} ` +
+      `spot=${currentSpot} ticksHeld=${info.ticksHeld ?? 0}`,
+    );
+
+    // ── Hard stop-loss (unchanged from original) ──────────────────────
+    const stopLossAbs = Math.abs(info.limit?.stop_loss || 0);
+    if (
+      status === 'open' &&
+      stopLossAbs > 0 &&
+      profit <= -stopLossAbs &&
+      !this._selling.has(cid)
+    ) {
+      logger.warn(
+        `contract #${cid} hit stop-loss @ profit=${profit.toFixed(2)} ≤ -${stopLossAbs} — selling`,
+      );
+      this._selling.add(cid);
+      try    { await this.sell(cid, 0); }
+      catch  (e) { logger.error(`emergency sell #${cid} failed:`, e.message); }
+      finally { this._selling.delete(cid); }
+      return;
+    }
+
+    // ── Adaptive early-exit (PULSE) ────────────────────────────────────
+    if (status === 'open' && !this._selling.has(cid)) {
+      const dec = this._adaptiveExitDecision(info, profit, currentSpot);
+
+      if (dec.exit) {
+        logger.info(
+          `PULSE adaptive exit #${cid}: ${dec.reason} urgency=${dec.urgency.toFixed(3)}`,
+        );
+        this.emit('driftWarning', { ...info, contractId: cid, profit, currentSpot, dec });
+        this._selling.add(cid);
+        try    { await this.sell(cid, 0); }
+        catch  (e) { logger.error(`adaptive sell #${cid} failed:`, e.message); }
+        finally { this._selling.delete(cid); }
+        return;
+      }
+
+      // ── Emit update for logging (non-exit tick) ──────────────────────
+      this.emit('update', {
+        ...info,
+        contractId  : cid,
+        profit,
+        currentSpot,
+        status,
+        dec,
+      });
+      return;
+    }
+
+    // ── Contract settled ───────────────────────────────────────────────
     if (status === 'won' || status === 'lost') {
       const finished = {
         ...info,
-        contractId : cid,
+        contractId  : cid,
         profit,
         status,
-        sellPrice  : parseFloat(c.sell_price ?? 0),
-        sellTime   : c.sell_time ?? (Date.now()/1000),
-        currentSpot: spot,
+        sellPrice   : parseFloat(c.sell_price ?? 0),
+        sellTime    : c.sell_time ?? (Date.now() / 1000),
+        currentSpot,
       };
       this.open.delete(cid);
       this.emit('result', finished);
       if (msg.subscription?.id) {
         await this.client.forget(msg.subscription.id).catch(() => {});
       }
-    } else {
-      this.emit('update', { ...info, contractId: cid, profit, currentSpot: spot, status });
     }
   }
 
