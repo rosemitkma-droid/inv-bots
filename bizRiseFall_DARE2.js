@@ -122,8 +122,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'dare2_11-state_v3.json');
-const HISTORY_FILE        = path.join(__dirname, 'dare2_11-history_v3.json');
+const STATE_FILE          = path.join(__dirname, 'dare2_12-state_v3.json');
+const HISTORY_FILE        = path.join(__dirname, 'dare2_12-history_v3.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED]
@@ -1999,7 +1999,7 @@ class IndexBot {
             a.canTrade = false;
             const dir = a.forceRecoverDirection;
             const dir2 = dir === 'CALLE' ? 'PUTE' : 'CALLE'
-            a.lastTradeDirection = dir;
+            a.lastTradeDirection = dir2; //Update Recovery trade Direction with the new Direction.
             const stake = a.currentStake;
             const recNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
             LOGGER.trade(
@@ -2023,7 +2023,6 @@ class IndexBot {
                     duration: CONFIG.DURATION, duration_unit: CONFIG.DURATION_UNIT, basis: 'stake',
                 },
             });
-            a.forceRecoverDirection = dir2; //Update Recovery trade Direction with the new Direction.
             pos.reqId = reqId;
             setTimeout(() => {
                 if (this._tradeLocked && !pos.contractId) {
