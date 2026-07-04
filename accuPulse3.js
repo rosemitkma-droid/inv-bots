@@ -106,7 +106,7 @@ const CONFIG = Object.freeze({
   martingale:            parseFloat('50'),   // 0 = off
   martingaleStep:        parseFloat('2'),
   lossesBeforeMartingale:parseInt  ('0'),
-  maxMartingaleStep:     parseFloat('5'),
+  maxMartingaleStep:     parseFloat('50'),
 
   // ─ Sizing ─
   sizingMode:        'flat',            // 'flat' | 'edge'
@@ -153,7 +153,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot4_01.log',
+  logFile : 'deriv_pulse_bot3_01.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -200,7 +200,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_pulse_bot4_01_state.json',
+  stateFile          : 'deriv_pulse_bot3_01_state.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
 
