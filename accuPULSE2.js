@@ -168,8 +168,8 @@ const pad = n => String(n).padStart(2, '0');
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
   // ─ Deriv API ─
-  apiToken: ('pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee').trim(),
-  appId   : '33uslPtthXBEkQOdfKfoY',
+  apiToken:    ('0P94g4WdSrSrzir').trim(),
+  appId:       '1089',
   wsUrl:       'wss://ws.derivws.com/websockets/v3',
   currency:    ('USD').toUpperCase(),
   accountType: ('demo').toLowerCase(), // 'demo'|'real'
@@ -194,7 +194,14 @@ const CONFIG = Object.freeze({
   downscaleAfterLoss:false,
 
   // ─ Assets ─
-  assets: ('1HZ10V,1HZ25V,1HZ75V,1HZ100V')
+  // ─ Assets (Deriv synthetic indices) ─
+  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH1300N,CRASH500,CRASH600,CRASH900,CRASH1000')
+  //     .split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75,R_100')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
+  assets: ('1HZ10V,1HZ25V,1HZ75V,1HZ100V,BOOM50,BOOM300N,BOOM500,BOOM600,CRASH50,CRASH150N') //1HZ10V,1HZ25V,1HZ75V,1HZ100V
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // assets: ('R_10')
@@ -232,7 +239,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot2_04.log',
+  logFile : 'deriv_pulse_bot2_05.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -279,7 +286,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_pulse_bot2_04_state.json',
+  stateFile          : 'deriv_pulse_bot2_05_state.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
 
