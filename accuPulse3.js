@@ -96,17 +96,17 @@ const CONFIG = Object.freeze({
   accountType: ('demo').toLowerCase(), // 'demo'|'real'
 
   // ─ Trade parameters ─
-  stake:          parseFloat('2.0'),
+  stake:          parseFloat('1.0'),
   multiplier:     parseFloat('0.04'), // legacy hint
   multiplierStep: parseFloat('0.0'),
   stopLoss:       parseFloat('900.0'),
   takeProfit:     parseFloat('10000.0'),
 
   // ── Martingale ──
-  martingale:            parseFloat('100'),   // 0 = off
-  martingaleStep:        parseFloat('2'),
+  martingale:            parseFloat('21'),   // 0 = off
+  martingaleStep:        parseFloat('3'),
   lossesBeforeMartingale:parseInt  ('0'),
-  maxMartingaleStep:     parseFloat('100'),
+  maxMartingaleStep:     parseFloat('900'),
 
   // ─ Sizing ─
   sizingMode:        'flat',            // 'flat' | 'edge'
@@ -115,10 +115,14 @@ const CONFIG = Object.freeze({
   downscaleAfterLoss:false,
 
   // ─ Assets ─
-  // assets: (process.env.ASSETS || '1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75')
+  // ─ Assets (Deriv synthetic indices) ─
+  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH1300N,CRASH500,CRASH600,CRASH900,CRASH1000')
+  //     .split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75,R_100')
   //   .split(',').map(s => s.trim()).filter(Boolean),
-
-  assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
+  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
+  assets: ('1HZ10V,1HZ75V,1HZ100V,BOOM50,BOOM600,BOOM1000,CRASH50,R_10,R_75,R_100')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ─ Telegram ─
@@ -153,7 +157,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot3_02.log',
+  logFile : 'deriv_pulse_bot3_03.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -168,12 +172,12 @@ const CONFIG = Object.freeze({
   //   pulseEdgeThreshold: gross EV ratio floor. 1.05 = +5% expected return
   //   per unit stake AFTER spread cost. Anything below this is noise.
   pulseEdgeThreshold  : parseFloat('1.015'),
-  pulseMinEV          : parseFloat('0.01'),   // ≥ +5% EV net of spread
-  pulseMinSurvival    : parseFloat('0.90'),
-  pulseMaxHorizon     : parseInt  ('4', 10), // 1-2 tick holds
+  pulseMinEV          : parseFloat('0.015'),   // ≥ +5% EV net of spread
+  pulseMinSurvival    : parseFloat('0.99'),
+  pulseMaxHorizon     : parseInt  ('2', 10), // 1-2 tick holds
 
   // ─ Growth-rate candidates (Deriv supports 0.01-0.05) ─
-  pulseGrowthRates    : [0.02], //[0.01, 0.02, 0.03, 0.04, 0.05]
+  pulseGrowthRates    : [0.05], //[0.01, 0.02, 0.03, 0.04, 0.05]
 
   // ─ Volatility regime ─
   pulseCalmMaxRatio   : parseFloat('1.05'),
@@ -200,9 +204,13 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_pulse_bot3_02_state.json',
+  stateFile          : 'deriv_pulse_bot3_03_state.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
+
+  // ── Asset Suspension (NEW) ──
+  suspendOtherAssetsOnLoss: true,  // Suspend all assets except loss asset on loss
+  suspendLossAssetOnLoss  : false,  // Suspend only the loss asset on loss
 
   // ═══════════════════════════════════════════════════════════════════
   // BACKTESTER (Fix #4)
@@ -441,6 +449,10 @@ class DerivClient extends EventEmitter {
     this.martingaleMultiplier = 1.0;
     this.currentStake2        = cfg.stake;
     this._lastTradeWon        = true;
+
+    // ── Asset Suspension state ──
+    this.suspendedAssets = new Set();  // Assets currently suspended
+    this.focusAsset      = null;       // Asset we're focused on (for suspendOtherAssetsOnLoss mode)
   }
 
   start() {
@@ -480,6 +492,10 @@ class DerivClient extends EventEmitter {
       ? `<b>Martingale:</b> ×${this.cfg.martingale} (after ${this.cfg.lossesBeforeMartingale} losses, +${this.cfg.martingaleStep}/loss, cap ×${this.cfg.maxMartingaleStep})\n`
       : '';
 
+    const suspensionLine = (this.cfg.suspendOtherAssetsOnLoss || this.cfg.suspendLossAssetOnLoss)
+      ? `<b>Asset Suspension:</b> ${this.cfg.suspendOtherAssetsOnLoss ? 'Suspend others on loss' : 'Suspend loss asset'}\n`
+      : '';
+
     telegram.send(
       `<b>PULSE3 Bot Online</b>\n\n` +
       `<b>Account:</b> ${info.loginid}\n` +
@@ -489,6 +505,7 @@ class DerivClient extends EventEmitter {
       `<b>Stake:</b> ${this.cfg.stake}\n` +
       `<b>Growth rates:</b> ${this.cfg.pulseGrowthRates.map(g => (g*100).toFixed(0)+'%').join(', ')}\n` +
       martingaleLine +
+      suspensionLine +
       `<b>Edge threshold:</b> ${((this.cfg.pulseEdgeThreshold-1)*100).toFixed(1)}%\n` +
       `<b>Max horizon:</b> ${this.cfg.pulseMaxHorizon} ticks\n` +
       `<b>Spread cost:</b> ${(this.cfg.pulseSpreadCost*100).toFixed(2)}%\n\n` +
@@ -816,8 +833,16 @@ class DerivClient extends EventEmitter {
     // the losing stake as a string with 2-decimal precision.
     if (t.status === 'won') {
       this.currentStake2 = this.cfg.stake;
+      // Resume all suspended assets on win
+      this._resumeAllAssets();
     } else {
       this.currentStake2 = Number(t.stake).toFixed(2);
+      // Handle asset suspension on loss
+      if (this.cfg.suspendOtherAssetsOnLoss) {
+        this._suspendOtherAssets(t.symbol);
+      } else if (this.cfg.suspendLossAssetOnLoss) {
+        this._suspendLossAsset(t.symbol);
+      }
     }
 
     const martingaleLine = this.martingaleMultiplier > 1
@@ -929,6 +954,68 @@ class DerivClient extends EventEmitter {
     this._lastTradeWon = tradeResult === 'won';
   }
 
+  // ── Asset Suspension ─────────────────────────────────────
+  _suspendOtherAssets(lossAsset) {
+    if (!this.cfg.suspendOtherAssetsOnLoss) return;
+    
+    this.focusAsset = lossAsset;
+    this.cfg.assets.forEach(asset => {
+      if (asset !== lossAsset) {
+        this.suspendedAssets.add(asset);
+      }
+    });
+    
+    const suspendedList = Array.from(this.suspendedAssets).join(', ');
+    logger.info(`🔒 SUSPENDED: All assets except ${lossAsset}. Focusing on loss asset.`);
+    logger.info(`   Suspended: ${suspendedList}`);
+    
+    telegram.send(
+      `🔒 <b>Asset Suspension</b>\n\n` +
+      `Loss on: <b>${lossAsset}</b>\n` +
+      `Suspended: ${suspendedList}\n` +
+      `Focusing on ${lossAsset} until win`
+    );
+  }
+
+  _suspendLossAsset(lossAsset) {
+    if (!this.cfg.suspendLossAssetOnLoss) return;
+    
+    this.suspendedAssets.add(lossAsset);
+    
+    logger.info(`🔒 SUSPENDED: ${lossAsset} (loss asset)`);
+    
+    telegram.send(
+      `🔒 <b>Asset Suspension</b>\n\n` +
+      `Suspended: <b>${lossAsset}</b>\n` +
+      `Asset will resume on next win`
+    );
+  }
+
+  _resumeAllAssets() {
+    if (this.suspendedAssets.size === 0) return;
+    
+    const prevSuspended = Array.from(this.suspendedAssets).join(', ');
+    const prevFocus = this.focusAsset;
+    
+    this.suspendedAssets.clear();
+    this.focusAsset = null;
+    
+    logger.info(`✅ RESUMED: All assets active again`);
+    if (prevFocus) {
+      logger.info(`   Was focused on ${prevFocus}`);
+    }
+    
+    telegram.send(
+      `✅ <b>All Assets Resumed</b>\n\n` +
+      `Previously suspended: ${prevSuspended}\n` +
+      `All assets now active for trading`
+    );
+  }
+
+  _isAssetAllowed(asset) {
+    return !this.suspendedAssets.has(asset);
+  }
+
   // ── Trade Watchdog ─────────────────────────────────────────
   _startTradeWatchdog(contractId) {
     this._clearWatchdogTimers();
@@ -984,6 +1071,13 @@ class DerivClient extends EventEmitter {
     this.lastBalance   = (this.lastBalance ?? this.balance ?? 0) + finishedTrade.profit;
     this.overallProfit += finishedTrade.profit;
 
+    // Handle asset suspension on stuck trade loss
+    if (this.cfg.suspendOtherAssetsOnLoss) {
+      this._suspendOtherAssets(symbol);
+    } else if (this.cfg.suspendLossAssetOnLoss) {
+      this._suspendLossAsset(symbol);
+    }
+
     this.lastTradeAt    = Date.now();
     this.tradeStartTime = null;
 
@@ -1016,8 +1110,9 @@ class DerivClient extends EventEmitter {
       if (this.exec.count() >= this.cfg.maxOpenTrades)              return;
 
       // Analyse every asset with PULSE
-      const analyses   = this.cfg.assets.map(s =>
-        this.analyzer.analyze(s, this.market.historyFor(s), this.market));
+      const analyses   = this.cfg.assets
+        .filter(s => this._isAssetAllowed(s))  // Filter out suspended assets
+        .map(s => this.analyzer.analyze(s, this.market.historyFor(s), this.market));
       const ranked     = this.analyzer.rank(analyses);
       const candidates = ranked.filter(a => a.recommend);
 
@@ -1110,6 +1205,9 @@ class DerivClient extends EventEmitter {
       stats         : this.stats.serialize(),
       lossesStreak  : this.lossesStreak ?? 0,
       martingaleMultiplier: this.martingaleMultiplier ?? 1.0,
+      // Asset suspension state
+      suspendedAssets: Array.from(this.suspendedAssets || []),
+      focusAsset: this.focusAsset || null,
     };
   }
   _saveState(reason = 'checkpoint') {
@@ -1136,11 +1234,15 @@ class DerivClient extends EventEmitter {
       if (data.dailyHistory)         this.dailyHistory    = data.dailyHistory;
       if (data.lossesStreak != null) this.lossesStreak    = data.lossesStreak;
       if (data.martingaleMultiplier != null) this.martingaleMultiplier = data.martingaleMultiplier;
+      // Restore suspension state
+      if (data.suspendedAssets) this.suspendedAssets = new Set(data.suspendedAssets);
+      if (data.focusAsset)      this.focusAsset = data.focusAsset;
       this.stats = new StatisticsManager(data.stats || data);
       logger.info(
         `state restored (PULSE): overallProfit=${this.stats.overallProfit.toFixed(2)} ` +
         `lossStreak=${this.stats.currentLossStreak} ` +
-        `martingale=${this.martingaleMultiplier.toFixed(2)}`,
+        `martingale=${this.martingaleMultiplier.toFixed(2)} ` +
+        `suspended=${this.suspendedAssets.size}`,
       );
     } catch (e) {
       logger.warn(`state load failed:`, e.message);
