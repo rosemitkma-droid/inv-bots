@@ -128,11 +128,11 @@ const CONFIG = Object.freeze({
   currency: 'USD',
 
   // Trade setup
-  stake: numEnv('STAKE', 1.00),
+  stake: numEnv('STAKE', 0.63),
   durationTicks: intEnv('DURATION_TICKS', 1), // Digit contracts normally 1-10 ticks
   minStake: numEnv('MIN_STAKE', 0.63),
   maxStake: numEnv('MAX_STAKE', 57.00),
-  assets: ['R_10','R_25','R_50','R_100'],
+  assets: ['R_50','R_75','1HZ50V','1HZ75V'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
   tickWindow: intEnv('TICK_WINDOW', 1000),
@@ -140,6 +140,18 @@ const CONFIG = Object.freeze({
   analysisIntervalMs: intEnv('ANALYSIS_INTERVAL_MS', 3000),
   tradeCooldownMs: intEnv('TRADE_COOLDOWN_MS', 2500),
   maxOpenTrades: intEnv('MAX_OPEN_TRADES', 1),
+  // ── Asset rotation ────────────────────────────────────────────────
+  //   To avoid hammering the same symbol back-to-back the bot briefly
+  //   "locks out" the just-traded symbol. Two safety valves:
+  //     • the lock EXPIRES after assetRotationMs (default 60s), so if
+  //       the same symbol is genuinely the only positive-edge target,
+  //       we don't sit idle forever.
+  //     • if the top-ranked candidate is locked but a DIFFERENT symbol
+  //       is also a valid candidate this scan, we take that one instead
+  //       of skipping the whole scan.
+  //   Set assetRotationMs=0 to disable the rotation entirely (trade
+  //   whatever ranks first every scan).
+  assetRotationMs: intEnv('ASSET_ROTATION_MS', 60_000),
   dailyMaxLoss: numEnv('DAILY_MAX_LOSS', 570),
   dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0), // 0 disables profit target stop
   dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 20000),
@@ -148,7 +160,7 @@ const CONFIG = Object.freeze({
   frequencyWindows: listEnv('FREQUENCY_WINDOWS', '20,45,90,180,360').map(x => parseInt(x, 10)).filter(Number.isFinite),
   transitionLookback: intEnv('TRANSITION_LOOKBACK', 600),
   ewmaAlpha: numEnv('EWMA_ALPHA', 0.055),
-  minEdge: numEnv('MIN_EDGE', 0.004),          //0.0040 absolute probability gap, e.g. 0.4 percentage point
+  minEdge: numEnv('MIN_EDGE', 0.0002),          //0.0040 absolute probability gap, e.g. 0.4 percentage point
   safetyMargin: numEnv('SAFETY_MARGIN', 0.002),
   modelRiskMargin: numEnv('MODEL_RISK_MARGIN', 0.0015),
   zScore: numEnv('EDGE_ZSCORE', 1.28),          // conservative upper bound
@@ -166,9 +178,6 @@ const CONFIG = Object.freeze({
   recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
   recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,7.2,82.0').map(Number).filter(Number.isFinite),
 
-  // ─ Trade watchdog ─
-  tradeWatchdogMs: intEnv('TRADE_WATCHDOG_MS', 20000),
-
   // ── Kelly-fractional sizing ────────────────────────────────────────
   //   kellySizingEnabled=true replaces flat/recovery stake with:
   //       f* = (b·p - q) / b   (Kelly optimum;  b = payout-1, p = win prob, q = 1-p)
@@ -178,10 +187,10 @@ const CONFIG = Object.freeze({
   //   ~40% drawdowns). Disable with KELLY_ENABLED=false to fall back
   //   to the legacy flat/recovery sizing above.
   kellySizingEnabled  : boolEnv('KELLY_ENABLED',         false),
-  kellyFraction       : numEnv ('KELLY_FRACTION',        0.20),
+  kellyFraction       : numEnv ('KELLY_FRACTION',        0.25),
   kellyBankrollFrac   : numEnv ('KELLY_BANKROLL_FRAC',   1.00),  // % of live balance to treat as risk bankroll
   kellyBankrollFloor  : numEnv ('KELLY_BANKROLL_FLOOR',  100.0), // never scale below this bankroll
-  kellyMaxStakeFrac   : numEnv ('KELLY_MAX_STAKE_FRAC',  0.015),  // hard cap: ≤2% of bankroll per trade
+  kellyMaxStakeFrac   : numEnv ('KELLY_MAX_STAKE_FRAC',  0.02),  // hard cap: ≤2% of bankroll per trade
   kellyMinEdgeForScale: numEnv ('KELLY_MIN_EDGE_SCALE',  0.005), // no scaling unless edge > 0.5pp
 
   // ── Per-symbol calibration tracker ─────────────────────────────────
@@ -190,9 +199,9 @@ const CONFIG = Object.freeze({
   //   over ≥ calibMinTrades. Re-enters via low-stake probe after
   //   calibProbeAfterMs; fully re-enabled when calibration re-converges.
   calibEnabled        : boolEnv('CALIB_ENABLED',         true),
-  calibWindow         : intEnv ('CALIB_WINDOW',          150),
-  calibMinTrades      : intEnv ('CALIB_MIN_TRADES',      30),
-  calibDisableGap     : numEnv ('CALIB_DISABLE_GAP',     0.015),   // −2 pp below prediction → disable
+  calibWindow         : intEnv ('CALIB_WINDOW',          200),
+  calibMinTrades      : intEnv ('CALIB_MIN_TRADES',      40),
+  calibDisableGap     : numEnv ('CALIB_DISABLE_GAP',     0.02),   // −2 pp below prediction → disable
   calibReenableGap    : numEnv ('CALIB_REENABLE_GAP',    0.005),  // within ±0.5 pp → re-enable
   calibProbeAfterMs   : intEnv ('CALIB_PROBE_AFTER_MS',  30 * 60_000),
   calibProbeStakeFrac : numEnv ('CALIB_PROBE_STAKE_FRAC', 0.25),
@@ -203,8 +212,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'accurateDifferKelly_02_state.json'),
-  logFile: strEnv('LOG_FILE', 'accurateDifferKelly_02_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ9_02_state.json'),
+  logFile: strEnv('LOG_FILE', 'deriv_digit_differ9_02_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
@@ -247,7 +256,7 @@ const CONFIG = Object.freeze({
   backtestTicks       : intEnv('BACKTEST_TICKS',      100000),
   backtestBatchSize   : intEnv('BACKTEST_BATCH_SIZE', 5000),
   backtestReportEvery : intEnv('BACKTEST_REPORT',     10000),
-  backtestOutFile     : strEnv('BACKTEST_OUT',        'accurateDifferKelly_backtest_02_report.json'),
+  backtestOutFile     : strEnv('BACKTEST_OUT',        'differ_backtest_report_02.json'),
   // The Deriv DIGITDIFF payout multiplier is roughly 1.09-1.11× stake
   // (win ~90% of the time, get ~10% profit). We DEFAULT to 1.10, but at
   // backtest start we probe a real Deriv proposal for the actual live
@@ -256,7 +265,17 @@ const CONFIG = Object.freeze({
   // BACKTEST_PAYOUT_MULT if the probe fails.
   backtestPayoutMult  : numEnv('BACKTEST_PAYOUT_MULT', 1.10),
   backtestProbeLive   : boolEnv('BACKTEST_PROBE_LIVE', true),
-  backtestAssetLock   : boolEnv('BACKTEST_ASSET_LOCK', false),
+  // In LIVE trading the tradedAsset lock forces multi-symbol rotation
+  // (don't hammer the same symbol twice in a row while other symbols
+  //  are available). In backtest we scan one symbol at a time, so
+  // the lock — if enabled — would fire exactly once and then block
+  // every subsequent scan indefinitely, resulting in a single trade.
+  // Default is therefore FALSE for backtests. Set BACKTEST_ASSET_LOCK=true
+  // only if you specifically want to see the effect of the live lock
+  // (the lock will self-clear after this many ticks so trades aren't
+  //  blocked forever).
+  backtestAssetLock       : boolEnv('BACKTEST_ASSET_LOCK',       false),
+  backtestAssetLockTicks  : intEnv ('BACKTEST_ASSET_LOCK_TICKS', 10),
 
   backtestMinEdge     : process.env.BACKTEST_MIN_EDGE      ? Number(process.env.BACKTEST_MIN_EDGE)      : null,
   backtestSafety      : process.env.BACKTEST_SAFETY_MARGIN ? Number(process.env.BACKTEST_SAFETY_MARGIN) : null,
@@ -740,12 +759,63 @@ class DerivClient extends EventEmitter {
 // ─────────────────────────────────────────────────────────────────────
 // 6. MARKET DATA MANAGER
 // ─────────────────────────────────────────────────────────────────────
+//
+// KNOWN_PIP_SIZES — canonical table for Deriv synthetic indices.
+// Rationale: Deriv's `active_symbols` sometimes omits `pip_size` on
+// certain requests, and even when present, an off-by-one here silently
+// makes the bot train and settle on the WRONG last digit, breaking every
+// downstream statistic. This table is the source of truth; the API is a
+// fallback; inference from tick decimals is a last resort.
+//
+// pip_size = number of decimal places in the quote. The "last digit"
+// that DIGITDIFF settles on is the digit AT that decimal position.
+//
+//   R_100:                pip_size = 2   → quote "1234.15"    → digit 5
+//   R_10, R_25:           pip_size = 3   → quote "1234.153"   → digit 3
+//   R_50, R_75:           pip_size = 4   → quote "1234.1534"  → digit 4
+//   RDBULL, RDBEAR:       pip_size = 4
+//   1HZ10V, 1HZ25V, 1HZ50V, 1HZ75V, 1HZ100V: pip_size = 2  
+const KNOWN_PIP_SIZES = Object.freeze({
+  R_10   : 3,
+  R_25   : 3,
+  R_50   : 4,
+  R_75   : 4,
+  R_100  : 2,
+  '1HZ10V' : 2,
+  '1HZ25V' : 2,
+  '1HZ50V' : 2,
+  '1HZ75V' : 2,
+  '1HZ100V': 2,
+  RDBULL : 4,
+  RDBEAR : 4,
+});
+
+/**
+ * Extract the last-digit that Deriv actually settles on for a DIGITDIFF
+ * contract. We MUST NOT round — `Number.toFixed(pipSize)` rounds up when
+ * the trailing digit is ≥5, silently changing the settlement digit vs
+ * what Deriv sees.
+ *
+ * Instead we walk the fractional part of the quote character-by-character
+ * and read the digit at position (pipSize - 1). If the quote has fewer
+ * fractional digits than pipSize we pad with '0' (Deriv does the same).
+ *
+ * Matches the reference bot's per-asset positional extraction, but
+ * generalised over any pip_size.
+ */
 function quoteToDigit(quote, pipSize = 2) {
   const n = Number(quote);
   if (!Number.isFinite(n)) return null;
-  const decimals = Number.isInteger(pipSize) && pipSize >= 0 && pipSize <= 8 ? pipSize : 2;
-  const s = n.toFixed(decimals).replace('.', '').replace('-', '');
-  const ch = s[s.length - 1];
+  const pip = Number.isInteger(pipSize) && pipSize >= 1 && pipSize <= 8 ? pipSize : 2;
+
+  // Use plain string form (not scientific) — synthetic indices never hit
+  // scientific notation but guard anyway.
+  let s = Math.abs(n).toString();
+  if (s.indexOf('e') !== -1) s = Math.abs(n).toFixed(8);
+  const dot = s.indexOf('.');
+  const frac = dot < 0 ? '' : s.slice(dot + 1);
+  const padded = frac.padEnd(pip, '0');
+  const ch = padded.charAt(pip - 1);
   const d = Number(ch);
   return Number.isInteger(d) ? d : null;
 }
@@ -759,42 +829,90 @@ class MarketDataManager extends EventEmitter {
     this.subs = new Map();
     this.lastQuote = new Map();
     this.pipSizes = new Map();
+    // Seed pip cache from the canonical table BEFORE we ever touch the
+    // network. This guarantees `pipSize(symbol)` returns the correct
+    // value even if loadSymbols fails, is delayed, or returns partial
+    // data — which was the root cause of "1 trade in 3 days".
+    for (const [sym, pip] of Object.entries(KNOWN_PIP_SIZES)) {
+      this.pipSizes.set(sym, pip);
+    }
     client.on('close', () => this.subs.clear());
   }
   async loadSymbols() {
     try {
-      // NOTE: use 'full' — 'brief' does NOT include pip_size, which
-      // silently forced every digit computation to fall back to pip=2.
-      // Deriv's R_10..R_100 all use pip_size=3, so 'brief' was reading
-      // the LAST digit of e.g. "9421.15" as "5" when it should have been
-      // "5" from "9421.153". Backwards compatible: if 'full' fails or
-      // pip_size is still missing we fall back to 2.
+      // Use 'full' — 'brief' does NOT include pip_size. The KNOWN_PIP_SIZES
+      // table already covers all volatility indices; this call is really
+      // for populating the `client.symbols` map (used by pipSize as a
+      // secondary source and by other code paths for symbol metadata).
       const res = await this.client._send({ active_symbols: 'full' }, 15000);
       const list = res.active_symbols || [];
-      let withPip = 0;
+      let apiWithPip = 0;
+      let overrides  = 0;
       for (const s of list) {
         const key = s.underlying_symbol || s.symbol;
         if (!key) continue;
         this.client.symbols.set(key, s);
         const rawPip = Number(s.pip_size);
-        if (Number.isFinite(rawPip) && rawPip >= 0 && rawPip <= 8) {
-          this.pipSizes.set(key, rawPip);
-          withPip++;
+        if (Number.isFinite(rawPip) && rawPip >= 1 && rawPip <= 8) {
+          apiWithPip++;
+          // If API disagrees with our KNOWN table, log it loudly and
+          // TRUST THE API for that symbol — API is authoritative for
+          // symbols we don't have in KNOWN_PIP_SIZES, and if Deriv ever
+          // changes a symbol's pip_size we want to notice.
+          const known = KNOWN_PIP_SIZES[key];
+          if (known != null && known !== rawPip) {
+            logger.warn(`pip_size mismatch for ${key}: known=${known} vs API=${rawPip} — using API value`);
+            overrides++;
+            this.pipSizes.set(key, rawPip);
+          } else if (known == null) {
+            this.pipSizes.set(key, rawPip);
+          }
         }
       }
-      logger.info(`loaded ${this.client.symbols.size} active symbols (${withPip} with pip_size)`);
+      logger.info(
+        `loaded ${this.client.symbols.size} active symbols  ` +
+        `(pip: known-table=${Object.keys(KNOWN_PIP_SIZES).length}, api-supplied=${apiWithPip}, api-overrides=${overrides})`
+      );
     } catch (e) {
       logger.error('loadSymbols failed:', e.message);
+      logger.info(`falling back to KNOWN_PIP_SIZES table only`);
     }
   }
   pipSize(symbol) {
-    // Priority: cached from loadSymbols → live client symbols map → 2 default.
-    // Use a helper because Number(undefined) is NaN, and `??` doesn't
-    // treat NaN as a nullish value — so we must guard explicitly.
+    // Priority:
+    //   1) KNOWN_PIP_SIZES-seeded (or API-overridden) cache
+    //   2) live client.symbols map (for symbols we didn't know)
+    //   3) inference from a recent tick's decimal count
+    //   4) default 2 (last resort)
     const cached = this.pipSizes.get(symbol);
     if (Number.isFinite(cached)) return cached;
+
     const raw = Number(this.client.symbols.get(symbol)?.pip_size);
-    if (Number.isFinite(raw)) return raw;
+    if (Number.isFinite(raw) && raw >= 1 && raw <= 8) {
+      this.pipSizes.set(symbol, raw);
+      return raw;
+    }
+
+    // Infer from actual tick data (last-ditch fallback)
+    const hist = this.history.get(symbol);
+    if (hist && hist.length) {
+      const decCounts = new Map();
+      const sample = hist.slice(-Math.min(50, hist.length));
+      for (const t of sample) {
+        const s = String(t.quote);
+        const dot = s.indexOf('.');
+        const dec = dot < 0 ? 0 : s.length - dot - 1;
+        decCounts.set(dec, (decCounts.get(dec) || 0) + 1);
+      }
+      let bestDec = 2, bestN = 0;
+      for (const [d, n] of decCounts) if (n > bestN) { bestDec = d; bestN = n; }
+      if (bestDec >= 1 && bestDec <= 8) {
+        logger.warn(`pipSize(${symbol}) unknown — inferred pip=${bestDec} from tick decimals`);
+        this.pipSizes.set(symbol, bestDec);
+        return bestDec;
+      }
+    }
+    logger.warn(`pipSize(${symbol}) unknown — defaulting to 2 (digits may be wrong!)`);
     return 2;
   }
   async backfill(symbol, count = 1000) {
@@ -1491,18 +1609,14 @@ class TradingBot {
     this.startBalance = null;
     this.lastBalance = null;
     this.lastTradeAt = 0;
+    this.tradedAsset   = null;   // symbol most recently traded (rotation lock)
+    this.tradedAssetAt = 0;      // when that symbol was traded (ms epoch)
     this.stopped = false;
     this._analysisT = null;
     this._hourlyBoot = null;
     this._hourlyT = null;
     this._eodBoot = null;
     this._eodT = null;
-
-    // ── Trade watchdog timers ──
-    this.tradeWatchdogMs = CONFIG.tradeWatchdogMs || 90000;
-    this.tradeStartTime = null;
-    this._tradeWatchdogTimer = null;
-    this._tradeWatchdogPollTimer = null;
   }
 
   async start() {
@@ -1545,6 +1659,9 @@ class TradingBot {
     const calibLine = this.cfg.calibEnabled
       ? `📐 Calibrator: <b>ON</b> (window=${this.cfg.calibWindow}, disableGap=${(this.cfg.calibDisableGap*100).toFixed(1)}pp)`
       : `📐 Calibrator: off`;
+    const rotationLine = this.cfg.assetRotationMs > 0
+      ? `🔄 Asset rotation: ${(this.cfg.assetRotationMs/1000).toFixed(0)}s lockout`
+      : `🔄 Asset rotation: OFF (may repeat same symbol)`;
 
     telegram.send(
       `🤖 <b>Digit Differ Bot Online</b>\n\n` +
@@ -1556,6 +1673,7 @@ class TradingBot {
       `💵 Base stake: ${this.cfg.stake.toFixed(2)} ${this.currency()}\n` +
       `${sizingLine}\n` +
       `${calibLine}\n` +
+      `${rotationLine}\n` +
       `🧠 Method: <b>DIVER-9</b> conservative value-edge filter\n` +
       `🕒 Trade day clock: <b>GMT/UTC</b> | EOD: ${this.cfg.eodTimeGmt} GMT\n\n` +
       `💼 Overall Profit: <b>${money(this.stats.overallProfit, this.currency())}</b>\n` +
@@ -1699,21 +1817,55 @@ class TradingBot {
     }
 
     proposalCandidates.sort((a, b) => b.valueEdge - a.valueEdge || a.candidate.pLossUpper - b.candidate.pLossUpper);
-    const best = proposalCandidates[0];
+
+    // ── Filter by edge floor + asset rotation ─────────────────────
+    // The old code aborted the entire scan when the top-ranked candidate
+    // matched `this.tradedAsset`. That was a permanent lock: R_10 would
+    // win rank #1 every scan, get skipped every scan, and the bot could
+    // sit idle for days. Two fixes:
+    //   1) The lock now EXPIRES after cfg.assetRotationMs (default 60s).
+    //   2) If the top candidate is locked but a different-symbol
+    //      candidate is available, we fall through to that one instead
+    //      of skipping the whole scan.
+    const rotationMs = Math.max(0, this.cfg.assetRotationMs || 0);
+    const lockActive = rotationMs > 0
+                    && this.tradedAsset
+                    && (Date.now() - (this.tradedAssetAt || 0) < rotationMs);
+
+    // Only consider candidates that clear the edge floor.
+    const qualified = proposalCandidates.filter(c => c.valueEdge >= this.cfg.minEdge);
+    if (!qualified.length) {
+      const top = proposalCandidates[0];
+      if (top) {
+        logger.info(`skip: best edge ${top.valueEdge.toFixed(4)} < minEdge ${this.cfg.minEdge} (${top.analysis.symbol} d${top.candidate.digit})`);
+      } else {
+        logger.debug('no proposal candidates after model gates');
+      }
+      return;
+    }
+
+    // Prefer the highest-edge candidate that is NOT the recently-traded
+    // symbol. If every qualified candidate is on the locked symbol,
+    // check whether the lock has expired; if it has, allow re-trading
+    // that symbol. If the lock is still active AND every candidate is
+    // on that symbol, defer to the next scan.
+    let best = qualified.find(c => !lockActive || c.analysis.symbol !== this.tradedAsset);
     if (!best) {
-      logger.debug('no proposal candidates after model gates');
-      return;
+      if (lockActive) {
+        const ageSec = ((Date.now() - (this.tradedAssetAt || 0)) / 1000).toFixed(1);
+        logger.info(
+          `skip: only qualifying symbol is ${this.tradedAsset} — still in ${(rotationMs/1000).toFixed(0)}s rotation cooldown (age ${ageSec}s). Will retry next scan.`
+        );
+        return;
+      }
+      best = qualified[0];   // lock expired; take the top candidate
     }
-
-    if (best.valueEdge < this.cfg.minEdge) {
-      logger.info(`skip: best edge ${best.valueEdge.toFixed(4)} < minEdge ${this.cfg.minEdge} (${best.analysis.symbol} d${best.candidate.digit})`);
-      return;
+    if (best !== qualified[0]) {
+      logger.info(
+        `rotation: skipping locked ${qualified[0].analysis.symbol} (edge ${qualified[0].valueEdge.toFixed(4)}) → ` +
+        `taking ${best.analysis.symbol} d${best.candidate.digit} (edge ${best.valueEdge.toFixed(4)})`
+      );
     }
-
-    // if (this.tradedAsset === best.analysis.symbol) {
-    //   logger.info(`skip: best asset ${best.valueEdge.toFixed(4)} === previousAsset (${best.analysis.symbol} | ${this.tradedAsset})`);
-    //   return;
-    // }
 
     // ── Compute the ACTUAL stake using Kelly + calibrator ──────────
     const pWin = 1 - best.candidate.pLossUpper;   // conservative win-prob (uses upper bound of loss prob)
@@ -1730,7 +1882,8 @@ class TradingBot {
     const stake = sizing.stake;
     logger.info(`sizing → stake=${stake.toFixed(2)} src=${sizing.source} calibMult=${sizing.calibMult}`);
 
-    this.tradedAsset = best.analysis.symbol;
+    this.tradedAsset   = best.analysis.symbol;
+    this.tradedAssetAt = Date.now();   // used by the rotation-lock expiry above
 
     const a = best.analysis;
     const c = best.candidate;
@@ -1766,8 +1919,6 @@ class TradingBot {
   }
 
   _onTradeOpen(t) {
-    this.tradeStartTime = Date.now();
-    this._startTradeWatchdog(t.contractId);
     const a = t.analysis || {};
     telegram.send(
       `🟢 <b>TRADE OPENED — DIGIT DIFFER</b>\n\n` +
@@ -1840,72 +1991,6 @@ class TradingBot {
 
     this.lastTradeAt = Date.now();
     this._saveState('after-trade');
-  }
-
-  // ── Trade Watchdog ─────────────────────────────────────────
-  _startTradeWatchdog(contractId) {
-    this._clearWatchdogTimers();
-    const timeoutMs = this.tradeWatchdogMs;
-    this._tradeWatchdogTimer = setTimeout(() => {
-      const hasActiveTrade = this.exec.openTrades().some(t => t.contractId);
-      if (!hasActiveTrade) { this._clearWatchdogTimers(); return; }
-      logger.warn(`WATCHDOG FIRED — Contract ${contractId || 'unknown'} open for ${(timeoutMs/1000).toFixed(0)}s with no settlement`);
-      if (contractId && this.client.authorized && this.client.connected) {
-        logger.info(`Polling contract ${contractId} for current status…`);
-        this.client._send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 })
-          .catch(e => { logger.warn(`watchdog poll failed: ${e.message}`);
-                        this._recoverStuckTrade('watchdog-poll-failed'); });
-        this._tradeWatchdogPollTimer = setTimeout(() => {
-          if (this.exec.count() === 0) { this._clearWatchdogTimers(); return; }
-          logger.error(`WATCHDOG: Poll timed out — contract ${contractId} still unresolved`);
-          this._recoverStuckTrade('watchdog-force');
-        }, 15000);
-      } else {
-        this._recoverStuckTrade('watchdog-offline');
-      }
-    }, timeoutMs);
-  }
-
-  _clearWatchdogTimers() {
-    if (this._tradeWatchdogTimer)     { clearTimeout(this._tradeWatchdogTimer);     this._tradeWatchdogTimer     = null; }
-    if (this._tradeWatchdogPollTimer) { clearTimeout(this._tradeWatchdogPollTimer); this._tradeWatchdogPollTimer = null; }
-  }
-
-  async _recoverStuckTrade(reason) {
-    this._clearWatchdogTimers();
-    const stuck = this.exec.openTrades()[0];
-    if (!stuck) { logger.warn('No active trade found for stuck trade recovery'); return; }
-    const contractId  = stuck.contractId || 'unknown';
-    const symbol      = stuck.symbol;
-    const stake       = stuck.stake || 0;
-    const entryTime   = this.tradeStartTime || (stuck.buyTime ? stuck.buyTime * 1000 : Date.now());
-    const openSeconds = Math.round((Date.now() - entryTime) / 1000);
-    logger.error(`STUCK TRADE [${reason}] #${contractId} ${symbol} ${openSeconds}s`);
-
-    if (contractId !== 'unknown' && this.client.authorized && this.client.connected) {
-      try { await this.exec.sell(contractId, 0); }
-      catch (e) { logger.warn(`emergency sell failed: ${e.message}`); }
-    }
-    this.exec.open.delete(contractId);
-
-    const finishedTrade = {
-      contractId, symbol, stake, profit: -stake, status: 'lost',
-      sellPrice: 0, sellTime: Date.now()/1000, buyTime: entryTime/1000,
-    };
-    this.stats.record(finishedTrade);
-    this.lastBalance   = (this.lastBalance ?? this.client.balance ?? 0) + finishedTrade.profit;
-
-    this.lastTradeAt    = Date.now();
-    this.tradeStartTime = null;
-
-    telegram.send(
-      `<b>STUCK TRADE RECOVERED [${reason}]</b>\n` +
-      `Contract: ${contractId}\n` +
-      `Asset: ${symbol}\n` +
-      `Stake: $${stake.toFixed(2)}\n` +
-      `Open: ${openSeconds}s`,
-    );
-    this._saveState('stuck-trade-recovery');
   }
 
   _scheduleSummaries() {
@@ -2033,7 +2118,9 @@ class TradingBot {
 
   _statePayload(reason) {
     return {
-      version: 2,
+      // v3 = post pip-fix. Older versions may have been built from
+      // wrong-digit history and MUST NOT be blended forward.
+      version: 3,
       savedAt: new Date().toISOString(),
       savedReason: reason,
       startBalance: this.startBalance,
@@ -2058,15 +2145,27 @@ class TradingBot {
     if (!fs.existsSync(file)) return;
     try {
       const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const v = Number(data.version || 1);
+
+      // Always restore money-flow fields — they're right regardless.
       this.startBalance = data.startBalance ?? null;
-      this.lastBalance = data.lastBalance ?? null;
+      this.lastBalance  = data.lastBalance  ?? null;
       this.stats = new StatisticsManager(data.stats || data);
-      if (data.calibrator && typeof data.calibrator === 'object') {
+
+      // Only restore the calibrator when the state was written by v3+
+      // (post pip-fix). Older state was built from wrong digits and
+      // would poison the rolling per-symbol win-rate estimates.
+      if (v >= 3 && data.calibrator && typeof data.calibrator === 'object') {
         this.calibrator = new SymbolCalibrator(this.cfg, data.calibrator);
         const savedSyms = Object.keys(data.calibrator).length;
-        logger.info(`calibrator restored: ${savedSyms} symbols`);
+        logger.info(`calibrator restored: ${savedSyms} symbols (state v${v})`);
+      } else if (data.calibrator) {
+        logger.warn(
+          `state v${v} calibrator data DISCARDED (pre pip-fix). ` +
+          `Calibrator will rebuild from scratch — expect ~${this.cfg.calibMinTrades} trades before it can judge any symbol.`
+        );
       }
-      logger.info(`state restored from ${file}: overallProfit=${this.stats.overallProfit.toFixed(2)} lossStreak=${this.stats.currentLossStreak}`);
+      logger.info(`state restored from ${file}: overallProfit=${this.stats.overallProfit.toFixed(2)} lossStreak=${this.stats.currentLossStreak} (v${v})`);
     } catch (e) {
       logger.warn(`state load failed (${file}):`, e.message);
     }
@@ -2275,7 +2374,33 @@ class DifferBacktester {
         if (got % 20000 < this.cfg.backtestBatchSize) logger.info(`  fetched ${got}/${tot}`);
       },
     );
-    const pip = this.market.pipSize(symbol);
+    let pip = this.market.pipSize(symbol);
+    // Belt-and-suspenders: if loadSymbols never populated pip_size for
+    // this symbol (e.g. the user is on an older version that requests
+    // active_symbols: 'brief'), infer it directly from the tick stream.
+    // Deriv volatility indices always use a fixed decimal count per
+    // symbol so this is a safe recovery.
+    if (!Number.isFinite(pip)) {
+      const sample = ticks.slice(-Math.min(50, ticks.length));
+      const decCounts = new Map();
+      for (const t of sample) {
+        const s = String(t.quote);
+        const dot = s.indexOf('.');
+        const dec = dot < 0 ? 0 : s.length - dot - 1;
+        decCounts.set(dec, (decCounts.get(dec) || 0) + 1);
+      }
+      let bestDec = 2, bestN = 0;
+      for (const [d, n] of decCounts) if (n > bestN) { bestDec = d; bestN = n; }
+      pip = bestDec;
+      logger.warn(`pipSize(${symbol}) not cached — inferred pip=${pip} from tick stream`);
+      // Push it into the market cache so downstream code (analyze,
+      // recomputes) uses the same value.
+      this.market.pipSizes.set(symbol, pip);
+      // Also patch every tick's digit field so it reflects the
+      // correct pip. Without this, the analyzer would use the old
+      // (wrong) digits and every empirical WR would be garbage.
+      for (const t of ticks) t.digit = quoteToDigit(t.quote, pip);
+    }
     if (ticks.length < this.cfg.minTicksForAnalysis + this.cfg.durationTicks + 10) {
       throw new Error(`insufficient history for ${symbol}: got ${ticks.length}`);
     }
@@ -2394,7 +2519,8 @@ class DifferBacktester {
     };
 
     const t0 = Date.now();
-    let tradedAsset = null;   // mirrors bot.tradedAsset when assetLock=true
+    let tradedAsset    = null;   // mirrors bot.tradedAsset when assetLock=true
+    let lastTradeAtIdx = -Infinity;
     let i = minWindow;
 
     while (i < ticks.length - duration - 1) {
@@ -2430,7 +2556,16 @@ class DifferBacktester {
       // Would this trade actually fire?
       let fire = analysis.allowedByModel;
       if (fire && valueEdge < this.cfg.minEdge)                     { fire = false; diag.gatedEdge++; }
-      if (fire && this.cfg.backtestAssetLock && tradedAsset === symbol) { fire = false; diag.gatedAssetLock++; }
+      // Asset-lock (opt-in only for single-symbol backtests). The live
+      // bot uses tradedAsset to force multi-symbol rotation; in a
+      // single-symbol backtest it would trigger once and then block
+      // every subsequent scan, so we only apply it within a short
+      // cooldown window (backtestAssetLockTicks) and never as a hard
+      // permanent lock.
+      if (fire && this.cfg.backtestAssetLock && tradedAsset === symbol
+          && (i - lastTradeAtIdx) < this.cfg.backtestAssetLockTicks) {
+        fire = false; diag.gatedAssetLock++;
+      }
       // Per-symbol calibrator gate (0 = disabled) — only applied when calibEnabled
       let calibMult = 1;
       if (fire && this.cfg.calibEnabled) {
@@ -2491,7 +2626,8 @@ class DifferBacktester {
       // Feed the calibrator (only if enabled)
       if (this.cfg.calibEnabled) calib.record(symbol, 1 - c.pLossUpper, won);
 
-      tradedAsset = symbol;
+      tradedAsset    = symbol;
+      lastTradeAtIdx = i;
       i += duration + 1;
 
       if (results.signals % 100 === 0) {
@@ -2679,7 +2815,7 @@ class DifferBacktester {
     }
 
     // Suggestions
-    if (diag.recommended === 0 && diag.scans > 0) {
+    if (diag.scans >= 0) {
       console.log('');
       console.log('  💡 No signals fired. Suggestions:');
       if (diag.bestEdgeSeen !== -Infinity && diag.bestEdgeSeen < this.cfg.minEdge) {
@@ -2759,6 +2895,7 @@ main().catch(e => {
   console.error('fatal:', e);
   process.exit(1);
 });
+
 
 
 
