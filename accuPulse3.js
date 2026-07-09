@@ -96,7 +96,7 @@ const CONFIG = Object.freeze({
   accountType: ('demo').toLowerCase(), // 'demo'|'real'
 
   // ─ Trade parameters ─
-  stake:          parseFloat('1.0'),
+  stake:          parseFloat('10.0'),
   multiplier:     parseFloat('0.04'), // legacy hint
   multiplierStep: parseFloat('0.0'),
   stopLoss:       parseFloat('900.0'),
@@ -104,9 +104,9 @@ const CONFIG = Object.freeze({
 
   // ── Martingale ──
   martingale:            parseFloat('21'),   // 0 = off
-  martingaleStep:        parseFloat('3'),
+  martingaleStep:        parseFloat('2'),
   lossesBeforeMartingale:parseInt  ('0'),
-  maxMartingaleStep:     parseFloat('900'),
+  maxMartingaleStep:     parseFloat('220'),
 
   // ─ Sizing ─
   sizingMode:        'flat',            // 'flat' | 'edge'
@@ -157,7 +157,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot3_03.log',
+  logFile : 'deriv_pulse_bot3_04.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -204,7 +204,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_pulse_bot3_03_state.json',
+  stateFile          : 'deriv_pulse_bot3_04_state.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
 
@@ -235,7 +235,7 @@ const CONFIG = Object.freeze({
   backtestBatchSize   : parseInt('5000',   10),
   backtestStepEvery   : parseInt('1',      10),
   backtestReportEvery : parseInt('10000',  10),
-  backtestOutFile     : 'pulse_backtest_report3_01.json',
+  backtestOutFile     : 'pulse_backtest_report3_03.json',
 
   backtestEdge        : process.env.BACKTEST_EDGE        ? parseFloat(process.env.BACKTEST_EDGE)        : null,
   backtestMinEV       : process.env.BACKTEST_MIN_EV      ? parseFloat(process.env.BACKTEST_MIN_EV)      : null,
