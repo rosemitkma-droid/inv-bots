@@ -129,8 +129,8 @@ function listEnv(name, def) {
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
   // Deriv API
-  apiToken:    ('0P94g4WdSrSrzir').trim(),
-  appId:       '1089',
+  apiToken: ('pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee').trim(),
+  appId   : '33uslPtthXBEkQOdfKfoY', //1089
   accountId: '', // recommended/required for PAT new API
   accountType: 'demo', // demo | real
   legacyWsUrl: 'wss://ws.derivws.com/websockets/v3',
