@@ -129,9 +129,9 @@ function listEnv(name, def) {
 const CONFIG = Object.freeze({
   // Deriv API — MUST come from .env / environment, never hardcode a real
   // token in source. See .env.example for the required keys.
-  apiToken: strEnv('DERIV_API_TOKEN', '0P94g4WdSrSrzir').trim(),
-  appId   : strEnv('DERIV_APP_ID', '1089'),
-  accountId: strEnv('DERIV_ACCOUNT_ID', ''), // recommended/required for PAT new API
+  apiToken:    ('0P94g4WdSrSrzir').trim(),
+  appId:       '1089',
+  accountId: '', // recommended/required for PAT new API
   accountType: 'demo', // demo | real
   legacyWsUrl: 'wss://ws.derivws.com/websockets/v3',
   restBaseUrl: 'https://api.derivws.com',
