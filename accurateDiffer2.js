@@ -194,12 +194,12 @@ const CONFIG = Object.freeze({
   // Hot-pressure: top hot digit(s) must steal enough mass from uniform
   minHotPressure: numEnv('MIN_HOT_PRESSURE', 0.012), // ≥1.2pp above 10% on hottest digit
   // Value-edge floors (live proposal q_be − pLossUpper)
-  minEdge: numEnv('MIN_EDGE', 0.005),
-  safetyMargin: numEnv('SAFETY_MARGIN', 0.005),
+  minEdge: numEnv('MIN_EDGE', 0.0001),
+  safetyMargin: numEnv('SAFETY_MARGIN', 0.0005),
   modelRiskMargin: numEnv('MODEL_RISK_MARGIN', 0.005),
   zScore: numEnv('EDGE_ZSCORE', 1.28),          // Wilson one-sided upper bound
-  maxLossProb: numEnv('MAX_LOSS_PROB', 0.087),  // never take if upper-bound P(loss digit) > this
-  minProbabilityGap: numEnv('MIN_PROBABILITY_GAP', 0.004),
+  maxLossProb: numEnv('MAX_LOSS_PROB', 0.105),  // never take if upper-bound P(loss digit) > this
+  minProbabilityGap: numEnv('MIN_PROBABILITY_GAP', 0.0001),
   minEntropy: numEnv('MIN_ENTROPY', 0.90),
   maxEntropy: numEnv('MAX_ENTROPY', 0.9997),
   minChiSquare: numEnv('MIN_CHISQUARE', 1.5),
@@ -265,15 +265,15 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_ELDD_state.json'),
-  logFile: strEnv('LOG_FILE', 'accurateDiffer3_ELDD_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'accurateDiffer2_01_ELDD_state.json'),
+  logFile: strEnv('LOG_FILE', 'accurateDiffer2_01_ELDD_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
   telegram: {
-    enabled : boolEnv('TELEGRAM_ENABLED', false),
-    botToken: strEnv('TELEGRAM_BOT_TOKEN', ''),
-    chatId  : strEnv('TELEGRAM_CHAT_ID', ''),
+    enabled : true,
+    botToken: '8106601008:AAEMyCma6mvPYIHEvw3RHQX2tkD5-wUe1o0',
+    chatId  : '752497117',
   },
 
   reconnect: {
