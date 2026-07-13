@@ -138,10 +138,10 @@ const CONFIG = Object.freeze({
   currency: 'USD',
 
   // Trade setup
-  stake: numEnv('STAKE', 0.63),
+  stake: numEnv('STAKE', 1.1),
   durationTicks: intEnv('DURATION_TICKS', 1), // Digit contracts normally 1-10 ticks
-  minStake: numEnv('MIN_STAKE', 0.63),
-  maxStake: numEnv('MAX_STAKE', 82.00),
+  minStake: numEnv('MIN_STAKE', 1.1),
+  maxStake: numEnv('MAX_STAKE', 182.00),
   assets: ['R_25','R_50','R_75','R_100','RDBULL','1HZ75V','1HZ100V'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
@@ -210,7 +210,7 @@ const CONFIG = Object.freeze({
   // multiplier ladders like 7x/82x; those go bankrupt on a bad but
   // entirely ordinary run of consecutive losses.
   recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
-  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,7.5,82').map(Number).filter(Number.isFinite),
+  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,15.2,165.0').map(Number).filter(Number.isFinite),
 
   // ─ Trade watchdog ─
   tradeWatchdogMs: intEnv('TRADE_WATCHDOG_MS', 20000),
@@ -249,8 +249,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'accurateDiffer3n_state.json'),
-  logFile: strEnv('LOG_FILE', 'accurateDiffer3_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'accurateDiffer3n_state1.json'),
+  logFile: strEnv('LOG_FILE', 'accurateDiffer3_bot1.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram — MUST come from .env / environment, never hardcode a real
@@ -294,7 +294,7 @@ const CONFIG = Object.freeze({
   backtestTicks       : intEnv('BACKTEST_TICKS',      100000),
   backtestBatchSize   : intEnv('BACKTEST_BATCH_SIZE', 5000),
   backtestReportEvery : intEnv('BACKTEST_REPORT',     10000),
-  backtestOutFile     : strEnv('BACKTEST_OUT',        'accurateDiffer3n_backtest_report.json'),
+  backtestOutFile     : strEnv('BACKTEST_OUT',        'accurateDiffer3n_backtest_report1.json'),
   // The Deriv DIGITDIFF payout multiplier is roughly 1.09-1.11× stake
   // (win ~90% of the time, get ~10% profit). We DEFAULT to 1.10, but at
   // backtest start we probe a real Deriv proposal for the actual live
@@ -302,7 +302,7 @@ const CONFIG = Object.freeze({
   // computation match live trading exactly. Override the fallback with
   // BACKTEST_PAYOUT_MULT if the probe fails.
   backtestPayoutMult  : numEnv('BACKTEST_PAYOUT_MULT', 1.10),
-  backtestProbeLive   : boolEnv('BACKTEST_PROBE_LIVE', true),
+  backtestProbeLive   : boolEnv('BACKTEST_PROBE_LIVE', false),
   // In LIVE trading the tradedAsset lock forces multi-symbol rotation
   // (don't hammer the same symbol twice in a row while other symbols
   //  are available). In backtest we scan one symbol at a time, so
