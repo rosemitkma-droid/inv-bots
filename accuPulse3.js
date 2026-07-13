@@ -157,7 +157,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_pulse_bot3_04.log',
+  logFile : 'deriv_pulse_bot3_05.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -204,13 +204,13 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_pulse_bot3_04_state.json',
+  stateFile          : 'deriv_pulse_bot3_05_state.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
 
   // ── Asset Suspension (NEW) ──
-  suspendOtherAssetsOnLoss: true,  // Suspend all assets except loss asset on loss
-  suspendLossAssetOnLoss  : false,  // Suspend only the loss asset on loss
+  suspendOtherAssetsOnLoss: false,  // Suspend all assets except loss asset on loss
+  suspendLossAssetOnLoss  : true,  // Suspend only the loss asset on loss
 
   // ═══════════════════════════════════════════════════════════════════
   // BACKTESTER (Fix #4)
@@ -235,7 +235,7 @@ const CONFIG = Object.freeze({
   backtestBatchSize   : parseInt('5000',   10),
   backtestStepEvery   : parseInt('1',      10),
   backtestReportEvery : parseInt('10000',  10),
-  backtestOutFile     : 'pulse_backtest_report3_03.json',
+  backtestOutFile     : 'pulse_backtest_report3_05.json',
 
   backtestEdge        : process.env.BACKTEST_EDGE        ? parseFloat(process.env.BACKTEST_EDGE)        : null,
   backtestMinEV       : process.env.BACKTEST_MIN_EV      ? parseFloat(process.env.BACKTEST_MIN_EV)      : null,
