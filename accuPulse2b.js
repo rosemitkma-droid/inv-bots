@@ -132,7 +132,7 @@ const CONFIG = Object.freeze({
   maxOpenTrades       : parseInt('1', 10),
 
   // ── ARCA gates ──
-  minConfidence       : parseFloat('0.72'),
+  minConfidence       : parseFloat('0.60'), //0.072
   maxVolRegime        : parseInt('1', 10),     // 0=low,1=normal OK
   maxHurst            : parseFloat('0.60'),
   minSurvivalSlope    : parseFloat('-0.01'),    // allow slight negative
@@ -181,11 +181,11 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging ──
-  logFile : 'accuPULSE2b.log',
+  logFile : 'accuPULSE2b1.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuPULSE2b_state.json',
+  stateFile           : 'accuPULSE2b_state1.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
