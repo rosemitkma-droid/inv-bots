@@ -122,8 +122,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'dare3_01-state_v3.json');
-const HISTORY_FILE        = path.join(__dirname, 'dare3_01-history_v3.json');
+const STATE_FILE          = path.join(__dirname, 'dare3_02-state_v3.json');
+const HISTORY_FILE        = path.join(__dirname, 'dare3_02-history_v3.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED]
@@ -175,7 +175,7 @@ const CONFIG = {
     TIMEFRAME_LABEL:            '5m',
     CANDLES_TO_LOAD:            200,     // larger window for percentile + VR(q) stability
     MAX_CANDLES_STORED:         300,
-    DURATION:                   296,
+    DURATION:                   298,
     DURATION_UNIT:              's',
     MIN_CANDLES_REQUIRED:       80,      // raised — VR & percentile need warmup
     // ── LAYER 1: Regime Classifier ───────────────────────────
@@ -235,9 +235,9 @@ const CONFIG = {
     //     '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'
     // ],
     ACTIVE_ASSETS: [
-        'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4',
-        'R_10', 'R_25', 'R_75', 'R_100',
-        '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V'
+        'stpRNG', 'stpRNG2', 'stpRNG3',
+        'R_10', 'R_75', 'R_100',
+        '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V'
     ],
     // ── Server Issue Detection ─────────────────────────────────
     SERVER_ISSUE_THRESHOLD:     3,      // N issues within window triggers suspension
@@ -249,7 +249,7 @@ const CONFIG = {
     BACKTEST_STAKE:             10,      // flat stake per trade
     BACKTEST_CANDLES_COUNT:     5000,   // max candles to fetch for backtest
     BACKTEST_REPORT_EVERY:      500,    // log progress every N candles
-    BACKTEST_OUT_FILE:          'dare3_backtest_report.json',
+    BACKTEST_OUT_FILE:          'dare3_backtest_report1.json',
     // ── Misc ──────────────────────────────────────────────────
     DEBUG_MODE:                 true,
     TELEGRAM_ENABLED:           true,
@@ -2054,48 +2054,48 @@ class IndexBot {
             return;
         }
         // ── Forced recovery: use last closed candle direction, trade same direction ──
-        if (a.forceRecoverDirection) {
-            this._tradeLocked = true;
-            a.canTrade = false;
-            const isBullishCandle = lastClosedCandle && lastClosedCandle.close > lastClosedCandle.open;
-            const dir2 = isBullishCandle ? 'CALLE' : 'PUTE';
-            a.lastTradeDirection = dir2;
-            const stake = a.currentStake;
-            const recNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
-            const candleDir = isBullishCandle ? 'BULLISH' : 'BEARISH';
-            LOGGER.trade(
-                `🔄 [${symbol}]${recNote} FORCE RECOVERY ${dir2 === 'CALLE' ? '📈 CALLE' : '📉 PUTE'} | ` +
-                `Candle: ${candleDir} | Stake: $${stake.toFixed(2)} | FORCED AFTER LOSS`
-            );
-            const pos = {
-                symbol, direction: dir2, stake, duration: CONFIG.DURATION,
-                durationUnit: CONFIG.DURATION_UNIT, entryTime: Date.now(),
-                contractId: null, reqId: null, currentProfit: 0, buyPrice: 0,
-                signal: { reason: 'FORCED TRADE AFTER LOSS - Same direction as last closed candle', warnings: ['FORCED_TRADE'], method: 'FORCED_RECOVERY', pWin: 0, components: [], regime: { persistence: 'RECOVERY', volClass: 'RECOVERY' } },
-                indicators: {},
-            };
-            a.activePositions.push(pos);
-            const reqId = this.connection.send({
-                buy: 1, subscribe: 1, price: stake.toFixed(2),
-                parameters: {
-                    contract_type: dir2,
-                    [this.connection._isPat ? 'underlying_symbol' : 'symbol']: symbol,
-                    currency: 'USD', amount: stake.toFixed(2),
-                    duration: CONFIG.DURATION, duration_unit: CONFIG.DURATION_UNIT, basis: 'stake',
-                },
-            });
-            pos.reqId = reqId;
-            setTimeout(() => {
-                if (this._tradeLocked && !pos.contractId) {
-                    LOGGER.warn(`[${symbol}] Buy response timeout — releasing lock`);
-                    const idx = a.activePositions.indexOf(pos);
-                    if (idx >= 0) a.activePositions.splice(idx, 1);
-                    this._tradeLocked = false;
-                }
-            }, 5000);
-            StatePersistence.saveState();
-            return;
-        }
+        // if (a.forceRecoverDirection) {
+        //     this._tradeLocked = true;
+        //     a.canTrade = false;
+        //     const isBullishCandle = lastClosedCandle && lastClosedCandle.close > lastClosedCandle.open;
+        //     const dir2 = isBullishCandle ? 'CALLE' : 'PUTE';
+        //     a.lastTradeDirection = dir2;
+        //     const stake = a.currentStake;
+        //     const recNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
+        //     const candleDir = isBullishCandle ? 'BULLISH' : 'BEARISH';
+        //     LOGGER.trade(
+        //         `🔄 [${symbol}]${recNote} FORCE RECOVERY ${dir2 === 'CALLE' ? '📈 CALLE' : '📉 PUTE'} | ` +
+        //         `Candle: ${candleDir} | Stake: $${stake.toFixed(2)} | FORCED AFTER LOSS`
+        //     );
+        //     const pos = {
+        //         symbol, direction: dir2, stake, duration: CONFIG.DURATION,
+        //         durationUnit: CONFIG.DURATION_UNIT, entryTime: Date.now(),
+        //         contractId: null, reqId: null, currentProfit: 0, buyPrice: 0,
+        //         signal: { reason: 'FORCED TRADE AFTER LOSS - Same direction as last closed candle', warnings: ['FORCED_TRADE'], method: 'FORCED_RECOVERY', pWin: 0, components: [], regime: { persistence: 'RECOVERY', volClass: 'RECOVERY' } },
+        //         indicators: {},
+        //     };
+        //     a.activePositions.push(pos);
+        //     const reqId = this.connection.send({
+        //         buy: 1, subscribe: 1, price: stake.toFixed(2),
+        //         parameters: {
+        //             contract_type: dir2,
+        //             [this.connection._isPat ? 'underlying_symbol' : 'symbol']: symbol,
+        //             currency: 'USD', amount: stake.toFixed(2),
+        //             duration: CONFIG.DURATION, duration_unit: CONFIG.DURATION_UNIT, basis: 'stake',
+        //         },
+        //     });
+        //     pos.reqId = reqId;
+        //     setTimeout(() => {
+        //         if (this._tradeLocked && !pos.contractId) {
+        //             LOGGER.warn(`[${symbol}] Buy response timeout — releasing lock`);
+        //             const idx = a.activePositions.indexOf(pos);
+        //             if (idx >= 0) a.activePositions.splice(idx, 1);
+        //             this._tradeLocked = false;
+        //         }
+        //     }, 5000);
+        //     StatePersistence.saveState();
+        //     return;
+        // }
         // ── DARE analysis ──
         const signal = DAREAnalyzer.analyze(a.closedCandles, symbol);
         LOGGER.signal(
