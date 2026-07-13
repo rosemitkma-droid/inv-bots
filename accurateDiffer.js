@@ -128,11 +128,11 @@ const CONFIG = Object.freeze({
   currency: 'USD',
 
   // Trade setup
-  stake: numEnv('STAKE', 0.63),
+  stake: numEnv('STAKE', 1.1),
   durationTicks: intEnv('DURATION_TICKS', 1), // Digit contracts normally 1-10 ticks
-  minStake: numEnv('MIN_STAKE', 0.63),
-  maxStake: numEnv('MAX_STAKE', 57.00),
-  assets: ['R_50','R_75','1HZ50V','1HZ75V'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
+  minStake: numEnv('MIN_STAKE', 1.1),
+  maxStake: numEnv('MAX_STAKE', 140.00),
+  assets: ['R_50','R_75'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
   tickWindow: intEnv('TICK_WINDOW', 1000),
@@ -176,7 +176,7 @@ const CONFIG = Object.freeze({
 
   // Optional limited loss recovery; disabled by default. Safer than the pasted 10x/100x martingale.
   recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
-  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,7.2,82.0').map(Number).filter(Number.isFinite),
+  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,15.2,165.0').map(Number).filter(Number.isFinite),
 
   // ── Kelly-fractional sizing ────────────────────────────────────────
   //   kellySizingEnabled=true replaces flat/recovery stake with:
@@ -198,7 +198,7 @@ const CONFIG = Object.freeze({
   //   a symbol when empirical WR trails predicted by > calibDisableGap
   //   over ≥ calibMinTrades. Re-enters via low-stake probe after
   //   calibProbeAfterMs; fully re-enabled when calibration re-converges.
-  calibEnabled        : boolEnv('CALIB_ENABLED',         true),
+  calibEnabled        : boolEnv('CALIB_ENABLED',         false),
   calibWindow         : intEnv ('CALIB_WINDOW',          200),
   calibMinTrades      : intEnv ('CALIB_MIN_TRADES',      40),
   calibDisableGap     : numEnv ('CALIB_DISABLE_GAP',     0.02),   // −2 pp below prediction → disable
@@ -212,8 +212,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ9_02_state.json'),
-  logFile: strEnv('LOG_FILE', 'deriv_digit_differ9_02_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ9_03_state.json'),
+  logFile: strEnv('LOG_FILE', 'deriv_digit_differ9_03_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
@@ -256,7 +256,7 @@ const CONFIG = Object.freeze({
   backtestTicks       : intEnv('BACKTEST_TICKS',      100000),
   backtestBatchSize   : intEnv('BACKTEST_BATCH_SIZE', 5000),
   backtestReportEvery : intEnv('BACKTEST_REPORT',     10000),
-  backtestOutFile     : strEnv('BACKTEST_OUT',        'differ_backtest_report_02.json'),
+  backtestOutFile     : strEnv('BACKTEST_OUT',        'differ_backtest_report_03.json'),
   // The Deriv DIGITDIFF payout multiplier is roughly 1.09-1.11× stake
   // (win ~90% of the time, get ~10% profit). We DEFAULT to 1.10, but at
   // backtest start we probe a real Deriv proposal for the actual live
