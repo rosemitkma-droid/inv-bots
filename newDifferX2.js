@@ -2352,6 +2352,9 @@ class TradingBot {
     const pauseLine = this.cfg.pauseEnabled
       ? `⏸️ Scheduled pause: <b>${htmlEscape(this.cfg.pauseStartGmt)}</b> → <b>${htmlEscape(this.cfg.pauseEndGmt)}</b> GMT`
       : `⏸️ Scheduled pause: off`;
+    const breakerLine = this.cfg.circuitBreakerEnabled
+      ? `🚨 Circuit breaker: <b>ON</b> (trip after ${this.cfg.circuitBreakerLosses} consecutive losses, cooldown ${(this.cfg.circuitBreakerCooldownMs/60000).toFixed(0)}m)`
+      : `🚨 Circuit breaker: off`;
 
     telegram.send(
       `🤖 <b>x2Digit Differ Bot Online</b>\n\n` +
