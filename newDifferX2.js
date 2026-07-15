@@ -260,7 +260,7 @@ const CONFIG = Object.freeze({
   // and keep the multiplier ladder short and shallow — DO NOT use
   // multiplier ladders like 7x/82x; those go bankrupt on a bad but
   // entirely ordinary run of consecutive losses.
-  recoveryEnabled: boolEnv('RECOVERY_ENABLED', false),
+  recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
   recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,15.2,165.0').map(Number).filter(Number.isFinite),
 
   // ─ Trade watchdog ─
@@ -294,14 +294,26 @@ const CONFIG = Object.freeze({
   calibProbeAfterMs   : intEnv ('CALIB_PROBE_AFTER_MS',  30 * 60_000),
   calibProbeStakeFrac : numEnv ('CALIB_PROBE_STAKE_FRAC', 0.20),
 
+  // ── Scheduled pause/resume ──────────────────────────────────────
+  //   The bot stops opening new trades between pauseStartGmt and
+  //   pauseEndGmt (GMT/UTC, HH:MM format). Open trades are allowed to
+  //   settle; only new analysis/trade cycles are blocked.
+  //   pauseStartGmt > pauseEndGmt means the pause wraps past midnight
+  //   (e.g. 22:00 → 06:00 pauses overnight).
+  //   pauseStartGmt < pauseEndGmt means a mid-day break
+  //   (e.g. 12:00 → 14:00 pauses over lunch).
+  pauseEnabled   : boolEnv('PAUSE_ENABLED', true),
+  pauseStartGmt  : strEnv('PAUSE_START_GMT', '23:00'),
+  pauseEndGmt    : strEnv('PAUSE_END_GMT',   '01:00'),
+
   // GMT/UTC reporting
   eodTimeGmt: strEnv('TRADE_DAY_END_GMT', '00:00'), // default midnight GMT; report date is previous UTC day
   eodSendDelaySeconds: intEnv('EOD_SEND_DELAY_SECONDS', 10),
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'accurateDifferx2_state1.json'),
-  logFile: strEnv('LOG_FILE', 'accurateDifferx2_bot1.log'),
+  stateFile: strEnv('STATE_FILE', 'accurateDifferx2_state2.json'),
+  logFile: strEnv('LOG_FILE', 'accurateDifferx2_bot2.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram — MUST come from .env / environment, never hardcode a real
@@ -2127,17 +2139,169 @@ class TradingBot {
     this.tradedAsset   = null;   // symbol most recently traded (rotation lock)
     this.tradedAssetAt = 0;      // when that symbol was traded (ms epoch)
     this.stopped = false;
+    this.paused = false;
     this._analysisT = null;
     this._hourlyBoot = null;
     this._hourlyT = null;
     this._eodBoot = null;
     this._eodT = null;
+    this._pauseStartTimer = null;
+    this._pauseEndTimer = null;
 
     // ── Trade watchdog timers ──
     this.tradeWatchdogMs = CONFIG.tradeWatchdogMs || 90000;
     this.tradeStartTime = null;
     this._tradeWatchdogTimer = null;
     this._tradeWatchdogPollTimer = null;
+  }
+
+  // ── Scheduled pause helpers ─────────────────────────────────────
+  _parsePauseTime(str) {
+    const m = String(str || '').match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    const h = Math.max(0, Math.min(23, Number(m[1])));
+    const min = Math.max(0, Math.min(59, Number(m[2])));
+    return { h, min };
+  }
+
+  /**
+   * Returns true if the current GMT time falls inside the pause window.
+   * Supports both overnight (start > end, e.g. 22:00 → 06:00) and
+   * same-day (start < end, e.g. 12:00 → 14:00) windows.
+   */
+  _isPausedNow() {
+    if (!this.cfg.pauseEnabled) return false;
+    const start = this._parsePauseTime(this.cfg.pauseStartGmt);
+    const end   = this._parsePauseTime(this.cfg.pauseEndGmt);
+    if (!start || !end) return false;
+    const now = new Date();
+    const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const startMin = start.h * 60 + start.min;
+    const endMin   = end.h   * 60 + end.min;
+    if (startMin > endMin) {
+      // Overnight window: paused from startMin..1439 OR 0..endMin
+      return nowMin >= startMin || nowMin < endMin;
+    }
+    // Same-day window: paused from startMin..endMin
+    return nowMin >= startMin && nowMin < endMin;
+  }
+
+  /**
+   * Schedule the next pause-start and pause-end transitions.
+   * Called once at startup and re-called after each transition.
+   */
+  _schedulePause() {
+    this._clearPauseTimers();
+    if (!this.cfg.pauseEnabled) return;
+
+    const now = new Date();
+    const nowMs = now.getTime();
+    const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const start = this._parsePauseTime(this.cfg.pauseStartGmt);
+    const end   = this._parsePauseTime(this.cfg.pauseEndGmt);
+    if (!start || !end) {
+      logger.warn('pause schedule: invalid pauseStartGmt or pauseEndGmt format');
+      return;
+    }
+    const startMin = start.h * 60 + start.min;
+    const endMin   = end.h   * 60 + end.min;
+
+    // Helper: ms from now to a target time (next occurrence)
+    const msToTarget = (targetMinOfDay) => {
+      let diff = targetMinOfDay - nowMin;
+      if (diff <= 0) diff += 24 * 60; // next day
+      return diff * 60_000 - (now.getUTCSeconds() * 1000) - now.getUTCMilliseconds();
+    };
+
+    if (startMin > endMin) {
+      // Overnight window:  startMin..1439, then 0..endMin
+      if (nowMin >= startMin) {
+        // Currently paused (first half) → schedule resume at endMin
+        this.paused = true;
+        const delay = msToTarget(endMin);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+        logger.info(`pause: currently active (overnight), resumes in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseEndGmt} GMT`);
+      } else if (nowMin < endMin) {
+        // Currently paused (second half, before endMin) → schedule resume
+        this.paused = true;
+        const delay = msToTarget(endMin);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+        logger.info(`pause: currently active, resumes in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseEndGmt} GMT`);
+      } else {
+        // Currently active window → schedule pause at startMin
+        this.paused = false;
+        const delay = msToTarget(startMin);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+        logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
+      }
+    } else {
+      // Same-day window:  startMin..endMin
+      if (nowMin >= startMin && nowMin < endMin) {
+        // Currently paused → schedule resume
+        this.paused = true;
+        const delay = msToTarget(endMin);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+        logger.info(`pause: currently active, resumes in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseEndGmt} GMT`);
+      } else {
+        // Currently active → schedule next pause at startMin
+        this.paused = false;
+        const delay = msToTarget(startMin);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+        logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
+      }
+    }
+  }
+
+  _onPauseResume(action) {
+    this._clearPauseTimers();
+    if (action === 'pause') {
+      this.paused = true;
+      logger.info(`TRADING PAUSED at ${this.cfg.pauseStartGmt} GMT until ${this.cfg.pauseEndGmt} GMT`);
+      telegram.send(
+        `⏸️ <b>x2Digit TRADING PAUSED</b>\n\n` +
+        `Scheduled pause active from <b>${htmlEscape(this.cfg.pauseStartGmt)}</b> to <b>${htmlEscape(this.cfg.pauseEndGmt)}</b> GMT.\n` +
+        `Open trades will settle normally. No new trades until resume.\n\n` +
+        `🕒 ${utcTs()}`
+      );
+      // Schedule the resume
+      const end = this._parsePauseTime(this.cfg.pauseEndGmt);
+      if (end) {
+        const delay = this._msToTarget(end.h, end.min);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+        logger.info(`pause: resumes in ${(delay/60000).toFixed(1)}m`);
+      }
+    } else {
+      this.paused = false;
+      logger.info(`TRADING RESUMED at ${this.cfg.pauseEndGmt} GMT`);
+      telegram.send(
+        `▶️ <b>x2Digit TRADING RESUMED</b>\n\n` +
+        `Scheduled pause ended. Bot is now scanning for trades.\n\n` +
+        `💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}\n\n` +
+        `🕒 ${utcTs()}`
+      );
+      // Schedule the next pause
+      const start = this._parsePauseTime(this.cfg.pauseStartGmt);
+      if (start) {
+        const delay = this._msToTarget(start.h, start.min);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+        logger.info(`pause: next pause in ${(delay/60000).toFixed(1)}m`);
+      }
+    }
+  }
+
+  /** ms from now to next occurrence of a given HH:MM GMT time. */
+  _msToTarget(targetH, targetMin) {
+    const now = new Date();
+    const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const targetMinOfDay = targetH * 60 + targetMin;
+    let diff = targetMinOfDay - nowMin;
+    if (diff <= 0) diff += 24 * 60;
+    return diff * 60_000 - (now.getUTCSeconds() * 1000) - now.getUTCMilliseconds();
+  }
+
+  _clearPauseTimers() {
+    if (this._pauseStartTimer) { clearTimeout(this._pauseStartTimer); this._pauseStartTimer = null; }
+    if (this._pauseEndTimer)   { clearTimeout(this._pauseEndTimer);   this._pauseEndTimer = null; }
   }
 
   async start() {
@@ -2185,9 +2349,9 @@ class TradingBot {
     const rotationLine = this.cfg.assetRotationMs > 0
       ? `🔄 Asset rotation: ${(this.cfg.assetRotationMs/1000).toFixed(0)}s lockout`
       : `🔄 Asset rotation: OFF (may repeat same symbol)`;
-    const breakerLine = this.cfg.circuitBreakerEnabled
-      ? `🛑 Circuit breaker: pause ${(this.cfg.circuitBreakerCooldownMs/60000).toFixed(0)}m after ${this.cfg.circuitBreakerLosses} losses in a row`
-      : `🛑 Circuit breaker: off`;
+    const pauseLine = this.cfg.pauseEnabled
+      ? `⏸️ Scheduled pause: <b>${htmlEscape(this.cfg.pauseStartGmt)}</b> → <b>${htmlEscape(this.cfg.pauseEndGmt)}</b> GMT`
+      : `⏸️ Scheduled pause: off`;
 
     telegram.send(
       `🤖 <b>x2Digit Differ Bot Online</b>\n\n` +
@@ -2266,6 +2430,10 @@ class TradingBot {
 
   async _analyzeAndTrade() {
     if (this.stopped || !this.client.authorized) return;
+    if (this.paused) {
+      logger.debug('trading paused — skipping analysis cycle');
+      return;
+    }
     if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
     if (this.exec.count() >= this.cfg.maxOpenTrades) return;
 
