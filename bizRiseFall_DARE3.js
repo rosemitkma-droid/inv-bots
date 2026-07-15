@@ -122,8 +122,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'dare3_02-state_v3.json');
-const HISTORY_FILE        = path.join(__dirname, 'dare3_02-history_v3.json');
+const STATE_FILE          = path.join(__dirname, 'dare3_03-state_v3.json');
+const HISTORY_FILE        = path.join(__dirname, 'dare3_03-history_v3.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED]
@@ -175,8 +175,8 @@ const CONFIG = {
     TIMEFRAME_LABEL:            '5m',
     CANDLES_TO_LOAD:            200,     // larger window for percentile + VR(q) stability
     MAX_CANDLES_STORED:         300,
-    DURATION:                   298,
-    DURATION_UNIT:              's',
+    DURATION:                   20,
+    DURATION_UNIT:              'm',
     MIN_CANDLES_REQUIRED:       80,      // raised — VR & percentile need warmup
     // ── LAYER 1: Regime Classifier ───────────────────────────
     // Variance-Ratio (Lo-MacKinlay) — VR(1) on q-lagged returns.
@@ -249,7 +249,7 @@ const CONFIG = {
     BACKTEST_STAKE:             10,      // flat stake per trade
     BACKTEST_CANDLES_COUNT:     5000,   // max candles to fetch for backtest
     BACKTEST_REPORT_EVERY:      500,    // log progress every N candles
-    BACKTEST_OUT_FILE:          'dare3_backtest_report1.json',
+    BACKTEST_OUT_FILE:          'dare3_backtest_report2.json',
     // ── Misc ──────────────────────────────────────────────────
     DEBUG_MODE:                 true,
     TELEGRAM_ENABLED:           true,
