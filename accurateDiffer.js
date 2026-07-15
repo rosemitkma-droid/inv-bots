@@ -1675,7 +1675,7 @@ class TradingBot {
 
     const now = new Date();
     const nowMs = now.getTime();
-    const nowMin = now.getUTCHours() * 60 + now.getUTCMinute();
+    const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
     const start = this._parsePauseTime(this.cfg.pauseStartGmt);
     const end   = this._parsePauseTime(this.cfg.pauseEndGmt);
     if (!start || !end) {
