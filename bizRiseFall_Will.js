@@ -153,7 +153,7 @@ const CONFIG = {
     WPR_OVERBOUGHT:             -20,     // WPR > -20 = overbought (SELL signal prep)
     WPR_OVERSOLD:               -80,     // WPR < -80 = oversold (BUY signal prep)
     // ── Normal Trading Mode ─────────────────────────────────
-    MAX_TRADES_PER_CYCLE:       20,      // Trade N candles in breakout direction
+    MAX_TRADES_PER_CYCLE:       10,      // Trade N candles in breakout direction
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
     USE_TRADING_SESSIONS:       false,
     SESSIONS: [
