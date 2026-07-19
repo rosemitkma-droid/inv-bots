@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'will4_01-state.json');
-const HISTORY_FILE        = path.join(__dirname, 'will4_01-history.json');
+const STATE_FILE          = path.join(__dirname, 'will4_02-state.json');
+const HISTORY_FILE        = path.join(__dirname, 'will4_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED + WPR/breakout loggers]
@@ -126,14 +126,14 @@ const CONFIG = {
     // ── Capital & Risk [RETAINED] ────────────────────────────
     INITIAL_CAPITAL:            100,
     BASE_RISK_PERCENT_PER_TRADE: 0.01,
-    MIN_STAKE:                  1,
-    MAX_STAKE:                  150,
+    MIN_STAKE:                  0.5,
+    MAX_STAKE:                  32,
     MAX_RISK_PCT:               100.00,
     // ── Single capped recoup step (NOT martingale) [RETAINED] ─
     RECOVERY_ENABLED:       true,
     RECOVERY_MULTIPLIER:    2.00,
     MAX_RECOVERY_STEPS:     7,
-    MAX_RECOVERY_STAKE_PCT: 64.0,
+    MAX_RECOVERY_STAKE_PCT: 32.0,
     // ── Session / daily guards [RETAINED] ───────────────────
     SESSION_PROFIT_TARGET:      500000,
     SESSION_STOP_LOSS:          -15000,
@@ -1596,15 +1596,13 @@ class IndexBot {
             this._tradeLocked = true;
             a.canTrade = false;
             const dir = a.forceRecoverDirection;
-            const dir2 = dir === 'CALLE' ? 'PUTE' : 'CALLE'
-            a.lastTradeDirection = dir2; //Update Recovery trade Direction with the new Direction.
             const recNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
             LOGGER.recovery(
-                `[${symbol}]${recNote} FORCE RECOVERY ${dir2 === 'CALLE' ? '\u{1f4c8} CALLE' : '\u{1f4c9} PUTE'} | ` +
+                `[${symbol}]${recNote} FORCE RECOVERY ${dir === 'CALLE' ? '\u{1f4c8} CALLE' : '\u{1f4c9} PUTE'} | ` +
                 `Stake: $${stake.toFixed(2)} | FORCED AFTER LOSS`
             );
             const pos = {
-                symbol, direction: dir2, stake, duration: CONFIG.DURATION,
+                symbol, direction: dir, stake, duration: CONFIG.DURATION,
                 durationUnit: CONFIG.DURATION_UNIT, entryTime: Date.now(),
                 contractId: null, reqId: null, currentProfit: 0, buyPrice: 0,
                 signal: { reason: 'FORCED RECOVERY - Opposite direction', method: 'RECOVERY' },
@@ -1613,7 +1611,7 @@ class IndexBot {
             const reqId = this.connection.send({
                 buy: 1, subscribe: 1, price: stake.toFixed(2),
                 parameters: {
-                    contract_type: dir2,
+                    contract_type: dir,
                     [this.connection._isPat ? 'underlying_symbol' : 'symbol']: symbol,
                     currency: 'USD', amount: stake.toFixed(2),
                     duration: CONFIG.DURATION, duration_unit: CONFIG.DURATION_UNIT, basis: 'stake',
