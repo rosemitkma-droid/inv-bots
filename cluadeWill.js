@@ -35,7 +35,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER - FIXED VERSION
 // ============================================
-const STATE_FILE = path.join(__dirname, 'claudeWillbot_01-state.json');
+const STATE_FILE = path.join(__dirname, 'claudeWillbot_02-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -519,9 +519,9 @@ const CONFIG = {
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // Capital Settings
-    INITIAL_CAPITAL: 1000,
-    INITIAL_STAKE: 1.00,
-    TAKE_PROFIT: 2.5,
+    INITIAL_CAPITAL: 135,
+    INITIAL_STAKE: 2.00,
+    TAKE_PROFIT: 3.5,
 
     // Session Targets
     SESSION_PROFIT_TARGET: 15000,
@@ -529,7 +529,7 @@ const CONFIG = {
 
     // Reversal Settings
     REVERSAL_STAKE_MULTIPLIER: 2,
-    MAX_REVERSAL_LEVEL: 7,
+    MAX_REVERSAL_LEVEL: 6,
     AUTO_CLOSE_ON_RECOVERY: false,
 
     // Timeframe Settings
@@ -579,9 +579,9 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 500],
-        defaultMultiplier: 50,
+        defaultMultiplier: 200,
         maxTradesPerDay: 500000,
-        minStake: 1.00,
+        minStake: 2.00,
         maxStake: 3000,
         tradingHours: '24/7'
     },
