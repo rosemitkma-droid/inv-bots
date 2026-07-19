@@ -35,7 +35,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER - FIXED VERSION
 // ============================================
-const STATE_FILE = path.join(__dirname, 'claudeWillbot-state0001.json');
+const STATE_FILE = path.join(__dirname, 'claudeWillbot_01-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -506,7 +506,7 @@ const TIMEFRAMES = {
     '4h': { seconds: 14400, granularity: 14400, label: '4 Hours' }
 };
 
-const SELECTED_TIMEFRAME = '1m';
+const SELECTED_TIMEFRAME = '5m';
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================
@@ -514,8 +514,8 @@ const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 // ============================================
 const CONFIG = {
     // API Settings
-    API_TOKEN: process.env.API_TOKEN || '0P94g4WdSrSrzir',
-    APP_ID: process.env.APP_ID || '1089',
+    API_TOKEN: '0P94g4WdSrSrzir',
+    APP_ID: '1089',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // Capital Settings
@@ -529,7 +529,7 @@ const CONFIG = {
 
     // Reversal Settings
     REVERSAL_STAKE_MULTIPLIER: 2,
-    MAX_REVERSAL_LEVEL: 8,
+    MAX_REVERSAL_LEVEL: 7,
     AUTO_CLOSE_ON_RECOVERY: false,
 
     // Timeframe Settings
@@ -540,8 +540,8 @@ const CONFIG = {
 
     // WPR Settings (Only indicator now)
     WPR_PERIOD: 80,
-    WPR_OVERBOUGHT: -2,  // Trigger BUY when crossing above
-    WPR_OVERSOLD: -98,    // Trigger SELL when crossing below
+    WPR_OVERBOUGHT: -20,  // Trigger BUY when crossing above
+    WPR_OVERSOLD: -80,    // Trigger SELL when crossing below
 
     // Trade Settings
     MAX_TRADES_PER_ASSET: 200000,
@@ -585,75 +585,75 @@ const ASSET_CONFIGS = {
         maxStake: 3000,
         tradingHours: '24/7'
     },
-    'R_100': {
-        name: 'Volatility 100',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [40, 100, 200, 300, 400],
-        defaultMultiplier: 40,
-        maxTradesPerDay: 50000,
-        minStake: 1.00,
-        maxStake: 3000,
-        tradingHours: '24/7'
-    },
-    '1HZ25V': {
-        name: 'Volatility 25 (1s)',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [160, 400, 800, 1200, 1600],
-        defaultMultiplier: 160,
-        maxTradesPerDay: 120000,
-        minStake: 1.00,
-        maxStake: 1000,
-        tradingHours: '24/7'
-    },
-    '1HZ50V': {
-        name: 'Volatility 50 (1s)',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [80, 200, 400, 600, 800],
-        defaultMultiplier: 80,
-        maxTradesPerDay: 120000,
-        minStake: 1.00,
-        maxStake: 1000,
-        tradingHours: '24/7'
-    },
-    '1HZ100V': {
-        name: 'Volatility 100 (1s)',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [40, 100, 200, 300, 400],
-        defaultMultiplier: 40,
-        maxTradesPerDay: 50000,
-        minStake: 1.00,
-        maxStake: 3000,
-        tradingHours: '24/7'
-    },
-    'stpRNG': {
-        name: 'Step Index',
-        category: 'synthetic',
-        contractType: 'multiplier',
-        multipliers: [750, 2000, 3500, 5500, 7500],
-        defaultMultiplier: 750,
-        maxTradesPerDay: 120000,
-        minStake: 1.00,
-        maxStake: 1000,
-        tradingHours: '24/7'
-    },
-    'frxXAUUSD': {
-        name: 'Gold/USD',
-        category: 'commodity',
-        contractType: 'multiplier',
-        multipliers: [50, 100, 200, 300, 400, 500],
-        defaultMultiplier: 50,
-        maxTradesPerDay: 5000,
-        minStake: 1,
-        maxStake: 5000,
-        tradingHours: 'Sun 23:00 - Fri 21:55 GMT'
-    }
+    // 'R_100': {
+    //     name: 'Volatility 100',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [40, 100, 200, 300, 400],
+    //     defaultMultiplier: 40,
+    //     maxTradesPerDay: 50000,
+    //     minStake: 1.00,
+    //     maxStake: 3000,
+    //     tradingHours: '24/7'
+    // },
+    // '1HZ25V': {
+    //     name: 'Volatility 25 (1s)',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [160, 400, 800, 1200, 1600],
+    //     defaultMultiplier: 160,
+    //     maxTradesPerDay: 120000,
+    //     minStake: 1.00,
+    //     maxStake: 1000,
+    //     tradingHours: '24/7'
+    // },
+    // '1HZ50V': {
+    //     name: 'Volatility 50 (1s)',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [80, 200, 400, 600, 800],
+    //     defaultMultiplier: 80,
+    //     maxTradesPerDay: 120000,
+    //     minStake: 1.00,
+    //     maxStake: 1000,
+    //     tradingHours: '24/7'
+    // },
+    // '1HZ100V': {
+    //     name: 'Volatility 100 (1s)',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [40, 100, 200, 300, 400],
+    //     defaultMultiplier: 40,
+    //     maxTradesPerDay: 50000,
+    //     minStake: 1.00,
+    //     maxStake: 3000,
+    //     tradingHours: '24/7'
+    // },
+    // 'stpRNG': {
+    //     name: 'Step Index',
+    //     category: 'synthetic',
+    //     contractType: 'multiplier',
+    //     multipliers: [750, 2000, 3500, 5500, 7500],
+    //     defaultMultiplier: 750,
+    //     maxTradesPerDay: 120000,
+    //     minStake: 1.00,
+    //     maxStake: 1000,
+    //     tradingHours: '24/7'
+    // },
+    // 'frxXAUUSD': {
+    //     name: 'Gold/USD',
+    //     category: 'commodity',
+    //     contractType: 'multiplier',
+    //     multipliers: [50, 100, 200, 300, 400, 500],
+    //     defaultMultiplier: 50,
+    //     maxTradesPerDay: 5000,
+    //     minStake: 1,
+    //     maxStake: 5000,
+    //     tradingHours: 'Sun 23:00 - Fri 21:55 GMT'
+    // }
 };
 
-let ACTIVE_ASSETS = ['1HZ50V', '1HZ25V', 'R_100', 'frxXAUUSD'];
+let ACTIVE_ASSETS = ['R_75'];
 
 // ============================================
 // STATE MANAGEMENT
