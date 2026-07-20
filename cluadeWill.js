@@ -35,7 +35,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER - FIXED VERSION
 // ============================================
-const STATE_FILE = path.join(__dirname, 'claudeWillbot_02-state.json');
+const STATE_FILE = path.join(__dirname, 'claudeWillbot_03-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -520,8 +520,8 @@ const CONFIG = {
 
     // Capital Settings
     INITIAL_CAPITAL: 135,
-    INITIAL_STAKE: 2.00,
-    TAKE_PROFIT: 3.5,
+    INITIAL_STAKE: 5.00,
+    TAKE_PROFIT: 5,
 
     // Session Targets
     SESSION_PROFIT_TARGET: 15000,
@@ -529,7 +529,7 @@ const CONFIG = {
 
     // Reversal Settings
     REVERSAL_STAKE_MULTIPLIER: 2,
-    MAX_REVERSAL_LEVEL: 6,
+    MAX_REVERSAL_LEVEL: 5,
     AUTO_CLOSE_ON_RECOVERY: false,
 
     // Timeframe Settings
@@ -579,7 +579,7 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 500],
-        defaultMultiplier: 200,
+        defaultMultiplier: 100,
         maxTradesPerDay: 500000,
         minStake: 2.00,
         maxStake: 3000,
