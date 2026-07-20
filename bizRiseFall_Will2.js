@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'will4b_02-state.json');
-const HISTORY_FILE        = path.join(__dirname, 'will4b_02-history.json');
+const STATE_FILE          = path.join(__dirname, 'will4b_03-state.json');
+const HISTORY_FILE        = path.join(__dirname, 'will4b_03-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED + WPR/breakout loggers]
@@ -123,21 +123,21 @@ const CONFIG = {
     ACCOUNT_TYPE: 'demo',          // 'demo' | 'real' (PAT mode only)
     WS_URL:       'wss://ws.derivws.com/websockets/v3',
     // ── Capital & Risk [RETAINED] ────────────────────────────
-    INITIAL_CAPITAL:            135,
+    INITIAL_CAPITAL:            128,
     BASE_RISK_PERCENT_PER_TRADE: 0.01,
-    MIN_STAKE:                  5,
+    MIN_STAKE:                  2,
     MAX_STAKE:                  80,
-    MAX_RISK_PCT:               100.00,
+    MAX_RISK_PCT:               128.00,
     // ── Single capped recoup step (NOT martingale) [RETAINED] ─
     RECOVERY_ENABLED:       true,
     RECOVERY_MULTIPLIER:    2.00,
-    MAX_RECOVERY_STEPS:     5,
-    MAX_RECOVERY_STAKE_PCT: 32.0,
+    MAX_RECOVERY_STEPS:     6,
+    MAX_RECOVERY_STAKE_PCT: 64.0,
     // ── Session / daily guards [RETAINED] ───────────────────
     SESSION_PROFIT_TARGET:      500000,
     SESSION_STOP_LOSS:          -15000,
     DAILY_STOP_LOSS:            -2000,
-    MAX_CONSECUTIVE_LOSSES:     5,
+    MAX_CONSECUTIVE_LOSSES:     6,
     COOLDOWN_CANDLES:           5,
     // ── Candle / Contract Settings [RETAINED] ────────────────
     GRANULARITY:                60,     // 5-minute candles
@@ -958,7 +958,7 @@ class SessionManager {
             a.consecutiveLosses++;
             a.consecutiveWins  = 0;
             a.lastTradeWasWin  = false;
-            a.forceRecoverDirection = a.lastTradeDirection === 'CALLE' ? 'PUTE' : 'CALLE';  // loss -> force opposite direction
+            a.forceRecoverDirection = a.lastTradeDirection === 'CALLE' ? 'CALLE' : 'PUTE';  
             // Pause normal mode during recovery
             if (a.normalModeActive) {
                 a.normalModePaused = true;
@@ -971,6 +971,7 @@ class SessionManager {
             }
             a.currentStake = StakeCalculator.calculate(state.capital, a.recoveryStep);
             if (a.consecutiveLosses >= CONFIG.MAX_CONSECUTIVE_LOSSES) {
+                a.currentStake = CONFIG.MIN_STAKE;
                 a.cooldownCandles = CONFIG.COOLDOWN_CANDLES;
                 a.forceRecoverDirection = null;
                 LOGGER.warn(`[${symbol}] ${CONFIG.MAX_CONSECUTIVE_LOSSES} consecutive losses — cooling down for ${CONFIG.COOLDOWN_CANDLES} candles`);
@@ -1594,8 +1595,9 @@ class IndexBot {
         if (a.forceRecoverDirection) {
             this._tradeLocked = true;
             a.canTrade = false;
-            // const dir = a.forceRecoverDirection;
-            const dir = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
+            const dir2 = a.forceRecoverDirection;
+            const dir3 = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
+            const dir = a.recoveryStep > 1 ? dir3 : dir2;
             const recNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
             LOGGER.recovery(
                 `[${symbol}]${recNote} FORCE RECOVERY ${dir === 'CALLE' ? '\u{1f4c8} CALLE' : '\u{1f4c9} PUTE'} | ` +
