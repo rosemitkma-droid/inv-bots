@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'will4b_01-state.json');
-const HISTORY_FILE        = path.join(__dirname, 'will4b_01-history.json');
+const STATE_FILE          = path.join(__dirname, 'will4b_02-state.json');
+const HISTORY_FILE        = path.join(__dirname, 'will4b_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED + WPR/breakout loggers]
@@ -144,7 +144,7 @@ const CONFIG = {
     TIMEFRAME_LABEL:            '1m',
     CANDLES_TO_LOAD:            200,
     MAX_CANDLES_STORED:         300,
-    DURATION:                   57,
+    DURATION:                   56,
     DURATION_UNIT:              's',
     MIN_CANDLES_REQUIRED:       82,      // WPR_PERIOD (80) + 2 minimum
     // ── WPR (Williams Percent Range) Settings ───────────────
@@ -152,7 +152,7 @@ const CONFIG = {
     WPR_OVERBOUGHT:             -20,     // WPR > -20 = overbought (SELL signal prep)
     WPR_OVERSOLD:               -80,     // WPR < -80 = oversold (BUY signal prep)
     // ── Normal Trading Mode ─────────────────────────────────
-    MAX_TRADES_PER_CYCLE:       2,      // Trade N candles in breakout direction
+    MAX_TRADES_PER_CYCLE:       1,      // Trade N candles in breakout direction
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
     USE_TRADING_SESSIONS:       false,
     SESSIONS: [
@@ -711,7 +711,7 @@ class TelegramService {
         } catch (e) { LOGGER.error(`Telegram exception: ${e.message}`); }
     }
     static async sendTradeAlert(type, symbol, direction, stake, duration, durationUnit, details = {}) {
-        const emoji   = type === 'OPENb' ? '\u{1f680}' : type === 'WIN' ? '✅' : '❌';
+        const emoji   = type === 'OPEN' ? '\u{1f680}' : type === 'WIN' ? '✅' : '❌';
         const a       = state.assets[symbol];
         const overall = TradeHistoryManager.getOverallStats();
         const today   = TradeHistoryManager.getTodayStats();
@@ -1594,7 +1594,8 @@ class IndexBot {
         if (a.forceRecoverDirection) {
             this._tradeLocked = true;
             a.canTrade = false;
-            const dir = a.forceRecoverDirection;
+            // const dir = a.forceRecoverDirection;
+            const dir = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
             const recNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
             LOGGER.recovery(
                 `[${symbol}]${recNote} FORCE RECOVERY ${dir === 'CALLE' ? '\u{1f4c8} CALLE' : '\u{1f4c9} PUTE'} | ` +
