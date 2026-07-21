@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'will4b_03-state.json');
-const HISTORY_FILE        = path.join(__dirname, 'will4b_03-history.json');
+const STATE_FILE          = path.join(__dirname, 'will4b_04-state.json');
+const HISTORY_FILE        = path.join(__dirname, 'will4b_04-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED + WPR/breakout loggers]
@@ -1597,7 +1597,7 @@ class IndexBot {
             a.canTrade = false;
             const dir2 = a.forceRecoverDirection;
             const dir3 = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
-            const dir = a.recoveryStep > 1 ? dir3 : dir2;
+            const dir = a.recoveryStep > 2 ? dir3 : dir2;
             const recNote = a.recoveryStep > 0 ? ` [RECOVERY STEP ${a.recoveryStep}]` : '';
             LOGGER.recovery(
                 `[${symbol}]${recNote} FORCE RECOVERY ${dir === 'CALLE' ? '\u{1f4c8} CALLE' : '\u{1f4c9} PUTE'} | ` +
