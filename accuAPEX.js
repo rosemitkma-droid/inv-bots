@@ -124,8 +124,8 @@ const CONFIG = Object.freeze({
   takeProfit:     parseFloat('10000.0'),
 
   // ── Martingale ──
-  martingale:            parseFloat('21'),   // 0 = off
-  martingaleStep:        parseFloat('2'),
+  martingale:            parseFloat('0'),   // 0 = off
+  martingaleStep:        parseFloat('9'),
   lossesBeforeMartingale:parseInt  ('0'),
   maxMartingaleStep:     parseFloat('900'),
 
@@ -146,7 +146,7 @@ const CONFIG = Object.freeze({
   // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH1300N,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
 
-  assets: ('BOOM900,BOOM1000,CRASH900,CRASH1000')
+  assets: ('R_75,R_100,1HZ75V,1HZ100V,BOOM150N,BOOM900,BOOM1000,CRASH150N,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ─ Telegram ─
@@ -181,7 +181,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_apex_bot.log',
+  logFile : 'deriv_apex_botb.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -202,7 +202,7 @@ const CONFIG = Object.freeze({
 
   // ─ Growth-rate candidates (Deriv supports 0.01-0.05) ─
   //   APEX evaluates every rate and lets EV pick the best per regime.
-  pulseGrowthRates    : [0.05], //0.01, 0.02, 0.03, 0.04, 0.05
+  pulseGrowthRates    : [0.05, 0.04, 0.03], // eval multiple rates, let EV pick best
 
   // ─ Volatility regime ─
   pulseCalmMaxRatio   : parseFloat('1.05'), // 1.05
@@ -243,7 +243,15 @@ const CONFIG = Object.freeze({
   //   spike cadence — a spike that just fired resets the hazard clock.
   apexPostSpikeMin        : parseInt('1', 10),
   apexPostSpikeWindowFrac : parseFloat('0.35'), // fraction of mean cadence
-  apexMaxHazard           : parseFloat('0.010'), // reject if per-tick spike hazard > 1%
+  apexMaxHazard           : parseFloat('0.010'), // legacy: reject if per-tick hazard > 1% (now superseded by apexMinSpikeSurvival)
+  // v3: Hold-period-aware spike survival. Instead of a fixed per-tick hazard
+  // threshold (which incorrectly blocks fast-cadence assets like BOOM50),
+  // check that spike survival over the actual hold duration is acceptable.
+  // e.g. 0.50 = need ≥50% chance of no spike during the hold.
+  // BOOM50: (1-0.02)^8 = 0.85 ≥ 0.50 → PASS ✓
+  // BOOM1000: (1-0.001)^8 = 0.992 ≥ 0.50 → PASS ✓
+  // Extreme (cadence=10, hold=8): (0.9)^8 = 0.43 < 0.50 → REJECTED ✓
+  apexMinSpikeSurvival    : parseFloat('0.50'),
 
   // ─ Vol-compression entry (Volatility / Jump indices) ─
   //   Enter only when fast σ is at most apexVolCompressRatio × slow σ,
@@ -268,6 +276,81 @@ const CONFIG = Object.freeze({
   apexMinProfitLockFrac: parseFloat('0.004'),
 
 
+  // ═══════════════════════════════════════════════════════════════════
+  // v3: PER-ASSET RISK MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════════
+
+  //   Max entries per post-spike window per asset. After a spike fires,
+  //   the bot has a limited exploitable window. Re-entering too many
+  //   times in the same window increases exposure to the next spike.
+  maxEntriesPerSpikeWindow : parseInt('3', 10),
+
+  //   Cooldown after a loss on a specific asset (ms). Prevents
+  //   re-entering the same asset immediately after a loss.
+  assetLossCooldownMs      : parseInt('120000', 10),  // 2 minutes
+
+  //   After N consecutive losses on one asset, pause that asset entirely.
+  assetMaxConsecutiveLosses: parseInt('3', 10),
+
+  //   How long to pause an asset after hitting consecutive loss limit (ms).
+  assetPauseDurationMs     : parseInt('600000', 10),  // 10 minutes
+
+  //   Don't trade an asset if its rolling win rate drops below this.
+  minWinRateToTrade        : parseFloat('0.38'),  // 38%
+
+  //   Number of recent trades per asset to consider for rolling WR.
+  rollingWindowSize        : parseInt('15', 10),
+
+  //   Session-level circuit breaker: halt ALL trading if unrealized +
+  //   realized session drawdown exceeds this (in currency units).
+  sessionMaxDrawdown       : parseFloat('300'),
+
+  //   Don't trade more than N different assets in the same analysis cycle.
+  maxAssetsTrading         : parseInt('2', 10),
+
+  //   Minimum edge required to trade an asset that has recent losses.
+  //   Higher loss streak → need higher edge to justify re-entry.
+  edgeAfterLossBoost       : parseFloat('0.008'),  // +0.8% edge per loss in streak
+
+  // ═══════════════════════════════════════════════════════════════════
+  // v3: DYNAMIC ASSET DISCOVERY
+  // ═══════════════════════════════════════════════════════════════════
+  autoDiscoverAssets       : true,
+  discoveryIntervalMs      : parseInt('3600000', 10),  // re-discover every hour
+
+  //   Asset families to include in auto-discovery (case-insensitive).
+  //   Empty = discover all ACCU-capable assets.
+  assetFamilyFilter        : ['BOOM', 'CRASH'],
+
+  //   Correlated assets to avoid trading simultaneously.
+  //   If BOOM1000 is active, don't also enter BOOM900 (same regime).
+  correlatedGroups         : [
+    ['BOOM1000', 'BOOM900', 'BOOM600', 'BOOM500', 'BOOM300N', 'BOOM150N', 'BOOM50'],
+    ['CRASH1000', 'CRASH900', 'CRASH600', 'CRASH500', 'CRASH1300N', 'CRASH150N', 'CRASH50'],
+  ],
+
+  // ═══════════════════════════════════════════════════════════════════
+  // v3: SMART POSITION SIZING (replaces raw martingale)
+  // ═══════════════════════════════════════════════════════════════════
+  sizingModeV3             : 'adaptive',  // 'flat'|'adaptive'|'kelly'
+
+  //   Adaptive: after a loss, reduce stake by this factor (anti-martingale).
+  //   Rationale: a loss means the regime may have changed → trade smaller.
+  lossStakeReduction       : parseFloat('0.70'),  // stake × 0.70 after each loss
+
+  //   After a win, restore stake by this factor (partial recovery).
+  winStakeRecovery         : parseFloat('1.15'),  // stake × 1.15 after each win
+
+  //   Minimum stake floor (fraction of base stake).
+  minStakeFraction         : parseFloat('0.25'),  // never go below 25% of base
+
+  //   Maximum stake ceiling (fraction of base stake).
+  maxStakeFraction         : parseFloat('2.50'),  // never exceed 250% of base
+
+  //   Kelly fraction: use this fraction of full Kelly for sizing.
+  //   0.25 = quarter-Kelly (very conservative).
+  kellyFraction            : parseFloat('0.20'),
+
   // ─ Barrier refresh ─
   barrierRefreshMs    : parseInt('45000', 10),
 
@@ -283,15 +366,16 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_apex_bot_state.json',
+  stateFile          : 'deriv_apex_bot_stateb.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
 
   // ═══════════════════════════════════════════════════════════════════
   // BACKTESTER (Fix #4)
   // ═══════════════════════════════════════════════════════════════════
-  //   Run with:  BACKTEST=1 node deriv_pulse_bot.js
-  //   Optional:  BACKTEST_ASSET=R_100 BACKTEST_TICKS=100000
+  //   Run with:  BACKTEST=1 node accuAPEX.js
+  //   Optional:  BACKTEST_ASSET=BOOM1000 BACKTEST_TICKS=100000
+  //   v3 all:    BACKTEST=1 BACKTEST_ALL=1 node accuAPEX.js
   //
   //   NOTE on history depth: Deriv's ticks_history endpoint typically
   //   only serves ~24 h of ticks (≈ 43K on R_10, ≈ 43K on R_100). Asking
@@ -306,7 +390,7 @@ const CONFIG = Object.freeze({
   //     BACKTEST_MAX_HORIZON=4       (override pulseMaxHorizon)
   //     BACKTEST_MIN_SURV=0.85       (override pulseMinSurvival)
   //     BACKTEST_CALM_MAX=1.20       (override pulseCalmMaxRatio)
-  backtestTicks       : parseInt('100000', 10),
+  backtestTicks       : process.env.BACKTEST_TICKS ? parseInt(process.env.BACKTEST_TICKS) : parseInt('100000', 10),
   backtestBatchSize   : parseInt('5000',   10),
   backtestStepEvery   : parseInt('1',      10),
   backtestReportEvery : parseInt('10000',  10),
@@ -524,6 +608,9 @@ class DerivClient extends EventEmitter {
     this.martingaleMultiplier = 1.0;
     this.currentStake2        = cfg.stake;
     this._lastTradeWon        = true;
+
+    // ── v3: Per-asset risk tracker ──
+    this.assetTracker = new PerAssetTracker(cfg);
   }
 
   start() {
@@ -559,22 +646,31 @@ class DerivClient extends EventEmitter {
     this.lastBalance  = this.balance;
     logger.info(`start-of-day balance: ${this.startBalance} ${this.currencyStr()}`);
 
-    const martingaleLine = (this.cfg.martingale && this.cfg.martingale > 0)
+    const martingaleLine = (this.cfg.sizingModeV3 !== 'adaptive' && this.cfg.martingale && this.cfg.martingale > 0)
       ? `<b>Martingale:</b> ×${this.cfg.martingale} (after ${this.cfg.lossesBeforeMartingale} losses, +${this.cfg.martingaleStep}/loss, cap ×${this.cfg.maxMartingaleStep})\n`
       : '';
 
     telegram.send(
-      `<b>APEX Bot Online</b>\n\n` +
+      `<b>APEX v3 Bot Online</b>\n\n` +
       `<b>Account:</b> ${info.loginid}\n` +
       `<b>Type:</b> ${info.isVirtual ? 'DEMO' : 'REAL'}\n` +
       `<b>Balance:</b> ${this.startBalance.toFixed(2)} ${this.currencyStr()}\n` +
-      `<b>Assets:</b> ${this.cfg.assets.length}\n` +
+      `<b>Assets:</b> ${this.cfg.assets.length} ${this.cfg.autoDiscoverAssets ? '(auto-discover ON)' : ''}\n` +
       `<b>Stake:</b> ${this.cfg.stake}\n` +
       `<b>Growth rates:</b> ${this.cfg.pulseGrowthRates.map(g => (g*100).toFixed(0)+'%').join(', ')}\n` +
+      `<b>Sizing:</b> ${this.cfg.sizingModeV3} ` +
+        `(loss×${this.cfg.lossStakeReduction}, win×${this.cfg.winStakeRecovery})\n` +
       martingaleLine +
       `<b>Min EV:</b> ${(this.cfg.apexMinEV*100).toFixed(1)}%\n` +
       `<b>Min survival:</b> ${(this.cfg.apexMinSurvival*100).toFixed(1)}%\n` +
       `<b>Spread cost:</b> ${(this.cfg.pulseSpreadCost*100).toFixed(2)}%\n\n` +
+      `<b>v3 Risk Gates</b>\n` +
+      `• Max entries/window: ${this.cfg.maxEntriesPerSpikeWindow}\n` +
+      `• Loss cooldown: ${this.cfg.assetLossCooldownMs/1000}s\n` +
+      `• Pause after ${this.cfg.assetMaxConsecutiveLosses} losses: ${this.cfg.assetPauseDurationMs/1000}s\n` +
+      `• Min win rate: ${(this.cfg.minWinRateToTrade*100).toFixed(0)}% (over ${this.cfg.rollingWindowSize} trades)\n` +
+      `• Session max DD: ${this.cfg.sessionMaxDrawdown}\n` +
+      `• Correlated filter: ${this.cfg.correlatedGroups.length} groups\n\n` +
       `<b>APEX engine active</b>\n` +
       `Post-spike (Boom/Crash) + vol-compression (Vol) · holds ≤${this.cfg.apexMaxHoldBoom} ticks\n\n` +
       `<b>Overall Profit:</b> ${money(this.stats.overallProfit, this.currencyStr())}\n` +
@@ -585,7 +681,51 @@ class DerivClient extends EventEmitter {
       this.market.loadSymbols(),
       this.market.bootstrap(this.cfg.assets),
       this._refreshBarriers(),
-    ]).then(() => {
+    ]).then(async () => {
+      // v3: Dynamic asset discovery (if enabled)
+      if (this.cfg.autoDiscoverAssets) {
+        try {
+          const discovered = await this.market.discoverAccuAssets();
+          if (discovered.length > this.cfg.assets.length) {
+            const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
+            if (newAssets.length) {
+              logger.info(`v3: discovered ${newAssets.length} new assets: ${newAssets.join(', ')}`);
+              // Add to runtime asset list (mutate cfg.assets array)
+              for (const a of newAssets) {
+                if (!this.cfg.assets.includes(a)) this.cfg.assets.push(a);
+              }
+              // Bootstrap newly discovered assets (subscribe + backfill)
+              await this.market.bootstrap(newAssets);
+              // Refresh barriers for new assets too
+              await this._refreshBarriers();
+              telegram.send(
+                `<b>v3: New Assets Discovered</b>\n` +
+                `Added: ${newAssets.join(', ')}\n` +
+                `Total: ${this.cfg.assets.length} assets`,
+              );
+            }
+          }
+        } catch (e) {
+          logger.warn(`v3: asset discovery error: ${e.message}`);
+        }
+        // Schedule periodic re-discovery
+        if (this._discoveryT) clearInterval(this._discoveryT);
+        this._discoveryT = setInterval(async () => {
+          try {
+            const discovered = await this.market.discoverAccuAssets();
+            const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
+            if (newAssets.length) {
+              for (const a of newAssets) this.cfg.assets.push(a);
+              await this.market.bootstrap(newAssets);
+              await this._refreshBarriers();
+              logger.info(`v3: periodic discovery found ${newAssets.length} new assets: ${newAssets.join(', ')}`);
+            }
+          } catch (e) {
+            logger.debug(`v3: periodic discovery error: ${e.message}`);
+          }
+        }, this.cfg.discoveryIntervalMs);
+      }
+
       if (this._analysisT) clearInterval(this._analysisT);
       this._analyzeAndTrade();
       this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
@@ -894,10 +1034,20 @@ class DerivClient extends EventEmitter {
     this.overallProfit += t.profit;
     this._updateMartingale(t.status);
 
+    // v3: Update per-asset tracker
+    const won = t.status === 'won';
+    this.assetTracker.onTradeResult(t.symbol, won, t.profit);
+
+    // v3: Update adaptive stake for this asset
+    if (this.cfg.sizingModeV3 === 'adaptive') {
+      const currentStake = this.assetTracker.getAdaptiveStake(t.symbol, this.cfg.stake);
+      this.assetTracker.updateStakeAfterResult(t.symbol, won, currentStake, this.cfg.stake);
+    }
+
     // Bug 7 fix — Deriv returns lowercase 'won'/'lost' (not 'Won').
     // On a win: reset the persisted stake baseline; on a loss: remember
     // the losing stake as a string with 2-decimal precision.
-    if (t.status === 'won') {
+    if (won) {
       this.currentStake2 = this.cfg.stake;
     } else {
       this.currentStake2 = Number(t.stake).toFixed(2);
@@ -907,6 +1057,15 @@ class DerivClient extends EventEmitter {
       ? `<b>Martingale:</b> ×${this.martingaleMultiplier.toFixed(2)} (${this.lossesStreak} consecutive losses)\n`
       : '';
     const todayStats = this.stats.stats(this.stats.todayTrades(rec.date));
+
+    // v3: Per-asset stats
+    const assetState = this.assetTracker._getAsset(t.symbol);
+    const v3AssetLine =
+      `<b>Asset (${t.symbol}):</b> WR=${(assetState.rollingWinRate*100).toFixed(0)}% ` +
+      `(last ${assetState.recentResults.length}) | ` +
+      `Losses: ${assetState.consecutiveLosses} | P/L: ${assetState.totalPnl >= 0 ? '+' : ''}${assetState.totalPnl.toFixed(2)}\n`;
+    const v3SessionLine =
+      `<b>Session P/L:</b> ${this.assetTracker.sessionPnl >= 0 ? '+' : ''}${this.assetTracker.sessionPnl.toFixed(2)} ${this.currencyStr()}\n`;
 
     let msg =
       `${emoji} <b>APEX TRADE ${label}</b>\n\n` +
@@ -918,6 +1077,8 @@ class DerivClient extends EventEmitter {
       `${t.profit >= 0 ? '💚' : '💔'} <b>Profit:</b> ${t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)} ${this.currencyStr()}\n` +
       `<b>Duration:</b> ${dur.toFixed(1)}s\n` +
       `<b>Balance:</b> ${this.lastBalance.toFixed(2)} ${this.currencyStr()}\n\n` +
+      v3AssetLine +
+      v3SessionLine +
       `<b>GMT Day Stats (${rec.date})</b>\n` +
       `• Trades: ${todayStats.count} (✅${todayStats.wins} ❌${todayStats.losses})\n` +
       `• Win rate: ${todayStats.winRate.toFixed(1)}%\n` +
@@ -936,26 +1097,40 @@ class DerivClient extends EventEmitter {
   _onTradeOpen(t) {
     this.tradeStartTime = Date.now();
     this._startTradeWatchdog(t.contractId);
+
+    // v3: Build sizing line
+    const a = t._analysis || {};
+    const sizingMode = a.sizingMode || 'legacy';
+    let sizingLine;
+    if (sizingMode === 'adaptive') {
+      const assetState = this.assetTracker._getAsset(t.symbol);
+      sizingLine = `<b>Sizing:</b> Adaptive (${t.stake.toFixed(2)} ${this.currencyStr()})\n` +
+        `• Base: ${(a.baseStake ?? this.cfg.stake).toFixed(2)} | WR: ${(assetState.rollingWinRate*100).toFixed(0)}% | Asset losses: ${assetState.consecutiveLosses}\n`;
+    } else {
+      sizingLine = this.martingaleMultiplier > 1
+        ? `<b>Martingale:</b> ×${this.martingaleMultiplier.toFixed(2)} (${this.lossesStreak} losses)\n`
+        : '';
+    }
+
     const msg =
-      `<b>APEX TRADE OPENED</b>\n\n` +
+      `<b>APEX v3 TRADE OPENED</b>\n\n` +
       `<b>Contract:</b> #${t.contractId}\n` +
       `<b>Symbol:</b> <code>${t.symbol}</code>\n` +
       `<b>Growth Rate:</b> ${(t.growthRate*100).toFixed(2)}%\n` +
-      `<b>Stake:</b> ${t.stake.toFixed(2)}${this.martingaleMultiplier > 1 ? ` (base ${(t._analysis?.baseStake ?? this.cfg.stake)} × ${this.martingaleMultiplier.toFixed(2)})` : ''} ${this.currencyStr()}\n` +
+      `<b>Stake:</b> ${t.stake.toFixed(2)} ${this.currencyStr()}\n` +
+      sizingLine +
       `<b>Take Profit:</b> ${t.limit?.take_profit ?? '–'}\n` +
       `<b>Overall Profit:</b> ${this.overallProfit >= 0 ? '+' : ''}${this.overallProfit.toFixed(2)} ${this.currencyStr()}\n` +
-      `<b>Loss streak:</b> ${this.stats.currentLossStreak}\n` +
-      (this.martingaleMultiplier > 1
-        ? `<b>Martingale:</b> ×${this.martingaleMultiplier.toFixed(2)} (${this.lossesStreak} losses)\n`
-        : '') + `\n` +
+      `<b>Session P/L:</b> ${this.assetTracker.sessionPnl >= 0 ? '+' : ''}${this.assetTracker.sessionPnl.toFixed(2)}\n` +
+      `\n` +
       `<b>APEX Analysis</b>\n` +
-      `• Regime: ${t._analysis?.regimeClass ?? '?'} (${t._analysis?.entryReason ?? '?'})\n` +
-      `• Edge (net spread): ${((t._analysis?.edge ?? 0)*100).toFixed(2)}%\n` +
-      `• EV: ${((t._analysis?.ev ?? 0)*100).toFixed(2)}%\n` +
-      `• Survival pN: ${((t._analysis?.pN ?? 0)*100).toFixed(2)}%  (per-tick ${((t._analysis?.perTickSurv ?? 0)*100).toFixed(2)}%)\n` +
-      `• N*: ${t._analysis?.bestN ?? '?'} ticks\n` +
-      `• Spike hazard: ${((t._analysis?.hazard ?? 0)*100).toFixed(2)}%  cadence≈${t._analysis?.spikeCadence ?? '?'}  since=${t._analysis?.ticksSinceSpike ?? '?'}\n` +
-      `• σfast/σslow: ${(t._analysis?.volRatio ?? 0).toFixed(2)}  barrier=±${((t._analysis?.barrierFrac ?? 0)*100).toFixed(4)}%`;
+      `• Regime: ${a.regimeClass ?? '?'} (${a.entryReason ?? '?'})\n` +
+      `• Edge (net spread): ${((a.edge ?? 0)*100).toFixed(2)}%\n` +
+      `• EV: ${((a.ev ?? 0)*100).toFixed(2)}%\n` +
+      `• Survival pN: ${((a.pN ?? 0)*100).toFixed(2)}%  (per-tick ${((a.perTickSurv ?? 0)*100).toFixed(2)}%)\n` +
+      `• N*: ${a.bestN ?? '?'} ticks\n` +
+      `• Spike hazard: ${((a.hazard ?? 0)*100).toFixed(2)}%  cadence≈${a.spikeCadence ?? '?'}  since=${a.ticksSinceSpike ?? '?'}\n` +
+      `• σfast/σslow: ${(a.volRatio ?? 0).toFixed(2)}  barrier=±${((a.barrierFrac ?? 0)*100).toFixed(4)}%`;
     telegram.send(msg);
   }
   _onTradeUpdate(t) {
@@ -1065,6 +1240,8 @@ class DerivClient extends EventEmitter {
     this.stats.record(finishedTrade);
     // Bug 8 fix — increment martingale/loss-streak state on stuck loss.
     this._updateMartingale('lost');
+    // v3: update per-asset tracker on stuck trade recovery
+    this.assetTracker.onTradeResult(symbol, false, -stake);
     this.lastBalance   = (this.lastBalance ?? this.balance ?? 0) + finishedTrade.profit;
     this.overallProfit += finishedTrade.profit;
 
@@ -1099,6 +1276,18 @@ class DerivClient extends EventEmitter {
       if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
       if (this.exec.count() >= this.cfg.maxOpenTrades)              return;
 
+      // v3: Session drawdown circuit breaker
+      if (this.assetTracker.sessionHalted) {
+        logger.warn(`session halted: ${this.assetTracker.sessionHaltReason}`);
+        return;
+      }
+
+      // v3: Don't exceed max simultaneously active assets
+      if (this.assetTracker.activeCount() >= this.cfg.maxAssetsTrading) {
+        logger.debug(`max assets trading reached (${this.assetTracker.activeCount()}/${this.cfg.maxAssetsTrading})`);
+        return;
+      }
+
       // Analyse every asset with APEX
       const analyses   = this.cfg.assets.map(s =>
         this.analyzer.analyze(s, this.market.historyFor(s), this.market));
@@ -1122,18 +1311,54 @@ class DerivClient extends EventEmitter {
         return;
       }
 
-      // `candidates` contains ONLY rows where analyze() set recommend=true,
-      // which reflects edgeOK && evOK && survOK && entry-window-open.
-      const best = candidates[0];
+      // v3: Filter candidates through per-asset risk checks
+      //     Try each candidate in ranked order; the first one that passes
+      //     all risk gates is the one we trade.
+      let chosen = null;
+      let chosenCheck = null;
+      for (const cand of candidates) {
+        // v3: Check correlated assets — don't double up on same regime
+        if (this.assetTracker.isCorrelated(cand.symbol)) {
+          logger.debug(`v3: skipping ${cand.symbol} — correlated with active asset`);
+          continue;
+        }
+
+        // v3: Per-asset risk check (cooldown, window limit, win rate, edge penalty)
+        const check = this.assetTracker.checkEntry(cand.symbol, cand.edge, cand.ticksSinceSpike);
+        if (!check.allowed) {
+          logger.info(
+            `v3: ${cand.symbol} BLOCKED — ${check.reason}`,
+          );
+          continue;
+        }
+
+        chosen = cand;
+        chosenCheck = check;
+        break;
+      }
+
+      if (!chosen) {
+        logger.debug('v3: no candidate passed per-asset risk gates');
+        return;
+      }
+
+      const best = chosen;
 
       logger.info(
         `APEX ENTER ${best.symbol} [${best.regimeClass}:${best.entryReason}] g=${(best.growthRate*100).toFixed(0)}% ` +
         `edge=${best.edge.toFixed(4)} ev=${(best.ev*100).toFixed(2)}% ` +
         `N*=${best.bestN} pN=${(best.pN*100).toFixed(1)}% hazard=${(best.hazard*100).toFixed(2)}% ` +
-        `sinceSpike=${best.ticksSinceSpike}`,
+        `sinceSpike=${best.ticksSinceSpike} cadence=${best.spikeCadence} ` +
+        `hold=${best.adaptiveMaxHold} winFrac=${best.adaptiveWindowFrac} ` +
+        `spikeSurv=${(best.spikeSurvivalHold*100).toFixed(1)}%`,
       );
 
-      const stake       = this.currentStake(best.edge);
+      // v3: Use adaptive stake sizing instead of raw martingale
+      const baseStake = this.cfg.stake;
+      const stake = (this.cfg.sizingModeV3 === 'adaptive')
+        ? this.assetTracker.getAdaptiveStake(best.symbol, baseStake)
+        : this.currentStake(best.edge);
+
       const tpFraction  = best.suggestedTakeProfit;
       const takeProfit  = +(stake * tpFraction).toFixed(2);
       const stopLoss    = this.cfg.stopLoss;
@@ -1148,10 +1373,17 @@ class DerivClient extends EventEmitter {
         vrRatio: best.vrRatio, sigma: best.sigma,
         growthRate: best.growthRate, halfBarrierFrac: best.halfBarrierFrac,
         logBarrierHalf: best.logBarrierHalf,
-        martingaleMultiplier: this.martingaleMultiplier,
-        lossesStreak: this.lossesStreak,
-        baseStake: this.cfg.stake,
+        // v3: Use adaptive sizing info instead of martingale
+        sizingMode: this.cfg.sizingModeV3,
+        adaptiveStake: stake,
+        baseStake: baseStake,
+        rollingWinRate: this.assetTracker._getAsset(best.symbol).rollingWinRate,
+        assetLosses: this.assetTracker._getAsset(best.symbol).consecutiveLosses,
+        sessionPnl: this.assetTracker.sessionPnl,
       };
+
+      // v3: Notify tracker of trade open
+      this.assetTracker.onTradeOpen(best.symbol);
 
       const trade = await this.exec.buy(
         best.symbol, best.growthRate, stake,
@@ -1159,12 +1391,12 @@ class DerivClient extends EventEmitter {
         analysis,
       );
 
-      const martingaleNote = this.martingaleMultiplier > 1
-        ? ` martingale × ${this.martingaleMultiplier.toFixed(2)} (${this.lossesStreak} losses)`
-        : '';
+      const v3Note = this.cfg.sizingModeV3 === 'adaptive'
+        ? ` adaptive-stake=${stake} (WR=${(analysis.rollingWinRate*100).toFixed(0)}%)`
+        : ` martingale × ${this.martingaleMultiplier.toFixed(2)} (${this.lossesStreak} losses)`;
       logger.info(
         `trade placed #${trade.contractId} ${best.symbol} g=${best.growthRate} ` +
-        `stake=${stake}${martingaleNote} tp=${takeProfit} ` +
+        `stake=${stake}${v3Note} tp=${takeProfit} ` +
         `barrier=±${trade.halfBarrierPct.toFixed(4)}%`,
       );
     } catch (e) {
@@ -1185,8 +1417,8 @@ class DerivClient extends EventEmitter {
   // ── State persistence ─────────────────────────────────────
   _statePayload(reason) {
     return {
-      version: 3,
-      engine : 'APEX',
+      version: 4,
+      engine : 'APEX v3',
       savedAt: new Date().toISOString(),
       savedReason: reason,
       startBalance: this.startBalance,
@@ -1196,6 +1428,8 @@ class DerivClient extends EventEmitter {
       stats         : this.stats.serialize(),
       lossesStreak  : this.lossesStreak ?? 0,
       martingaleMultiplier: this.martingaleMultiplier ?? 1.0,
+      // v3: per-asset tracker state
+      assetTracker  : this.assetTracker.serialize(),
     };
   }
   _saveState(reason = 'checkpoint') {
@@ -1223,10 +1457,13 @@ class DerivClient extends EventEmitter {
       if (data.lossesStreak != null) this.lossesStreak    = data.lossesStreak;
       if (data.martingaleMultiplier != null) this.martingaleMultiplier = data.martingaleMultiplier;
       this.stats = new StatisticsManager(data.stats || data);
+      // v3: restore per-asset tracker state
+      if (data.assetTracker) this.assetTracker.loadSaved(data.assetTracker);
       logger.info(
-        `state restored (APEX): overallProfit=${this.stats.overallProfit.toFixed(2)} ` +
+        `state restored (APEX v3): overallProfit=${this.stats.overallProfit.toFixed(2)} ` +
         `lossStreak=${this.stats.currentLossStreak} ` +
-        `martingale=${this.martingaleMultiplier.toFixed(2)}`,
+        `sessionPnl=${this.assetTracker.sessionPnl.toFixed(2)} ` +
+        `trackedAssets=${this.assetTracker.assets.size}`,
       );
     } catch (e) {
       logger.warn(`state load failed:`, e.message);
@@ -1310,6 +1547,12 @@ class DerivClient extends EventEmitter {
       `Consecutive losses: current ${this.stats.currentLossStreak} | max ${this.stats.maxLossStreak}\n` +
       ` x2=${this.stats.lossStreakEvents.x2} x3=${this.stats.lossStreakEvents.x3} x4=${this.stats.lossStreakEvents.x4}\n\n`;
 
+    // v3: Per-asset breakdown
+    const assetSummary = this.assetTracker.summary();
+    if (assetSummary) {
+      msg += `<b>── v3: Per-Asset Performance ──</b>\n${assetSummary}\n\n`;
+    }
+
     const rows = this.stats.allDailyRows(date);
     if (rows.length) {
       msg += `<b>── All Trade Days By Date ──</b>\n`;
@@ -1340,6 +1583,7 @@ class DerivClient extends EventEmitter {
     if (this._hourlyBoot) clearTimeout(this._hourlyBoot);
     if (this._eodBoot)    clearTimeout(this._eodBoot);
     if (this._barrierT)   clearInterval(this._barrierT);
+    if (this._discoveryT) clearInterval(this._discoveryT);  // v3: cleanup discovery timer
     this._saveState('shutdown');
     try { this.ws?.close(); } catch (_) {}
     setTimeout(() => process.exit(0), 2500);
@@ -1429,6 +1673,66 @@ class MarketDataManager {
       logger.error('loadSymbols failed:', e.message);
     }
   }
+
+  /**
+   * v3: Dynamic asset discovery — queries Deriv for all ACCU-capable assets,
+   * filters by configured families, and returns the discovered list.
+   * Called on startup and periodically.
+   */
+  async discoverAccuAssets() {
+    const discovered = [];
+    try {
+      // Fetch the full list of active symbols with their contract types
+      const res = await this.client._send({ active_symbols: 'full' }, 20000);
+      const list = res.active_symbols || [];
+
+      const families = (this.cfg.assetFamilyFilter || [])
+        .map(f => f.toUpperCase());
+
+      for (const s of list) {
+        const key = (s.underlying_symbol || s.symbol || '').toUpperCase();
+        if (!key) continue;
+
+        // Check if this symbol supports Accumulator contracts
+        // Deriv synthetic indices with "boom", "crash", "volatility", "jump" support ACCU
+        const market = (s.market || '').toLowerCase();
+        const submarket = (s.submarket || '').toLowerCase();
+        const symbolType = (s.symbol_type || '').toLowerCase();
+
+        // Accept if it's a synthetic index (our target market)
+        const isSynth = market === 'synthetic_index' || symbolType === 'synthetic_index';
+        if (!isSynth) continue;
+
+        // Filter by family if configured
+        if (families.length > 0) {
+          const matchesFamily = families.some(f => key.includes(f));
+          if (!matchesFamily) continue;
+        }
+
+        // Verify it supports ACCU by doing a probe proposal
+        // (skip this for speed — Deriv's synthetic indices generally support ACCU)
+        discovered.push(key);
+      }
+
+      // Sort: BOOM/CRASH first (our specialty), then others
+      discovered.sort((a, b) => {
+        const aBoom = a.includes('BOOM') || a.includes('CRASH') ? 0 : 1;
+        const bBoom = b.includes('BOOM') || b.includes('CRASH') ? 0 : 1;
+        return aBoom - bBoom || a.localeCompare(b);
+      });
+
+      logger.info(`v3: discovered ${discovered.length} ACCU-capable assets: ${discovered.join(', ')}`);
+    } catch (e) {
+      logger.warn(`v3: asset discovery failed: ${e.message} — using configured list`);
+      // Fall back to configured assets
+      return this.cfg.assets.slice();
+    }
+
+    // Merge discovered with configured (configured always included)
+    const merged = new Set([...this.cfg.assets, ...discovered]);
+    return [...merged];
+  }
+
   async backfill(symbol, count = 1000) {
     try {
       const res = await this.client._send({
@@ -1674,6 +1978,32 @@ class ApexAnalyzer {
     const barrierInfoRef = market ? market.getBarrier(symbol, refGr) : null;
     const spread         = this.cfg.pulseSpreadCost;
 
+    // v3: ADAPTIVE EV THRESHOLD based on asset cadence.
+    // Fast-cadence assets (BOOM50, cadence~50) have tighter barriers and
+    // thinner per-trade EV, but compensate with 10x more opportunities.
+    // BOOM1000: cadence~1000 → EV threshold stays at apexMinEV (0.5%)
+    // BOOM50:   cadence~50   → EV threshold drops to ~0.125%
+    // The threshold scales linearly from apexMinEV at cadence≥200 down
+    // to 25% of apexMinEV at cadence≤50.
+    const adaptiveMinEV = regimeClass === 'VOL'
+      ? this.cfg.apexMinEV
+      : Math.max(
+          this.cfg.apexMinEV * 0.25,  // floor: 25% of base
+          this.cfg.apexMinEV * Math.min(1, spikeCadence / 200),
+        );
+
+    // v3: ADAPTIVE SURVIVAL THRESHOLD based on asset cadence.
+    // Fast-cadence assets (BOOM50, perTickSurv=94.56%) drop below 93%
+    // at K=2 (0.9456²=89.4%). But 89% survival over 2 ticks is fine for
+    // a fast-cadence asset with many daily opportunities. Scale the
+    // survival floor down for fast assets.
+    const adaptiveMinSurvival = regimeClass === 'VOL'
+      ? this.cfg.apexMinSurvival
+      : Math.max(
+          0.70,  // floor: 70% absolute minimum
+          this.cfg.apexMinSurvival * Math.min(1, spikeCadence / 200),
+        );
+
     let best = null;
 
     for (const growthRate of growthRates) {
@@ -1714,9 +2044,35 @@ class ApexAnalyzer {
       if (perTickSurv <= 0) continue;
 
       // ── 7. Class-specific entry window (the exploitable moment) ─────
-      const maxHold = regimeClass === 'VOL'
-        ? this.cfg.apexMaxHoldVol
-        : this.cfg.apexMaxHoldBoom;
+      // v3: ASSET-ADAPTIVE parameters based on detected cadence.
+      // Fast-cadence assets (BOOM50, cadence~50) get shorter holds and
+      // wider windows; slow-cadence assets (BOOM1000, cadence~1000) keep
+      // the standard settings.
+      let maxHold, windowFrac;
+      if (regimeClass === 'VOL') {
+        maxHold    = this.cfg.apexMaxHoldVol;
+        windowFrac = 1.0;  // vol compression has no spike window concept
+      } else if (spikeCadence > 0) {
+        // Adaptive max hold: scale with cadence (12% of cadence, min 3, max configured)
+        // BOOM50:  min(8, max(3, floor(50*0.12)))  = min(8, 6)  = 6 ticks
+        // BOOM150: min(8, max(3, floor(150*0.12))) = min(8, 18) = 8 ticks
+        // BOOM1000: min(8, max(3, floor(1000*0.12))) = min(8, 120) = 8 ticks
+        maxHold = Math.min(
+          this.cfg.apexMaxHoldBoom,
+          Math.max(3, Math.floor(spikeCadence * 0.12)),
+        );
+        // Adaptive window: faster assets get a wider fraction (more opportunities)
+        // BOOM50:  min(0.50, 0.35 + 10*0.05) = min(0.50, 0.85) = 0.50 → 25 ticks
+        // BOOM150: min(0.50, 0.35 + 3.3*0.05) = min(0.50, 0.52) = 0.50 → 75 ticks
+        // BOOM1000: min(0.50, 0.35 + 0.5*0.05) = min(0.50, 0.375) = 0.375 → 375 ticks
+        windowFrac = Math.min(
+          0.50,
+          this.cfg.apexPostSpikeWindowFrac + (500 / Math.max(spikeCadence, 50)) * 0.05,
+        );
+      } else {
+        maxHold    = this.cfg.apexMaxHoldBoom;
+        windowFrac = this.cfg.apexPostSpikeWindowFrac;
+      }
 
       let entryOK = false, entryReason = '';
       if (regimeClass === 'VOL') {
@@ -1730,13 +2086,23 @@ class ApexAnalyzer {
       } else {
         const cadenceKnown = spikesSeen >= this.cfg.apexMinSpikesSeen && spikeCadence > 0;
         const freshWindow  = ticksSinceSpike >= this.cfg.apexPostSpikeMin &&
-                             ticksSinceSpike <= this.cfg.apexPostSpikeWindowFrac * spikeCadence;
-        const hazardOK     = hazard <= this.cfg.apexMaxHazard;
+                             ticksSinceSpike <= windowFrac * spikeCadence;
+
+        // v3: HOLD-PERIOD-AWARE hazard check (replaces fixed per-tick threshold).
+        // Instead of rejecting assets where hazard > 1% (which blocks BOOM50 at
+        // 2% even though its 8-tick hold only has ~15% spike risk), we check
+        // whether the spike survival over the actual hold duration is acceptable.
+        // spikeSurvival = (1 - hazard)^maxHold
+        // e.g. BOOM50: (1-0.02)^8 = 0.85 → 85% survival → OK
+        //      BOOM1000: (1-0.001)^8 = 0.992 → 99.2% survival → OK
+        //      Extreme: hazard=10%, hold=8: (0.9)^8 = 0.43 → REJECTED
+        const spikeSurvivalHold = Math.pow(Math.max(0, 1 - hazard), maxHold);
+        const hazardOK = spikeSurvivalHold >= this.cfg.apexMinSpikeSurvival;
         entryOK = cadenceKnown && freshWindow && hazardOK && !barrierEstimated;
-        entryReason = barrierEstimated ? 'no-barrier'
-                    : !cadenceKnown    ? 'cadence-unknown'
-                    : !freshWindow     ? 'not-post-spike'
-                    : !hazardOK        ? 'hazard-high'
+        entryReason = barrierEstimated    ? 'no-barrier'
+                    : !cadenceKnown       ? 'cadence-unknown'
+                    : !freshWindow        ? 'not-post-spike'
+                    : !hazardOK           ? `hazard-low-surv:${(spikeSurvivalHold*100).toFixed(0)}%`
                     : 'post-spike';
       }
 
@@ -1749,7 +2115,8 @@ class ApexAnalyzer {
         const edge  = Math.pow(1 + growthRate, K) * survK - spread;
         const ev    = edge - 1;
         if (edge > rawEdge) { rawEdge = edge; rawEv = ev; rawN = K; rawSurv = survK; }
-        if (survK >= this.cfg.apexMinSurvival && ev >= this.cfg.apexMinEV && ev > bestEv) {
+        // v3: use adaptive thresholds (cadence-scaled) instead of fixed values
+        if (survK >= adaptiveMinSurvival && ev >= adaptiveMinEV && ev > bestEv) {
           bestEv = ev; bestN = K; bestEdge = edge; bestSurv = survK;
         }
       }
@@ -1761,8 +2128,8 @@ class ApexAnalyzer {
       const pN      = chosen ? bestSurv : rawSurv;
 
       const edgeOK = edge >= this.cfg.pulseEdgeThreshold;
-      const evOK   = ev   >= this.cfg.apexMinEV;
-      const survOK = pN   >= this.cfg.apexMinSurvival;
+      const evOK   = ev   >= adaptiveMinEV;  // v3: cadence-adaptive (not fixed)
+      const survOK = pN   >= adaptiveMinSurvival;  // v3: cadence-adaptive (not fixed)
       const calmOK = entryOK;   // "entry window open" — reuses the scaffold gate name
 
       const candidate = {
@@ -1778,6 +2145,11 @@ class ApexAnalyzer {
         barrierFrac, halfBarrierFrac: logBarrierHalf, logBarrierHalf, price,
         suggestedTakeProfit: Math.max(Math.pow(1 + growthRate, N) - 1, 0.005),
         spreadCost: spread,
+        // v3: asset-adaptive parameters
+        adaptiveMaxHold: maxHold,
+        adaptiveWindowFrac: +windowFrac.toFixed(4),
+        adaptiveMinEV: +adaptiveMinEV.toFixed(6),
+        spikeSurvivalHold: regimeClass !== 'VOL' ? +Math.pow(Math.max(0, 1 - hazard), maxHold).toFixed(4) : 1,
         entryReason,
         edgeOK, evOK, survOK, calmOK,
         recommend: chosen && edgeOK && evOK && survOK && calmOK,
@@ -2222,6 +2594,298 @@ class StatisticsManager {
       if (stats && stats.count > 0) rows.push({ date, stats });
     });
     return rows;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 9b. PER-ASSET RISK TRACKER (v3 — the "don't over-trade" brain)
+// ─────────────────────────────────────────────────────────────────────
+//
+// WHY THIS EXISTS:
+//   The original APEX engine had no memory of per-asset trading history
+//   within a session. When a post-spike window opened on BOOM1000, the
+//   analyzer would keep recommending re-entries because the edge still
+//   looked positive — but each successive entry in the same window has
+//   diminishing edge and increasing exposure to the next spike. This
+//   tracker enforces hard limits on:
+//     1. Entries per spike window per asset
+//     2. Consecutive losses → cooldown
+//     3. Rolling win rate → don't trade consistently losing assets
+//     4. Session drawdown → circuit breaker
+//     5. Correlated asset exposure → don't double up on same regime
+//
+class PerAssetTracker {
+  constructor(cfg) {
+    this.cfg = cfg;
+
+    // Per-asset state: keyed by symbol
+    this.assets = new Map();
+
+    // Session-level state
+    this.sessionPnl       = 0;
+    this.sessionPeakPnl   = 0;
+    this.sessionHalted    = false;
+    this.sessionHaltReason = '';
+
+    // Active assets (assets with an open trade right now)
+    this.activeAssets = new Set();
+  }
+
+  _getAsset(symbol) {
+    if (!this.assets.has(symbol)) {
+      this.assets.set(symbol, {
+        symbol,
+        // Spike window tracking
+        lastSpikeEpoch      : 0,      // epoch of last detected spike
+        entriesInWindow     : 0,      // trades entered since last spike
+        // Loss tracking
+        consecutiveLosses   : 0,
+        cooldownUntil       : 0,      // timestamp (ms) when cooldown expires
+        pausedUntil         : 0,      // timestamp (ms) when asset pause expires
+        // Rolling performance
+        recentResults       : [],     // last N results: {won: bool, pnl: number, ts: number}
+        rollingWins         : 0,
+        rollingLosses       : 0,
+        rollingWinRate      : 0.5,    // default to neutral
+        // Per-asset P/L
+        totalTrades         : 0,
+        totalPnl            : 0,
+        // Current stake for this asset
+        adaptiveStake       : null,   // null = use global
+      });
+    }
+    return this.assets.get(symbol);
+  }
+
+  // ── Called every analysis cycle ──
+  // Returns { allowed: bool, reason: string, adjustedEdge: number }
+  checkEntry(symbol, rawEdge, currentSpikeEpoch) {
+    const a = this._getAsset(symbol);
+    const now = Date.now();
+
+    // 1. Session halt
+    if (this.sessionHalted) {
+      return { allowed: false, reason: `session-halted: ${this.sessionHaltReason}`, adjustedEdge: rawEdge };
+    }
+
+    // 2. Asset paused (too many consecutive losses)
+    if (a.pausedUntil > now) {
+      const remainSec = ((a.pausedUntil - now) / 1000).toFixed(0);
+      return { allowed: false, reason: `asset-paused: ${remainSec}s left (${a.consecutiveLosses} consecutive losses)`, adjustedEdge: rawEdge };
+    }
+
+    // 3. Loss cooldown
+    if (a.cooldownUntil > now) {
+      const remainSec = ((a.cooldownUntil - now) / 1000).toFixed(0);
+      return { allowed: false, reason: `loss-cooldown: ${remainSec}s left`, adjustedEdge: rawEdge };
+    }
+
+    // 4. Spike window entry limit
+    //    If a new spike has fired since our last check, reset the window counter.
+    if (currentSpikeEpoch > a.lastSpikeEpoch && currentSpikeEpoch > 0) {
+      a.lastSpikeEpoch = currentSpikeEpoch;
+      a.entriesInWindow = 0;
+    }
+    if (a.entriesInWindow >= this.cfg.maxEntriesPerSpikeWindow) {
+      return { allowed: false, reason: `window-limit: ${a.entriesInWindow}/${this.cfg.maxEntriesPerSpikeWindow} entries in current window`, adjustedEdge: rawEdge };
+    }
+
+    // 5. Rolling win rate filter
+    if (a.totalTrades >= this.cfg.rollingWindowSize) {
+      if (a.rollingWinRate < this.cfg.minWinRateToTrade) {
+        return { allowed: false, reason: `low-winrate: ${(a.rollingWinRate*100).toFixed(1)}% < ${(this.cfg.minWinRateToTrade*100).toFixed(0)}%`, adjustedEdge: rawEdge };
+      }
+    }
+
+    // 6. Edge boost after losses: require higher edge to justify re-entry
+    let adjustedEdge = rawEdge;
+    if (a.consecutiveLosses > 0) {
+      const edgePenalty = a.consecutiveLosses * this.cfg.edgeAfterLossBoost;
+      adjustedEdge = rawEdge - edgePenalty;
+      if (adjustedEdge < this.cfg.pulseEdgeThreshold) {
+        return { allowed: false, reason: `edge-reduced: ${(rawEdge*100).toFixed(2)}% - ${(edgePenalty*100).toFixed(2)}% penalty = ${(adjustedEdge*100).toFixed(2)}% < threshold`, adjustedEdge };
+      }
+    }
+
+    // 7. Session drawdown check
+    this._updateSessionDrawdown();
+    if (this.sessionHalted) {
+      return { allowed: false, reason: `session-halt: drawdown ${(this.sessionPnl - this.sessionPeakPnl).toFixed(2)} exceeded limit`, adjustedEdge: rawEdge };
+    }
+
+    return { allowed: true, reason: 'ok', adjustedEdge };
+  }
+
+  // ── Called when a trade opens ──
+  onTradeOpen(symbol) {
+    const a = this._getAsset(symbol);
+    a.entriesInWindow++;
+    a.totalTrades++;
+    this.activeAssets.add(symbol);
+  }
+
+  // ── Called when a trade closes ──
+  onTradeResult(symbol, won, pnl) {
+    const a = this._getAsset(symbol);
+    const now = Date.now();
+
+    this.activeAssets.delete(symbol);
+
+    // Update session P/L
+    this.sessionPnl += pnl;
+    if (this.sessionPnl > this.sessionPeakPnl) this.sessionPeakPnl = this.sessionPnl;
+
+    // Per-asset P/L
+    a.totalPnl += pnl;
+
+    // Rolling window
+    a.recentResults.push({ won, pnl, ts: now });
+    if (a.recentResults.length > this.cfg.rollingWindowSize) {
+      a.recentResults.shift();
+    }
+    a.rollingWins   = a.recentResults.filter(r => r.won).length;
+    a.rollingLosses = a.recentResults.length - a.rollingWins;
+    a.rollingWinRate = a.recentResults.length > 0
+      ? a.rollingWins / a.recentResults.length
+      : 0.5;
+
+    // Consecutive loss tracking
+    if (won) {
+      a.consecutiveLosses = 0;
+      a.cooldownUntil = 0;
+    } else {
+      a.consecutiveLosses++;
+
+      // Apply cooldown after each loss
+      a.cooldownUntil = now + this.cfg.assetLossCooldownMs;
+
+      // If consecutive losses hit the limit, PAUSE the asset
+      if (a.consecutiveLosses >= this.cfg.assetMaxConsecutiveLosses) {
+        a.pausedUntil = now + this.cfg.assetPauseDurationMs;
+        logger.warn(
+          `PerAsset: ${symbol} PAUSED for ${(this.cfg.assetPauseDurationMs/1000).toFixed(0)}s ` +
+          `after ${a.consecutiveLosses} consecutive losses (WR: ${(a.rollingWinRate*100).toFixed(1)}%)`,
+        );
+      }
+    }
+  }
+
+  // ── Adaptive stake sizing (replaces raw martingale) ──
+  getAdaptiveStake(symbol, baseStake) {
+    if (this.cfg.sizingModeV3 === 'flat') return baseStake;
+
+    const a = this._getAsset(symbol);
+    let stake = a.adaptiveStake ?? baseStake;
+
+    // Floor and ceiling
+    const floor = baseStake * this.cfg.minStakeFraction;
+    const ceiling = baseStake * this.cfg.maxStakeFraction;
+    stake = Math.max(floor, Math.min(ceiling, stake));
+
+    return +stake.toFixed(2);
+  }
+
+  // ── Update stake after trade result ──
+  updateStakeAfterResult(symbol, won, currentStake, baseStake) {
+    const a = this._getAsset(symbol);
+    let newStake;
+
+    if (won) {
+      // After a win: partially recover toward base
+      newStake = currentStake * this.cfg.winStakeRecovery;
+    } else {
+      // After a loss: reduce stake (anti-martingale)
+      newStake = currentStake * this.cfg.lossStakeReduction;
+    }
+
+    // Apply floor/ceiling
+    const floor = baseStake * this.cfg.minStakeFraction;
+    const ceiling = baseStake * this.cfg.maxStakeFraction;
+    a.adaptiveStake = Math.max(floor, Math.min(ceiling, newStake));
+  }
+
+  // ── Session drawdown tracking ──
+  _updateSessionDrawdown() {
+    const dd = this.sessionPeakPnl - this.sessionPnl; // positive = drawdown
+    if (dd >= this.cfg.sessionMaxDrawdown && !this.sessionHalted) {
+      this.sessionHalted = true;
+      this.sessionHaltReason = `drawdown ${dd.toFixed(2)} >= ${this.cfg.sessionMaxDrawdown}`;
+      logger.error(`SESSION HALTED: ${this.sessionHaltReason}`);
+    }
+  }
+
+  // ── Check if an asset is in the same correlated group as an active asset ──
+  isCorrelated(symbol) {
+    const groups = this.cfg.correlatedGroups || [];
+    for (const group of groups) {
+      const symUpper = symbol.toUpperCase();
+      const groupUpper = group.map(s => s.toUpperCase());
+      if (groupUpper.includes(symUpper)) {
+        // Check if any OTHER asset in this group is currently active
+        for (const active of this.activeAssets) {
+          if (active !== symbol && groupUpper.includes(active.toUpperCase())) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  // ── Get active asset count ──
+  activeCount() { return this.activeAssets.size; }
+
+  // ── Reset session (new trade day) ──
+  resetSession() {
+    this.sessionPnl     = 0;
+    this.sessionPeakPnl = 0;
+    this.sessionHalted  = false;
+    this.sessionHaltReason = '';
+    this.activeAssets.clear();
+  }
+
+  // ── Summary for Telegram ──
+  summary() {
+    const lines = [];
+    for (const [sym, a] of this.assets) {
+      if (a.totalTrades === 0) continue;
+      const wr = a.totalTrades > 0 ? (a.rollingWins / Math.max(a.recentResults.length, 1) * 100).toFixed(0) : '-';
+      const cool = a.cooldownUntil > Date.now() ? ' ❄️' : '';
+      const pause = a.pausedUntil > Date.now() ? ' ⛔' : '';
+      lines.push(`  ${sym}: ${a.totalTrades} trades, WR=${wr}%, P/L=${a.totalPnl >= 0 ? '+' : ''}${a.totalPnl.toFixed(2)}${cool}${pause}`);
+    }
+    return lines.join('\n');
+  }
+
+  serialize() {
+    const obj = { sessionPnl: this.sessionPnl, sessionPeakPnl: this.sessionPeakPnl, assets: {} };
+    for (const [sym, a] of this.assets) {
+      obj.assets[sym] = {
+        consecutiveLosses: a.consecutiveLosses,
+        totalTrades: a.totalTrades,
+        totalPnl: a.totalPnl,
+        recentResults: a.recentResults.slice(-this.cfg.rollingWindowSize),
+        adaptiveStake: a.adaptiveStake,
+      };
+    }
+    return obj;
+  }
+
+  loadSaved(data) {
+    if (!data || !data.assets) return;
+    this.sessionPnl = data.sessionPnl ?? 0;
+    this.sessionPeakPnl = data.sessionPeakPnl ?? 0;
+    for (const [sym, saved] of Object.entries(data.assets)) {
+      const a = this._getAsset(sym);
+      a.consecutiveLosses = saved.consecutiveLosses ?? 0;
+      a.totalTrades = saved.totalTrades ?? 0;
+      a.totalPnl = saved.totalPnl ?? 0;
+      a.recentResults = saved.recentResults ?? [];
+      a.adaptiveStake = saved.adaptiveStake ?? null;
+      a.rollingWins = a.recentResults.filter(r => r.won).length;
+      a.rollingLosses = a.recentResults.length - a.rollingWins;
+      a.rollingWinRate = a.recentResults.length > 0 ? a.rollingWins / a.recentResults.length : 0.5;
+    }
   }
 }
 
@@ -2705,6 +3369,204 @@ class PulseBacktester {
     }
     return results;
   }
+
+  // ── v3: Ensure WebSocket connection is alive ──────────────
+  // Long backtests can cause the WS to timeout. This checks the
+  // connection and reconnects if needed before each asset backtest.
+  async _ensureConnected() {
+    const deriv = this.deriv;
+    if (deriv.connected && deriv.authorized) return; // all good
+
+    logger.info('v3: reconnecting for next asset…');
+    // Close existing connection cleanly
+    try { deriv.ws?.close(); } catch (_) {}
+    deriv.connected = false;
+    deriv.authorized = false;
+
+    // Reconnect and wait for authorization
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('reconnect timeout'));
+      }, 30000);
+
+      const onAuth = () => {
+        clearTimeout(timeout);
+        deriv.removeListener('error', onErr);
+        logger.info('v3: reconnected ✔');
+        resolve();
+      };
+      const onErr = (e) => {
+        clearTimeout(timeout);
+        deriv.removeListener('authorized', onAuth);
+        reject(new Error(`reconnect failed: ${e.message}`));
+      };
+
+      deriv.once('authorized', onAuth);
+      deriv.once('error', onErr);
+      deriv.connect();
+    });
+  }
+
+  // ── v3: Multi-asset backtest ──────────────────────────────
+  // Runs backtest on every asset in cfg.assets and produces a combined
+  // comparison report. Used with BACKTEST_ALL=1.
+  async runAll() {
+    const assets = this.cfg.assets;
+    const allResults = [];
+    const t0 = Date.now();
+
+    console.log('\n' + '═'.repeat(70));
+    console.log(`  APEX v3 MULTI-ASSET BACKTEST — ${assets.length} assets`);
+    console.log('═'.repeat(70));
+    console.log(`  Assets: ${assets.join(', ')}`);
+    console.log(`  Ticks per asset: ${this.cfg.backtestTicks}`);
+    console.log(`  Growth rates: ${this.cfg.pulseGrowthRates.map(g => (g*100).toFixed(0)+'%').join(', ')}`);
+    console.log('═'.repeat(70) + '\n');
+
+    for (let idx = 0; idx < assets.length; idx++) {
+      const symbol = assets[idx];
+      console.log(`\n[${idx + 1}/${assets.length}] ─── Backtesting ${symbol} ───`);
+      try {
+        // v3: Ensure connection is alive before each asset backtest.
+        // Long backtests can cause the WebSocket to timeout.
+        await this._ensureConnected();
+        const result = await this.run(symbol);
+        allResults.push(result);
+      } catch (e) {
+        console.error(`  ⚠ ${symbol} backtest failed: ${e.message}`);
+        allResults.push({ symbol, error: e.message, signals: 0, wins: 0, losses: 0, pnl: 0 });
+      }
+    }
+
+    const dt = ((Date.now() - t0) / 1000).toFixed(1);
+
+    // ── Combined summary report ─────────────────────────────
+    const line = '═'.repeat(70);
+    console.log('\n' + line);
+    console.log('  APEX v3 MULTI-ASSET BACKTEST — COMBINED SUMMARY');
+    console.log(line);
+
+    // Sort by P/L descending
+    const valid = allResults.filter(r => !r.error && r.signals > 0);
+    const errored = allResults.filter(r => r.error);
+    const empty = allResults.filter(r => !r.error && r.signals === 0);
+
+    valid.sort((a, b) => b.pnl - a.pnl);
+
+    if (valid.length) {
+      console.log('');
+      console.log('  Profitable/Losing Assets (sorted by P/L):');
+      console.log('  ' + '-'.repeat(66));
+      console.log(
+        '  ' +
+        'Asset'.padEnd(14) +
+        'Signals'.padStart(8) +
+        'WR%'.padStart(8) +
+        'P/L'.padStart(12) +
+        'PF'.padStart(8) +
+        'MaxDD'.padStart(10) +
+        'PredWR%'.padStart(10)
+      );
+      console.log('  ' + '-'.repeat(66));
+
+      let totalSignals = 0, totalWins = 0, totalLosses = 0;
+      let totalPnl = 0, totalGrossWin = 0, totalGrossLoss = 0;
+
+      for (const r of valid) {
+        const wr = r.signals ? (r.wins / r.signals * 100).toFixed(1) : '0.0';
+        const pf = r.profitFactor === Infinity ? '∞' : (r.profitFactor || 0).toFixed(2);
+        const maxDD = r.streaks ? r.streaks.maxDrawdownFlatStake : 0;
+        const predWR = r.predictedSurvival || 0;
+        const pnlStr = r.pnl >= 0 ? `+${r.pnl.toFixed(2)}` : r.pnl.toFixed(2);
+
+        console.log(
+          '  ' +
+          r.symbol.padEnd(14) +
+          String(r.signals).padStart(8) +
+          (wr + '%').padStart(8) +
+          pnlStr.padStart(12) +
+          pf.padStart(8) +
+          (`-${maxDD.toFixed(0)}`).padStart(10) +
+          (predWR.toFixed(1) + '%').padStart(10)
+        );
+
+        totalSignals += r.signals;
+        totalWins += r.wins;
+        totalLosses += r.losses;
+        totalPnl += r.pnl;
+        totalGrossWin += r.grossWin || 0;
+        totalGrossLoss += r.grossLoss || 0;
+      }
+
+      console.log('  ' + '-'.repeat(66));
+      const totalWR = totalSignals ? (totalWins / totalSignals * 100).toFixed(1) : '0.0';
+      const totalPF = totalGrossLoss > 0 ? (totalGrossWin / totalGrossLoss).toFixed(2) : '∞';
+      const totalPnlStr = totalPnl >= 0 ? `+${totalPnl.toFixed(2)}` : totalPnl.toFixed(2);
+      console.log(
+        '  ' +
+        'TOTAL'.padEnd(14) +
+        String(totalSignals).padStart(8) +
+        (totalWR + '%').padStart(8) +
+        totalPnlStr.padStart(12) +
+        totalPF.padStart(8)
+      );
+    }
+
+    if (empty.length) {
+      console.log(`\n  Assets with no signals: ${empty.map(r => r.symbol).join(', ')}`);
+    }
+    if (errored.length) {
+      console.log(`  Assets that errored: ${errored.map(r => `${r.symbol} (${r.error})`).join(', ')}`);
+    }
+
+    // ── Best opportunities ──────────────────────────────────
+    if (valid.length >= 2) {
+      console.log('');
+      console.log('  Recommended portfolio allocation (by risk-adjusted return):');
+      const ranked = valid
+        .filter(r => r.pnl > 0)
+        .sort((a, b) => {
+          // Score = P/L * winRate * profitFactor (heuristic)
+          const aScore = a.pnl * (a.empiricalWinRate / 100) * Math.min(a.profitFactor || 0, 5);
+          const bScore = b.pnl * (b.empiricalWinRate / 100) * Math.min(b.profitFactor || 0, 5);
+          return bScore - aScore;
+        });
+      for (let i = 0; i < Math.min(ranked.length, 5); i++) {
+        const r = ranked[i];
+        console.log(
+          `    ${i + 1}. ${r.symbol} — P/L ${r.pnl >= 0 ? '+' : ''}${r.pnl.toFixed(2)} ` +
+          `WR=${r.empiricalWinRate.toFixed(1)}% PF=${r.profitFactor === Infinity ? '∞' : (r.profitFactor || 0).toFixed(2)}`
+        );
+      }
+    }
+
+    console.log('');
+    console.log(`  Total backtest time: ${dt}s`);
+    console.log(line + '\n');
+
+    // Write combined report
+    try {
+      const reportFile = this.cfg.backtestOutFile.replace('.json', '_all.json');
+      fs.writeFileSync(reportFile, JSON.stringify({
+        timestamp: new Date().toISOString(),
+        assets: allResults.map(r => ({
+          symbol: r.symbol,
+          signals: r.signals || 0,
+          wins: r.wins || 0,
+          losses: r.losses || 0,
+          pnl: r.pnl || 0,
+          winRate: r.empiricalWinRate || 0,
+          profitFactor: r.profitFactor || 0,
+          error: r.error || null,
+        })),
+      }, null, 2));
+      logger.info(`combined report written → ${reportFile}`);
+    } catch (e) {
+      logger.warn(`could not write combined report: ${e.message}`);
+    }
+
+    return allResults;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -2712,8 +3574,9 @@ class PulseBacktester {
 // ─────────────────────────────────────────────────────────────────────
 function printBanner() {
   console.log('╔══════════════════════════════════════════════════════╗');
-  console.log('║ Deriv Accumulator Bot — APEX engine v2.0             ║');
+  console.log('║ Deriv Accumulator Bot — APEX engine v3.0             ║');
   console.log('║ post-spike exploit • conditional-vol • EV-optimal    ║');
+  console.log('║ v3: adaptive sizing • per-asset risk • auto-discover ║');
   console.log('╚══════════════════════════════════════════════════════╝\n');
 }
 
@@ -2733,8 +3596,15 @@ async function main() {
 
   // ── Backtest mode ────────────────────────────────────────
   if (process.env.BACKTEST === '1' || process.argv.includes('--backtest')) {
+    const runAll = process.env.BACKTEST_ALL === '1' || process.argv.includes('--backtest-all');
     const symbol = process.env.BACKTEST_ASSET || CONFIG.assets[0];
-    console.log(`🧪 BACKTEST mode — symbol=${symbol} ticks=${CONFIG.backtestTicks}\n`);
+
+    if (runAll) {
+      console.log(`🧪 BACKTEST ALL mode — ${CONFIG.assets.length} assets, ${CONFIG.backtestTicks} ticks each\n`);
+    } else {
+      console.log(`🧪 BACKTEST mode — symbol=${symbol} ticks=${CONFIG.backtestTicks}\n`);
+    }
+
     const deriv = new DerivClient(CONFIG);
     // Minimal init — we need market data + authorization only.
     deriv.market   = new MarketDataManager(deriv, CONFIG);
@@ -2742,7 +3612,11 @@ async function main() {
     deriv.on('authorized', async () => {
       try {
         const bt = new PulseBacktester(CONFIG, deriv);
-        await bt.run(symbol);
+        if (runAll) {
+          await bt.runAll();
+        } else {
+          await bt.run(symbol);
+        }
         deriv._stopped = true;
         try { deriv.ws?.close(); } catch (_) {}
         process.exit(0);
