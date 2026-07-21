@@ -35,7 +35,7 @@ const path = require('path');
 // ============================================
 // STATE PERSISTENCE MANAGER - FIXED VERSION
 // ============================================
-const STATE_FILE = path.join(__dirname, 'claudeWillbot_03-state.json');
+const STATE_FILE = path.join(__dirname, 'claudeWillbot_04-state.json');
 const STATE_SAVE_INTERVAL = 5000; // Save every 5 seconds
 
 class StatePersistence {
@@ -506,7 +506,7 @@ const TIMEFRAMES = {
     '4h': { seconds: 14400, granularity: 14400, label: '4 Hours' }
 };
 
-const SELECTED_TIMEFRAME = '5m';
+const SELECTED_TIMEFRAME = '1m';
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================
@@ -519,9 +519,9 @@ const CONFIG = {
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // Capital Settings
-    INITIAL_CAPITAL: 135,
+    INITIAL_CAPITAL: 450,
     INITIAL_STAKE: 5.00,
-    TAKE_PROFIT: 5,
+    TAKE_PROFIT: 1,
 
     // Session Targets
     SESSION_PROFIT_TARGET: 15000,
@@ -529,7 +529,7 @@ const CONFIG = {
 
     // Reversal Settings
     REVERSAL_STAKE_MULTIPLIER: 2,
-    MAX_REVERSAL_LEVEL: 5,
+    MAX_REVERSAL_LEVEL: 7,
     AUTO_CLOSE_ON_RECOVERY: false,
 
     // Timeframe Settings
@@ -579,23 +579,23 @@ const ASSET_CONFIGS = {
         category: 'synthetic',
         contractType: 'multiplier',
         multipliers: [50, 100, 200, 300, 500],
-        defaultMultiplier: 100,
+        defaultMultiplier: 50,
         maxTradesPerDay: 500000,
-        minStake: 2.00,
+        minStake: 5.00,
         maxStake: 3000,
         tradingHours: '24/7'
     },
-    // 'R_100': {
-    //     name: 'Volatility 100',
-    //     category: 'synthetic',
-    //     contractType: 'multiplier',
-    //     multipliers: [40, 100, 200, 300, 400],
-    //     defaultMultiplier: 40,
-    //     maxTradesPerDay: 50000,
-    //     minStake: 1.00,
-    //     maxStake: 3000,
-    //     tradingHours: '24/7'
-    // },
+    'R_100': {
+        name: 'Volatility 100',
+        category: 'synthetic',
+        contractType: 'multiplier',
+        multipliers: [40, 100, 200, 300, 400],
+        defaultMultiplier: 40,
+        maxTradesPerDay: 50000,
+        minStake: 5.00,
+        maxStake: 3000,
+        tradingHours: '24/7'
+    },
     // '1HZ25V': {
     //     name: 'Volatility 25 (1s)',
     //     category: 'synthetic',
@@ -629,17 +629,17 @@ const ASSET_CONFIGS = {
     //     maxStake: 3000,
     //     tradingHours: '24/7'
     // },
-    // 'stpRNG': {
-    //     name: 'Step Index',
-    //     category: 'synthetic',
-    //     contractType: 'multiplier',
-    //     multipliers: [750, 2000, 3500, 5500, 7500],
-    //     defaultMultiplier: 750,
-    //     maxTradesPerDay: 120000,
-    //     minStake: 1.00,
-    //     maxStake: 1000,
-    //     tradingHours: '24/7'
-    // },
+    'stpRNG': {
+        name: 'Step Index',
+        category: 'synthetic',
+        contractType: 'multiplier',
+        multipliers: [750, 2000, 3500, 5500, 7500],
+        defaultMultiplier: 750,
+        maxTradesPerDay: 120000,
+        minStake: 5.00,
+        maxStake: 1000,
+        tradingHours: '24/7'
+    },
     // 'frxXAUUSD': {
     //     name: 'Gold/USD',
     //     category: 'commodity',
@@ -653,7 +653,7 @@ const ASSET_CONFIGS = {
     // }
 };
 
-let ACTIVE_ASSETS = ['R_75'];
+let ACTIVE_ASSETS = ['R_75','R_100','stpRNG'];
 
 // ============================================
 // STATE MANAGEMENT
