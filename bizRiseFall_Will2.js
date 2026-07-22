@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'will4_05-state.json');
-const HISTORY_FILE        = path.join(__dirname, 'will4_05-history.json');
+const STATE_FILE          = path.join(__dirname, 'will4_06-state.json');
+const HISTORY_FILE        = path.join(__dirname, 'will4_06-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED + WPR/breakout loggers]
@@ -119,7 +119,7 @@ const CONFIG = {
     // API_TOKEN:    '0P94g4WdSrSrzir',
     // APP_ID:       '1089',
     // ACCOUNT_TYPE: 'demo',
-    API_TOKEN:    'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
+    API_TOKEN:    'pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692',
     APP_ID:       '33uslPtthXBEkQOdfKfoY',
     ACCOUNT_TYPE: 'demo',          // 'demo' | 'real' (PAT mode only)
     WS_URL:       'wss://ws.derivws.com/websockets/v3',
