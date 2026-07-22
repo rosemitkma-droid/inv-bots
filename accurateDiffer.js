@@ -135,7 +135,7 @@ const CONFIG = Object.freeze({
   durationTicks: intEnv('DURATION_TICKS', 1), // Digit contracts normally 1-10 ticks
   minStake: numEnv('MIN_STAKE', 1.1),
   maxStake: numEnv('MAX_STAKE', 140.00),
-  assets: ['R_50','R_75'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
+  assets: ['R_10','R_50','R_75'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
   tickWindow: intEnv('TICK_WINDOW', 1000),
@@ -227,13 +227,13 @@ const CONFIG = Object.freeze({
   //   trading on that day. Open trades will settle normally.
   //   These can be set via environment variables:
   //     TRADE_SUNDAY=false TRADE_MONDAY=true etc.
-  tradeSunday    : boolEnv('TRADE_SUNDAY',    true),
+  tradeSunday    : boolEnv('TRADE_SUNDAY',    false),
   tradeMonday    : boolEnv('TRADE_MONDAY',    true),
   tradeTuesday   : boolEnv('TRADE_TUESDAY',   true),
   tradeWednesday : boolEnv('TRADE_WEDNESDAY', true),
   tradeThursday  : boolEnv('TRADE_THURSDAY',  true),
   tradeFriday    : boolEnv('TRADE_FRIDAY',    true),
-  tradeSaturday  : boolEnv('TRADE_SATURDAY',  true),
+  tradeSaturday  : boolEnv('TRADE_SATURDAY',  false),
 
   // GMT/UTC reporting
   eodTimeGmt: strEnv('TRADE_DAY_END_GMT', '00:00'), // default midnight GMT; report date is previous UTC day
@@ -241,8 +241,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ9_04_state.json'),
-  logFile: strEnv('LOG_FILE', 'deriv_digit_differ9_04_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ9_05_state.json'),
+  logFile: strEnv('LOG_FILE', 'deriv_digit_differ9_05_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
