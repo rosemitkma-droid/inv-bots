@@ -134,7 +134,7 @@ const CONFIG = Object.freeze({
   stake: numEnv('STAKE', 1.1),
   durationTicks: intEnv('DURATION_TICKS', 1), // Digit contracts normally 1-10 ticks
   minStake: numEnv('MIN_STAKE', 1.1),
-  maxStake: numEnv('MAX_STAKE', 140.00),
+  maxStake: numEnv('MAX_STAKE', 150.00),
   assets: ['R_10','R_50','R_75'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
@@ -179,7 +179,7 @@ const CONFIG = Object.freeze({
 
   // Optional limited loss recovery; disabled by default. Safer than the pasted 10x/100x martingale.
   recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
-  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,15.2,165.0').map(Number).filter(Number.isFinite),
+  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,13.2,150.0').map(Number).filter(Number.isFinite),
 
   // ── Kelly-fractional sizing ────────────────────────────────────────
   //   kellySizingEnabled=true replaces flat/recovery stake with:
