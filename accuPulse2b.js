@@ -96,8 +96,10 @@ loadEnv();
 // ═══════════════════════════════════════════════════════════════════════
 const CONFIG = Object.freeze({
   // ── Deriv API ──
-  apiToken  : ('0P94g4WdSrSrzir').trim(),   // retained from reference
-  appId     : '1089',
+  // apiToken  : ('0P94g4WdSrSrzir').trim(),   // retained from reference
+  // appId     : '1089',
+  apiToken:    'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
+  appId:       '33uslPtthXBEkQOdfKfoY',
   wsUrl     : 'wss://ws.derivws.com/websockets/v3',
   currency  : 'USD',
   accountType: 'demo',    // 'demo' | 'real'
@@ -114,7 +116,10 @@ const CONFIG = Object.freeze({
   maxWinStakeMultiplier : parseFloat('4.0'),
 
   // ── Assets ──
-  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
+  // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
+
+  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Telegram (retained) ──
