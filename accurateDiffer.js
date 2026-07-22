@@ -37,6 +37,7 @@
  *    • Overall Profit tracking, storage and display.
  *    • Consecutive Loss tracking/display: current streak + x2, x3, x4 events.
  *    • GMT/UTC day clock and end-of-trade-day notification.
+ *    • Day-of-week trading control (enable/disable trading per day).
  *    • EOD report includes the just-ended trade day and all previous trade
  *      days by date.
  *    • State persistence to JSON.
@@ -119,8 +120,10 @@ function listEnv(name, def) {
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
   // Deriv API
-  apiToken:    ('0P94g4WdSrSrzir').trim(),
-  appId:       '1089',
+  // apiToken:    ('0P94g4WdSrSrzir').trim(),
+  // appId:       '1089',
+  apiToken:    'pat_27a3197287bae3ec6c2c9cbdd68fffaa2a524e3b0a6e1ecf298b5ffb338adb10',
+  appId:       '33uslPtthXBEkQOdfKfoY',
   accountId: '', // recommended/required for PAT new API
   accountType: 'demo', // demo | real
   legacyWsUrl: 'wss://ws.derivws.com/websockets/v3',
@@ -217,6 +220,20 @@ const CONFIG = Object.freeze({
   pauseEnabled   : boolEnv('PAUSE_ENABLED', true),
   pauseStartGmt  : strEnv('PAUSE_START_GMT', '23:00'),
   pauseEndGmt    : strEnv('PAUSE_END_GMT',   '01:00'),
+
+  // ── Day-of-week trading filter ──────────────────────────────────
+  //   Control which days of the week the bot is allowed to trade.
+  //   Days are in GMT/UTC timezone. Set any day to false to disable
+  //   trading on that day. Open trades will settle normally.
+  //   These can be set via environment variables:
+  //     TRADE_SUNDAY=false TRADE_MONDAY=true etc.
+  tradeSunday    : boolEnv('TRADE_SUNDAY',    true),
+  tradeMonday    : boolEnv('TRADE_MONDAY',    true),
+  tradeTuesday   : boolEnv('TRADE_TUESDAY',   true),
+  tradeWednesday : boolEnv('TRADE_WEDNESDAY', true),
+  tradeThursday  : boolEnv('TRADE_THURSDAY',  true),
+  tradeFriday    : boolEnv('TRADE_FRIDAY',    true),
+  tradeSaturday  : boolEnv('TRADE_SATURDAY',  true),
 
   // GMT/UTC reporting
   eodTimeGmt: strEnv('TRADE_DAY_END_GMT', '00:00'), // default midnight GMT; report date is previous UTC day
@@ -1783,6 +1800,32 @@ class TradingBot {
     if (this._pauseEndTimer)   { clearTimeout(this._pauseEndTimer);   this._pauseEndTimer = null; }
   }
 
+  /**
+   * Check if trading is allowed on the current day of week (GMT/UTC).
+   * @returns {boolean} true if trading is allowed today, false otherwise
+   */
+  _isTradingAllowedToday() {
+    const now = new Date();
+    const dayOfWeek = now.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const daySettings = [
+      this.cfg.tradeSunday,
+      this.cfg.tradeMonday,
+      this.cfg.tradeTuesday,
+      this.cfg.tradeWednesday,
+      this.cfg.tradeThursday,
+      this.cfg.tradeFriday,
+      this.cfg.tradeSaturday
+    ];
+    
+    const allowed = daySettings[dayOfWeek];
+    if (!allowed) {
+      logger.debug(`trading disabled for ${dayNames[dayOfWeek]} (GMT) — skipping analysis cycle`);
+    }
+    return allowed;
+  }
+
   async start() {
     logger.info('===== Deriv Digit Differ Bot starting =====');
     logger.info(`config: stake=${this.cfg.stake} duration=${this.cfg.durationTicks}t assets=${this.cfg.assets.join(',')}`);
@@ -1829,6 +1872,19 @@ class TradingBot {
     const pauseLine = this.cfg.pauseEnabled
       ? `⏸️ Scheduled pause: <b>${htmlEscape(this.cfg.pauseStartGmt)}</b> → <b>${htmlEscape(this.cfg.pauseEndGmt)}</b> GMT`
       : `⏸️ Scheduled pause: off`;
+    
+    // Day-of-week settings display
+    const dayAbbrev = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const daySettings = [
+      this.cfg.tradeSunday,
+      this.cfg.tradeMonday,
+      this.cfg.tradeTuesday,
+      this.cfg.tradeWednesday,
+      this.cfg.tradeThursday,
+      this.cfg.tradeFriday,
+      this.cfg.tradeSaturday
+    ];
+    const dayLine = `📅 Trading days: ${dayAbbrev.map((d, i) => daySettings[i] ? `✅${d}` : `❌${d}`).join(' ')}`;
 
     telegram.send(
       `🤖 <b>Digit Differ Bot Online</b>\n\n` +
@@ -1842,6 +1898,7 @@ class TradingBot {
       `${calibLine}\n` +
       `${rotationLine}\n` +
       `${pauseLine}\n` +
+      `${dayLine}\n` +
       `🧠 Method: <b>DIVER-9</b> conservative value-edge filter\n` +
       `🕒 Trade day clock: <b>GMT/UTC</b> | EOD: ${this.cfg.eodTimeGmt} GMT\n\n` +
       `💼 Overall Profit: <b>${money(this.stats.overallProfit, this.currency())}</b>\n` +
@@ -1909,6 +1966,10 @@ class TradingBot {
     if (this.stopped || !this.client.authorized) return;
     if (this.paused) {
       logger.debug('trading paused — skipping analysis cycle');
+      return;
+    }
+    // Check if trading is allowed on current day of week
+    if (!this._isTradingAllowedToday()) {
       return;
     }
     if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
