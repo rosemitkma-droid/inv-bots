@@ -110,8 +110,10 @@ const pad = n => String(n).padStart(2, '0');
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
   // ─ Deriv API ─
-  apiToken:    ('0P94g4WdSrSrzir').trim(),
-  appId:       '1089',
+  // apiToken:    ('0P94g4WdSrSrzir').trim(),
+  // appId:       '1089',
+  apiToken:    'pat_27a3197287bae3ec6c2c9cbdd68fffaa2a524e3b0a6e1ecf298b5ffb338adb10',
+  appId:       '33uslPtthXBEkQOdfKfoY',
   wsUrl:       'wss://ws.derivws.com/websockets/v3',
   currency:    ('USD').toUpperCase(),
   accountType: ('demo').toLowerCase(), // 'demo'|'real'
@@ -137,16 +139,10 @@ const CONFIG = Object.freeze({
 
   // ─ Assets ─
   // ─ Assets (Deriv synthetic indices) ─
-  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH1300N,CRASH500,CRASH600,CRASH900,CRASH1000')
-  //     .split(',').map(s => s.trim()).filter(Boolean),
-  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,R_10,R_25,R_50,R_75,R_100')
-  //   .split(',').map(s => s.trim()).filter(Boolean),
-  // assets: ('1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
-  //   .split(',').map(s => s.trim()).filter(Boolean),
-  // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH1300N,CRASH500,CRASH600,CRASH900,CRASH1000')
+  // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
 
-  assets: ('R_75,R_100,1HZ75V,1HZ100V,BOOM150N,BOOM900,BOOM1000,CRASH150N,CRASH900,CRASH1000')
+  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ─ Telegram ─
@@ -251,7 +247,7 @@ const CONFIG = Object.freeze({
   // BOOM50: (1-0.02)^8 = 0.85 ≥ 0.50 → PASS ✓
   // BOOM1000: (1-0.001)^8 = 0.992 ≥ 0.50 → PASS ✓
   // Extreme (cadence=10, hold=8): (0.9)^8 = 0.43 < 0.50 → REJECTED ✓
-  apexMinSpikeSurvival    : parseFloat('0.50'),
+  apexMinSpikeSurvival    : parseFloat('0.80'), //0.50
 
   // ─ Vol-compression entry (Volatility / Jump indices) ─
   //   Enter only when fast σ is at most apexVolCompressRatio × slow σ,
@@ -264,7 +260,7 @@ const CONFIG = Object.freeze({
   // ─ Survival / EV requirements (per-class overrides of pulse* gates) ─
   apexMinSurvival     : parseFloat('0.90'),  // forward K-tick survival floor
   apexMinEV           : parseFloat('0.010'), // ≥ +1% net EV to fire
-  apexMaxHoldBoom     : parseInt('8',  10),  // Boom/Crash hold cap (ticks)
+  apexMaxHoldBoom     : parseInt('4',  10),  // Boom/Crash hold cap (ticks)
   apexMaxHoldVol      : parseInt('4',  10),  // Vol/Jump hold cap (ticks)
 
   // ─ Adaptive-exit (APEX) ─
