@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'will4b_04-state.json');
-const HISTORY_FILE        = path.join(__dirname, 'will4b_04-history.json');
+const STATE_FILE          = path.join(__dirname, 'will4b_05-state.json');
+const HISTORY_FILE        = path.join(__dirname, 'will4b_05-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED + WPR/breakout loggers]
@@ -116,10 +116,10 @@ const LOGGER = {
 // ============================================================
 const CONFIG = {
     // ── Deriv API [RETAINED credentials] ─────────────────────
-    API_TOKEN:    '0P94g4WdSrSrzir',
-    APP_ID:       '1089',
-    // API_TOKEN:    'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
-    // APP_ID:       '33uslPtthXBEkQOdfKfoY',
+    // API_TOKEN:    '0P94g4WdSrSrzir',
+    // APP_ID:       '1089',
+    API_TOKEN:    'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
+    APP_ID:       '33uslPtthXBEkQOdfKfoY',
     ACCOUNT_TYPE: 'demo',          // 'demo' | 'real' (PAT mode only)
     WS_URL:       'wss://ws.derivws.com/websockets/v3',
     // ── Capital & Risk [RETAINED] ────────────────────────────
@@ -164,7 +164,9 @@ const CONFIG = {
     MAX_TOTAL_POSITIONS:          6,
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
-        'R_75'
+        'R_75',
+        'R_100',
+        'stpRNG',
         // 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5',
         // 'R_10', 'R_25', 'R_75', 'R_50', 'R_100',
         // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V',
@@ -1371,6 +1373,11 @@ class ConnectionManager {
                         LOGGER.info(`❄️ [${symbol}] Cool-down: ${a.cooldownCandles} candles remaining`);
                     }
                     a.canTrade = true;
+                    // BUG FIX: Always update WPR on candle close, even during trade lock
+                    if (a.closedCandles.length >= CONFIG.WPR_PERIOD) {
+                        a.prevWpr = a.wpr;
+                        a.wpr = TechnicalIndicators.calculateWPR(a.closedCandles, CONFIG.WPR_PERIOD);
+                    }
                     try {
                         bot.processNewCandle(symbol, closed);
                     } catch (err) {
@@ -1393,26 +1400,48 @@ class ConnectionManager {
         const symbol = r.echo_req?.ticks_history;
         if (!symbol || !state.assets[symbol]) return;
         const gran = CONFIG.GRANULARITY;
-        const candles = (r.candles || []).map(c => ({
+        const incomingCandles = (r.candles || []).map(c => ({
             open: parseFloat(c.open), high: parseFloat(c.high),
             low: parseFloat(c.low),   close: parseFloat(c.close),
             epoch: c.epoch, open_time: Math.floor((c.epoch - gran) / gran) * gran,
         }));
-        if (!candles.length) { LOGGER.warn(`[${symbol}] No candles received`); return; }
-        state.assets[symbol].closedCandles               = [...candles];
-        state.assets[symbol].candles                     = [...candles];
-        state.assets[symbol].lastProcessedCandleOpenTime = candles[candles.length - 1].open_time;
-        state.assets[symbol].currentFormingCandle        = null;
-        state.assets[symbol].candlesLoaded               = true;
-        // Calculate initial WPR
-        if (candles.length >= CONFIG.WPR_PERIOD) {
-            state.assets[symbol].prevWpr = state.assets[symbol].wpr;
-            state.assets[symbol].wpr = TechnicalIndicators.calculateWPR(candles, CONFIG.WPR_PERIOD);
+        if (!incomingCandles.length) { LOGGER.warn(`[${symbol}] No candles received`); return; }
+
+        const a = state.assets[symbol];
+
+        // BUG FIX: Merge incoming candles with existing instead of replacing
+        // This prevents losing candles that closed during a disconnect
+        const existingEpochs = new Set(a.closedCandles.map(c => c.open_time));
+        let addedCount = 0;
+        for (const c of incomingCandles) {
+            if (!existingEpochs.has(c.open_time)) {
+                a.closedCandles.push(c);
+                existingEpochs.add(c.open_time);
+                addedCount++;
+            }
+        }
+        a.closedCandles.sort((x, y) => x.open_time - y.open_time);
+        if (a.closedCandles.length > CONFIG.MAX_CANDLES_STORED) {
+            a.closedCandles = a.closedCandles.slice(-CONFIG.MAX_CANDLES_STORED);
+        }
+
+        a.candles = [...incomingCandles];
+        a.currentFormingCandle = null;
+
+        const lastCandle = incomingCandles[incomingCandles.length - 1];
+        if (!a.lastProcessedCandleOpenTime || lastCandle.open_time > a.lastProcessedCandleOpenTime) {
+            a.lastProcessedCandleOpenTime = lastCandle.open_time;
+        }
+        a.candlesLoaded = true;
+
+        if (a.closedCandles.length >= CONFIG.WPR_PERIOD) {
+            a.prevWpr = a.wpr;
+            a.wpr = TechnicalIndicators.calculateWPR(a.closedCandles, CONFIG.WPR_PERIOD);
         }
         LOGGER.info(
-            `[${symbol}] Loaded ${candles.length} ${CONFIG.TIMEFRAME_LABEL} candles | ` +
-            `WPR: ${state.assets[symbol].wpr.toFixed(2)} | ` +
-            `Breakout: ${state.assets[symbol].breakout.type || 'none'}`
+            `[${symbol}] Loaded ${incomingCandles.length} ${CONFIG.TIMEFRAME_LABEL} candles (${addedCount} new merged, total: ${a.closedCandles.length}) | ` +
+            `WPR: ${a.wpr.toFixed(2)} | ` +
+            `Breakout: ${a.breakout.type || 'none'}`
         );
     }
     onError(err) { LOGGER.error(`WebSocket error: ${err.message}`); }
