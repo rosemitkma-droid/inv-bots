@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'will4b_05-state.json');
-const HISTORY_FILE        = path.join(__dirname, 'will4b_05-history.json');
+const STATE_FILE          = path.join(__dirname, 'will4b_06-state.json');
+const HISTORY_FILE        = path.join(__dirname, 'will4b_06-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED + WPR/breakout loggers]
