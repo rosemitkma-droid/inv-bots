@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE          = path.join(__dirname, 'will4b_06-state.json');
-const HISTORY_FILE        = path.join(__dirname, 'will4b_06-history.json');
+const STATE_FILE          = path.join(__dirname, 'will4_05-state.json');
+const HISTORY_FILE        = path.join(__dirname, 'will4_05-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 // ============================================================
 // LOGGER  [RETAINED + WPR/breakout loggers]
@@ -118,33 +118,34 @@ const CONFIG = {
     // ── Deriv API [RETAINED credentials] ─────────────────────
     // API_TOKEN:    '0P94g4WdSrSrzir',
     // APP_ID:       '1089',
-    API_TOKEN:    'pat_27a3197287bae3ec6c2c9cbdd68fffaa2a524e3b0a6e1ecf298b5ffb338adb10',
+    // ACCOUNT_TYPE: 'demo',
+    API_TOKEN:    'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
     APP_ID:       '33uslPtthXBEkQOdfKfoY',
     ACCOUNT_TYPE: 'demo',          // 'demo' | 'real' (PAT mode only)
     WS_URL:       'wss://ws.derivws.com/websockets/v3',
     // ── Capital & Risk [RETAINED] ────────────────────────────
-    INITIAL_CAPITAL:            128,
+    INITIAL_CAPITAL:            100,
     BASE_RISK_PERCENT_PER_TRADE: 0.01,
-    MIN_STAKE:                  2,
+    MIN_STAKE:                  5,
     MAX_STAKE:                  80,
-    MAX_RISK_PCT:               128.00,
+    MAX_RISK_PCT:               135.00,
     // ── Single capped recoup step (NOT martingale) [RETAINED] ─
     RECOVERY_ENABLED:       true,
     RECOVERY_MULTIPLIER:    2.00,
     MAX_RECOVERY_STEPS:     6,
-    MAX_RECOVERY_STAKE_PCT: 64.0,
+    MAX_RECOVERY_STAKE_PCT: 80.0,
     // ── Session / daily guards [RETAINED] ───────────────────
     SESSION_PROFIT_TARGET:      500000,
     SESSION_STOP_LOSS:          -15000,
     DAILY_STOP_LOSS:            -2000,
-    MAX_CONSECUTIVE_LOSSES:     6,
+    MAX_CONSECUTIVE_LOSSES:     5,
     COOLDOWN_CANDLES:           5,
     // ── Candle / Contract Settings [RETAINED] ────────────────
-    GRANULARITY:                60,     // 5-minute candles
-    TIMEFRAME_LABEL:            '1m',
+    GRANULARITY:                300,     // 5-minute candles
+    TIMEFRAME_LABEL:            '5m',
     CANDLES_TO_LOAD:            200,
     MAX_CANDLES_STORED:         300,
-    DURATION:                   56,
+    DURATION:                   294,
     DURATION_UNIT:              's',
     MIN_CANDLES_REQUIRED:       82,      // WPR_PERIOD (80) + 2 minimum
     // ── WPR (Williams Percent Range) Settings ───────────────
@@ -718,7 +719,7 @@ class TelegramService {
         const overall = TradeHistoryManager.getOverallStats();
         const today   = TradeHistoryManager.getTodayStats();
         const lines   = [
-            `${emoji} <b>WILL BOT2 v4.0 — ${type}</b>`,
+            `${emoji} <b>WILL BOT v4.0 — ${type}</b>`,
             `Pair: <b>${symbol}</b>  Direction: <b>${direction === 'CALLE' ? '\u{1f4c8} CALLE' : '\u{1f4c9} PUTE'}</b>`,
             `Stake: $${stake.toFixed(2)} | Duration: ${duration}${(durationUnit || 's').toUpperCase()}`,
             `Recovery Step: ${a?.recoveryStep ?? 0} | ${TradingSessionManager.getStatusString()}`,
@@ -765,7 +766,7 @@ class TelegramService {
             }
         });
         await this.sendMessage([
-            `⏰ <b>WILL4b v4.0 Hourly</b>`,
+            `⏰ <b>WILL4 v4.0 Hourly</b>`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '\u{1f7e2}' : '\u{1f534}'} $${h.pnl.toFixed(2)}`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
             `Capital: $${state.capital.toFixed(2)}`,
@@ -788,7 +789,7 @@ class TelegramService {
             }
         });
         await this.sendMessage([
-            `\u{1f4ca} <b>WILL4b v4.0 SESSION SUMMARY</b>`,
+            `\u{1f4ca} <b>WILL4 v4.0 SESSION SUMMARY</b>`,
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
             `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
@@ -807,7 +808,7 @@ class TelegramService {
             pairInfo += `\n  ${sym}: ${CONFIG.TIMEFRAME_LABEL} | ${CONFIG.DURATION}${CONFIG.DURATION_UNIT}`;
         });
         await this.sendMessage([
-            `\u{1f916} <b>WILL BOT2 v4.0 STARTED</b>`,
+            `\u{1f916} <b>WILL BOT v4.0 STARTED</b>`,
             `Strategy: Williams %R Breakout + Normal Trading Mode`,
             `WPR Period: ${CONFIG.WPR_PERIOD} | Overbought: ${CONFIG.WPR_OVERBOUGHT} | Oversold: ${CONFIG.WPR_OVERSOLD}`,
             `Normal Mode: ${CONFIG.MAX_TRADES_PER_CYCLE} trades per cycle`,
@@ -893,7 +894,7 @@ class SessionManager {
             LOGGER.info(`Day changed: ${state.currentTradeDay} -> ${today}`);
             const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
             TelegramService.sendMessage(
-                `\u{1f319} <b>WILL4b END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
+                `\u{1f319} <b>WILL4 END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
             );
             this._resetDailyStats();
             if (!state.session.isActive) {
@@ -960,7 +961,7 @@ class SessionManager {
             a.consecutiveLosses++;
             a.consecutiveWins  = 0;
             a.lastTradeWasWin  = false;
-            a.forceRecoverDirection = a.lastTradeDirection === 'CALLE' ? 'CALLE' : 'PUTE';  
+            a.forceRecoverDirection = a.lastTradeDirection === 'CALLE' ? 'CALLE' : 'PUTE';
             // Pause normal mode during recovery
             if (a.normalModeActive) {
                 a.normalModePaused = true;
@@ -978,7 +979,7 @@ class SessionManager {
                 a.forceRecoverDirection = null;
                 LOGGER.warn(`[${symbol}] ${CONFIG.MAX_CONSECUTIVE_LOSSES} consecutive losses — cooling down for ${CONFIG.COOLDOWN_CANDLES} candles`);
                 TelegramService.sendMessage(
-                    `❄️ <b>[${symbol}] WILL4b COOL-DOWN ACTIVATED</b>\n` +
+                    `❄️ <b>[${symbol}] WILL4 COOL-DOWN ACTIVATED</b>\n` +
                     `${CONFIG.MAX_CONSECUTIVE_LOSSES} consecutive losses\n` +
                     `Pausing for ${CONFIG.COOLDOWN_CANDLES} candles\n` +
                     `Capital: $${state.capital.toFixed(2)}`
@@ -1458,7 +1459,7 @@ class ConnectionManager {
             this.reconnectAttempts++;
             const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
             LOGGER.info(`Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts})`);
-            TelegramService.sendMessage(`⚠️ <b>WILL4b CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
+            TelegramService.sendMessage(`⚠️ <b>WILL4 CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null;
                 if (this.isShuttingDown) return;
@@ -1467,7 +1468,7 @@ class ConnectionManager {
             }, delay);
         } else {
             LOGGER.error('Max reconnection attempts reached — giving up');
-            TelegramService.sendMessage(`\u{1f6d1} <b>WILL4b BOT STOPPED</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
+            TelegramService.sendMessage(`\u{1f6d1} <b>WILL4 BOT STOPPED</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -1623,7 +1624,6 @@ class IndexBot {
         // ══════════════════════════════════════════════════════
         if (a.forceRecoverDirection) {
             this._tradeLocked = true;
-            a.canTrade = false;
             const dir2 = a.forceRecoverDirection;
             const dir3 = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
             const dir = a.recoveryStep > 2 ? dir3 : dir2;
@@ -1866,7 +1866,7 @@ class IndexBot {
         state.pendingTradeInfo  = null;
         state.tradeStartTime    = null;
         TelegramService.sendMessage(
-            `⚠️ <b>WILL4b STUCK TRADE RECOVERED [${reason}]</b>\n` +
+            `⚠️ <b>WILL4 STUCK TRADE RECOVERED [${reason}]</b>\n` +
             `Contract: ${contractId}\n` +
             `⚠️ VERIFY OUTCOME MANUALLY ON DERIV\n` +
             `Capital: $${state.capital.toFixed(2)}`
