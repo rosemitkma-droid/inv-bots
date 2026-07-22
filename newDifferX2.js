@@ -129,8 +129,10 @@ function listEnv(name, def) {
 const CONFIG = Object.freeze({
   // Deriv API — MUST come from .env / environment, never hardcode a real
   // token in source. See .env.example for the required keys.
-  apiToken:    ('0P94g4WdSrSrzir').trim(),
-  appId:       '1089',
+  // apiToken:    ('0P94g4WdSrSrzir').trim(),
+  // appId:       '1089',
+  apiToken:    'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
+  appId:       '33uslPtthXBEkQOdfKfoY',
   accountId: '', // recommended/required for PAT new API
   accountType: 'demo', // demo | real
   legacyWsUrl: 'wss://ws.derivws.com/websockets/v3',
@@ -141,8 +143,8 @@ const CONFIG = Object.freeze({
   stake: numEnv('STAKE', 1.1),
   durationTicks: intEnv('DURATION_TICKS', 1), // Digit contracts normally 1-10 ticks
   minStake: numEnv('MIN_STAKE', 1.1),
-  maxStake: numEnv('MAX_STAKE', 182.00),
-  assets: ['R_25','R_50','R_75','R_100','RDBEAR','RDBULL'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
+  maxStake: numEnv('MAX_STAKE', 150.00),
+  assets: ['R_10','R_25','R_50','R_75','R_100','RDBEAR','RDBULL'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
   tickWindow: intEnv('TICK_WINDOW', 1000),
@@ -167,7 +169,7 @@ const CONFIG = Object.freeze({
   // a fixed dollar figure AND a % of the balance seen at the start of the day.
   dailyMaxLossPct: numEnv('DAILY_MAX_LOSS_PCT', 0.05), // 5% of day-start balance
   dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0), // 0 disables profit target stop
-  dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 200),
+  dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 2000),
 
   // ── Strategy selection ───────────────────────────────────────────────
   // 'frequency'    = Empirical-frequency coldest digit (DigitAnalyzer).
@@ -261,7 +263,7 @@ const CONFIG = Object.freeze({
   // multiplier ladders like 7x/82x; those go bankrupt on a bad but
   // entirely ordinary run of consecutive losses.
   recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
-  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,15.2,165.0').map(Number).filter(Number.isFinite),
+  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,13.2,150.0').map(Number).filter(Number.isFinite),
 
   // ─ Trade watchdog ─
   tradeWatchdogMs: intEnv('TRADE_WATCHDOG_MS', 20000),
@@ -312,8 +314,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'accurateDifferx2_state2.json'),
-  logFile: strEnv('LOG_FILE', 'accurateDifferx2_bot2.log'),
+  stateFile: strEnv('STATE_FILE', 'accurateDifferx2_state3.json'),
+  logFile: strEnv('LOG_FILE', 'accurateDifferx2_bot3.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram — MUST come from .env / environment, never hardcode a real
