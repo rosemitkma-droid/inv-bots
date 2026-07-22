@@ -186,11 +186,11 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging ──
-  logFile : 'accuPULSE2b2.log',
+  logFile : 'accuPULSE2b_01.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuPULSE2b_state2.json',
+  stateFile           : 'accuPULSE2b_state_01.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
