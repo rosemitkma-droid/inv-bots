@@ -50,7 +50,7 @@ function loadLocalEnv(filePath = path.join(__dirname, '.env')) {
                 (value.startsWith("'") && value.endsWith("'"))) {
                 value = value.slice(1, -1);
             }
-            if (process.env[key] === undefined) process.env[key] = value;
+            if (process.env[key] === undefined) process.env[key] = value; 
         }
     } catch (error) {
         console.warn(`Could not read .env: ${error.message}`);
