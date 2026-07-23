@@ -101,8 +101,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'will4_06-state.json');
-const HISTORY_FILE = path.join(__dirname, 'will4_06-history.json');
+const STATE_FILE = path.join(__dirname, 'will4_07-state.json');
+const HISTORY_FILE = path.join(__dirname, 'will4_07-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -130,7 +130,7 @@ const LOGGER = {
 // ============================================================
 const CONFIG = {
     // ── Deriv API [RETAINED credentials] ─────────────────────
-    API_TOKEN: 'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
+    API_TOKEN: 'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee', //pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692
     APP_ID: '33uslPtthXBEkQOdfKfoY',
     ACCOUNT_TYPE: 'demo',          // 'demo' | 'real' (PAT mode only)
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
@@ -138,21 +138,21 @@ const CONFIG = {
     // ── Capital & Risk [RETAINED] ────────────────────────────
     INITIAL_CAPITAL: 128,
     BASE_RISK_PERCENT_PER_TRADE: 0.01,
-    MIN_STAKE: 2,
+    MIN_STAKE: 1,
     MAX_STAKE: 64,
     MAX_RISK_PCT: 100.00,
 
     // ── Single capped recoup step (NOT martingale) [RETAINED] ─
     RECOVERY_ENABLED: true,
     RECOVERY_MULTIPLIER: 2.00,
-    MAX_RECOVERY_STEPS: 6,
+    MAX_RECOVERY_STEPS: 7,
     MAX_RECOVERY_STAKE_PCT: 80.0,
 
     // ── Session / daily guards [RETAINED] ───────────────────
     SESSION_PROFIT_TARGET: 500000,
     SESSION_STOP_LOSS: -15000,
     DAILY_STOP_LOSS: -100,
-    MAX_CONSECUTIVE_LOSSES: 6,
+    MAX_CONSECUTIVE_LOSSES: 7,
     COOLDOWN_CANDLES: 5,
 
     // ── Candle / Contract Settings [RETAINED] ────────────────
@@ -187,7 +187,7 @@ const CONFIG = {
     ACTIVE_ASSETS: [
         'R_75',
         'R_100',
-        'stpRNG',
+        // 'stpRNG',
     ],
 
     // ── Misc ──────────────────────────────────────────────────
