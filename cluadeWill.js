@@ -1,6 +1,6 @@
 'use strict';
 /**
- * DERIV MULTIPLIER BOT v7.2 — "WILL"
+ * DERIV MULTIPLIER BOT v7.4 — "WILL"
  * WPR ONLY Strategy with Persistent Breakout Levels
  *
  * BUY SETUP:
@@ -124,8 +124,8 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'claudeWill_03-state.json');
-const HISTORY_FILE = path.join(__dirname, 'claudeWill_03-history.json');
+const STATE_FILE = path.join(__dirname, 'claudeWill_01-state.json');
+const HISTORY_FILE = path.join(__dirname, 'claudeWill_01-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -182,8 +182,6 @@ const CONFIG = {
 
     REVERSAL_STAKE_MULTIPLIER: 2,
     MAX_REVERSAL_LEVEL: 7,
-    REVERSAL_CLOSE_TIMEOUT_MS: 15_000,
-    MAX_REVERSAL_CLOSE_RETRIES: 3,
     MAX_STAKE_FRACTION_OF_CAPITAL: 1.0,
     AUTO_CLOSE_ON_RECOVERY: false,
 
@@ -555,7 +553,7 @@ class BreakoutManager {
             return null;
         }
 
-        LOGGER.debug(`${symbol}: REVERSAL CHECK | Direction:${currentDirection || 'none'} Close:${closePrice.toFixed(5)} Low:${lowLevel.toFixed(5)} High:${highLevel.toFixed(5)} Contract:${assetState.activePosition?.contractId || 'pending'} Closing:${Boolean(assetState.activePosition?.closing)}`);
+        LOGGER.debug(`${symbol}: REVERSAL CHECK | Direction:${currentDirection || 'none'} Close:${closePrice.toFixed(5)} Low:${lowLevel.toFixed(5)} High:${highLevel.toFixed(5)} Contract:${assetState.activePosition?.contractId || 'pending'}`);
 
         if (currentDirection === 'UP' && closePrice < lowLevel) {
             LOGGER.breakout(`${symbol} PRICE REVERSAL: BUY → SELL because candle closed ${closePrice.toFixed(5)} below ${lowLevel.toFixed(5)}`);
@@ -856,9 +854,9 @@ class StatePersistence {
                         contractId: pos.contractId, reqId: pos.reqId,
                         buyPrice: pos.buyPrice, isReversal: pos.isReversal,
                         reversalLevel: pos.reversalLevel, currentProfit: pos.currentProfit,
-                        pendingReversal: pos.pendingReversal, closing: pos.closing,
-                        reversalRequestedAt: pos.reversalRequestedAt,
-                        closeAttempts: pos.closeAttempts,
+                        pendingReversal: pos.pendingReversal,
+                        isRecoveryClose: pos.isRecoveryClose,
+                        isMaxReversalClose: pos.isMaxReversalClose,
                     })),
                 },
                 assets: {},
@@ -926,9 +924,9 @@ class StatePersistence {
                 .map(pos => ({
                     ...pos,
                     entryTime: pos.entryTime || Date.now(),
-                    closing: Boolean(pos.closing),
-                    reversalRequestedAt: Number(pos.reversalRequestedAt) || 0,
-                    closeAttempts: Number(pos.closeAttempts) || 0,
+                    pendingReversal: pos.pendingReversal ?? null,
+                    isRecoveryClose: Boolean(pos.isRecoveryClose),
+                    isMaxReversalClose: Boolean(pos.isMaxReversalClose),
                 }));
 
             for (const [symbol, saved] of Object.entries(data.assets || {})) {
@@ -1039,7 +1037,7 @@ class TelegramService {
         const overall = TradeHistoryManager.getOverallStats();
         const today = TradeHistoryManager.getTodayStats();
         const lines = [
-            `${emoji} <b>WILL BOT v7.2 — ${type}</b>`,
+            `${emoji} <b>WILL BOT v7.4 — ${type}</b>`,
             `Asset: <b>${symbol}</b>  Direction: <b>${direction === 'UP' ? '\u{1f4c8} BUY' : '\u{1f4c9} SELL'}</b>`,
             `Stake: $${stake.toFixed(2)} | Multiplier: x${multiplier}`,
             `Reversal: ${a?.reversalLevel ?? 0}/${CONFIG.MAX_REVERSAL_LEVEL} | ${TradingSessionManager.getStatusString()}`,
@@ -1105,7 +1103,7 @@ class TelegramService {
             }
         });
         await this.sendMessage([
-            `\u{1f4ca} <b>WILL v7.2 SESSION SUMMARY</b>`,
+            `\u{1f4ca} <b>WILL v7.4 SESSION SUMMARY</b>`,
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
             `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
@@ -1126,7 +1124,7 @@ class TelegramService {
         });
         const overall = TradeHistoryManager.getOverallStats();
         await this.sendMessage([
-            `\u{1f916} <b>WILL BOT v7.2 STARTED (Multiplier)</b>`,
+            `\u{1f916} <b>WILL BOT v7.4 STARTED (Multiplier)</b>`,
             `Strategy: WPR Only — Persistent Breakout Levels`,
             `WPR Period: ${CONFIG.WPR_PERIOD} | OB: ${CONFIG.WPR_OVERBOUGHT} | OS: ${CONFIG.WPR_OVERSOLD}`,
             `Stake: $${CONFIG.INITIAL_STAKE} | TP: $${CONFIG.TAKE_PROFIT} | Max Reversals: ${CONFIG.MAX_REVERSAL_LEVEL}`,
@@ -1160,7 +1158,7 @@ class TelegramService {
             }
         });
         await this.sendMessage([
-            `\u23f0 <b>WILL v7.2 Hourly</b>`,
+            `\u23f0 <b>WILL v7.4 Hourly</b>`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
             `Capital: $${state.capital.toFixed(2)}`,
             assetInfo ? `\n<b>Per-Asset:</b>${assetInfo}` : '',
@@ -1256,7 +1254,7 @@ class SessionManager {
             LOGGER.info(`Day changed: ${state.currentTradeDay} -> ${today}`);
             const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
             TelegramService.sendMessage(
-                `\u{1f319} <b>WILL v7.2 END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
+                `\u{1f319} <b>WILL v7.4 END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
             );
             if (!state.session.isActive) {
                 state.session.isActive = true;
@@ -1714,55 +1712,37 @@ class ConnectionManager {
     // ════════════════════════════════════════════════════════════
     processCandleClose(symbol, closedCandle) {
         const assetState = state.assets[symbol];
-        if (!assetState || assetState.closedCandles.length < 1) return;
-        if (!state.isConnected || !state.isAuthorized) return;
+        if (!assetState || assetState.closedCandles.length < CONFIG.MIN_CANDLES_REQUIRED) return;
+        if (!state.isConnected || !state.isAuthorized || !assetState.indicatorsReady) return;
 
-        // PRICE REVERSALS MUST RUN FIRST and must not depend on Williams %R.
-        // The previous ordering evaluated WPR breakout replacement first and
-        // also skipped this block while indicators were not ready.
-        if (assetState.activePosition && assetState.breakout.active && assetState.inTradeCycle) {
-            const reversalDirection = BreakoutManager.checkReversal(symbol);
-            if (reversalDirection) {
-                // Preserve WPR arming on the breach candle, but do not let WPR
-                // replace levels before this price reversal is acted on.
-                if (assetState.indicatorsReady) SignalManager.updateWPRState(symbol);
-                const accepted = bot.executeReversal(symbol, reversalDirection);
-                if (!accepted) {
-                    LOGGER.error(`${symbol}: Price reversal was detected but the close request was not accepted`);
-                }
-                return;
-            }
-        }
-
-        // Re-entry is price based as well, so it also must not depend on WPR.
-        if (assetState.waitingForReentry) {
-            const reentry = SignalManager.checkReentrySignal(symbol);
-            if (reentry) {
-                if (bot.executeTrade(symbol, reentry, false)) {
-                    assetState.inTradeCycle = true;
-                    assetState.waitingForReentry = false;
-                    assetState.priceReturnedToZone = false;
-                }
-                return;
-            }
-        }
-
-        // Only WPR setup/replacement logic needs warmed-up indicators.
-        if (assetState.closedCandles.length < CONFIG.MIN_CANDLES_REQUIRED ||
-            !assetState.indicatorsReady) {
-            return;
-        }
-
+        // Match the supplied WILL reference: update WPR state first, then allow
+        // an opposite WPR crossing to replace the breakout, then check the
+        // candle-close price reversal against the currently active levels.
         const enteredTrade = SignalManager.updateWPRState(symbol);
         if (enteredTrade) return;
 
-        // An opposite WPR setup may replace levels, but only after the original
-        // price-level reversal was checked against the candle that just closed.
         if (assetState.inTradeCycle && assetState.activePosition) {
             const replacementReversal = BreakoutManager.checkForBreakoutReplacement(symbol);
             if (replacementReversal) {
                 bot.executeReversal(symbol, replacementReversal);
                 return;
+            }
+        }
+
+        if (assetState.activePosition && assetState.breakout.active) {
+            const reversal = BreakoutManager.checkReversal(symbol);
+            if (reversal) {
+                bot.executeReversal(symbol, reversal);
+                return;
+            }
+        }
+
+        if (assetState.waitingForReentry) {
+            const reentry = SignalManager.checkReentrySignal(symbol);
+            if (reentry && bot.executeTrade(symbol, reentry, false)) {
+                assetState.inTradeCycle = true;
+                assetState.waitingForReentry = false;
+                assetState.priceReturnedToZone = false;
             }
         }
 
@@ -1816,7 +1796,6 @@ class ConnectionManager {
         position.contractId = contract.contract_id;
         position.buyPrice = Number(contract.buy_price) || position.stake;
         position.opening = false;
-        position.closing = false;
 
         const assetState = state.assets[position.symbol];
         assetState.activePosition = position;
@@ -1846,33 +1825,15 @@ class ConnectionManager {
             subscribe: 1,
         });
 
-        if (position.queuedReversal) {
-            const queuedDirection = position.queuedReversal;
-            position.queuedReversal = null;
-            setImmediate(() => bot.executeReversal(position.symbol, queuedDirection));
-        }
         StatePersistence.saveState();
     }
 
     handleSellResponse(r) {
         const context = this._requestContext(r, true);
-        const requestedId = r.echo_req?.sell ?? context?.contractId;
         if (r.error) {
+            // Match the reference: do not erase pendingReversal on a sell error.
+            // The next closed candle can submit the close again if still valid.
             LOGGER.error(`Sell error${context?.symbol ? ` [${context.symbol}]` : ''} (${r.error.code || 'unknown'}): ${r.error.message}`);
-            const position = state.portfolio.activePositions.find(
-                item => String(item.contractId) === String(requestedId)
-            );
-            if (position) {
-                position.closing = false;
-                position.reversalRequestedAt = 0;
-                if (position.pendingReversal) {
-                    // Keep the requested direction. A transient/not-yet-sellable
-                    // response must not silently cancel the reversal.
-                    setTimeout(() => bot.retryPendingReversal(position.symbol), 1_000);
-                } else {
-                    position.isMaxReversalClose = false;
-                }
-            }
             return;
         }
 
@@ -1899,6 +1860,12 @@ class ConnectionManager {
         const position = state.portfolio.activePositions[positionIndex];
         const symbol = position.symbol;
         const assetState = state.assets[symbol];
+        // Store all close-routing flags BEFORE removing the old position. This
+        // is the critical fix used by the supplied reference bot.
+        const pendingReversalDirection = position.pendingReversal;
+        const isReversalPending = Boolean(pendingReversalDirection);
+        const isRecoveryClose = Boolean(position.isRecoveryClose);
+        const isMaxReversalClose = Boolean(position.isMaxReversalClose);
         const profit = Number(rawProfit);
         if (!Number.isFinite(profit)) {
             LOGGER.error(`${symbol}: Contract ${contractId} closed with invalid profit`);
@@ -1907,6 +1874,7 @@ class ConnectionManager {
 
         state.portfolio.activePositions.splice(positionIndex, 1);
         SessionManager.recordTradeResult(symbol, profit, position.direction);
+        let recoveryContinues = false;
 
         if (assetState) {
             assetState.activePosition = null;
@@ -1921,19 +1889,36 @@ class ConnectionManager {
                 symbol, position.direction, position.stake, position.multiplier, { profit }
             );
 
-            if (position.isMaxReversalClose) {
-                LOGGER.warn(`${symbol}: Maximum reversals reached — cycle cleared`);
-                StakeManager.fullResetWithBreakoutClear(symbol);
-            } else if (position.pendingReversal) {
-                const nextDirection = position.pendingReversal;
+            if (isRecoveryClose) {
+                LOGGER.recovery(`${symbol}: Recovery close completed. Profit: $${profit.toFixed(2)}`);
+                StakeManager.fullReset(symbol);
+            } else if (isReversalPending) {
                 const previousLoss = profit < 0 ? profit : 0;
                 assetState.currentDirection = null;
-                LOGGER.trade(`${symbol}: OLD ${position.direction} CONTRACT CLOSED | P/L:${profit >= 0 ? '+' : ''}$${profit.toFixed(2)} | OPENING ${nextDirection} REVERSAL`);
-                const opened = bot.executeTrade(symbol, nextDirection, true, previousLoss);
-                if (!opened) {
+
+                LOGGER.trade(`REVERSAL TRIGGERED: ${symbol} → ${pendingReversalDirection}`);
+                LOGGER.trade(`Previous Loss: $${Math.abs(previousLoss).toFixed(2)}`);
+                LOGGER.trade(`Current Reversal Level: ${assetState.reversalLevel}`);
+                LOGGER.trade(`Next Stake: $${(assetState.currentStake * CONFIG.REVERSAL_STAKE_MULTIPLIER).toFixed(2)}`);
+
+                // Execute immediately in the sell/closed-contract handler — no
+                // timeout and no deferred queue, matching the correct reference.
+                const opened = bot.executeTrade(
+                    symbol,
+                    pendingReversalDirection,
+                    true,
+                    previousLoss
+                );
+                if (opened) {
+                    recoveryContinues = true;
+                    LOGGER.trade(`Reversal trade request sent for ${symbol}`);
+                } else {
                     LOGGER.error(`${symbol}: Reversal order could not be sent — clearing cycle to avoid deadlock`);
                     StakeManager.fullResetWithBreakoutClear(symbol);
                 }
+            } else if (isMaxReversalClose) {
+                LOGGER.warn(`${symbol}: Maximum reversals reached — cycle cleared`);
+                StakeManager.fullResetWithBreakoutClear(symbol);
             } else if (profit > 0 &&
                 (assetState.reversalLevel === 0 || profit >= assetState.accumulatedLoss)) {
                 StakeManager.fullReset(symbol);
@@ -1945,7 +1930,10 @@ class ConnectionManager {
             }
         }
 
-        SessionManager.checkSessionTargets();
+        // As in the working reference bot, do not end/pause the session between
+        // the stopped trade and its recovery entry. Evaluate session targets
+        // only when the recovery cycle has actually finished.
+        if (!recoveryContinues) SessionManager.checkSessionTargets();
         StatePersistence.saveState();
 
         const idToForget = subscriptionId || this._subscriptionIds.get(String(contractId));
@@ -1981,10 +1969,6 @@ class ConnectionManager {
 
         position.currentProfit = Number(contract.profit) || 0;
         position.currentPrice = Number(contract.current_spot) || contract.current_spot;
-        position.isValidToSell = contract.is_valid_to_sell !== 0 && contract.is_valid_to_sell !== false;
-        if (position.pendingReversal && !position.closing && position.isValidToSell) {
-            setImmediate(() => bot.retryPendingReversal(position.symbol));
-        }
         const assetState = state.assets[position.symbol];
         if (assetState) {
             assetState.unrealizedPnl = position.currentProfit;
@@ -1994,11 +1978,10 @@ class ConnectionManager {
         // The previous build force-closed a contract after 20 identical P/L
         // updates. Flat P/L is not a stalled connection, so that logic was
         // removed. WebSocket ping/reconnect handles actual connection stalls.
-        if (assetState && !position.closing &&
-            StakeManager.shouldAutoClose(position.symbol, position.currentProfit)) {
+        if (assetState && StakeManager.shouldAutoClose(position.symbol, position.currentProfit)) {
             LOGGER.recovery(`${position.symbol}: Auto close — profit covers accumulated loss`);
             position.isRecoveryClose = true;
-            position.closing = true;
+            StatePersistence.saveState();
             this.send(
                 { sell: position.contractId, price: 0 },
                 { type: 'sell', symbol: position.symbol, contractId: position.contractId }
@@ -2021,7 +2004,7 @@ class ConnectionManager {
             this.reconnectAttempts++;
             const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
             LOGGER.info(`Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts})`);
-            TelegramService.sendMessage(`\u26a0\ufe0f <b>WILL v7.2 CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
+            TelegramService.sendMessage(`\u26a0\ufe0f <b>WILL v7.4 CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null;
                 if (this.isShuttingDown) return;
@@ -2030,7 +2013,7 @@ class ConnectionManager {
             }, delay);
         } else {
             LOGGER.error('Max reconnection attempts reached');
-            TelegramService.sendMessage(`\u{1f6d1} <b>WILL v7.2 BOT STOPPED</b> — Max reconnections\nP/L: $${(state.session.netPL || 0).toFixed(2)}`);
+            TelegramService.sendMessage(`\u{1f6d1} <b>WILL v7.4 BOT STOPPED</b> — Max reconnections\nP/L: $${(state.session.netPL || 0).toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -2088,10 +2071,6 @@ class IndexBot {
                 this._processedContracts = new Set(entries.slice(-100));
             }
         }, 1800000);
-        this.reversalWatchdogInterval = setInterval(
-            () => this.checkPendingReversalCloses(),
-            5_000
-        );
     }
 
     async start() {
@@ -2107,7 +2086,7 @@ class IndexBot {
         }
 
         console.log('\n' + '═'.repeat(74));
-        console.log(' DERIV MULTIPLIER BOT v7.2 — WILL (fixed candle/WPR pipeline)');
+        console.log(' DERIV MULTIPLIER BOT v7.4 — WILL (fixed candle/WPR pipeline)');
         console.log('═'.repeat(74));
         console.log(`Assets    : ${ACTIVE_ASSETS.join(', ')}`);
         console.log(`Account   : ${CONFIG.ACCOUNT_TYPE.toUpperCase()} | Currency: ${state.currency}`);
@@ -2123,7 +2102,7 @@ class IndexBot {
         TelegramService.startHourlyTimer();
         TelegramService.startDailyTimer();
         this.startSessionTimeChecker();
-        LOGGER.info('WILL Bot v7.2 fully started');
+        LOGGER.info('WILL Bot v7.4 fully started');
     }
 
     subscribeToAssets(symbol) {
@@ -2150,9 +2129,15 @@ class IndexBot {
     // executeTrade — Multiplier contract (FROM REFERENCE BOT)
     // ════════════════════════════════════════════════════════════
     executeTrade(symbol, direction, isReversal = false, previousLoss = 0) {
-        if (!SessionManager.isSessionActive()) {
+        // Match the working reference bot: a reversal/recovery order must not
+        // be blocked by a paused session or a target crossed by the loss that
+        // was just realised. Normal WPR entries still obey session controls.
+        if (!isReversal && !SessionManager.isSessionActive()) {
             LOGGER.warn(`${symbol}: Trade blocked — session is paused`);
             return false;
+        }
+        if (isReversal && !SessionManager.isSessionActive()) {
+            LOGGER.warn(`${symbol}: Session is paused, but the pending recovery reversal is allowed`);
         }
         if (!state.isConnected || !state.isAuthorized ||
             this.connection.ws?.readyState !== WebSocket.OPEN) {
@@ -2248,11 +2233,9 @@ class IndexBot {
             fromReentry,
             reversalLevel: assetState.reversalLevel,
             pendingReversal: null,
-            queuedReversal: null,
+            isRecoveryClose: false,
+            isMaxReversalClose: false,
             opening: true,
-            closing: false,
-            reversalRequestedAt: 0,
-            closeAttempts: 0,
         };
         state.portfolio.activePositions.push(position);
         assetState.activePosition = position;
@@ -2269,130 +2252,60 @@ class IndexBot {
     // ════════════════════════════════════════════════════════════
     // executeReversal — close current, pending reversal on close
     // ════════════════════════════════════════════════════════════
-    _sendReversalClose(position) {
-        if (!position?.contractId || !position.pendingReversal) return false;
-        if (!state.isConnected || !state.isAuthorized) return false;
-
-        position.closing = true;
-        position.closeAttempts = Number(position.closeAttempts || 0) + 1;
-        position.reversalRequestedAt = Date.now();
-        const reqId = this.connection.send(
-            { sell: position.contractId, price: 0 },
-            {
-                type: 'sell',
-                reason: 'REVERSAL',
-                symbol: position.symbol,
-                contractId: position.contractId,
-                newDirection: position.pendingReversal,
-                attempt: position.closeAttempts,
-            }
-        );
-        if (reqId === null) {
-            position.closing = false;
-            position.reversalRequestedAt = 0;
-            return false;
-        }
-
-        LOGGER.trade(`${position.symbol}: REVERSAL CLOSE SENT | Contract:${position.contractId} | ${position.direction}→${position.pendingReversal} | Attempt:${position.closeAttempts} | Req:${reqId}`);
-        StatePersistence.saveState();
-        return true;
-    }
-
-    retryPendingReversal(symbol) {
-        const position = state.assets[symbol]?.activePosition;
-        if (!position?.pendingReversal || position.closing) return false;
-        if (Number(position.closeAttempts || 0) >= CONFIG.MAX_REVERSAL_CLOSE_RETRIES) {
-            LOGGER.error(`${symbol}: Reversal close failed after ${position.closeAttempts} attempts; it will be checked again on the next candle`);
-            position.pendingReversal = null;
-            position.closeAttempts = 0;
-            position.reversalRequestedAt = 0;
-            return false;
-        }
-        return this._sendReversalClose(position);
-    }
-
-    checkPendingReversalCloses() {
-        if (!state.isConnected || !state.isAuthorized) return;
-        const now = Date.now();
-        for (const position of state.portfolio.activePositions) {
-            if (!position.pendingReversal || !position.contractId) continue;
-
-            if (!position.closing) {
-                this.retryPendingReversal(position.symbol);
-                continue;
-            }
-
-            const elapsed = now - Number(position.reversalRequestedAt || 0);
-            if (elapsed < CONFIG.REVERSAL_CLOSE_TIMEOUT_MS) continue;
-
-            LOGGER.warn(`${position.symbol}: No reversal-close confirmation after ${(elapsed / 1000).toFixed(1)}s; reconciling contract ${position.contractId}`);
-            this.connection.send({
-                proposal_open_contract: 1,
-                contract_id: position.contractId,
-                subscribe: 0,
-            });
-            position.closing = false;
-            this.retryPendingReversal(position.symbol);
-        }
-    }
-
     executeReversal(symbol, newDirection) {
         const assetState = state.assets[symbol];
         const position = assetState?.activePosition;
-        if (!position) {
+
+        if (!position || !position.contractId) {
             LOGGER.warn(`No active position to reverse on ${symbol}`);
             return false;
         }
-        if (!['UP', 'DOWN'].includes(newDirection) || position.direction === newDirection) return false;
-
-        if (!position.contractId) {
-            position.queuedReversal = newDirection;
-            LOGGER.warn(`${symbol}: Reversal queued until the opening contract ID is received`);
-            return true;
-        }
-
-        if (position.closing) {
-            if (position.pendingReversal === newDirection) {
-                LOGGER.debug(`${symbol}: Reversal close already pending`);
-                return true;
-            }
-            LOGGER.warn(`${symbol}: Another close operation is already pending`);
+        if (!['UP', 'DOWN'].includes(newDirection) || position.direction === newDirection) {
             return false;
         }
 
         if (assetState.reversalLevel >= CONFIG.MAX_REVERSAL_LEVEL) {
-            LOGGER.warn(`${symbol}: Maximum ${CONFIG.MAX_REVERSAL_LEVEL} reversals reached — closing without another entry`);
+            LOGGER.warn(`${symbol}: Max reversals (${CONFIG.MAX_REVERSAL_LEVEL}) reached — closing position`);
             position.isMaxReversalClose = true;
-            position.closing = true;
+            StatePersistence.saveState();
             const reqId = this.connection.send(
                 { sell: position.contractId, price: 0 },
                 { type: 'sell', reason: 'MAX_REVERSAL', symbol, contractId: position.contractId }
             );
-            if (reqId === null) {
-                position.closing = false;
-                position.isMaxReversalClose = false;
-                return false;
-            }
-            return true;
+            if (reqId === null) position.isMaxReversalClose = false;
+            return reqId !== null;
         }
 
+        LOGGER.trade(`REVERSING ${symbol}: ${position.direction} → ${newDirection} (#${assetState.reversalLevel + 1}/${CONFIG.MAX_REVERSAL_LEVEL})`);
+
+        // Critical reference-bot behaviour: put the next direction on the OLD
+        // position before requesting its sale, and persist it before any sell/
+        // proposal_open_contract response can remove that position.
         position.pendingReversal = newDirection;
-        position.closeAttempts = 0;
-        LOGGER.trade(`REVERSAL STARTED ${symbol}: ${position.direction} → ${newDirection} (#${assetState.reversalLevel + 1}/${CONFIG.MAX_REVERSAL_LEVEL})`);
-        return this._sendReversalClose(position);
+        StatePersistence.saveState();
+
+        const reqId = this.connection.send(
+            { sell: position.contractId, price: 0 },
+            { type: 'sell', reason: 'REVERSAL', symbol, contractId: position.contractId }
+        );
+        if (reqId === null) {
+            position.pendingReversal = null;
+            StatePersistence.saveState();
+            return false;
+        }
+        LOGGER.trade(`${symbol}: Reversal close request sent | Contract:${position.contractId} | Req:${reqId}`);
+        return true;
     }
 
     async closeAllPositions() {
         LOGGER.info('Closing all positions...');
         for (const position of state.portfolio.activePositions) {
-            if (position.contractId && !position.closing) {
-                position.closing = true;
-                const reqId = this.connection.send(
+            if (position.contractId) {
+                this.connection.send(
                     { sell: position.contractId, price: 0 },
                     { type: 'sell', symbol: position.symbol, contractId: position.contractId }
                 );
-                if (reqId === null) position.closing = false;
-                else LOGGER.info(`Closing: ${position.symbol} ${position.direction}`);
+                LOGGER.info(`Closing: ${position.symbol} ${position.direction}`);
             }
         }
     }
@@ -2404,7 +2317,6 @@ class IndexBot {
         if (this.statusDisplayIntervalId) clearInterval(this.statusDisplayIntervalId);
         if (this.sessionTimeCheckerId) clearInterval(this.sessionTimeCheckerId);
         if (this.contractCleanupInterval) clearInterval(this.contractCleanupInterval);
-        if (this.reversalWatchdogInterval) clearInterval(this.reversalWatchdogInterval);
         StatePersistence.saveState();
         TradeHistoryManager.saveHistory();
         setTimeout(() => { this.connection.cleanup(); LOGGER.info('Bot stopped'); }, 2000);
@@ -2511,7 +2423,7 @@ function main() {
 
     installProcessHandlers();
     startStatusDisplay(bot);
-    console.log('\n\u{1f680} Starting WILL Bot v7.2 (Multiplier)...\n');
+    console.log('\n\u{1f680} Starting WILL Bot v7.4 (Multiplier)...\n');
     bot.connection.connect();
     return bot;
 }
