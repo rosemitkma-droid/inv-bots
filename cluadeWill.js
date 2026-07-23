@@ -124,8 +124,8 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'claudeWill_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'claudeWill_01-history.json');
+const STATE_FILE = path.join(__dirname, 'claudeWill_05-state.json');
+const HISTORY_FILE = path.join(__dirname, 'claudeWill_05-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -167,7 +167,7 @@ const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 // ══════════════════════════════════════════════════════════════════════════════
 const CONFIG = {
     // Secrets and account selection must come from the environment/.env.
-    API_TOKEN: 'pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692',
+    API_TOKEN: 'pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692', //pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee //pat_27a3197287bae3ec6c2c9cbdd68fffaa2a524e3b0a6e1ecf298b5ffb338adb10
     APP_ID: '33uslPtthXBEkQOdfKfoY',
     ACCOUNT_TYPE: 'demo',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
@@ -1721,7 +1721,7 @@ class ConnectionManager {
         const enteredTrade = SignalManager.updateWPRState(symbol);
         if (enteredTrade) return;
 
-        if (assetState.inTradeCycle && assetState.activePosition) {
+        if (assetState.inTradeCycle) {
             const replacementReversal = BreakoutManager.checkForBreakoutReplacement(symbol);
             if (replacementReversal) {
                 bot.executeReversal(symbol, replacementReversal);
@@ -1729,7 +1729,7 @@ class ConnectionManager {
             }
         }
 
-        if (assetState.activePosition && assetState.breakout.active) {
+        if (assetState.inTradeCycle && assetState.breakout.active) {
             const reversal = BreakoutManager.checkReversal(symbol);
             if (reversal) {
                 bot.executeReversal(symbol, reversal);
@@ -1804,6 +1804,14 @@ class ConnectionManager {
         assetState.openingTrade = false;
 
         LOGGER.trade(`Position opened: ${contract.contract_id} | Buy price: $${position.buyPrice.toFixed(2)}`);
+
+        // Fire any reversal that was queued while the contract was still opening
+        if (position.pendingReversal) {
+            const queuedDir = position.pendingReversal;
+            position.pendingReversal = null;
+            LOGGER.trade(`${position.symbol}: Firing queued reversal → ${queuedDir}`);
+            bot.executeReversal(position.symbol, queuedDir);
+        }
         if (position.isReversal) {
             TelegramService.sendReversalAlert(
                 position.symbol, position.direction, position.stake,
@@ -2257,6 +2265,13 @@ class IndexBot {
         const position = assetState?.activePosition;
 
         if (!position || !position.contractId) {
+            // Contract is still opening — queue the reversal for when contractId arrives
+            if (position && position.opening) {
+                LOGGER.warn(`${symbol}: Contract still opening — reversal queued (${newDirection})`);
+                position.pendingReversal = newDirection;
+                StatePersistence.saveState();
+                return true;
+            }
             LOGGER.warn(`No active position to reverse on ${symbol}`);
             return false;
         }
