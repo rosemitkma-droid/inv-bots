@@ -124,8 +124,8 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'claudeWill_06-state.json');
-const HISTORY_FILE = path.join(__dirname, 'claudeWill_06-history.json');
+const STATE_FILE = path.join(__dirname, 'claudeWill_07-state.json');
+const HISTORY_FILE = path.join(__dirname, 'claudeWill_07-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -359,13 +359,12 @@ class SignalManager {
         }
 
         if (!assetState.inTradeCycle) {
-            // When waiting for reentry with an active breakout, only allow
-            // OPPOSITE-type WPR signals to replace the breakout and start a
-            // fresh trade cycle. Same-type signals are ignored so the
-            // persistent levels are respected per the strategy spec.
+            // FIX: After TP hit, persistent breakout levels must guide reentry.
+            // No WPR signals should fire — only price-action closes beyond the
+            // levels (handled by checkReentrySignal in processCandleClose).
             if (assetState.waitingForReentry && assetState.breakout.active) {
-                if (assetState.breakout.type !== 'BUY' && this.checkBuySignal(symbol)) return true;
-                if (assetState.breakout.type !== 'SELL' && this.checkSellSignal(symbol)) return true;
+                LOGGER.debug(`${symbol}: WPR signals blocked — waiting for price-action reentry`);
+                return false;
             } else {
                 if (this.checkBuySignal(symbol)) return true;
                 if (this.checkSellSignal(symbol)) return true;
@@ -1730,10 +1729,10 @@ class ConnectionManager {
         const enteredTrade = SignalManager.updateWPRState(symbol);
         if (enteredTrade) return;
 
-        if (assetState.inTradeCycle) {
+        if (assetState.inTradeCycle && !assetState.activePosition) {
             const replacementReversal = BreakoutManager.checkForBreakoutReplacement(symbol);
             if (replacementReversal) {
-                bot.executeReversal(symbol, replacementReversal);
+                bot.executeReversal(symbol, replacementReversal, assetState.accumulatedLoss);
                 return;
             }
         }
@@ -1741,7 +1740,16 @@ class ConnectionManager {
         if (assetState.inTradeCycle && assetState.breakout.active) {
             const reversal = BreakoutManager.checkReversal(symbol);
             if (reversal) {
-                bot.executeReversal(symbol, reversal);
+                bot.executeReversal(symbol, reversal, assetState.accumulatedLoss);
+                return;
+            }
+            // FIX: If a mid-candle stop-out cleared the position but the
+            // candle close doesn't trigger a reversal (price back inside
+            // the zone), the bot would deadlock with stale breakout levels.
+            // Clear them so WPR analysis can start a fresh cycle.
+            if (!assetState.activePosition) {
+                LOGGER.warn(`${symbol}: No active position after stop-out, candle close inside zone — clearing stale breakout`);
+                StakeManager.fullResetWithBreakoutClear(symbol);
                 return;
             }
         }
@@ -1790,7 +1798,16 @@ class ConnectionManager {
                     assetState.currentDirection = null;
                     assetState.openingTrade = false;
                     if (position.isReversal) {
-                        StakeManager.fullResetWithBreakoutClear(position.symbol);
+                        // FIX: If the old position was already closed by Deriv
+                        // mid-candle, clearing breakout levels would destroy the
+                        // valid reversal opportunity. Only clear if the breakout
+                        // was specifically created for this (now-failed) trade.
+                        if (assetState.breakout.active && assetState.reversalLevel > 0) {
+                            LOGGER.warn(`${position.symbol}: Reversal rejected but breakout levels kept (mid-candle stop-out cycle)`);
+                            assetState.inTradeCycle = false;
+                        } else {
+                            StakeManager.fullResetWithBreakoutClear(position.symbol);
+                        }
                     } else if (position.fromReentry) {
                         assetState.inTradeCycle = false;
                         assetState.waitingForReentry = true;
@@ -1917,6 +1934,28 @@ class ConnectionManager {
             if (isRecoveryClose) {
                 LOGGER.recovery(`${symbol}: Recovery close completed. Profit: $${profit.toFixed(2)}`);
                 StakeManager.fullReset(symbol);
+            } else if (profit > 0 && assetState.reversalLevel === 0 && assetState.breakout.active) {
+                // Take Profit hit on a fresh trade (no reversals). Enter
+                // waiting-for-reentry so persistent breakout levels remain active
+                // and a new trade can be triggered when price closes beyond them.
+                LOGGER.recovery(`${symbol}: TP reached — entering re-entry wait (${profit.toFixed(2)})`);
+                StakeManager.fullReset(symbol);
+                // FIX: If the last closed candle already closed outside the
+                // breakout zone, mark priceReturnedToZone immediately so
+                // reentry can fire on the very next candle close instead of
+                // deadlocking forever.
+                if (assetState.breakout.active) {
+                    const lastClosed = assetState.closedCandles.at(-1);
+                    if (lastClosed) {
+                        const closePrice = Number(lastClosed.close);
+                        const isOutsideZone = closePrice <= assetState.breakout.lowLevel ||
+                            closePrice >= assetState.breakout.highLevel;
+                        if (isOutsideZone) {
+                            assetState.priceReturnedToZone = true;
+                            LOGGER.breakout(`${symbol}: TP candle close ${closePrice.toFixed(5)} already outside zone — reentry enabled`);
+                        }
+                    }
+                }
             } else if (isReversalPending) {
                 const previousLoss = profit < 0 ? profit : 0;
                 assetState.currentDirection = null;
@@ -1950,8 +1989,21 @@ class ConnectionManager {
             } else {
                 // Stop-out, manual close, incomplete recovery, or another close
                 // with no queued reversal must never leave inTradeCycle locked.
-                LOGGER.warn(`${symbol}: Cycle ended without a completed recovery — clearing breakout`);
-                StakeManager.fullResetWithBreakoutClear(symbol);
+                // FIX: If this was a reversal-cycle trade stopped mid-candle
+                // (no pending reversal set), keep breakout levels alive so the
+                // next candle close can trigger the reversal via processCandleClose.
+                // Only fully clear if this was a fresh trade (reversalLevel 0).
+                if (assetState.reversalLevel > 0) {
+                    LOGGER.warn(`${symbol}: Mid-candle stop-out during reversal cycle — adding loss $${Math.abs(profit).toFixed(2)} to accumulatedLoss`);
+                    // Add the stopped-out trade's loss so the next reversal's
+                    // TP target includes it. Don't call getReversalStake here
+                    // (that happens when the fresh reversal trade opens from
+                    // processCandleClose on the next candle close).
+                    if (profit < 0) assetState.accumulatedLoss += Math.abs(profit);
+                } else {
+                    LOGGER.warn(`${symbol}: Cycle ended without a completed recovery — clearing breakout`);
+                    StakeManager.fullResetWithBreakoutClear(symbol);
+                }
             }
         }
 
@@ -2277,7 +2329,7 @@ class IndexBot {
     // ════════════════════════════════════════════════════════════
     // executeReversal — close current, pending reversal on close
     // ════════════════════════════════════════════════════════════
-    executeReversal(symbol, newDirection) {
+    executeReversal(symbol, newDirection, previousLoss = 0) {
         const assetState = state.assets[symbol];
         const position = assetState?.activePosition;
 
@@ -2288,6 +2340,13 @@ class IndexBot {
                 position.pendingReversal = newDirection;
                 StatePersistence.saveState();
                 return true;
+            }
+            // FIX: Position was already closed by Deriv mid-candle (stop-out/TP)
+            // but the breakout levels are still active and a reversal was triggered
+            // by processCandleClose. Open a fresh trade in the new direction.
+            if (!position && assetState.breakout.active && assetState.inTradeCycle) {
+                LOGGER.trade(`${symbol}: Position already closed by Deriv — opening fresh ${newDirection} trade`);
+                return bot.executeTrade(symbol, newDirection, true, previousLoss || assetState.accumulatedLoss);
             }
             LOGGER.warn(`No active position to reverse on ${symbol}`);
             return false;
