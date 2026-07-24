@@ -50,7 +50,7 @@ function loadLocalEnv(filePath = path.join(__dirname, '.env')) {
                 (value.startsWith("'") && value.endsWith("'"))) {
                 value = value.slice(1, -1);
             }
-            if (process.env[key] === undefined) process.env[key] = value; 
+            if (process.env[key] === undefined) process.env[key] = value;
         }
     } catch (error) {
         console.warn(`Could not read .env: ${error.message}`);
@@ -124,8 +124,8 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'claudeWill_05-state.json');
-const HISTORY_FILE = path.join(__dirname, 'claudeWill_05-history.json');
+const STATE_FILE = path.join(__dirname, 'claudeWill_06-state.json');
+const HISTORY_FILE = path.join(__dirname, 'claudeWill_06-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -172,13 +172,13 @@ const CONFIG = {
     ACCOUNT_TYPE: 'demo',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
-    INITIAL_CAPITAL: 1275,
+    INITIAL_CAPITAL: 635,
 
-    INITIAL_STAKE: 5.00,
-    TAKE_PROFIT: 1,
+    INITIAL_STAKE: 2.50,
+    TAKE_PROFIT: 0.5,
 
     SESSION_PROFIT_TARGET: 15000,
-    SESSION_STOP_LOSS: -1275,
+    SESSION_STOP_LOSS: -635,
 
     REVERSAL_STAKE_MULTIPLIER: 2,
     MAX_REVERSAL_LEVEL: 7,
@@ -358,9 +358,18 @@ class SignalManager {
             LOGGER.wpr(`${symbol}: SELL FLAG ARMED — WPR entered overbought (${wpr.toFixed(2)})`);
         }
 
-        if (!assetState.inTradeCycle && !assetState.waitingForReentry) {
-            if (this.checkBuySignal(symbol)) return true;
-            if (this.checkSellSignal(symbol)) return true;
+        if (!assetState.inTradeCycle) {
+            // When waiting for reentry with an active breakout, only allow
+            // OPPOSITE-type WPR signals to replace the breakout and start a
+            // fresh trade cycle. Same-type signals are ignored so the
+            // persistent levels are respected per the strategy spec.
+            if (assetState.waitingForReentry && assetState.breakout.active) {
+                if (assetState.breakout.type !== 'BUY' && this.checkBuySignal(symbol)) return true;
+                if (assetState.breakout.type !== 'SELL' && this.checkSellSignal(symbol)) return true;
+            } else {
+                if (this.checkBuySignal(symbol)) return true;
+                if (this.checkSellSignal(symbol)) return true;
+            }
         }
         return false;
     }
@@ -1740,6 +1749,14 @@ class ConnectionManager {
         if (assetState.waitingForReentry) {
             const reentry = SignalManager.checkReentrySignal(symbol);
             if (reentry && bot.executeTrade(symbol, reentry, false)) {
+                // Update the breakout type to match the new trade direction
+                // so that checkForBreakoutReplacement correctly identifies
+                // opposite-type WPR signals on subsequent candles.
+                if (assetState.breakout.active && assetState.breakout.type !==
+                    (reentry === 'UP' ? 'BUY' : 'SELL')) {
+                    LOGGER.breakout(`${symbol} RE-ENTRY: updating breakout type ${assetState.breakout.type} → ${reentry === 'UP' ? 'BUY' : 'SELL'}`);
+                    assetState.breakout.type = reentry === 'UP' ? 'BUY' : 'SELL';
+                }
                 assetState.inTradeCycle = true;
                 assetState.waitingForReentry = false;
                 assetState.priceReturnedToZone = false;
