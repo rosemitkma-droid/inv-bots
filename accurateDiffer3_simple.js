@@ -1359,7 +1359,7 @@ class TradingBot {
   }
 
   _onDisconnected() {
-    telegram.send(`⚠️ <b>Connection lost</b>\n🔄 reconnecting...`);
+    telegram.send(`⚠️ <b>Simple Digit Bot Connection lost</b>\n🔄 reconnecting...`);
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
   }
 
@@ -1511,7 +1511,7 @@ class TradingBot {
   _onTradeOpen(t) {
     const a = t.analysis || {};
     telegram.send(
-      `🟢 <b>TRADE OPENED — DIGIT DIFFER</b>\n\n` +
+      `🟢 <b>TRADE OPENED — SIMPLE DIGIT DIFFER</b>\n\n` +
       `🎫 Contract: <code>#${t.contractId}</code>\n` +
       `📊 Symbol: <code>${t.symbol}</code>\n` +
       `🔢 Prediction/barrier: final digit <b>DIFFERS from ${t.digit}</b>\n` +
@@ -1540,7 +1540,7 @@ class TradingBot {
       this._circuitBreakerUntil = Date.now() + this.cfg.lossCooldownMs;
       const mins = (this.cfg.lossCooldownMs / 60000).toFixed(0);
       logger.warn(`circuit breaker: ${this.stats.currentLossStreak} losses → pausing ${mins}m`);
-      telegram.send(`🛑 <b>CIRCUIT BREAKER</b>\n${this.stats.currentLossStreak} losses. Pausing ${mins}m.`);
+      telegram.send(`🛑 <b>SIMPLE DIGIT CIRCUIT BREAKER</b>\n${this.stats.currentLossStreak} losses. Pausing ${mins}m.`);
     }
 
     // Feed calibrator
@@ -1555,7 +1555,7 @@ class TradingBot {
     const ls = this.stats.lossStreakEvents;
 
     telegram.send(
-      `${emoji} <b>TRADE ${label} — DIGIT DIFFER</b>\n\n` +
+      `${emoji} <b>TRADE ${label} — SIMPLE DIGIT DIFFER</b>\n\n` +
       `🎫 Contract: <code>#${t.contractId}</code>\n` +
       `📊 Symbol: <code>${t.symbol}</code> | differs <b>${t.digit}</b>\n` +
       `💵 Stake: ${t.stake.toFixed(2)} ${this.currency()}\n` +
@@ -1612,7 +1612,7 @@ class TradingBot {
   stop(signal) {
     this.stopped = true;
     logger.info(`stopping (${signal})`);
-    telegram.send(`🛑 <b>Bot stopped</b>\nProfit: ${money(this.stats.overallProfit, this.currency())}`);
+    telegram.send(`🛑 <b>Simple Digit Bot stopped</b>\nProfit: ${money(this.stats.overallProfit, this.currency())}`);
     if (this._analysisT) clearInterval(this._analysisT);
     this._saveState('shutdown');
     this.client.stop();
