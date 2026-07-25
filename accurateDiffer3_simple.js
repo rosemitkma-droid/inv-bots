@@ -115,57 +115,57 @@ const CONFIG = Object.freeze({
   currency: 'USD',
 
   // ── Trade Setup ─────────────────────────────────────────────────
-  stake:           numEnv('STAKE', 1.1),
-  durationTicks:   intEnv('DURATION_TICKS', 1),
-  minStake:        numEnv('MIN_STAKE', 1.1),
-  maxStake:        numEnv('MAX_STAKE', 5.5),
-  assets:          listEnv('ASSETS', 'R_50,R_75,RDBULL'), //listEnv('ASSETS', 'R_10,R_25,R_50,R_75,RDBULL,RDBEAR'),
+  stake:           1.1,
+  durationTicks:   1,
+  minStake:        1.1,
+  maxStake:        5.5,
+  assets:          ['R_50', 'R_75', 'RDBULL'], //'R_10','R_25','R_50','R_75','RDBULL','RDBEAR',
 
   // ── Timing ─────────────────────────────────────────────────────
-  tickWindow:          intEnv('TICK_WINDOW', 500),
-  minTicksForAnalysis: intEnv('MIN_TICKS_ANALYSIS', 200),
-  analysisIntervalMs:  intEnv('ANALYSIS_INTERVAL_MS', 3000),
-  tradeCooldownMs:     intEnv('TRADE_COOLDOWN_MS', 2500),
-  maxOpenTrades:       intEnv('MAX_OPEN_TRADES', 1),
-  assetRotationMs:     intEnv('ASSET_ROTATION_MS', 60000),
+  tickWindow:          500,
+  minTicksForAnalysis: 200,
+  analysisIntervalMs:  3000,
+  tradeCooldownMs:     2500,
+  maxOpenTrades:       1,
+  assetRotationMs:     60000,
 
   // ── Risk Management ────────────────────────────────────────────
-  dailyMaxLoss:       numEnv('DAILY_MAX_LOSS', 100),
-  dailyMaxLossPct:    numEnv('DAILY_MAX_LOSS_PCT', 0.25),
-  dailyMaxProfit:     numEnv('DAILY_MAX_PROFIT', 0),
-  dailyMaxTrades:     intEnv('DAILY_MAX_TRADES', 5000),
-  maxConsecutiveLoss: intEnv('MAX_CONSECUTIVE_LOSSES', 5),
-  lossCooldownMs:     intEnv('LOSS_COOLDOWN_MS', 300000),
+  dailyMaxLoss:       100,
+  dailyMaxLossPct:    1.0,
+  dailyMaxProfit:     15000,
+  dailyMaxTrades:     50000,
+  maxConsecutiveLoss: 7,
+  lossCooldownMs:     300000,
 
   // ── Digit Analysis (Simple Heuristic) ──────────────────────────
-  analysisWindow:     intEnv('ANALYSIS_WINDOW', 100),
-  minProbabilityGap:  numEnv('MIN_PROBABILITY_GAP', 0.005),
-  maxRecentHits:      intEnv('MAX_RECENT_HITS', 3),
-  recentLookback:     intEnv('RECENT_LOOKBACK', 20),
+  analysisWindow:     100,
+  minProbabilityGap:  0.005,
+  maxRecentHits:      3,
+  recentLookback:     20,
 
   // ── Value Edge ─────────────────────────────────────────────────
-  minEdge:            numEnv('MIN_EDGE', 0.01),
-  safetyMargin:       numEnv('SAFETY_MARGIN', 0.016),
+  minEdge:            0.01,
+  safetyMargin:       0.016,
 
   // ── Kelly Sizing ───────────────────────────────────────────────
-  kellyEnabled:       boolEnv('KELLY_ENABLED', true),
-  kellyFraction:      numEnv('KELLY_FRACTION', 0.25),
-  kellyMaxStakeFrac:  numEnv('KELLY_MAX_STAKE_FRAC', 0.02),
-  kellyBankrollFloor: numEnv('KELLY_BANKROLL_FLOOR', 100),
+  kellyEnabled:       true,
+  kellyFraction:      0.25,
+  kellyMaxStakeFrac:  0.02,
+  kellyBankrollFloor: 100,
 
   // ── Symbol Calibration ─────────────────────────────────────────
-  calibEnabled:       boolEnv('CALIB_ENABLED', true),
-  calibWindow:        intEnv('CALIB_WINDOW', 100),
-  calibMinTrades:     intEnv('CALIB_MIN_TRADES', 30),
-  calibDisableGap:    numEnv('CALIB_DISABLE_GAP', 0.03),
+  calibEnabled:       true,
+  calibWindow:        100,
+  calibMinTrades:     30,
+  calibDisableGap:    0.03,
 
   // ── Reporting ──────────────────────────────────────────────────
   eodTimeGmt:         strEnv('TRADE_DAY_END_GMT', '00:00'),
-  hourlySummary:      boolEnv('HOURLY_SUMMARY', true),
+  hourlySummary:      true,
 
   // ── Persistence ────────────────────────────────────────────────
-  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_simple01_state.json'),
-  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_simple01.log'),
+  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_simple02_state.json'),
+  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_simple02.log'),
   logLevel:  strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // ── Telegram ───────────────────────────────────────────────────
