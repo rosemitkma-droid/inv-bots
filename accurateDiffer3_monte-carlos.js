@@ -115,67 +115,67 @@ const CONFIG = Object.freeze({
   currency: 'USD',
 
   // ── Trade Setup ─────────────────────────────────────────────────
-  stake:           numEnv('STAKE', 1.1),
-  durationTicks:   intEnv('DURATION_TICKS', 1),
-  minStake:        numEnv('MIN_STAKE', 1.1),
-  maxStake:        numEnv('MAX_STAKE', 5.5),
-  assets:          listEnv('ASSETS', 'R_10,R_25,R_50,R_75,RDBULL,RDBEAR'), //listEnv('ASSETS', 'R_10,R_25,R_50,R_75,RDBULL,RDBEAR'),
+  stake:           1.1,
+  durationTicks:   1,
+  minStake:        1.1,
+  maxStake:        5.5,
+  assets:          ['R_10','R_25','R_50','R_75','RDBULL','RDBEAR'], //'R_10','R_25','R_50','R_75','RDBULL','RDBEAR',
 
   // ── Timing ─────────────────────────────────────────────────────
-  tickWindow:          intEnv('TICK_WINDOW', 500),
-  minTicksForAnalysis: intEnv('MIN_TICKS_ANALYSIS', 200),
-  analysisIntervalMs:  intEnv('ANALYSIS_INTERVAL_MS', 3000),
-  tradeCooldownMs:     intEnv('TRADE_COOLDOWN_MS', 2500),
-  maxOpenTrades:       intEnv('MAX_OPEN_TRADES', 1),
-  assetRotationMs:     intEnv('ASSET_ROTATION_MS', 60000),
+  tickWindow:          500,
+  minTicksForAnalysis: 200,
+  analysisIntervalMs:  3000,
+  tradeCooldownMs:     2500,
+  maxOpenTrades:       1,
+  assetRotationMs:     60000,
 
   // ── Risk Management ────────────────────────────────────────────
-  dailyMaxLoss:       numEnv('DAILY_MAX_LOSS', 100),
-  dailyMaxLossPct:    numEnv('DAILY_MAX_LOSS_PCT', 0.25),
-  dailyMaxProfit:     numEnv('DAILY_MAX_PROFIT', 0),
-  dailyMaxTrades:     intEnv('DAILY_MAX_TRADES', 5000),
-  maxConsecutiveLoss: intEnv('MAX_CONSECUTIVE_LOSSES', 5),
-  lossCooldownMs:     intEnv('LOSS_COOLDOWN_MS', 300000),
+  dailyMaxLoss:       100,
+  dailyMaxLossPct:    1.0,
+  dailyMaxProfit:     15000,
+  dailyMaxTrades:     50000,
+  maxConsecutiveLoss: 7,
+  lossCooldownMs:     300000,
 
   // ── Monte Carlo Analysis ────────────────────────────────────────
   analysisWindows:       [30, 60, 150, 400],  // multi-scale frequency windows
-  dirichletAlpha:        numEnv('DIRICHLET_ALPHA', 0.5),     // Bayesian prior strength
-  betaZScore:            numEnv('BETA_ZSCORE', 1.28),        // Beta upper-bound z (~90th pctl)
-  bootstrapIterations:   intEnv('BOOTSTRAP_ITERATIONS', 500), // bootstrap resamples
-  hotFilterTicks:        intEnv('HOT_FILTER_TICKS', 5),      // digits in last N ticks → penalty
-  cooldownTicks:         intEnv('COOLDOWN_TICKS', 15),       // don't re-predict digit within N ticks
-  maxRecentHits:         intEnv('MAX_RECENT_HITS', 2),       // max occurrences in recent tail
-  recentLookback:        intEnv('RECENT_LOOKBACK', 20),      // recent tail length for hit check
-  minProbabilityGap:     numEnv('MIN_PROBABILITY_GAP', 0.004), // min gap best vs 2nd-best
-  minEntropy:            numEnv('MIN_ENTROPY', 0.90),         // min normalized entropy gate
-  maxEntropy:            numEnv('MAX_ENTROPY', 0.9997),       // max entropy gate (too uniform)
-  minConsensusScore:     numEnv('MIN_CONSENSUS_SCORE', 0.40), // min weighted consensus (0-1)
-  minAgreementSources:   intEnv('MIN_AGREEMENT_SOURCES', 1),  // min sources agreeing on digit
+  dirichletAlpha:        0.5,     // Bayesian prior strength
+  betaZScore:            1.28,        // Beta upper-bound z (~90th pctl)
+  bootstrapIterations:   500, // bootstrap resamples
+  hotFilterTicks:        5,      // digits in last N ticks → penalty
+  cooldownTicks:         100,       // don't re-predict digit within N ticks
+  maxRecentHits:         2,       // max occurrences in recent tail
+  recentLookback:        20,      // recent tail length for hit check
+  minProbabilityGap:     0.004, // min gap best vs 2nd-best
+  minEntropy:            0.90,         // min normalized entropy gate
+  maxEntropy:            0.9997,       // max entropy gate (too uniform)
+  minConsensusScore:     0.40, // min weighted consensus (0-1)
+  minAgreementSources:   1,  // min sources agreeing on digit
   freqWeights:           [0.20, 0.25, 0.30, 0.25],           // weights for [30,60,150,400] windows
 
   // ── Value Edge ─────────────────────────────────────────────────
-  minEdge:            numEnv('MIN_EDGE', 0.005),
-  safetyMargin:       numEnv('SAFETY_MARGIN', 0.003),
+  minEdge:            0.005,
+  safetyMargin:       0.003,
 
   // ── Kelly Sizing ───────────────────────────────────────────────
-  kellyEnabled:       boolEnv('KELLY_ENABLED', true),
-  kellyFraction:      numEnv('KELLY_FRACTION', 0.25),
-  kellyMaxStakeFrac:  numEnv('KELLY_MAX_STAKE_FRAC', 0.02),
-  kellyBankrollFloor: numEnv('KELLY_BANKROLL_FLOOR', 100),
+  kellyEnabled:       true,
+  kellyFraction:      0.25,
+  kellyMaxStakeFrac:  0.02,
+  kellyBankrollFloor: 100,
 
   // ── Symbol Calibration ─────────────────────────────────────────
-  calibEnabled:       boolEnv('CALIB_ENABLED', true),
-  calibWindow:        intEnv('CALIB_WINDOW', 100),
-  calibMinTrades:     intEnv('CALIB_MIN_TRADES', 30),
-  calibDisableGap:    numEnv('CALIB_DISABLE_GAP', 0.03),
+  calibEnabled:       true,
+  calibWindow:        100,
+  calibMinTrades:     30,
+  calibDisableGap:    0.03,
 
   // ── Reporting ──────────────────────────────────────────────────
   eodTimeGmt:         strEnv('TRADE_DAY_END_GMT', '00:00'),
-  hourlySummary:      boolEnv('HOURLY_SUMMARY', true),
+  hourlySummary:      true,
 
   // ── Persistence ────────────────────────────────────────────────
-  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_mote_state.json'),
-  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_mote.log'),
+  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_monte_carlo_01_state.json'),
+  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_monte_carlo_01.log'),
   logLevel:  strEnv('LOG_LEVEL', 'INFO2').toUpperCase(),
 
   // ── Telegram ───────────────────────────────────────────────────
