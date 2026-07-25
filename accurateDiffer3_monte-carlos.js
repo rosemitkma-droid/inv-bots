@@ -174,8 +174,8 @@ const CONFIG = Object.freeze({
   hourlySummary:      true,
 
   // ── Persistence ────────────────────────────────────────────────
-  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_monte_carlo_01_state.json'),
-  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_monte_carlo_01.log'),
+  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_monte_carlo_02_state.json'),
+  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_monte_carlo_02.log'),
   logLevel:  strEnv('LOG_LEVEL', 'INFO2').toUpperCase(),
 
   // ── Telegram ───────────────────────────────────────────────────
@@ -1706,6 +1706,11 @@ class TradingBot {
     this._dayStartDate = null;
     this._dayStartBalance = null;
     this._trading = false;
+
+    // Watchdog
+    this.tradeWatchdogMs = 20000;
+    this._watchdogTimer = null;
+    this._watchdogPollTimer = null;
   }
 
   async start() {
@@ -1757,10 +1762,14 @@ class TradingBot {
   _onDisconnected() {
     telegram.send(`⚠️ <b>Monte Carlo Digit Bot Connection lost</b>\n🔄 reconnecting...`);
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
+
+    // Recover any stuck trades on disconnect
     if (this.exec.open.size > 0) {
       logger.warn(`clearing ${this.exec.open.size} tracked open trade(s) on disconnect — contract outcomes will be missed`);
-      this.exec.open.clear();
+      this._recoverStuckTrade('disconnect');
     }
+
+    this._clearAllWatchdogTimers();
   }
 
   _startAnalysis() {
@@ -1941,9 +1950,12 @@ class TradingBot {
       `• Balance: ${(this.lastBalance ?? 0).toFixed(2)} ${this.currency()}\n\n` +
       `🕒 ${utcTs()}`
     );
+
+    this._startTradeWatchdog(t.contractId);
   }
 
   _onTradeResult(t) {
+    this._clearAllWatchdogTimers();
     const rec = this.stats.record(t);
     this.lastBalance = (this.lastBalance ?? this.client.balance ?? 0) + Number(t.profit || 0);
 
@@ -1985,6 +1997,100 @@ class TradingBot {
 
     this.lastTradeAt = Date.now();
     this._saveState('after-trade');
+  }
+
+  _startTradeWatchdog(contractId) {
+    const timeoutMs = this.tradeWatchdogMs;
+
+    this._watchdogTimer = setTimeout(() => {
+      if (!this.exec.open.has(contractId)) {
+        logger.debug('Watchdog fired but trade already settled');
+        return;
+      }
+
+      logger.warn(
+        `WATCHDOG FIRED -- Contract ${contractId} open for ` +
+        `${(timeoutMs / 1000)}s with no settlement`
+      );
+
+      if (contractId && this.client.connected && this.client.authorized) {
+        logger.info(`Polling contract ${contractId}...`);
+
+        this.client._send({
+          forget_all: 'proposal_open_contract'
+        }).catch(e => logger.debug('forget_all:', e.message));
+
+        this.client._send({
+          proposal_open_contract: 1,
+          contract_id: contractId,
+          subscribe: 1
+        }, 15000).catch(e => logger.debug('re-subscribe:', e.message));
+
+        this._watchdogPollTimer = setTimeout(() => {
+          if (!this.exec.open.has(contractId)) return;
+
+          logger.error(
+            `WATCHDOG: Poll timeout -- contract ${contractId} ` +
+            `still unresolved -- force-releasing lock`
+          );
+          this._recoverStuckTrade('watchdog-force');
+        }, 15000);
+
+      } else {
+        logger.error('Cannot poll contract - not connected');
+        this._recoverStuckTrade('watchdog-offline');
+      }
+    }, timeoutMs);
+
+    logger.debug(`Watchdog started for ${contractId} (${timeoutMs}ms)`);
+  }
+
+  _clearAllWatchdogTimers() {
+    if (this._watchdogTimer) {
+      clearTimeout(this._watchdogTimer);
+      this._watchdogTimer = null;
+    }
+    if (this._watchdogPollTimer) {
+      clearTimeout(this._watchdogPollTimer);
+      this._watchdogPollTimer = null;
+    }
+  }
+
+  _recoverStuckTrade(reason) {
+    logger.warn(`Recovery mode: ${reason}`);
+
+    this._clearAllWatchdogTimers();
+
+    const openContracts = [...this.exec.open.entries()];
+    if (openContracts.length === 0) {
+      logger.debug('No open contracts to recover');
+      return;
+    }
+
+    for (const [contractId, info] of openContracts) {
+      const openSeconds = info.buyTime
+        ? Math.round((Date.now() / 1000 - info.buyTime))
+        : '?';
+
+      logger.error(
+        `STUCK TRADE RECOVERY [${reason}] | Contract: ${contractId} | ` +
+        `Symbol: ${info.symbol} | Open for: ${openSeconds}s`
+      );
+
+      this.exec.open.delete(contractId);
+
+      telegram.send(
+        `WARNING: <b>STUCK TRADE RECOVERED [${reason}]</b>\n` +
+        `Contract: <code>${contractId}</code>\n` +
+        `Symbol: ${info.symbol}\n` +
+        `Open for: ${openSeconds}s\n` +
+        `Manually verify on Deriv\n` +
+        `Overall P/L: ${money(this.stats.overallProfit, this.currency())}`
+      );
+    }
+
+    logger.warn(`Lock released. Bot will continue...`);
+    this._saveState('stuck-trade-recovery');
   }
 
   _saveState(reason = 'checkpoint') {
