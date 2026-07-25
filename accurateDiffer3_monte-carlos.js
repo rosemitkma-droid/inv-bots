@@ -174,9 +174,9 @@ const CONFIG = Object.freeze({
   hourlySummary:      boolEnv('HOURLY_SUMMARY', true),
 
   // ── Persistence ────────────────────────────────────────────────
-  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_simple_state.json'),
-  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_simple.log'),
-  logLevel:  strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
+  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_mote_state.json'),
+  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_mote.log'),
+  logLevel:  strEnv('LOG_LEVEL', 'INFO2').toUpperCase(),
 
   // ── Telegram ───────────────────────────────────────────────────
   telegram: {
@@ -1391,11 +1391,15 @@ class TradeExecutor extends EventEmitter {
     this.emit('open', info);
 
     // Subscribe to contract updates
-    const subId = await this.client.subscribe(
-      { proposal_open_contract: 1, contract_id: info.contractId },
-      msg => this._onUpdate(msg, info)
-    );
-    info.subId = subId;
+    try {
+      const subId = await this.client.subscribe(
+        { proposal_open_contract: 1, contract_id: info.contractId },
+        msg => this._onUpdate(msg, info)
+      );
+      info.subId = subId;
+    } catch (e) {
+      logger.warn(`contract subscribe failed for #${info.contractId}:`, e.message);
+    }
 
     return info;
   }
@@ -1701,6 +1705,7 @@ class TradingBot {
     this._circuitBreakerUntil = null;
     this._dayStartDate = null;
     this._dayStartBalance = null;
+    this._trading = false;
   }
 
   async start() {
@@ -1752,6 +1757,10 @@ class TradingBot {
   _onDisconnected() {
     telegram.send(`⚠️ <b>Monte Carlo Digit Bot Connection lost</b>\n🔄 reconnecting...`);
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
+    if (this.exec.open.size > 0) {
+      logger.warn(`clearing ${this.exec.open.size} tracked open trade(s) on disconnect — contract outcomes will be missed`);
+      this.exec.open.clear();
+    }
   }
 
   _startAnalysis() {
@@ -1761,6 +1770,9 @@ class TradingBot {
   }
 
   async _analyzeAndTrade() {
+    if (this._trading) return;
+    this._trading = true;
+    try {
     if (this.stopped || !this.client.authorized) return;
     if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
     if (this.exec.count() >= this.cfg.maxOpenTrades) return;
@@ -1898,6 +1910,9 @@ class TradingBot {
     } catch (e) {
       logger.error('trade failed:', e.message);
     }
+    } finally {
+      this._trading = false;
+    }
   }
 
   _onTradeOpen(t) {
@@ -1952,7 +1967,7 @@ class TradingBot {
     const ls = this.stats.lossStreakEvents;
 
     telegram.send(
-      `${emoji} <b>TRADE ${label} — DIGIT DIFFER</b>\n\n` +
+      `${emoji} <b>TRADE ${label} — MONTE CARLOS DIGIT DIFFER</b>\n\n` +
       `🎫 Contract: <code>#${t.contractId}</code>\n` +
       `📊 Symbol: <code>${t.symbol}</code> | differs <b>${t.digit}</b>\n` +
       `💵 Stake: ${t.stake.toFixed(2)} ${this.currency()}\n` +
