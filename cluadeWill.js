@@ -124,8 +124,8 @@ class RestClient {
 // ══════════════════════════════════════════════════════════════════════════════
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
-const STATE_FILE = path.join(__dirname, 'claudeWill_07-state.json');
-const HISTORY_FILE = path.join(__dirname, 'claudeWill_07-history.json');
+const STATE_FILE = path.join(__dirname, 'claudeWill_08-state.json');
+const HISTORY_FILE = path.join(__dirname, 'claudeWill_08-history.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -550,6 +550,8 @@ class BreakoutManager {
         const breakout = assetState.breakout;
         const closedCandles = assetState.closedCandles;
         if (!assetState.inTradeCycle || !breakout?.active || closedCandles.length < 1) return null;
+        // Skip reversal if a sell is already in progress (TP/SL/sellActive).
+        if (assetState.activePosition?.sellActive) return null;
 
         const lastClosedCandle = closedCandles[closedCandles.length - 1];
         const closePrice = Number(lastClosedCandle.close);
@@ -581,6 +583,8 @@ class BreakoutManager {
         const breakout = assetState.breakout;
         if (!breakout.active || !assetState.inTradeCycle ||
             !Number.isFinite(wpr) || !Number.isFinite(prevWpr)) return null;
+        // Skip breakout replacement if a sell is already in progress.
+        if (assetState.activePosition?.sellActive) return null;
 
         if (breakout.type === 'BUY') {
             const isCrossingBelow = prevWpr >= CONFIG.WPR_OVERSOLD && wpr < CONFIG.WPR_OVERSOLD;
@@ -865,6 +869,7 @@ class StatePersistence {
                         pendingReversal: pos.pendingReversal,
                         isRecoveryClose: pos.isRecoveryClose,
                         isMaxReversalClose: pos.isMaxReversalClose,
+                        sellActive: pos.sellActive || false,
                     })),
                 },
                 assets: {},
@@ -934,6 +939,7 @@ class StatePersistence {
                     entryTime: pos.entryTime || Date.now(),
                     pendingReversal: pos.pendingReversal ?? null,
                     isRecoveryClose: Boolean(pos.isRecoveryClose),
+                    sellActive: Boolean(pos.sellActive),
                     isMaxReversalClose: Boolean(pos.isMaxReversalClose),
                 }));
 
@@ -2052,12 +2058,49 @@ class ConnectionManager {
             assetState.currentPrice = position.currentPrice;
         }
 
-        // The previous build force-closed a contract after 20 identical P/L
-        // updates. Flat P/L is not a stalled connection, so that logic was
-        // removed. WebSocket ping/reconnect handles actual connection stalls.
+        // Guard: already selling or waiting for sell response — skip.
+        if (position.sellActive) return;
+
+        // ════════════════════════════════════════════════════════
+        // TAKE-PROFIT MONITORING — Multiplier contracts do NOT
+        // auto-close at the limit_order TP level. We must actively
+        // monitor profit on every subscription update and sell when
+        // the target is reached.
+        // ════════════════════════════════════════════════════════
+        if (assetState && position.currentProfit >= assetState.takeProfitAmount && assetState.takeProfitAmount > 0) {
+            LOGGER.trade(`${position.symbol}: TAKE PROFIT HIT — $${position.currentProfit.toFixed(2)} >= $${assetState.takeProfitAmount.toFixed(2)}`);
+            TelegramService.sendTradeAlert('WIN', position.symbol, position.direction, position.stake, position.multiplier, { profit: position.currentProfit });
+            position.sellActive = true;
+            StatePersistence.saveState();
+            this.send(
+                { sell: position.contractId, price: 0 },
+                { type: 'sell', symbol: position.symbol, contractId: position.contractId }
+            );
+            return;
+        }
+
+        // ════════════════════════════════════════════════════════
+        // STOP-LOSS MONITORING — Safety net. If the unrealised
+        // loss equals or exceeds the stake, close immediately to
+        // cap the damage before Deriv's 90% auto-close kicks in.
+        // ════════════════════════════════════════════════════════
+        if (assetState && position.currentProfit <= -position.stake && position.stake > 0) {
+            LOGGER.trade(`${position.symbol}: STOP LOSS HIT — $${position.currentProfit.toFixed(2)} <= -$${position.stake.toFixed(2)}`);
+            TelegramService.sendTradeAlert('LOSS', position.symbol, position.direction, position.stake, position.multiplier, { profit: position.currentProfit });
+            position.sellActive = true;
+            StatePersistence.saveState();
+            this.send(
+                { sell: position.contractId, price: 0 },
+                { type: 'sell', symbol: position.symbol, contractId: position.contractId }
+            );
+            return;
+        }
+
+        // Legacy recovery auto-close (only when AUTO_CLOSE_ON_RECOVERY = true)
         if (assetState && StakeManager.shouldAutoClose(position.symbol, position.currentProfit)) {
             LOGGER.recovery(`${position.symbol}: Auto close — profit covers accumulated loss`);
             position.isRecoveryClose = true;
+            position.sellActive = true;
             StatePersistence.saveState();
             this.send(
                 { sell: position.contractId, price: 0 },
@@ -2312,6 +2355,7 @@ class IndexBot {
             pendingReversal: null,
             isRecoveryClose: false,
             isMaxReversalClose: false,
+            sellActive: false,
             opening: true,
         };
         state.portfolio.activePositions.push(position);
@@ -2332,6 +2376,12 @@ class IndexBot {
     executeReversal(symbol, newDirection, previousLoss = 0) {
         const assetState = state.assets[symbol];
         const position = assetState?.activePosition;
+
+        // Block reversal if a sell (TP/SL/sellActive) is already in progress.
+        if (position?.sellActive) {
+            LOGGER.warn(`${symbol}: Reversal blocked — sell already in progress`);
+            return false;
+        }
 
         if (!position || !position.contractId) {
             // Contract is still opening — queue the reversal for when contractId arrives
@@ -2391,7 +2441,8 @@ class IndexBot {
     async closeAllPositions() {
         LOGGER.info('Closing all positions...');
         for (const position of state.portfolio.activePositions) {
-            if (position.contractId) {
+            if (position.contractId && !position.sellActive) {
+                position.sellActive = true;
                 this.connection.send(
                     { sell: position.contractId, price: 0 },
                     { type: 'sell', symbol: position.symbol, contractId: position.contractId }
