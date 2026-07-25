@@ -119,7 +119,7 @@ const CONFIG = Object.freeze({
   durationTicks:   1,
   minStake:        1.1,
   maxStake:        5.5,
-  assets:          ['R_50', 'R_75', 'RDBULL'], //'R_10','R_25','R_50','R_75','RDBULL','RDBEAR',
+  assets:          ['R_10','R_25','R_50','R_75','RDBULL','RDBEAR'], //'R_10','R_25','R_50','R_75','RDBULL','RDBEAR'
 
   // ── Timing ─────────────────────────────────────────────────────
   tickWindow:          500,
@@ -165,8 +165,8 @@ const CONFIG = Object.freeze({
   hourlySummary:      true,
 
   // ── Persistence ────────────────────────────────────────────────
-  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_simple03_state.json'),
-  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_simple03.log'),
+  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_simple04_state.json'),
+  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_simple04.log'),
   logLevel:  strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // ── Telegram ───────────────────────────────────────────────────
