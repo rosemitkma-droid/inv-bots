@@ -142,6 +142,7 @@ const CONFIG = Object.freeze({
   minProbabilityGap:  0.005,
   maxRecentHits:      3,
   recentLookback:     20,
+  cooldownTicks:      100,
 
   // ── Value Edge ─────────────────────────────────────────────────
   minEdge:            0.01,
@@ -154,7 +155,7 @@ const CONFIG = Object.freeze({
   kellyBankrollFloor: 100,
 
   // ── Symbol Calibration ─────────────────────────────────────────
-  calibEnabled:       true,
+  calibEnabled:       false,
   calibWindow:        100,
   calibMinTrades:     30,
   calibDisableGap:    0.03,
@@ -164,8 +165,8 @@ const CONFIG = Object.freeze({
   hourlySummary:      true,
 
   // ── Persistence ────────────────────────────────────────────────
-  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_simple02_state.json'),
-  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_simple02.log'),
+  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_simple03_state.json'),
+  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_simple03.log'),
   logLevel:  strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // ── Telegram ───────────────────────────────────────────────────
@@ -867,7 +868,21 @@ class MarketDataManager extends EventEmitter {
 // 7. DIGIT ANALYZER (Simple & Honest)
 // ─────────────────────────────────────────────────────────────────────
 class DigitAnalyzer {
-  constructor(cfg) { this.cfg = cfg; }
+  constructor(cfg) {
+    this.cfg = cfg;
+    this._predictionLog = [];
+    this._cooldownMap = new Map();
+    this._tickCounter = 0;
+  }
+
+  recordPrediction(digit, symbol) {
+    const entry = { digit, tickIndex: this._tickCounter, symbol, ts: Date.now() };
+    this._predictionLog.push(entry);
+    this._cooldownMap.set(digit, this._tickCounter);
+    if (this._predictionLog.length > 500) this._predictionLog.splice(0, 250);
+  }
+
+  tick() { this._tickCounter++; }
 
   /**
    * Count digit frequencies and find the coldest digit.
@@ -878,6 +893,9 @@ class DigitAnalyzer {
 
     const digits = ticks.map(t => t.digit).filter(d => Number.isInteger(d) && d >= 0 && d <= 9);
     if (digits.length < this.cfg.minTicksForAnalysis) return null;
+
+    // Advance tick counter to stay in sync
+    this._tickCounter = Math.max(this._tickCounter, digits.length);
 
     const window = Math.min(this.cfg.analysisWindow, digits.length);
     const recentDigits = digits.slice(-window);
@@ -906,10 +924,19 @@ class DigitAnalyzer {
     const recentTail = recentDigits.slice(-recentLook);
     const recentHits = recentTail.filter(d => d === coldestDigit).length;
 
+    // Prediction cooldown for the coldest digit
+    const lastPredIdx = this._cooldownMap.get(coldestDigit);
+    const predictionCooldown = lastPredIdx != null ? this._tickCounter - lastPredIdx : Infinity;
+
     // Gate checks
     const gates = [];
     if (recentHits > this.cfg.maxRecentHits) {
       gates.push(`recent_hits:${recentHits}`);
+    }
+
+    // Cooldown veto (bot predicted this digit recently)
+    if (predictionCooldown < this.cfg.cooldownTicks) {
+      gates.push(`cooldown:${predictionCooldown}t`);
     }
 
     // Find second coldest for gap check
@@ -932,6 +959,7 @@ class DigitAnalyzer {
       pEstimate,
       pUpper,
       recentHits,
+      predictionCooldown,
       gates,
       allowedByModel: gates.length === 0,
       lastDigit: recentDigits[recentDigits.length - 1],
@@ -1403,9 +1431,9 @@ class TradingBot {
 
     if (todayStats.count >= this.cfg.dailyMaxTrades) return;
     if (todayStats.totalProfit <= -Math.abs(this.cfg.dailyMaxLoss)) return;
-    if (this._dayStartBalance != null && this.cfg.dailyMaxLossPct > 0) {
-      if (-todayStats.totalProfit / Math.max(1, this._dayStartBalance) >= this.cfg.dailyMaxLossPct) return;
-    }
+    // if (this._dayStartBalance != null && this.cfg.dailyMaxLossPct > 0) {
+    //   if (-todayStats.totalProfit / Math.max(1, this._dayStartBalance) >= this.cfg.dailyMaxLossPct) return;
+    // }
     if (this.cfg.dailyMaxProfit > 0 && todayStats.totalProfit >= this.cfg.dailyMaxProfit) return;
 
     // Filter tradeable assets
@@ -1513,6 +1541,7 @@ class TradingBot {
       this.lastTradeAt = Date.now();
       this.tradedAsset = bestCandidate.analysis.symbol;
       this.tradedAssetAt = Date.now();
+      this.analyzer.recordPrediction(bestCandidate.analysis.digit, bestCandidate.analysis.symbol);
 
       logger.info(`trade placed #${trade.contractId} ${trade.symbol} d${trade.digit} edge=${bestCandidate.valueEdge.toFixed(4)}`);
     } catch (e) {
@@ -1767,6 +1796,7 @@ class DifferBacktester {
       nullAnalyses: 0,
       gatedGap: 0,
       gatedRecentHit: 0,
+      gatedCooldown: 0,
       gatedEdge: 0,
       allowedModel: 0,
       recommended: 0,
@@ -1800,6 +1830,7 @@ class DifferBacktester {
         for (const g of analysis.gates) {
           if (g.startsWith('gap')) diag.gatedGap++;
           else if (g.startsWith('recent')) diag.gatedRecentHit++;
+          else if (g.startsWith('cooldown')) diag.gatedCooldown++;
         }
         i++;
         continue;
@@ -1820,6 +1851,7 @@ class DifferBacktester {
 
       diag.recommended++;
       const digit = analysis.digit;
+      this.analyzer.recordPrediction(digit, symbol);
 
       // Simulate settlement
       const expiryTick = ticks[i + duration];
@@ -1980,9 +2012,10 @@ class DifferBacktester {
     console.log(`    null analyses     : ${diag.nullAnalyses}`);
     console.log(`    passed model gates: ${diag.allowedModel}`);
     console.log(`    signals fired     : ${diag.recommended}`);
-    console.log(`    rejected by gap   : ${diag.gatedGap}`);
-    console.log(`    rejected by hits  : ${diag.gatedRecentHit}`);
-    console.log(`    rejected by edge  : ${diag.gatedEdge}`);
+    console.log(`    rejected by gap    : ${diag.gatedGap}`);
+    console.log(`    rejected by hits   : ${diag.gatedRecentHit}`);
+    console.log(`    rejected by cooldown: ${diag.gatedCooldown}`);
+    console.log(`    rejected by edge   : ${diag.gatedEdge}`);
     console.log(banner + '\n');
 
     Object.assign(results, {
