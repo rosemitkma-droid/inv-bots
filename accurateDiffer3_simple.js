@@ -142,7 +142,7 @@ const CONFIG = Object.freeze({
   minProbabilityGap:  0.005,
   maxRecentHits:      3,
   recentLookback:     20,
-  cooldownTicks:      100,
+  cooldownTicks:      200, // don't re-predict digit within N ticks
 
   // ── Value Edge ─────────────────────────────────────────────────
   minEdge:            0.01,
