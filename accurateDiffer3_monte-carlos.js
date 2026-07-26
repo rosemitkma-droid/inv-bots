@@ -164,18 +164,19 @@ const CONFIG = Object.freeze({
   kellyBankrollFloor: 100,
 
   // ── Symbol Calibration ─────────────────────────────────────────
-  calibEnabled:       true,
+  calibEnabled:       false,
   calibWindow:        100,
   calibMinTrades:     30,
   calibDisableGap:    0.03,
 
   // ── Reporting ──────────────────────────────────────────────────
   eodTimeGmt:         strEnv('TRADE_DAY_END_GMT', '00:00'),
+  eodSendDelaySeconds: 10,
   hourlySummary:      true,
 
   // ── Persistence ────────────────────────────────────────────────
-  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_monte_carlo_02_state.json'),
-  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_monte_carlo_02.log'),
+  stateFile: strEnv('STATE_FILE', 'accurateDiffer3_monte_carlo_03_state.json'),
+  logFile:   strEnv('LOG_FILE', 'accurateDiffer3_monte_carlo_03.log'),
   logLevel:  strEnv('LOG_LEVEL', 'INFO2').toUpperCase(),
 
   // ── Telegram ───────────────────────────────────────────────────
@@ -194,7 +195,7 @@ const CONFIG = Object.freeze({
   // ── Reconnect ──────────────────────────────────────────────────
   reconnect: {
     initialDelayMs: 1000,
-    maxDelayMs:     30000,
+    maxDelayMs:     60000,
     backoffFactor:  2,
     jitterMs:       500,
   },
@@ -243,6 +244,9 @@ function money(n, currency = CONFIG.currency) {
   return `${x >= 0 ? '+' : ''}${x.toFixed(2)} ${currency}`;
 }
 function utcDateStr(d = new Date()) { return d.toISOString().slice(0, 10); }
+function previousUtcDateStr(d = new Date()) {
+  return new Date(d.getTime() - 86_400_000).toISOString().slice(0, 10);
+}
 function utcHour(d = new Date()) { return d.getUTCHours(); }
 function htmlEscape(s) {
   return String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]));
@@ -401,6 +405,13 @@ class DerivClient extends EventEmitter {
     this._isPat = RestClient.isPat(cfg.apiToken);
     this._rest = this._isPat ? new RestClient(cfg.restBaseUrl, cfg.appId, cfg.apiToken) : null;
     this._targetAccountId = cfg.accountId || '';
+    // ── WebSocket heartbeat (ping/pong) ─────────────────────────────
+    // Deriv's server closes idle connections after ~15-20 min. Without
+    // application-level pings, the TCP half-open goes undetected and the
+    // bot silently stops trading.
+    this._heartbeatInterval = null;
+    this._pongTimeout = null;
+    this._pongReceived = false;
   }
 
   _nextReqId() { return ++this._reqId; }
@@ -509,6 +520,7 @@ class DerivClient extends EventEmitter {
     this.ws.on('message', d => this._onMessage(d));
     this.ws.on('error', e => this._onError(e));
     this.ws.on('close', (c, r) => this._onClose(c, r));
+    this.ws.on('pong', () => { this._pongReceived = true; clearTimeout(this._pongTimeout); });
   }
 
   _onOpen() {
@@ -516,6 +528,7 @@ class DerivClient extends EventEmitter {
     this.connected = true;
     this._reconnecting = false;
     this._reconnectAttempt = 0;
+    this._startHeartbeat();
     this.emit('open');
 
     if (this._isPat) {
@@ -571,7 +584,8 @@ class DerivClient extends EventEmitter {
     if (msg.error) {
       const code = msg.error.code || 'Error';
       const text = msg.error.message || code;
-      (code === 'AlreadySubscribedOrLimit' ? logger.debug : logger.error)(`api error: ${code} - ${text} req=${msg.req_id || '?'}`);
+      const benign = new Set(['AlreadySubscribedOrLimit', 'ContractNotFound', 'BetExpired', 'TradingDurationNotAllowed']);
+      (benign.has(code) ? logger.debug : logger.error)(`api error: ${code} - ${text} req=${msg.req_id || '?'}`);
 
       if (msg.req_id && this._pending.has(msg.req_id)) {
         const p = this._pending.get(msg.req_id);
@@ -579,6 +593,7 @@ class DerivClient extends EventEmitter {
         this._pending.delete(msg.req_id);
         p.reject(new Error(text));
       }
+      if (['AuthorizationRequired', 'InvalidToken', 'InvalidAppID'].includes(code)) this._closeAndReconnect();
       return;
     }
 
@@ -610,6 +625,7 @@ class DerivClient extends EventEmitter {
     const wasAuthorized = this.authorized;
     this.connected = false;
     this.authorized = false;
+    this._clearHeartbeat();
     for (const [, p] of this._pending) {
       clearTimeout(p.timer);
       p.reject(new Error('Connection closed'));
@@ -635,6 +651,7 @@ class DerivClient extends EventEmitter {
       this.connect();
     }, delay);
   }
+  _closeAndReconnect() { try { this.ws?.close(); } catch (_) {} }
 
   _send(payload, timeoutMs = 30000) {
     return new Promise((resolve, reject) => {
@@ -694,8 +711,29 @@ class DerivClient extends EventEmitter {
     return this._send({ forget: subId }, 8000).catch(e => logger.debug('forget:', e.message));
   }
 
+  // ── Heartbeat: ping/pong to detect dead connections ──────────────
+  _startHeartbeat() {
+    this._clearHeartbeat();
+    this._heartbeatInterval = setInterval(() => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+      this._pongReceived = false;
+      try { this.ws.ping(); } catch (_) {}
+      this._pongTimeout = setTimeout(() => {
+        if (!this._pongReceived) {
+          logger.warn('heartbeat: no pong received — force-reconnecting');
+          try { this.ws.terminate(); } catch (_) {}
+        }
+      }, 10000);
+    }, 30_000);
+  }
+  _clearHeartbeat() {
+    if (this._heartbeatInterval) { clearInterval(this._heartbeatInterval); this._heartbeatInterval = null; }
+    if (this._pongTimeout) { clearTimeout(this._pongTimeout); this._pongTimeout = null; }
+  }
+
   stop() {
     this._stopped = true;
+    this._clearHeartbeat();
     try { this.ws?.close(); } catch (_) {}
   }
 }
@@ -1422,6 +1460,17 @@ class TradeExecutor extends EventEmitter {
   }
 
   count() { return this.open.size; }
+
+  /**
+   * sell(contractId, price) — emergency sell / close a stuck contract.
+   * price=0 means "market sell at best available".
+   */
+  async sell(contractId, price = 0) {
+    const res = await this.client._send({ sell: contractId, price }, 15000);
+    const s = res.sell;
+    if (!s) throw new Error('sell returned no data');
+    return s;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1430,6 +1479,7 @@ class TradeExecutor extends EventEmitter {
 class StatisticsManager {
   constructor(saved = null) {
     this.trades = [];
+    this.dailySummaries = {};
     this.overallProfit = 0;
     this.currentLossStreak = 0;
     this.maxLossStreak = 0;
@@ -1442,6 +1492,7 @@ class StatisticsManager {
 
   load(saved) {
     if (Array.isArray(saved.trades)) this.trades = saved.trades;
+    if (saved.dailySummaries && typeof saved.dailySummaries === 'object') this.dailySummaries = saved.dailySummaries;
     this.overallProfit = Number(saved.overallProfit || 0);
     this.currentLossStreak = Number(saved.currentLossStreak || 0);
     this.maxLossStreak = Number(saved.maxLossStreak || 0);
@@ -1454,13 +1505,14 @@ class StatisticsManager {
   serialize() {
     return {
       trades: this.trades.slice(-2000),
+      dailySummaries: this.dailySummaries,
       overallProfit: this.overallProfit,
       currentLossStreak: this.currentLossStreak,
       maxLossStreak: this.maxLossStreak,
       totalLosses: this.totalLosses,
       totalWins: this.totalWins,
       lossStreakEvents: this.lossStreakEvents,
-      eodSentDates: this.eodSentDates.slice(-100),
+      eodSentDates: this.eodSentDates.slice(-400),
     };
   }
 
@@ -1501,20 +1553,64 @@ class StatisticsManager {
     return this.trades.filter(t => t.date === date);
   }
 
+  tradesForDate(date) { return this.trades.filter(t => t.date === date); }
+  tradesForHour(date, hour) { return this.trades.filter(t => t.date === date && t.hour === hour); }
+
   stats(list) {
     const wins = list.filter(t => t.status === 'won');
     const losses = list.filter(t => t.status === 'lost');
     const totalProfit = list.reduce((s, t) => s + Number(t.profit || 0), 0);
     const grossWin = wins.reduce((s, t) => s + Number(t.profit || 0), 0);
     const grossLoss = Math.abs(losses.reduce((s, t) => s + Number(t.profit || 0), 0));
+    const stake = list.reduce((s, t) => s + Number(t.stake || 0), 0);
+    const maxLossStreak = (() => {
+      let cur = 0, max = 0;
+      for (const t of list) {
+        if (t.status === 'lost') { cur += 1; max = Math.max(max, cur); }
+        else if (t.status === 'won') cur = 0;
+      }
+      return max;
+    })();
     return {
       count: list.length,
       wins: wins.length,
       losses: losses.length,
       winRate: list.length ? (wins.length / list.length) * 100 : 0,
       totalProfit,
+      netPL: totalProfit,
+      grossWin,
+      grossLoss,
+      stake,
       profitFactor: grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0),
+      avgProfit: list.length ? totalProfit / list.length : 0,
+      maxLossStreak,
     };
+  }
+
+  summaryForDate(date) {
+    const list = this.tradesForDate(date);
+    const stats = this.stats(list);
+    return { date, trades: list, stats };
+  }
+  archiveDate(date) {
+    const summary = this.summaryForDate(date);
+    if (!this.dailySummaries) this.dailySummaries = {};
+    this.dailySummaries[date] = summary.stats;
+    return summary;
+  }
+  allDailyRows(includeDate = null) {
+    if (!this.dailySummaries) this.dailySummaries = {};
+    const rows = [];
+    const dates = new Set(Object.keys(this.dailySummaries));
+    for (const t of this.trades) dates.add(t.date);
+    if (includeDate) dates.add(includeDate);
+    [...dates].sort().forEach(date => {
+      let stats = this.dailySummaries[date];
+      const live = this.tradesForDate(date);
+      if (live.length) stats = this.stats(live);
+      if (stats && stats.count > 0) rows.push({ date, stats });
+    });
+    return rows;
   }
 
   markEodSent(date) {
@@ -1706,9 +1802,13 @@ class TradingBot {
     this._dayStartDate = null;
     this._dayStartBalance = null;
     this._trading = false;
+    this._hourlyBoot = null;
+    this._hourlyT = null;
+    this._eodBoot = null;
+    this._eodT = null;
 
     // Watchdog
-    this.tradeWatchdogMs = 20000;
+    this.tradeWatchdogMs = this.cfg.tradeWatchdogMs || 20000;
     this._watchdogTimer = null;
     this._watchdogPollTimer = null;
   }
@@ -1720,17 +1820,26 @@ class TradingBot {
     this._loadState();
 
     this.client.on('authorized', info => this._onAuthorized(info));
-    this.client.on('close', () => this._onDisconnected());
+    this.client.on('close', (c, r, was) => this._onDisconnected(c, r, was));
+    this.client.on('open', () => logger.info('connection open'));
+    this.client.on('error', e => logger.error('client error:', e.message));
     this.exec.on('open', t => this._onTradeOpen(t));
     this.exec.on('result', t => this._onTradeResult(t));
+    this.exec.on('update', t => logger.debug(`update #${t.contractId} ${t.status} profit=${t.profit}`));
 
     process.on('SIGINT', () => this.stop('SIGINT'));
+    process.on('SIGTERM', () => this.stop('SIGTERM'));
     process.on('uncaughtException', e => {
       logger.error('uncaughtException:', e);
       this._saveState('error');
     });
+    process.on('unhandledRejection', e => {
+      logger.error('unhandledRejection:', e);
+      this._saveState('unhandledRejection');
+    });
 
     this.client.connect();
+    this._scheduleSummaries();
   }
 
   async _onAuthorized(info) {
@@ -1739,7 +1848,7 @@ class TradingBot {
     this._dayStartDate = utcDateStr();
     this._dayStartBalance = this.lastBalance;
 
-    logger.info(`balance: ${this.balance} ${this.currency()}`);
+    logger.info(`balance: ${this.lastBalance} ${this.currency()}`);
     await this.market.loadSymbols();
     await this.market.bootstrap(this.cfg.assets);
 
@@ -1759,8 +1868,8 @@ class TradingBot {
     this._startAnalysis();
   }
 
-  _onDisconnected() {
-    telegram.send(`⚠️ <b>Monte Carlo Digit Bot Connection lost</b>\n🔄 reconnecting...`);
+  _onDisconnected(code, reason, wasAuthorized) {
+    telegram.send(`⚠️ <b>Monte Carlo Digit Bot Connection lost</b>\ncode: <code>${code}</code>\nwas authorized: ${wasAuthorized ? 'yes' : 'no'}\n🔄 reconnecting...`);
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
 
     // Recover any stuck trades on disconnect
@@ -2093,6 +2202,100 @@ class TradingBot {
     this._saveState('stuck-trade-recovery');
   }
 
+  // ── Hourly & EOD Telegram Summaries ─────────────────────────────
+  _scheduleSummaries() {
+    if (this.cfg.hourlySummary) {
+      const now = new Date();
+      const msToNextHour = ((59 - now.getUTCMinutes()) * 60_000) + ((60 - now.getUTCSeconds()) * 1000) + 50;
+      this._hourlyBoot = setTimeout(() => {
+        this._sendHourly();
+        this._hourlyT = setInterval(() => this._sendHourly(), 3600_000);
+      }, Math.max(1000, msToNextHour));
+    }
+
+    const scheduleNextEod = () => {
+      const delay = this._msToNextEod();
+      this._eodBoot = setTimeout(() => {
+        this._sendEod('scheduled');
+        scheduleNextEod();
+      }, delay);
+      logger.info(`next GMT EOD report in ${(delay / 3600000).toFixed(2)}h`);
+    };
+    scheduleNextEod();
+  }
+  _parseEodTime() {
+    const m = String(this.cfg.eodTimeGmt || '00:00').match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return { h: 0, min: 0 };
+    return { h: Math.max(0, Math.min(23, Number(m[1]))), min: Math.max(0, Math.min(59, Number(m[2]))) };
+  }
+  _msToNextEod(now = new Date()) {
+    const { h, min } = this._parseEodTime();
+    const target = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, min, this.cfg.eodSendDelaySeconds || 10, 0));
+    if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+    return target.getTime() - now.getTime();
+  }
+  _eodReportDate(now = new Date()) {
+    const { h, min } = this._parseEodTime();
+    // If EOD is at midnight GMT, report the trade day that just ended.
+    if (h === 0 && min === 0) return previousUtcDateStr(now);
+    return utcDateStr(now);
+  }
+  _sendHourly() {
+    const now = new Date();
+    const prev = new Date(now.getTime() - 3600_000);
+    const date = utcDateStr(prev);
+    const hour = utcHour(prev);
+    const list = this.stats.tradesForHour(date, hour);
+    const s = this.stats.stats(list);
+    if (!list.length) {
+      telegram.send(`⏰ <b>Monte Carlo Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\nNo trades this hour.\n\n💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}`);
+      return;
+    }
+    let msg = `⏰ <b>Monte Carlo Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\n` +
+      `📊 Trades: ${s.count} (✅${s.wins} ❌${s.losses})\n` +
+      `📈 Win rate: ${s.winRate.toFixed(1)}%\n` +
+      `💰 P/L: <b>${money(s.totalProfit, this.currency())}</b>\n` +
+      `💼 Overall Profit: <b>${money(this.stats.overallProfit, this.currency())}</b>\n` +
+      `❌ Loss streak current ${this.stats.currentLossStreak} | x2=${this.stats.lossStreakEvents.x2} x3=${this.stats.lossStreakEvents.x3} x4=${this.stats.lossStreakEvents.x4}\n\n` +
+      `📋 Detail:\n`;
+    list.slice(-20).forEach((t, i) => {
+      msg += `${i + 1}. ${t.status === 'won' ? '✅' : '❌'} #${t.contractId} ${t.symbol} d${t.digit} ${money(t.profit, this.currency())}\n`;
+    });
+    telegram.send(msg);
+  }
+  _sendEod(reason = 'manual') {
+    const date = this._eodReportDate(new Date());
+    if (this.stats.isEodSent(date) && reason === 'scheduled') {
+      logger.info(`EOD ${date} already sent; skipping duplicate`);
+      return;
+    }
+    const summary = this.stats.archiveDate(date);
+    const ds = summary.stats;
+
+    let msg = `🌙 <b>Monte Carlo END OF TRADE DAY — GMT</b>\n` +
+              `📅 Trade day ended: <b>${date}</b>\n\n` +
+              `<b>── Current Day Stats ──</b>\n`;
+    if (ds.count) {
+      msg += `📊 Trades: ${ds.count} (✅${ds.wins} ❌${ds.losses})\n` +
+             `📈 Win rate: ${ds.winRate.toFixed(1)}%\n` +
+             `💰 <b>Net P/L: ${money(ds.totalProfit, this.currency())}</b>\n` +
+             `🏆 Profit factor: ${ds.profitFactor === Infinity ? '∞' : ds.profitFactor.toFixed(2)}\n\n`;
+    } else {
+      msg += `No trades recorded for this GMT trade day.\n\n`;
+    }
+
+    msg += `<b>── Overall Stats ──</b>\n` +
+           `💼 Overall Profit: <b>${money(this.stats.overallProfit, this.currency())}</b>\n` +
+           `✅ Total wins: ${this.stats.totalWins} | ❌ Total losses: ${this.stats.totalLosses}\n` +
+           `❌ Consecutive losses: current ${this.stats.currentLossStreak} | max ${this.stats.maxLossStreak}\n` +
+           `   x2=${this.stats.lossStreakEvents.x2}  x3=${this.stats.lossStreakEvents.x3}  x4=${this.stats.lossStreakEvents.x4}\n`;
+
+    telegram.send(msg);
+    this.stats.markEodSent(date);
+    this._saveState(`eod-${reason}`);
+    this.startBalance = this.client.balance ?? this.lastBalance ?? this.startBalance;
+  }
+
   _saveState(reason = 'checkpoint') {
     try {
       const payload = {
@@ -2130,8 +2333,13 @@ class TradingBot {
   stop(signal) {
     this.stopped = true;
     logger.info(`stopping (${signal})`);
-    telegram.send(`🛑 <b>Monte Carlo Bot stopped</b>\nProfit: ${money(this.stats.overallProfit, this.currency())}`);
+    telegram.send(`🛑 <b>Monte Carlo Bot stopped</b>\nSignal: ${htmlEscape(signal)}\nProfit: ${money(this.stats.overallProfit, this.currency())}`);
     if (this._analysisT) clearInterval(this._analysisT);
+    if (this._hourlyBoot) clearTimeout(this._hourlyBoot);
+    if (this._hourlyT) clearInterval(this._hourlyT);
+    if (this._eodBoot) clearTimeout(this._eodBoot);
+    if (this._eodT) clearInterval(this._eodT);
+    this._clearAllWatchdogTimers();
     this._saveState('shutdown');
     this.client.stop();
     setTimeout(() => process.exit(0), 2500);
