@@ -143,7 +143,7 @@ const CONFIG = Object.freeze({
   betaZScore:            1.28,        // Beta upper-bound z (~90th pctl)
   bootstrapIterations:   500, // bootstrap resamples
   hotFilterTicks:        5,      // digits in last N ticks → penalty
-  cooldownTicks:         100,       // don't re-predict digit within N ticks
+  cooldownTicks:         200,       // don't re-predict digit within N ticks
   maxRecentHits:         2,       // max occurrences in recent tail
   recentLookback:        20,      // recent tail length for hit check
   minProbabilityGap:     0.004, // min gap best vs 2nd-best
