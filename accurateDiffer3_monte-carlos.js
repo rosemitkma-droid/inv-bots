@@ -141,7 +141,7 @@ const CONFIG = Object.freeze({
   tickWindow: 1000,
   minTicksForAnalysis: 300,
   analysisIntervalMs: 3000,
-  tradeCooldownMs: 2500,
+  tradeCooldownMs: 20000,
   maxOpenTrades: 1,
   cooldownTicks: 200,        // don't re-analyze digit within N ticks of last trade
   tradeWatchdogMs: 20000,    // force-recover stuck trades after this many ms
@@ -167,6 +167,7 @@ const CONFIG = Object.freeze({
   mcStabilityThreshold:  0.40,    // min stability across resamples (0-1)
   randomnessAlpha:       0.05,    // uniformity test significance level
   tradeFrequencyMs:      5000,    // min ms between trades
+  maxWeakSignals:        500000000,
   analysisWindows:       [30, 60, 150, 400], // used by backtester reporting
   bootstrapIterations:   500,     // per-digit CI
   hotFilterTicks:        5,       // digits in last N ticks → penalty
@@ -244,9 +245,9 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'monte-carlos_differ_001_state.json'),
-  logFile: strEnv('LOG_FILE', 'monte-carlos_differ_001_bot.log'),
-  logLevel: strEnv('LOG_LEVEL', 'MC INFO').toUpperCase(),
+  stateFile: strEnv('STATE_FILE', 'monte-carlos_differ_0001_state.json'),
+  logFile: strEnv('LOG_FILE', 'monte-carlos_differ_0001_bot.log'),
+  logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
   telegram: {
@@ -751,7 +752,17 @@ class DerivClient extends EventEmitter {
       this._pending.set(reqId, {
         resolve: msg => {
           const subId = msg.subscription?.id;
-          if (!subId) return reject(new Error('No subscription id in response'));
+          if (!subId) {
+            // Contract may have settled before the subscription was established
+            // (common with 1-tick DIGITDIFF). Deriv returns the settlement data
+            // directly without a subscription id. Invoke the callback so the
+            // caller can process the result, then resolve with null.
+            if (msg.proposal_open_contract) {
+              try { callback(msg); } catch (e) { logger.error('subscription handler error:', e.message); }
+            }
+            resolve(null);
+            return;
+          }
           this._subs.set(subId, callback);
           resolve(subId);
         },
@@ -2080,7 +2091,7 @@ class TradingBot {
       }
     } else {
       this.paused = false;
-      logger.info(`MC TRADING RESUMED at ${this.cfg.pauseEndGmt} GMT`);
+      logger.info(`TRADING RESUMED at ${this.cfg.pauseEndGmt} GMT`);
       telegram.send(
         `▶️ <b>MC TRADING RESUMED</b>\n\n` +
         `Scheduled pause ended. Bot is now scanning for trades.\n\n` +
@@ -2249,7 +2260,7 @@ class TradingBot {
     const dayLine = `📅 Trading days: ${dayAbbrev.map((d, i) => daySettings[i] ? `✅${d}` : `❌${d}`).join(' ')}`;
 
     telegram.send(
-      `🤖 <b>MCDigit Differ Bot Online</b>\n\n` +
+      `🤖 <b>MC Digit Differ Bot Online</b>\n\n` +
       `👤 Account: <code>${htmlEscape(info.loginid || '?')}</code>\n` +
       `💼 Type: ${info.isVirtual ? '🟡 DEMO' : '🔴 REAL'}\n` +
       `💰 Balance: ${(this.client.balance ?? 0).toFixed(2)} ${this.currency()}\n` +
