@@ -139,7 +139,7 @@ const CONFIG = Object.freeze({
 
   // ── Monte Carlo Analysis ────────────────────────────────────────
   mcSimulations:         10000,   // MC simulation trials
-  minEdgeConfidence:     0.472,    // min confidence to trade (0-1)
+  minEdgeConfidence:     0.476,    // min confidence to trade (0-1)
   mcStabilityThreshold:  0.70,    // min stability across resamples (0-1)
   randomnessAlpha:       0.05,    // uniformity test significance level
   tradeFrequencyMs:      5000,    // min ms between trades
@@ -175,8 +175,8 @@ const CONFIG = Object.freeze({
   hourlySummary:      true,
 
   // ── Persistence ────────────────────────────────────────────────
-  stateFile: strEnv('STATE_FILE', 'monte_carlo2_01_state.json'),
-  logFile:   strEnv('LOG_FILE', 'monte_carlo2_01.log'),
+  stateFile: strEnv('STATE_FILE', 'monte_carlo2_02_state.json'),
+  logFile:   strEnv('LOG_FILE', 'monte_carlo2_02.log'),
   logLevel:  strEnv('LOG_LEVEL', 'INFO2').toUpperCase(),
 
   // ── Telegram ───────────────────────────────────────────────────
@@ -1044,13 +1044,17 @@ class MonteCarloAnalyzer {
 
     // ── Log analysis summary ──
     const streamSnap = digits.slice(-20).join('');
-    logger.info(`[MC] ─── Monte Carlo Analysis: ${symbol} ───`);
-    logger.info(`[MC] stream: ...${streamSnap}  (n=${sampleSize})`);
-    logger.info(`[MC] uniformity: chiSq=${chiSq.toFixed(2)} entropy=${entropy.toFixed(3)} flags=[${randomness.flags.join(', ') || 'none'}]`);
-    logger.info(`[MC] simulations: ${this.cfg.mcSimulations}  transitions: quality=${randomness.transitions.quality.toFixed(3)}`);
-    logger.info(`[MC] best candidate: d${bestDigit}  observedHitRate=${scored.topCandidate.observedHitRate.toFixed(4)}  expected=${scored.topCandidate.expectedHitRate.toFixed(4)}`);
-    logger.info(`[MC] confidence=${scored.confidence.toFixed(3)} stability=${scored.stability.toFixed(3)} pValue=${scored.topCandidate.pValue.toFixed(4)}`);
-    logger.info(`[MC] trade decision: ${scored.shouldTrade ? 'TRADE' : 'SKIP'} (${scored.reason})  gates=[${gates.length ? gates.join(', ') : 'none'}]`);
+    //Show Log every 60 seconds
+    if (!this._lastLogTime || Date.now() - this._lastLogTime > 60_000) {
+      logger.info(`[MC] ─── Monte Carlo Analysis: ${symbol} ───`);
+      logger.info(`[MC] stream: ...${streamSnap}  (n=${sampleSize})`);
+      logger.info(`[MC] uniformity: chiSq=${chiSq.toFixed(2)} entropy=${entropy.toFixed(3)} flags=[${randomness.flags.join(', ') || 'none'}]`);
+      logger.info(`[MC] simulations: ${this.cfg.mcSimulations}  transitions: quality=${randomness.transitions.quality.toFixed(3)}`);
+      logger.info(`[MC] best candidate: d${bestDigit}  observedHitRate=${scored.topCandidate.observedHitRate.toFixed(4)}  expected=${scored.topCandidate.expectedHitRate.toFixed(4)}`);
+      logger.info(`[MC] confidence=${scored.confidence.toFixed(3)} stability=${scored.stability.toFixed(3)} pValue=${scored.topCandidate.pValue.toFixed(4)}`);
+      logger.info(`[MC] trade decision: ${scored.shouldTrade ? 'TRADE' : 'SKIP'} (${scored.reason})  gates=[${gates.length ? gates.join(', ') : 'none'}]`);
+      this._lastLogTime = Date.now();
+    }
 
     return {
       symbol,
