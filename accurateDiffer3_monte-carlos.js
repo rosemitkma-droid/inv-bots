@@ -135,7 +135,7 @@ const CONFIG = Object.freeze({
   durationTicks: 1, // Digit contracts normally 1-10 ticks
   minStake: 1.1,
   maxStake: 150.00,
-  assets: ['R_10','R_50','R_75','RDBULL'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','RDBULL','RDBEAR'
+  assets: ['1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','RDBULL','RDBEAR'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','RDBULL','RDBEAR'
 
   // Trading frequency / limits
   tickWindow: 1000,
@@ -167,7 +167,6 @@ const CONFIG = Object.freeze({
   mcStabilityThreshold:  0.40,    // min stability across resamples (0-1)
   randomnessAlpha:       0.05,    // uniformity test significance level
   tradeFrequencyMs:      5000,    // min ms between trades
-  maxWeakSignals:        500000000,
   analysisWindows:       [30, 60, 150, 400], // used by backtester reporting
   bootstrapIterations:   500,     // per-digit CI
   hotFilterTicks:        5,       // digits in last N ticks → penalty
@@ -245,9 +244,9 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'monte-carlos_differ_01_state.json'),
-  logFile: strEnv('LOG_FILE', 'monte-carlos_differ_01_bot.log'),
-  logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
+  stateFile: strEnv('STATE_FILE', 'monte-carlos_differ_001_state.json'),
+  logFile: strEnv('LOG_FILE', 'monte-carlos_differ_001_bot.log'),
+  logLevel: strEnv('LOG_LEVEL', 'MC INFO').toUpperCase(),
 
   // Telegram
   telegram: {
@@ -2067,7 +2066,7 @@ class TradingBot {
       this.paused = true;
       logger.info(`TRADING PAUSED at ${this.cfg.pauseStartGmt} GMT until ${this.cfg.pauseEndGmt} GMT`);
       telegram.send(
-        `⏸️ <b>TRADING PAUSED</b>\n\n` +
+        `⏸️ <b>MC TRADING PAUSED</b>\n\n` +
         `Scheduled pause active from <b>${htmlEscape(this.cfg.pauseStartGmt)}</b> to <b>${htmlEscape(this.cfg.pauseEndGmt)}</b> GMT.\n` +
         `Open trades will settle normally. No new trades until resume.\n\n` +
         `🕒 ${utcTs()}`
@@ -2081,9 +2080,9 @@ class TradingBot {
       }
     } else {
       this.paused = false;
-      logger.info(`TRADING RESUMED at ${this.cfg.pauseEndGmt} GMT`);
+      logger.info(`MC TRADING RESUMED at ${this.cfg.pauseEndGmt} GMT`);
       telegram.send(
-        `▶️ <b>TRADING RESUMED</b>\n\n` +
+        `▶️ <b>MC TRADING RESUMED</b>\n\n` +
         `Scheduled pause ended. Bot is now scanning for trades.\n\n` +
         `💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}\n\n` +
         `🕒 ${utcTs()}`
@@ -2250,7 +2249,7 @@ class TradingBot {
     const dayLine = `📅 Trading days: ${dayAbbrev.map((d, i) => daySettings[i] ? `✅${d}` : `❌${d}`).join(' ')}`;
 
     telegram.send(
-      `🤖 <b>Digit Differ Bot Online</b>\n\n` +
+      `🤖 <b>MCDigit Differ Bot Online</b>\n\n` +
       `👤 Account: <code>${htmlEscape(info.loginid || '?')}</code>\n` +
       `💼 Type: ${info.isVirtual ? '🟡 DEMO' : '🔴 REAL'}\n` +
       `💰 Balance: ${(this.client.balance ?? 0).toFixed(2)} ${this.currency()}\n` +
@@ -2276,7 +2275,7 @@ class TradingBot {
   }
 
   _onDisconnected(code, reason, wasAuthorized) {
-    telegram.send(`⚠️ <b>Connection lost</b>\ncode: <code>${code}</code>\nwas authorized: ${wasAuthorized ? 'yes' : 'no'}\n🔄 reconnecting...`);
+    telegram.send(`⚠️ <b>MC Connection lost</b>\ncode: <code>${code}</code>\nwas authorized: ${wasAuthorized ? 'yes' : 'no'}\n🔄 reconnecting...`);
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
     // Recover stuck trades on disconnect instead of silently clearing them
     if (this.exec.open.size > 0) {
@@ -2608,7 +2607,7 @@ class TradingBot {
       this.exec.open.delete(contractId);
 
       telegram.send(
-        `⚠️ <b>STUCK TRADE RECOVERED [${reason}]</b>\n` +
+        `⚠️ <b>MC STUCK TRADE RECOVERED [${reason}]</b>\n` +
         `Contract: <code>${contractId}</code>\n` +
         `Symbol: ${info.symbol}\n` +
         `Open for: ${openSeconds}s\n` +
@@ -2766,10 +2765,10 @@ class TradingBot {
     const list = this.stats.tradesForHour(date, hour);
     const s = this.stats.stats(list);
     if (!list.length) {
-      telegram.send(`⏰ <b>Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\nNo trades this hour.\n\n💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}`);
+      telegram.send(`⏰ <b>MC Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\nNo trades this hour.\n\n💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}`);
       return;
     }
-    let msg = `⏰ <b>Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\n` +
+    let msg = `⏰ <b>MC Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\n` +
       `📊 Trades: ${s.count} (✅${s.wins} ❌${s.losses})\n` +
       `📈 Win rate: ${s.winRate.toFixed(1)}%\n` +
       `💰 P/L: <b>${money(s.totalProfit, this.currency())}</b>\n` +
@@ -2790,7 +2789,7 @@ class TradingBot {
     const summary = this.stats.archiveDate(date);
     const ds = summary.stats;
 
-    let msg = `🌙 <b>END OF TRADE DAY — GMT</b>\n` +
+    let msg = `🌙 <b>MC END OF TRADE DAY — GMT</b>\n` +
               `📅 Trade day ended: <b>${date}</b>\n\n` +
               `<b>── Current Day Stats ──</b>\n`;
     if (ds.count) {
@@ -2903,7 +2902,7 @@ class TradingBot {
     if (this.stopped) return;
     this.stopped = true;
     logger.info(`stopping (${signal})`);
-    telegram.send(`🛑 <b>Digit Differ Bot stopped</b>\nSignal: ${htmlEscape(signal)}\n💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}`);
+    telegram.send(`🛑 <b>MC Digit Differ Bot stopped</b>\nSignal: ${htmlEscape(signal)}\n💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}`);
     if (this._analysisT) clearInterval(this._analysisT);
     this._clearPauseTimers();
     this._clearAllWatchdogTimers();
