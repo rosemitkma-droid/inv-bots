@@ -141,9 +141,9 @@ const CONFIG = Object.freeze({
   tickWindow: 1000,
   minTicksForAnalysis: 300,
   analysisIntervalMs: 3000,
-  tradeCooldownMs: 2500,
+  tradeCooldownMs: 2000,
   maxOpenTrades: 1,
-  cooldownTicks: 200,        // don't re-analyze digit within N ticks of last trade
+  cooldownTicks: 300,        // don't re-analyze digit within N ticks of last trade
   tradeWatchdogMs: 20000,    // force-recover stuck trades after this many ms
   // ── Asset rotation ────────────────────────────────────────────────
   //   To avoid hammering the same symbol back-to-back the bot briefly
@@ -167,11 +167,9 @@ const CONFIG = Object.freeze({
   maxRecentHits:      3,         // max occurrences in recent tail
   recentLookback:     20,        // recent tail length for hit check
   cooldownTicks:      200,       // don't re-predict digit within N ticks
-  safetyMargin:       0.01,     // value edge safety margin
+  safetyMargin:       0.02,     // value edge safety margin
   minEdge:            0.016,     // min value edge to trade
-  maxConsecutiveSkips: 5,
   lossCooldownMs:     8000,
-  weakSignalCooldownMs: 15000,
 
   // Optional limited loss recovery; disabled by default. Safer than the pasted 10x/100x martingale.
   recoveryEnabled: true,
@@ -214,8 +212,8 @@ const CONFIG = Object.freeze({
   //   pauseStartGmt < pauseEndGmt means a mid-day break
   //   (e.g. 12:00 → 14:00 pauses over lunch).
   pauseEnabled   : true,
-  pauseStartGmt  : strEnv('PAUSE_START_GMT', '23:00'),
-  pauseEndGmt    : strEnv('PAUSE_END_GMT',   '01:00'),
+  pauseStartGmt  : '23:00',
+  pauseEndGmt    : '01:00',
 
   // ── Day-of-week trading filter ──────────────────────────────────
   //   Control which days of the week the bot is allowed to trade.
@@ -223,23 +221,23 @@ const CONFIG = Object.freeze({
   //   trading on that day. Open trades will settle normally.
   //   These can be set via environment variables:
   //     TRADE_SUNDAY=false TRADE_MONDAY=true etc.
-  tradeSunday    : boolEnv('TRADE_SUNDAY',    true),
-  tradeMonday    : boolEnv('TRADE_MONDAY',    true),
-  tradeTuesday   : boolEnv('TRADE_TUESDAY',   true),
-  tradeWednesday : boolEnv('TRADE_WEDNESDAY', true),
-  tradeThursday  : boolEnv('TRADE_THURSDAY',  true),
-  tradeFriday    : boolEnv('TRADE_FRIDAY',    true),
-  tradeSaturday  : boolEnv('TRADE_SATURDAY',  true),
+  tradeSunday    : true,
+  tradeMonday    : true,
+  tradeTuesday   : true,
+  tradeWednesday : true,
+  tradeThursday  : true,
+  tradeFriday    : true,
+  tradeSaturday  : true,
 
   // GMT/UTC reporting
-  eodTimeGmt: strEnv('TRADE_DAY_END_GMT', '00:00'), // default midnight GMT; report date is previous UTC day
-  eodSendDelaySeconds: intEnv('EOD_SEND_DELAY_SECONDS', 10),
-  hourlySummary: boolEnv('HOURLY_SUMMARY', true),
+  eodTimeGmt: '00:00', // default midnight GMT; report date is previous UTC day
+  eodSendDelaySeconds: 10,
+  hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'simple_differ_01_state.json'),
-  logFile: strEnv('LOG_FILE', 'simple_differ_01_bot.log'),
-  logLevel: strEnv('LOG_LEVEL', 'SIMPLE INFO').toUpperCase(),
+  stateFile: strEnv('STATE_FILE', 'simple3_differ_001_state.json'),
+  logFile: strEnv('LOG_FILE', 'simple3_differ_001_bot.log'),
+  logLevel: strEnv('LOG_LEVEL', 'SIMPLE3 INFO').toUpperCase(),
 
   // Telegram
   telegram: {
@@ -281,7 +279,7 @@ const CONFIG = Object.freeze({
   backtestTicks       : intEnv('BACKTEST_TICKS',      100000),
   backtestBatchSize   : intEnv('BACKTEST_BATCH_SIZE', 5000),
   backtestReportEvery : intEnv('BACKTEST_REPORT',     10000),
-  backtestOutFile     : strEnv('BACKTEST_OUT',        'monte-carlos_differ_backtest_report_01.json'),
+  backtestOutFile     : strEnv('BACKTEST_OUT',        'simple_differ_backtest_report_01.json'),
   // The Deriv DIGITDIFF payout multiplier is roughly 1.09-1.11× stake
   // (win ~90% of the time, get ~10% profit). We DEFAULT to 1.10, but at
   // backtest start we probe a real Deriv proposal for the actual live
@@ -1039,26 +1037,6 @@ class MarketDataManager extends EventEmitter {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────
-// 7. MONTE CARLO DIGIT ANALYZER
-// ─────────────────────────────────────────────────────────────────────
-/**
- * DigitAnalyzer — Coldest-digit frequency analysis for Digit Differ.
- *
- * Instead of predicting the next digit, this analyzer tests whether any
- * candidate digit-differ barrier shows a statistically meaningful edge
- * over a null model of random, independent, approximately-uniform digits.
- *
- * Pipeline:
- *   1. testRandomness()   — chi-square uniformity + transition entropy
- *   2. runMonteCarlo()     — simulate N trials under null model
- *   3. scoreCandidates()   — rank digits, bootstrap stability check
- *   4. shouldTrade()       — pass/fail decision with reason
- *
- * The bot treats any short-term edge as unstable unless the Monte Carlo
- * result remains consistent across multiple resampling passes.
- */
-// ─────────────────────────────────────────────────────────────────────
 // 7. DIGIT ANALYZER
 // ─────────────────────────────────────────────────────────────────────
 class DigitAnalyzer {
@@ -1778,12 +1756,6 @@ class TradingBot {
     if (now - this.lastLossAt < cfg.lossCooldownMs) {
       const remaining = ((cfg.lossCooldownMs - (now - this.lastLossAt)) / 1000).toFixed(1);
       return { allowed: false, reason: `loss cooldown — ${remaining}s remaining` };
-    }
-
-    // 3. Weak-signal cooldown
-    if (now - this.lastWeakSignalAt < cfg.weakSignalCooldownMs) {
-      const remaining = ((cfg.weakSignalCooldownMs - (now - this.lastWeakSignalAt)) / 1000).toFixed(1);
-      return { allowed: false, reason: `weak-signal cooldown — ${remaining}s remaining` };
     }
 
     return { allowed: true, reason: `PASS: d${analysis.digit} pUpper=${analysis.pUpper.toFixed(4)} gap OK` };
