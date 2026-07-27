@@ -147,11 +147,12 @@ const CONFIG = Object.freeze({
   assets: ['R_10','R_25','R_50','R_75','R_100','RDBEAR','RDBULL'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
-  tickWindow: intEnv('TICK_WINDOW', 1000),
-  minTicksForAnalysis: intEnv('MIN_TICKS_ANALYSIS', 300),
-  analysisIntervalMs: intEnv('ANALYSIS_INTERVAL_MS', 3000),
-  tradeCooldownMs: intEnv('TRADE_COOLDOWN_MS', 2500),
-  maxOpenTrades: intEnv('MAX_OPEN_TRADES', 1),
+  tickWindow: 1000,
+  minTicksForAnalysis: 300,
+  analysisIntervalMs: 3000,
+  tradeCooldownMs: 2000,
+  maxOpenTrades: 1,
+  cooldownTicks: 200,        // don't re-analyze within N ticks of last trade
   // ── Asset rotation ────────────────────────────────────────────────
   //   To avoid hammering the same symbol back-to-back the bot briefly
   //   "locks out" the just-traded symbol. Two safety valves:
@@ -163,13 +164,13 @@ const CONFIG = Object.freeze({
   //       of skipping the whole scan.
   //   Set assetRotationMs=0 to disable the rotation entirely (trade
   //   whatever ranks first every scan).
-  assetRotationMs: intEnv('ASSET_ROTATION_MS', 60_000),
-  dailyMaxLoss: numEnv('DAILY_MAX_LOSS', 20),
+  assetRotationMs: 60_000,
+  dailyMaxLoss: 2000,
   // Belt-and-braces: stop for the day at whichever loss cap is hit first —
   // a fixed dollar figure AND a % of the balance seen at the start of the day.
-  dailyMaxLossPct: numEnv('DAILY_MAX_LOSS_PCT', 0.05), // 5% of day-start balance
-  dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0), // 0 disables profit target stop
-  dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 2000),
+  dailyMaxLossPct: 0.05, // 5% of day-start balance
+  dailyMaxProfit: 0, // 0 disables profit target stop
+  dailyMaxTrades: 200000,
 
   // ── Strategy selection ───────────────────────────────────────────────
   // 'frequency'    = Empirical-frequency coldest digit (DigitAnalyzer).
@@ -187,71 +188,71 @@ const CONFIG = Object.freeze({
   // REPEAT_AVOID_CONDITIONAL=true is an alias for mode=conditional
   // when mode is left at default and that flag is set.
   repeatAvoidMode: strEnv('REPEAT_AVOID_MODE', 'cycle'),
-  repeatAvoidUseConditional: boolEnv('REPEAT_AVOID_CONDITIONAL', true),
-  repeatAvoidMaxStreakBucket: intEnv('REPEAT_AVOID_MAX_STREAK_BUCKET', 100),
-  repeatAvoidMinBucketN: intEnv('REPEAT_AVOID_MIN_BUCKET_N', 100),
+  repeatAvoidUseConditional: true,
+  repeatAvoidMaxStreakBucket: 100,
+  repeatAvoidMinBucketN: 100,
   // ── Cycle-regime engine (mode=cycle) ─────────────────────────────────
   // Multi-scale windows on the Bernoulli "is-repeat" series:
   //   fast = local intensity, mid = regime confirmation, slow = baseline.
-  raFastWindow: intEnv('RA_FAST_WINDOW', 20),
-  raMidWindow : intEnv('RA_MID_WINDOW',  100),
-  raSlowWindow: intEnv('RA_SLOW_WINDOW', 500),
+  raFastWindow: 20,
+  raMidWindow : 100,
+  raSlowWindow: 500,
   // Block size used to estimate low/high emission rates (pL, pH) from
   // the distribution of short-block repeat rates inside the window.
-  raBlockSize: intEnv('RA_BLOCK_SIZE', 20),
+  raBlockSize: 20,
   // HMM-style state persistence (per tick). Higher = longer regimes.
-  raStayQuiet: numEnv('RA_STAY_QUIET', 0.985),
-  raStayHot  : numEnv('RA_STAY_HOT',   0.980),
+  raStayQuiet: 0.985,
+  raStayHot  : 0.980,
   // Blend weights for p(repeat) estimate (renormalized if a leg missing).
   // regime = 2-state predictive mix; local = fast EWMA-like rate;
   // streak = P(repeat | current non-repeat streak).
-  raWRegime: numEnv('RA_W_REGIME', 0.50),
-  raWLocal : numEnv('RA_W_LOCAL',  0.30),
-  raWStreak: numEnv('RA_W_STREAK', 0.20),
+  raWRegime: 0.50,
+  raWLocal : 0.30,
+  raWStreak: 0.20,
   // Empirical-Bayes shrink of the blend toward fair 0.10 (less overfit).
-  raShrinkToFair: numEnv('RA_SHRINK_TO_FAIR', 0.12),
+  raShrinkToFair: 0.12,
   // Phase / regime trade gates (DIGITDIFF wants LOW next-tick repeat prob).
   // Only fire when model is confident we are in a quiet (or cooling) phase.
-  raMinQuietProb : numEnv('RA_MIN_QUIET_PROB', 0.85),
-  raMaxLocalRate : numEnv('RA_MAX_LOCAL_RATE', 0.095),
-  raAllowQuiet   : boolEnv('RA_ALLOW_QUIET',   true),
-  raAllowCooling : boolEnv('RA_ALLOW_COOLING', false),
-  raAllowNeutral : boolEnv('RA_ALLOW_NEUTRAL', false),
+  raMinQuietProb : 0.85,
+  raMaxLocalRate : 0.095,
+  raAllowQuiet   : true,
+  raAllowCooling : false,
+  raAllowNeutral : false,
   // Require low vs high regime rates to be separated enough to trust the filter.
-  raMinRegimeSep : numEnv('RA_MIN_REGIME_SEP', 0.015),
+  raMinRegimeSep : 0.015,
   // Slope threshold (fast − mid rate) for heating/cooling classification.
-  raSlopeEps     : numEnv('RA_SLOPE_EPS', 0.008),
+  raSlopeEps     : 0.008,
 
   // ── Frequency-analysis config ───────────────────────────────────────
   // Single empirical-frequency window used to rank digits + a Wilson
   // upper confidence bound. This is a heuristic used to feed the live
   // value-edge check below, not a claimed predictive edge — see header.
-  analysisWindow: intEnv('ANALYSIS_WINDOW', 200),
+  analysisWindow: 200,
   // Value-edge floors (live proposal q_be − pLossUpper)
-  minEdge: numEnv('MIN_EDGE', 0.0100),
-  safetyMargin: numEnv('SAFETY_MARGIN', 0.002),
-  modelRiskMargin: numEnv('MODEL_RISK_MARGIN', 0.0015),
-  zScore: numEnv('EDGE_ZSCORE', 1.28),          // Wilson one-sided upper bound
-  maxLossProb: numEnv('MAX_LOSS_PROB', 0.092),  // never take if upper-bound P(loss digit) > this
-  minProbabilityGap: numEnv('MIN_PROBABILITY_GAP', 0.004),
+  minEdge: 0.0100,
+  safetyMargin: 0.002,
+  modelRiskMargin: 0.0015,
+  zScore: 1.28,          // Wilson one-sided upper bound
+  maxLossProb: 0.092,  // never take if upper-bound P(loss digit) > this
+  minProbabilityGap: 0.004,
   // Regime sanity gates: skip samples too small/degenerate to be a
   // meaningful (non-uniform-looking) read, in either direction.
-  minEntropy: numEnv('MIN_ENTROPY', 0.90),
-  maxEntropy: numEnv('MAX_ENTROPY', 0.9997),
-  minChiSquare: numEnv('MIN_CHISQUARE', 1.5),
-  maxChiSquare: numEnv('MAX_CHISQUARE', 40.0),
-  maxRecentDigitHits: intEnv('MAX_RECENT_DIGIT_HITS', 2), // barrier digit hits in recentLookback
-  recentLookback: intEnv('RECENT_LOOKBACK', 12),
-  proposalScanTopN: intEnv('PROPOSAL_SCAN_TOP_N', 4),
+  minEntropy: 0.90,
+  maxEntropy: 0.9997,
+  minChiSquare: 1.5,
+  maxChiSquare: 40.0,
+  maxRecentDigitHits: 2, // barrier digit hits in recentLookback
+  recentLookback: 12,
+  proposalScanTopN: 4,
 
   // ── Consecutive-loss circuit breaker ────────────────────────────────
   // Independent of stake sizing: after N losses in a row, STOP trading
   // entirely for a cooldown period. This exists because no sizing
   // scheme protects you from "the model was wrong for a while" — only
   // stopping does.
-  circuitBreakerEnabled : boolEnv('CIRCUIT_BREAKER_ENABLED', false),
-  circuitBreakerLosses  : intEnv ('CIRCUIT_BREAKER_LOSSES',  4),
-  circuitBreakerCooldownMs: intEnv('CIRCUIT_BREAKER_COOLDOWN_MS', 30 * 60_000),
+  circuitBreakerEnabled : false,
+  circuitBreakerLosses  : 4,
+  circuitBreakerCooldownMs: 30 * 60_000,
 
   // ── Stake sizing ─────────────────────────────────────────────────────
   // Flat stake is used unless kellySizingEnabled=true (see Kelly block
@@ -262,11 +263,11 @@ const CONFIG = Object.freeze({
   // and keep the multiplier ladder short and shallow — DO NOT use
   // multiplier ladders like 7x/82x; those go bankrupt on a bad but
   // entirely ordinary run of consecutive losses.
-  recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
+  recoveryEnabled: true,
   recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,13.2,150.0').map(Number).filter(Number.isFinite),
 
   // ─ Trade watchdog ─
-  tradeWatchdogMs: intEnv('TRADE_WATCHDOG_MS', 20000),
+  tradeWatchdogMs: 20000,
 
   // ── Kelly-fractional sizing ────────────────────────────────────────
   //   kellySizingEnabled=true replaces flat/recovery stake with:
@@ -276,25 +277,25 @@ const CONFIG = Object.freeze({
   //   cushion; full Kelly is mathematically optimal for growth but has
   //   ~40% drawdowns). Disable with KELLY_ENABLED=false to fall back
   //   to the legacy flat/recovery sizing above.
-  kellySizingEnabled  : boolEnv('KELLY_ENABLED',         false),
-  kellyFraction       : numEnv ('KELLY_FRACTION',        0.25),
-  kellyBankrollFrac   : numEnv ('KELLY_BANKROLL_FRAC',   1.00),  // % of live balance to treat as risk bankroll
-  kellyBankrollFloor  : numEnv ('KELLY_BANKROLL_FLOOR',  100.0), // never scale below this bankroll
-  kellyMaxStakeFrac   : numEnv ('KELLY_MAX_STAKE_FRAC',  0.02),  // hard cap: ≤2% of bankroll per trade
-  kellyMinEdgeForScale: numEnv ('KELLY_MIN_EDGE_SCALE',  0.005), // no scaling unless edge > 0.5pp
+  kellySizingEnabled  : false,
+  kellyFraction       : 0.25,
+  kellyBankrollFrac   : 1.00,  // % of live balance to treat as risk bankroll
+  kellyBankrollFloor  : 100.0, // never scale below this bankroll
+  kellyMaxStakeFrac   : 0.02,  // hard cap: ≤2% of bankroll per trade
+  kellyMinEdgeForScale: 0.005, // no scaling unless edge > 0.5pp
 
   // ── Per-symbol calibration tracker ─────────────────────────────────
   //   Rolling per-symbol (predicted P(win), actual outcome). Auto-disables
   //   a symbol when empirical WR trails predicted by > calibDisableGap
   //   over ≥ calibMinTrades. Re-enters via low-stake probe after
   //   calibProbeAfterMs; fully re-enabled when calibration re-converges.
-  calibEnabled        : boolEnv('CALIB_ENABLED',         false),
-  calibWindow         : intEnv ('CALIB_WINDOW',          200),
-  calibMinTrades      : intEnv ('CALIB_MIN_TRADES',      40),
-  calibDisableGap     : numEnv ('CALIB_DISABLE_GAP',     0.020),   // −2 pp below prediction → disable
-  calibReenableGap    : numEnv ('CALIB_REENABLE_GAP',    0.005),  // within ±0.5 pp → re-enable
-  calibProbeAfterMs   : intEnv ('CALIB_PROBE_AFTER_MS',  30 * 60_000),
-  calibProbeStakeFrac : numEnv ('CALIB_PROBE_STAKE_FRAC', 0.20),
+  calibEnabled        : false,
+  calibWindow         : 200,
+  calibMinTrades      : 40,
+  calibDisableGap     : 0.020,   // −2 pp below prediction → disable
+  calibReenableGap    : 0.005,  // within ±0.5 pp → re-enable
+  calibProbeAfterMs   : 30 * 60_000,
+  calibProbeStakeFrac : 0.20,
 
   // ── Scheduled pause/resume ──────────────────────────────────────
   //   The bot stops opening new trades between pauseStartGmt and
@@ -304,19 +305,19 @@ const CONFIG = Object.freeze({
   //   (e.g. 22:00 → 06:00 pauses overnight).
   //   pauseStartGmt < pauseEndGmt means a mid-day break
   //   (e.g. 12:00 → 14:00 pauses over lunch).
-  pauseEnabled   : boolEnv('PAUSE_ENABLED', true),
-  pauseStartGmt  : strEnv('PAUSE_START_GMT', '23:00'),
-  pauseEndGmt    : strEnv('PAUSE_END_GMT',   '01:00'),
+  pauseEnabled   : true,
+  pauseStartGmt  : '23:00',
+  pauseEndGmt    : '01:00',
 
   // GMT/UTC reporting
-  eodTimeGmt: strEnv('TRADE_DAY_END_GMT', '00:00'), // default midnight GMT; report date is previous UTC day
-  eodSendDelaySeconds: intEnv('EOD_SEND_DELAY_SECONDS', 10),
-  hourlySummary: boolEnv('HOURLY_SUMMARY', true),
+  eodTimeGmt: '00:00', // default midnight GMT; report date is previous UTC day
+  eodSendDelaySeconds: 10,
+  hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'accurateDifferx2_state3.json'),
-  logFile: strEnv('LOG_FILE', 'accurateDifferx2_bot3.log'),
-  logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
+  stateFile: strEnv('STATE_FILE', 'newDifferx2_state_001.json'),
+  logFile: strEnv('LOG_FILE', 'newDifferx2_bot_001.log'),
+  logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFER').toUpperCase(),
 
   // Telegram — MUST come from .env / environment, never hardcode a real
   // bot token in source. Notifications are auto-disabled if either is empty.
@@ -336,7 +337,7 @@ const CONFIG = Object.freeze({
   // ═══════════════════════════════════════════════════════════════════
   // BACKTESTER
   // ═══════════════════════════════════════════════════════════════════
-  //   Run with:  $env:BACKTEST=1; node accurateDiffer.js
+  //   Run with:  $env:BACKTEST=1; node newDiffer.js
   //   Optional:  $env:BACKTEST_ASSET="R_100"; $env:BACKTEST_TICKS=100000
   //
   //   NOTE on history depth: Deriv's ticks_history endpoint typically
@@ -359,7 +360,7 @@ const CONFIG = Object.freeze({
   backtestTicks       : intEnv('BACKTEST_TICKS',      100000),
   backtestBatchSize   : intEnv('BACKTEST_BATCH_SIZE', 5000),
   backtestReportEvery : intEnv('BACKTEST_REPORT',     10000),
-  backtestOutFile     : strEnv('BACKTEST_OUT',        'accurateDifferx2_backtest_report1.json'),
+  backtestOutFile     : strEnv('BACKTEST_OUT',        'newDifferx2_backtest_report1.json'),
   // The Deriv DIGITDIFF payout multiplier is roughly 1.09-1.11× stake
   // (win ~90% of the time, get ~10% profit). We DEFAULT to 1.10, but at
   // backtest start we probe a real Deriv proposal for the actual live
@@ -2150,6 +2151,10 @@ class TradingBot {
     this._pauseStartTimer = null;
     this._pauseEndTimer = null;
 
+    // ── Tick counter for cooldownTicks ──────────────────────────────
+    this._tickCounter = 0;
+    this._lastTradeTickIdx = null;
+
     // ── Trade watchdog timers ──
     this.tradeWatchdogMs = CONFIG.tradeWatchdogMs || 90000;
     this.tradeStartTime = null;
@@ -2322,6 +2327,7 @@ class TradingBot {
     this.exec.on('open', t => this._onTradeOpen(t));
     this.exec.on('result', t => this._onTradeResult(t));
     this.exec.on('update', t => logger.debug(`update #${t.contractId} ${t.status} profit=${t.profit}`));
+    this.market.on('tick', () => { this._tickCounter++; });
 
     process.on('SIGINT', () => this.stop('SIGINT'));
     process.on('SIGTERM', () => this.stop('SIGTERM'));
@@ -2357,6 +2363,9 @@ class TradingBot {
     const breakerLine = this.cfg.circuitBreakerEnabled
       ? `🚨 Circuit breaker: <b>ON</b> (trip after ${this.cfg.circuitBreakerLosses} consecutive losses, cooldown ${(this.cfg.circuitBreakerCooldownMs/60000).toFixed(0)}m)`
       : `🚨 Circuit breaker: off`;
+    const cooldownLine = this.cfg.cooldownTicks
+      ? `⏱️ Tick cooldown: <b>${this.cfg.cooldownTicks} ticks</b> (${(this.cfg.cooldownTicks * this.cfg.analysisIntervalMs / 1000).toFixed(0)}s)`
+      : '';
 
     telegram.send(
       `🤖 <b>x2Digit Differ Bot Online</b>\n\n` +
@@ -2370,6 +2379,7 @@ class TradingBot {
       `${calibLine}\n` +
       `${rotationLine}\n` +
       `${breakerLine}\n` +
+      `${cooldownLine}\n` +
       `📈 Signal: empirical digit frequency (heuristic, not a demonstrated edge — see file header)\n` +
       `🧯 Daily stop: ${money(-Math.abs(this.cfg.dailyMaxLoss), this.currency())} or ${(this.cfg.dailyMaxLossPct*100).toFixed(1)}% of balance, whichever first\n` +
       `🕒 Trade day clock: <b>GMT/UTC</b> | EOD: ${this.cfg.eodTimeGmt} GMT\n\n` +
@@ -2440,6 +2450,14 @@ class TradingBot {
       return;
     }
     if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
+    // Tick-based cooldown: don't re-analyze within N ticks of last trade
+    if (this._lastTradeTickIdx != null) {
+      const ticksSinceTrade = this._tickCounter - this._lastTradeTickIdx;
+      if (ticksSinceTrade < this.cfg.cooldownTicks) {
+        logger.debug(`cooldownTicks: ${ticksSinceTrade}/${this.cfg.cooldownTicks} — skipping`);
+        return;
+      }
+    }
     if (this.exec.count() >= this.cfg.maxOpenTrades) return;
 
     // ── Consecutive-loss circuit breaker ──────────────────────────────
@@ -2731,6 +2749,7 @@ class TradingBot {
     );
 
     this.lastTradeAt = Date.now();
+    this._lastTradeTickIdx = this._tickCounter;
     this._saveState('after-trade');
   }
 
