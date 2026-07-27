@@ -177,7 +177,6 @@ const CONFIG = Object.freeze({
   maxEntropy:            0.9997,  // max entropy gate (too uniform)
   mcMinEdge:             0.003,   // min value edge to trade
   mcLossCooldownMs:      8000,
-  mcWeakSignalCooldownMs: 500000000000000000,
 
   // Optional limited loss recovery; disabled by default. Safer than the pasted 10x/100x martingale.
   recoveryEnabled: true, // If true, set kellySizingEnabled below to false
@@ -220,8 +219,8 @@ const CONFIG = Object.freeze({
   //   pauseStartGmt < pauseEndGmt means a mid-day break
   //   (e.g. 12:00 → 14:00 pauses over lunch).
   pauseEnabled   : true,
-  pauseStartGmt  : strEnv('PAUSE_START_GMT', '23:00'),
-  pauseEndGmt    : strEnv('PAUSE_END_GMT',   '01:00'),
+  pauseStartGmt  : '23:00',
+  pauseEndGmt    : '01:00',
 
   // ── Day-of-week trading filter ──────────────────────────────────
   //   Control which days of the week the bot is allowed to trade.
@@ -2159,12 +2158,6 @@ class TradingBot {
     if (now - this.lastLossAt < cfg.mcLossCooldownMs) {
       const remaining = ((cfg.mcLossCooldownMs - (now - this.lastLossAt)) / 1000).toFixed(1);
       return { allowed: false, reason: `loss cooldown — ${remaining}s remaining` };
-    }
-
-    // 5. Weak-signal cooldown
-    if (now - this.lastWeakSignalAt < cfg.mcWeakSignalCooldownMs) {
-      const remaining = ((cfg.mcWeakSignalCooldownMs - (now - this.lastWeakSignalAt)) / 1000).toFixed(1);
-      return { allowed: false, reason: `weak-signal cooldown — ${remaining}s remaining` };
     }
 
     return { allowed: true, reason: `MC PASS: d${analysis.digit} confidence=${analysis.confidence.toFixed(3)} stability=${analysis.stability.toFixed(3)} p=${analysis.pValue.toFixed(4)}` };
