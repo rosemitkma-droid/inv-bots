@@ -138,11 +138,12 @@ const CONFIG = Object.freeze({
   assets: ['R_10','R_50','R_75'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
-  tickWindow: intEnv('TICK_WINDOW', 1000),
-  minTicksForAnalysis: intEnv('MIN_TICKS_ANALYSIS', 300),
-  analysisIntervalMs: intEnv('ANALYSIS_INTERVAL_MS', 3000),
-  tradeCooldownMs: intEnv('TRADE_COOLDOWN_MS', 2500),
-  maxOpenTrades: intEnv('MAX_OPEN_TRADES', 1),
+  tickWindow: 1000,
+  minTicksForAnalysis: 300,
+  analysisIntervalMs: 3000,
+  tradeCooldownMs: 2000,
+  maxOpenTrades: 1,
+  cooldownTicks: 200,        // don't re-analyze within N ticks of last trade
   // ── Asset rotation ────────────────────────────────────────────────
   //   To avoid hammering the same symbol back-to-back the bot briefly
   //   "locks out" the just-traded symbol. Two safety valves:
@@ -154,31 +155,31 @@ const CONFIG = Object.freeze({
   //       of skipping the whole scan.
   //   Set assetRotationMs=0 to disable the rotation entirely (trade
   //   whatever ranks first every scan).
-  assetRotationMs: intEnv('ASSET_ROTATION_MS', 60_000),
-  dailyMaxLoss: numEnv('DAILY_MAX_LOSS', 570),
-  dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0), // 0 disables profit target stop
-  dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 20000),
+  assetRotationMs: 60_000,
+  dailyMaxLoss: 570,
+  dailyMaxProfit: 0, // 0 disables profit target stop
+  dailyMaxTrades: 20000,
 
   // DIVER-9 edge filters
   frequencyWindows: listEnv('FREQUENCY_WINDOWS', '20,45,90,180,360').map(x => parseInt(x, 10)).filter(Number.isFinite),
-  transitionLookback: intEnv('TRANSITION_LOOKBACK', 600),
-  ewmaAlpha: numEnv('EWMA_ALPHA', 0.055),
-  minEdge: numEnv('MIN_EDGE', 0.0002),          //0.0040 absolute probability gap, e.g. 0.4 percentage point
-  safetyMargin: numEnv('SAFETY_MARGIN', 0.002),
-  modelRiskMargin: numEnv('MODEL_RISK_MARGIN', 0.0015),
-  zScore: numEnv('EDGE_ZSCORE', 1.28),          // conservative upper bound
-  maxLossProb: numEnv('MAX_LOSS_PROB', 0.092),  // never take if model says losing digit > 9.5%
-  minProbabilityGap: numEnv('MIN_PROBABILITY_GAP', 0.004),
-  minEntropy: numEnv('MIN_ENTROPY', 0.90),      // close to random; avoid broken/tiny samples
-  maxEntropy: numEnv('MAX_ENTROPY', 0.9997),    // if perfectly uniform, likely no exploitable imbalance
-  minChiSquare: numEnv('MIN_CHISQUARE', 1.5),   // require some measurable imbalance
-  maxChiSquare: numEnv('MAX_CHISQUARE', 40.0),  // reject extreme unstable bursts
-  maxRecentDigitHits: intEnv('MAX_RECENT_DIGIT_HITS', 2), // selected digit occurrences in last recentLookback
-  recentLookback: intEnv('RECENT_LOOKBACK', 12),
-  proposalScanTopN: intEnv('PROPOSAL_SCAN_TOP_N', 4),
+  transitionLookback: 600,
+  ewmaAlpha: 0.055,
+  minEdge: 0.0002,          //0.0040 absolute probability gap, e.g. 0.4 percentage point
+  safetyMargin: 0.002,
+  modelRiskMargin: 0.0015,
+  zScore: 1.28,          // conservative upper bound
+  maxLossProb: 0.092,  // never take if model says losing digit > 9.5%
+  minProbabilityGap: 0.004,
+  minEntropy: 0.90,      // close to random; avoid broken/tiny samples
+  maxEntropy: 0.9997,    // if perfectly uniform, likely no exploitable imbalance
+  minChiSquare: 1.5,   // require some measurable imbalance
+  maxChiSquare: 40.0,  // reject extreme unstable bursts
+  maxRecentDigitHits: 2, // selected digit occurrences in last recentLookback
+  recentLookback: 12,
+  proposalScanTopN: 4,
 
   // Optional limited loss recovery; disabled by default. Safer than the pasted 10x/100x martingale.
-  recoveryEnabled: boolEnv('RECOVERY_ENABLED', true),
+  recoveryEnabled: true,
   recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,13.2,150.0').map(Number).filter(Number.isFinite),
 
   // ── Kelly-fractional sizing ────────────────────────────────────────
@@ -189,24 +190,24 @@ const CONFIG = Object.freeze({
   //   cushion; full Kelly is mathematically optimal for growth but has
   //   ~40% drawdowns). Disable with KELLY_ENABLED=false to fall back
   //   to the legacy flat/recovery sizing above.
-  kellySizingEnabled  : boolEnv('KELLY_ENABLED',         false),
-  kellyFraction       : numEnv ('KELLY_FRACTION',        0.25),
-  kellyBankrollFrac   : numEnv ('KELLY_BANKROLL_FRAC',   1.00),  // % of live balance to treat as risk bankroll
-  kellyBankrollFloor  : numEnv ('KELLY_BANKROLL_FLOOR',  100.0), // never scale below this bankroll
-  kellyMaxStakeFrac   : numEnv ('KELLY_MAX_STAKE_FRAC',  0.02),  // hard cap: ≤2% of bankroll per trade
-  kellyMinEdgeForScale: numEnv ('KELLY_MIN_EDGE_SCALE',  0.005), // no scaling unless edge > 0.5pp
+  kellySizingEnabled  : false,
+  kellyFraction       : 0.25,
+  kellyBankrollFrac   : 1.00,  // % of live balance to treat as risk bankroll
+  kellyBankrollFloor  : 100.0, // never scale below this bankroll
+  kellyMaxStakeFrac   : 0.02,  // hard cap: ≤2% of bankroll per trade
+  kellyMinEdgeForScale: 0.005, // no scaling unless edge > 0.5pp
 
   // ── Per-symbol calibration tracker ─────────────────────────────────
   //   Rolling per-symbol (predicted P(win), actual outcome). Auto-disables
   //   a symbol when empirical WR trails predicted by > calibDisableGap
   //   over ≥ calibMinTrades. Re-enters via low-stake probe after
   //   calibProbeAfterMs; fully re-enabled when calibration re-converges.
-  calibEnabled        : boolEnv('CALIB_ENABLED',         false),
-  calibWindow         : intEnv ('CALIB_WINDOW',          200),
-  calibMinTrades      : intEnv ('CALIB_MIN_TRADES',      40),
-  calibDisableGap     : numEnv ('CALIB_DISABLE_GAP',     0.02),   // −2 pp below prediction → disable
-  calibReenableGap    : numEnv ('CALIB_REENABLE_GAP',    0.005),  // within ±0.5 pp → re-enable
-  calibProbeAfterMs   : intEnv ('CALIB_PROBE_AFTER_MS',  30 * 60_000),
+  calibEnabled        : false,
+  calibWindow         : 200,
+  calibMinTrades      : 40,
+  calibDisableGap     : 0.02,   // −2 pp below prediction → disable
+  calibReenableGap    : 0.005,  // within ±0.5 pp → re-enable
+  calibProbeAfterMs   : 30 * 60_000, // 30 min
   calibProbeStakeFrac : numEnv ('CALIB_PROBE_STAKE_FRAC', 0.25),
 
   // ── Scheduled pause/resume ──────────────────────────────────────
@@ -217,9 +218,9 @@ const CONFIG = Object.freeze({
   //   (e.g. 22:00 → 06:00 pauses overnight).
   //   pauseStartGmt < pauseEndGmt means a mid-day break
   //   (e.g. 12:00 → 14:00 pauses over lunch).
-  pauseEnabled   : boolEnv('PAUSE_ENABLED', true),
-  pauseStartGmt  : strEnv('PAUSE_START_GMT', '23:00'),
-  pauseEndGmt    : strEnv('PAUSE_END_GMT',   '01:00'),
+  pauseEnabled   : true,
+  pauseStartGmt  : '23:00',
+  pauseEndGmt    : '01:00',
 
   // ── Day-of-week trading filter ──────────────────────────────────
   //   Control which days of the week the bot is allowed to trade.
@@ -227,13 +228,13 @@ const CONFIG = Object.freeze({
   //   trading on that day. Open trades will settle normally.
   //   These can be set via environment variables:
   //     TRADE_SUNDAY=false TRADE_MONDAY=true etc.
-  tradeSunday    : boolEnv('TRADE_SUNDAY',    false),
-  tradeMonday    : boolEnv('TRADE_MONDAY',    true),
-  tradeTuesday   : boolEnv('TRADE_TUESDAY',   true),
-  tradeWednesday : boolEnv('TRADE_WEDNESDAY', true),
-  tradeThursday  : boolEnv('TRADE_THURSDAY',  true),
-  tradeFriday    : boolEnv('TRADE_FRIDAY',    true),
-  tradeSaturday  : boolEnv('TRADE_SATURDAY',  false),
+  tradeSunday    : false,
+  tradeMonday    : true,
+  tradeTuesday   : true,
+  tradeWednesday : true,
+  tradeThursday  : true,
+  tradeFriday    : true,
+  tradeSaturday  : false,
 
   // GMT/UTC reporting
   eodTimeGmt: strEnv('TRADE_DAY_END_GMT', '00:00'), // default midnight GMT; report date is previous UTC day
@@ -241,8 +242,8 @@ const CONFIG = Object.freeze({
   hourlySummary: boolEnv('HOURLY_SUMMARY', true),
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ9_05_state.json'),
-  logFile: strEnv('LOG_FILE', 'deriv_digit_differ9_05_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'deriv_digit_differ9_001_state.json'),
+  logFile: strEnv('LOG_FILE', 'deriv_digit_differ9_001_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
@@ -1649,6 +1650,10 @@ class TradingBot {
     this._eodT = null;
     this._pauseStartTimer = null;
     this._pauseEndTimer = null;
+
+    // ── Tick counter for cooldownTicks ──────────────────────────────
+    this._tickCounter = 0;
+    this._lastTradeTickIdx = null;
   }
 
   // ── Scheduled pause helpers ─────────────────────────────────────
@@ -1842,6 +1847,7 @@ class TradingBot {
     this.exec.on('open', t => this._onTradeOpen(t));
     this.exec.on('result', t => this._onTradeResult(t));
     this.exec.on('update', t => logger.debug(`update #${t.contractId} ${t.status} profit=${t.profit}`));
+    this.market.on('tick', () => { this._tickCounter++; });
 
     process.on('SIGINT', () => this.stop('SIGINT'));
     process.on('SIGTERM', () => this.stop('SIGTERM'));
@@ -1885,6 +1891,9 @@ class TradingBot {
       this.cfg.tradeSaturday
     ];
     const dayLine = `📅 Trading days: ${dayAbbrev.map((d, i) => daySettings[i] ? `✅${d}` : `❌${d}`).join(' ')}`;
+    const cooldownLine = this.cfg.cooldownTicks
+      ? `⏱️ Tick cooldown: <b>${this.cfg.cooldownTicks} ticks</b> (${(this.cfg.cooldownTicks * this.cfg.analysisIntervalMs / 1000).toFixed(0)}s)`
+      : '';
 
     telegram.send(
       `🤖 <b>Digit Differ Bot Online</b>\n\n` +
@@ -1899,6 +1908,7 @@ class TradingBot {
       `${rotationLine}\n` +
       `${pauseLine}\n` +
       `${dayLine}\n` +
+      `${cooldownLine}\n` +
       `🧠 Method: <b>DIVER-9</b> conservative value-edge filter\n` +
       `🕒 Trade day clock: <b>GMT/UTC</b> | EOD: ${this.cfg.eodTimeGmt} GMT\n\n` +
       `💼 Overall Profit: <b>${money(this.stats.overallProfit, this.currency())}</b>\n` +
@@ -1973,6 +1983,14 @@ class TradingBot {
       return;
     }
     if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
+    // Tick-based cooldown: don't re-analyze within N ticks of last trade
+    if (this._lastTradeTickIdx != null) {
+      const ticksSinceTrade = this._tickCounter - this._lastTradeTickIdx;
+      if (ticksSinceTrade < this.cfg.cooldownTicks) {
+        logger.debug(`cooldownTicks: ${ticksSinceTrade}/${this.cfg.cooldownTicks} — skipping`);
+        return;
+      }
+    }
     if (this.exec.count() >= this.cfg.maxOpenTrades) return;
 
     const today = utcDateStr();
@@ -2224,6 +2242,7 @@ class TradingBot {
     );
 
     this.lastTradeAt = Date.now();
+    this._lastTradeTickIdx = this._tickCounter;
     this._saveState('after-trade');
   }
 
