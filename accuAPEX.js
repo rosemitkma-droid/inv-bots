@@ -177,7 +177,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_apex_bot_01.log',
+  logFile : 'deriv_apex_bot_02.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -358,11 +358,25 @@ const CONFIG = Object.freeze({
   // fraction of stake before it can fire (prevents "lock at 0.001$").
   pulseMinProfitLockFrac  : parseFloat('0.003'),
 
+  // ─ Scheduled pause/resume ─
+  pauseEnabled   : false,
+  pauseStartGmt  : '23:00',
+  pauseEndGmt    : '01:00',
+
+  // ─ Day-of-week trading filter ─
+  tradeSunday    : false,
+  tradeMonday    : true,
+  tradeTuesday   : true,
+  tradeWednesday : true,
+  tradeThursday  : true,
+  tradeFriday    : true,
+  tradeSaturday  : false,
+
   // ─ Trade watchdog ─
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_apex_bot_state_01.json',
+  stateFile          : 'deriv_apex_bot_state_02.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
 
@@ -598,6 +612,9 @@ class DerivClient extends EventEmitter {
     this._tradeWatchdogPollTimer = null;
     this.dailyHistory   = {};
     this._lastDayISODate = null;
+    this.paused = false;
+    this._pauseStartTimer = null;
+    this._pauseEndTimer   = null;
 
     // ── Martingale state ──
     this.lossesStreak         = 0;
@@ -631,6 +648,8 @@ class DerivClient extends EventEmitter {
 
     process.on('SIGINT',  () => this.stop('SIGINT'));
     process.on('SIGTERM', () => this.stop('SIGTERM'));
+    process.on('uncaughtException', e => { logger.error('uncaughtException:', e); this._saveState('uncaughtException'); });
+    process.on('unhandledRejection', e => { logger.error('unhandledRejection:', e); this._saveState('unhandledRejection'); });
 
     this._loadState();
     this._scheduleSummaries();
@@ -727,11 +746,13 @@ class DerivClient extends EventEmitter {
       this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
       if (this._barrierT) clearInterval(this._barrierT);
       this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
+      this._schedulePause();
     });
   }
 
   _onDisconnected(code, reason, wasAuthorized) {
     this._clearWatchdogTimers();
+    this._clearPauseTimers();
     telegram.send(
       `<b>Connection3 lost</b>\n` +
       `code: <code>${code}</code>\n` +
@@ -1136,6 +1157,106 @@ class DerivClient extends EventEmitter {
     logger.debug(`apex-exit #${t.contractId} urg=${t.dec.urgency.toFixed(2)} ${t.dec.reason}`);
   }
 
+  // ── Scheduled pause helpers ─────────────────────────────────
+  _parsePauseTime(str) {
+    const m = String(str || '').match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    return { h: Math.max(0, Math.min(23, Number(m[1]))), min: Math.max(0, Math.min(59, Number(m[2]))) };
+  }
+  _msToTarget(targetH, targetMin) {
+    const now = new Date();
+    const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const targetMinOfDay = targetH * 60 + targetMin;
+    let diff = targetMinOfDay - nowMin;
+    if (diff <= 0) diff += 24 * 60;
+    return diff * 60_000 - (now.getUTCSeconds() * 1000) - now.getUTCMilliseconds();
+  }
+  _clearPauseTimers() {
+    if (this._pauseStartTimer) { clearTimeout(this._pauseStartTimer); this._pauseStartTimer = null; }
+    if (this._pauseEndTimer)   { clearTimeout(this._pauseEndTimer);   this._pauseEndTimer = null; }
+  }
+  _schedulePause() {
+    this._clearPauseTimers();
+    if (!this.cfg.pauseEnabled) return;
+    const now = new Date();
+    const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const start = this._parsePauseTime(this.cfg.pauseStartGmt);
+    const end   = this._parsePauseTime(this.cfg.pauseEndGmt);
+    if (!start || !end) { logger.warn('pause schedule: invalid pauseStartGmt or pauseEndGmt format'); return; }
+    const startMin = start.h * 60 + start.min;
+    const endMin   = end.h   * 60 + end.min;
+
+    if (startMin > endMin) {
+      if (nowMin >= startMin || nowMin < endMin) {
+        this.paused = true;
+        const delay = this._msToTarget(end.h, end.min);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+        logger.info(`pause: currently active (overnight), resumes in ${(delay/60000).toFixed(1)}m`);
+      } else {
+        this.paused = false;
+        const delay = this._msToTarget(start.h, start.min);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+        logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
+      }
+    } else {
+      if (nowMin >= startMin && nowMin < endMin) {
+        this.paused = true;
+        const delay = this._msToTarget(end.h, end.min);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+        logger.info(`pause: currently active, resumes in ${(delay/60000).toFixed(1)}m`);
+      } else {
+        this.paused = false;
+        const delay = this._msToTarget(start.h, start.min);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+        logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
+      }
+    }
+  }
+  _onPauseResume(action) {
+    this._clearPauseTimers();
+    if (action === 'pause') {
+      this.paused = true;
+      logger.info(`TRADING PAUSED at ${this.cfg.pauseStartGmt} GMT until ${this.cfg.pauseEndGmt} GMT`);
+      telegram.send(`⏸️ <b>TRADING PAUSED</b>\nPaused from <b>${this.cfg.pauseStartGmt}</b> to <b>${this.cfg.pauseEndGmt}</b> GMT.\nNo new trades until resume.`);
+      const end = this._parsePauseTime(this.cfg.pauseEndGmt);
+      if (end) {
+        const delay = this._msToTarget(end.h, end.min);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+      }
+    } else {
+      this.paused = false;
+      logger.info(`TRADING RESUMED at ${this.cfg.pauseEndGmt} GMT`);
+      telegram.send(`▶️ <b>TRADING RESUMED</b>\nScanning for trades again.\nOverall Profit: ${money(this.stats.overallProfit, this.currencyStr())}`);
+      const start = this._parsePauseTime(this.cfg.pauseStartGmt);
+      if (start) {
+        const delay = this._msToTarget(start.h, start.min);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+      }
+    }
+  }
+  _isTradingAllowedToday() {
+    const dayOfWeek = new Date().getUTCDay();
+    const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const daySettings = [this.cfg.tradeSunday, this.cfg.tradeMonday, this.cfg.tradeTuesday, this.cfg.tradeWednesday, this.cfg.tradeThursday, this.cfg.tradeFriday, this.cfg.tradeSaturday];
+    if (!daySettings[dayOfWeek]) {
+      logger.debug(`trading disabled for ${dayNames[dayOfWeek]} (GMT)`);
+      return false;
+    }
+    return true;
+  }
+  _checkDayChange() {
+    const today = this._todayISO();
+    if (this._lastDayISODate && this._lastDayISODate !== today) {
+      logger.info(`new day detected: ${this._lastDayISODate} → ${today}`);
+      this.dailyHistory[this._lastDayISODate] = true;
+      if (this.assetTracker) this.assetTracker.resetSession();
+      telegram.send(`📅 <b>New trade day: ${today}</b>\nOverall Profit: ${money(this.stats.overallProfit, this.currencyStr())}`);
+      this._lastDayISODate = today;
+    } else if (!this._lastDayISODate) {
+      this._lastDayISODate = today;
+    }
+  }
+
   // ── PULSE sizing ────────────────────────────────────────────
   currentStake(edge) {
     const base = this.stats.currentLossStreak > 0 ? Number(this.currentStake2) : this.cfg.stake;
@@ -1257,6 +1378,12 @@ class DerivClient extends EventEmitter {
     try {
       if (this.stopped)   return;
       if (!this.authorized) return;
+      if (this.paused) {
+        logger.debug('trading paused — skipping analysis cycle');
+        return;
+      }
+      if (!this._isTradingAllowedToday()) return;
+      this._checkDayChange();
 
       // Daily limits
       const today = this.stats.todayTrades();
@@ -1571,6 +1698,7 @@ class DerivClient extends EventEmitter {
     if (this.stopped) return;
     this.stopped = true;
     this._clearWatchdogTimers();
+    this._clearPauseTimers();
     logger.info(`stopping (signal: ${signal})`);
     telegram.send(`<b>APEX Bot stopped</b>\nSignal: ${signal}`);
     if (this._analysisT)  clearInterval(this._analysisT);
