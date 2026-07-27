@@ -359,18 +359,18 @@ const CONFIG = Object.freeze({
   pulseMinProfitLockFrac  : parseFloat('0.003'),
 
   // ─ Scheduled pause/resume ─
-  pauseEnabled   : false,
+  pauseEnabled   : true,
   pauseStartGmt  : '23:00',
   pauseEndGmt    : '01:00',
 
   // ─ Day-of-week trading filter ─
-  tradeSunday    : false,
+  tradeSunday    : true,
   tradeMonday    : true,
   tradeTuesday   : true,
   tradeWednesday : true,
   tradeThursday  : true,
   tradeFriday    : true,
-  tradeSaturday  : false,
+  tradeSaturday  : true,
 
   // ─ Trade watchdog ─
   tradeWatchdogMs: parseInt('90000', 10),
