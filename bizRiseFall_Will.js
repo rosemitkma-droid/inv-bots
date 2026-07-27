@@ -101,8 +101,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'will4_07-state.json');
-const HISTORY_FILE = path.join(__dirname, 'will4_07-history.json');
+const STATE_FILE = path.join(__dirname, 'will4_08-state.json');
+const HISTORY_FILE = path.join(__dirname, 'will4_08-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -1919,7 +1919,8 @@ class IndexBot {
         if (a.forceRecoverDirection) {
             this._tradeLocked = true;
             const dir2 = a.forceRecoverDirection;
-            const dir3 = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
+            // const dir3 = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
+            const dir3 = a.forceRecoverDirection ? 'CALLE' : 'PUTE';
             const dir = a.recoveryStep > 2 ? dir3 : dir2;
             const recNote = a.recoveryStep > 0 ? `[RECOVERY STEP ${a.recoveryStep}]` : '';
 
