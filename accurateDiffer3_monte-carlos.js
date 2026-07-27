@@ -135,15 +135,14 @@ const CONFIG = Object.freeze({
   durationTicks: 1, // Digit contracts normally 1-10 ticks
   minStake: 1.1,
   maxStake: 150.00,
-  assets: ['1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','RDBULL','RDBEAR'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','RDBULL','RDBEAR'
+  assets: ['R_50','R_75','RDBULL'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','RDBULL','RDBEAR'
 
   // Trading frequency / limits
   tickWindow: 1000,
   minTicksForAnalysis: 300,
   analysisIntervalMs: 3000,
-  tradeCooldownMs: 20000,
+  tradeCooldownMs: 2000, // min ms between trades
   maxOpenTrades: 1,
-  cooldownTicks: 200,        // don't re-analyze digit within N ticks of last trade
   tradeWatchdogMs: 20000,    // force-recover stuck trades after this many ms
   // ── Asset rotation ────────────────────────────────────────────────
   //   To avoid hammering the same symbol back-to-back the bot briefly
@@ -177,12 +176,11 @@ const CONFIG = Object.freeze({
   minEntropy:            0.90,    // min normalized entropy gate
   maxEntropy:            0.9997,  // max entropy gate (too uniform)
   mcMinEdge:             0.003,   // min value edge to trade
-  mcMaxConsecutiveSkips: 5,
   mcLossCooldownMs:      8000,
-  mcWeakSignalCooldownMs: 15000,
+  mcWeakSignalCooldownMs: 500000000000000000,
 
   // Optional limited loss recovery; disabled by default. Safer than the pasted 10x/100x martingale.
-  recoveryEnabled: true,
+  recoveryEnabled: true, // If true, set kellySizingEnabled below to false
   recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,13.2,150.0').map(Number).filter(Number.isFinite),
 
   // ── Kelly-fractional sizing ────────────────────────────────────────
@@ -193,7 +191,7 @@ const CONFIG = Object.freeze({
   //   cushion; full Kelly is mathematically optimal for growth but has
   //   ~40% drawdowns). Disable with KELLY_ENABLED=false to fall back
   //   to the legacy flat/recovery sizing above.
-  kellySizingEnabled  : false,
+  kellySizingEnabled  : false, // If true, set recoveryEnabled above to false
   kellyFraction       : 0.25,
   kellyBankrollFrac   : 1.00,  // % of live balance to treat as risk bankroll
   kellyBankrollFloor  : 100.0, // never scale below this bankroll
@@ -231,22 +229,22 @@ const CONFIG = Object.freeze({
   //   trading on that day. Open trades will settle normally.
   //   These can be set via environment variables:
   //     TRADE_SUNDAY=false TRADE_MONDAY=true etc.
-  tradeSunday    : boolEnv('TRADE_SUNDAY',    true),
-  tradeMonday    : boolEnv('TRADE_MONDAY',    true),
-  tradeTuesday   : boolEnv('TRADE_TUESDAY',   true),
-  tradeWednesday : boolEnv('TRADE_WEDNESDAY', true),
-  tradeThursday  : boolEnv('TRADE_THURSDAY',  true),
-  tradeFriday    : boolEnv('TRADE_FRIDAY',    true),
-  tradeSaturday  : boolEnv('TRADE_SATURDAY',  true),
+  tradeSunday    : true,
+  tradeMonday    : true,
+  tradeTuesday   : true,
+  tradeWednesday : true,
+  tradeThursday  : true,
+  tradeFriday    : true,
+  tradeSaturday  : true,
 
   // GMT/UTC reporting
-  eodTimeGmt: strEnv('TRADE_DAY_END_GMT', '00:00'), // default midnight GMT; report date is previous UTC day
-  eodSendDelaySeconds: intEnv('EOD_SEND_DELAY_SECONDS', 10),
-  hourlySummary: boolEnv('HOURLY_SUMMARY', true),
+  eodTimeGmt: '00:00', // default midnight GMT; report date is previous UTC day
+  eodSendDelaySeconds: 10,
+  hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'monte-carlos_differ_0001_state.json'),
-  logFile: strEnv('LOG_FILE', 'monte-carlos_differ_0001_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'monte-carlos_differ_0002_state.json'),
+  logFile: strEnv('LOG_FILE', 'monte-carlos_differ_0002_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
