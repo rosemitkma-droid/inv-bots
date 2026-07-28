@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_03-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_03-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_06-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_06-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -150,6 +150,7 @@ const CONFIG = {
     // ── Position Management ───────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
     MAX_TOTAL_POSITIONS: 6,
+    MAX_TRADES_PER_CYCLE: 3,
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
@@ -1100,7 +1101,10 @@ class ConnectionManager {
                     const a = state.assets[sym];
                     if (a?.activePositions) {
                         const i = a.activePositions.findIndex(p => p.reqId === reqId);
-                        if (i >= 0) a.activePositions.splice(i, 1);
+                        if (i >= 0) {
+                            a.activePositions.splice(i, 1);
+                            a.canTrade = true;
+                        }
                     }
                 });
             }
@@ -1171,14 +1175,21 @@ class ConnectionManager {
         for (const sym of CONFIG.ACTIVE_ASSETS) {
             const a = state.assets[sym];
             if (a?.activePositions) {
-                const i = a.activePositions.findIndex(p => p.contractId === contractId);
+                const i = a.activePositions.findIndex(p => String(p.contractId) === String(contractId));
                 if (i >= 0) { ownerSym = sym; posIdx = i; break; }
             }
         }
 
         if (posIdx < 0 || !ownerSym) {
-            LOGGER.warn(`Contract ${contractId} settled but not found — retrying in 500ms`);
-            setTimeout(() => this.handleOpenContract(r), 500);
+            if (!r._contractMatchRetry) {
+                r._contractMatchRetry = true;
+                LOGGER.warn(`Contract ${contractId} settled but not found — retrying in 500ms`);
+                setTimeout(() => this.handleOpenContract(r), 500);
+                return;
+            }
+
+            LOGGER.warn(`Contract ${contractId} settled but still not found after retry — releasing trade lock`);
+            if (bot) bot._forceReleaseTradeLock();
             return;
         }
 
@@ -1190,6 +1201,7 @@ class ConnectionManager {
         const profit = Number(contract.profit);
 
         SessionManager.recordTradeResult(ownerSym, profit, pos.direction);
+        a.canTrade = true;
 
         TelegramService.sendTradeAlert(
             profit >= 0 ? 'WIN' : 'LOSS',
@@ -1594,55 +1606,45 @@ class IndexBot {
                 return;
             }
         } else {
-            if (dir === 'PUTE') {
+            if (dir === 'CALLE') {
                 LOGGER.signal(`[${symbol}] BUY SIGNAL`);
-                const setupSuccess = dir === 'CALLE';
+                const firstDir = 'CALLE';
+                a.normalModeActive = true;
+                a.tradesInNormalMode = 1;
+                a.normalModeDirection = firstDir;
+                a.lastTradeDirection = firstDir;
+                a.currentDirection = firstDir;
 
-                if (setupSuccess) {
-                    // Execute first trade as CALLE
-                    const firstDir = 'CALLE';
-                    a.normalModeActive = true;
-                    a.tradesInNormalMode = 1;
-                    a.normalModeDirection = firstDir;
-                    a.lastTradeDirection = firstDir;
-                    a.currentDirection = firstDir;
+                LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
-                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+                this._executeBuy(symbol, firstDir, stake, {
+                    method: 'CANDLE_CLOSE_BULLISH',
+                    reason: `CANDLE_CLOSE_BULLISH signal — candle closed above previous candle (bullish pattern)`,
+                    marketMode: mode,
+                });
 
-                    this._executeBuy(symbol, firstDir, stake, {
-                        method: 'CANDLE_CLOSE_BULLISH',
-                        reason: `CANDLE_CLOSE_BULLISH signal — candle closed above previous candle (bullish pattern)`,
-                        marketMode: mode,
-                    });
-
-                    a.buyFlagActive = false; // consumed
-                }
-                return;
-            } else {
-                LOGGER.signal(`[${symbol}] SELL SIGNAL`);
-                const setupSuccess = dir === 'PUTE';
-
-                if (setupSuccess) {
-                    // Execute first trade as PUTE
-                    const firstDir = 'PUTE';
-                    a.normalModeActive = true;
-                    a.tradesInNormalMode = 1;
-                    a.normalModeDirection = firstDir;
-                    a.lastTradeDirection = firstDir;
-                    a.currentDirection = firstDir;
-
-                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
-
-                    this._executeBuy(symbol, firstDir, stake, {
-                        method: 'CANDLE_CLOSE_BEARISH',
-                        reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
-                        marketMode: mode,
-                    });
-
-                    a.sellFlagActive = false; // consumed
-                }
+                a.buyFlagActive = false; // consumed
                 return;
             }
+
+            LOGGER.signal(`[${symbol}] SELL SIGNAL`);
+            const firstDir = 'PUTE';
+            a.normalModeActive = true;
+            a.tradesInNormalMode = 1;
+            a.normalModeDirection = firstDir;
+            a.lastTradeDirection = firstDir;
+            a.currentDirection = firstDir;
+
+            LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+
+            this._executeBuy(symbol, firstDir, stake, {
+                method: 'CANDLE_CLOSE_BEARISH',
+                reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
+                marketMode: mode,
+            });
+
+            a.sellFlagActive = false; // consumed
+            return;
         }
 
         // No signal — log status
@@ -1775,6 +1777,10 @@ class IndexBot {
         state.currentContractId = null;
         state.tradeStartTime = null;
         state.pendingTradeInfo = null;
+        CONFIG.ACTIVE_ASSETS.forEach(sym => {
+            const a = state.assets[sym];
+            if (a) a.canTrade = true;
+        });
         LOGGER.warn('Trade lock force-released');
     }
 
