@@ -177,7 +177,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_apex_bot_02.log',
+  logFile : 'deriv_apex_bot_04.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -376,7 +376,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_apex_bot_state_02.json',
+  stateFile          : 'deriv_apex_bot_state_04.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
 
@@ -404,7 +404,7 @@ const CONFIG = Object.freeze({
   backtestBatchSize   : parseInt('5000',   10),
   backtestStepEvery   : parseInt('1',      10),
   backtestReportEvery : parseInt('10000',  10),
-  backtestOutFile     : 'apex_backtest_report_01.json',
+  backtestOutFile     : 'apex_backtest_report_02.json',
 
   backtestEdge        : process.env.BACKTEST_EDGE        ? parseFloat(process.env.BACKTEST_EDGE)        : null,
   backtestMinEV       : process.env.BACKTEST_MIN_EV      ? parseFloat(process.env.BACKTEST_MIN_EV)      : null,
@@ -750,6 +750,24 @@ class DerivClient extends EventEmitter {
     });
   }
 
+  async _restoreOpenTrades() {
+    if (!this.exec || this.exec.count() === 0) return;
+    logger.info(`restoring ${this.exec.count()} open contract(s) after reconnect`);
+    for (const info of this.exec.open.values()) {
+      const cid = info.contractId;
+      try {
+        await this.subscribe(
+          { proposal_open_contract: 1, contract_id: cid },
+          msg => this.exec._onUpdate(msg, info),
+        );
+        logger.info(`resubscribed open contract #${cid}`);
+        this._startTradeWatchdog(cid);
+      } catch (e) {
+        logger.warn(`resubscribe open contract #${cid} failed: ${e.message}`);
+      }
+    }
+  }
+
   _onDisconnected(code, reason, wasAuthorized) {
     this._clearWatchdogTimers();
     this._clearPauseTimers();
@@ -760,7 +778,6 @@ class DerivClient extends EventEmitter {
       `reconnecting…`,
     );
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
-    if (this.exec) this.exec.open.clear();
   }
 
   _scheduleSummaries() {
@@ -1535,6 +1552,107 @@ class DerivClient extends EventEmitter {
     } catch (e) {
       logger.debug('barrier refresh error:', e.message);
     }
+  }
+
+  async _onAuthorized(info) {
+    this.startBalance = this.balance;
+    this.lastBalance  = this.balance;
+    logger.info(`start-of-day balance: ${this.startBalance} ${this.currencyStr()}`);
+
+    const martingaleLine = (this.cfg.sizingModeV3 !== 'adaptive' && this.cfg.martingale && this.cfg.martingale > 0)
+      ? `<b>Martingale:</b> ×${this.cfg.martingale} (after ${this.cfg.lossesBeforeMartingale} losses, +${this.cfg.martingaleStep}/loss, cap ×${this.cfg.maxMartingaleStep})\n`
+      : '';
+
+    telegram.send(
+      `<b>APEX v3 Bot Online</b>\n\n` +
+      `<b>Account:</b> ${info.loginid}\n` +
+      `<b>Type:</b> ${info.isVirtual ? 'DEMO' : 'REAL'}\n` +
+      `<b>Balance:</b> ${this.startBalance.toFixed(2)} ${this.currencyStr()}\n` +
+      `<b>Assets:</b> ${this.cfg.assets.length} ${this.cfg.autoDiscoverAssets ? '(auto-discover ON)' : ''}\n` +
+      `<b>Stake:</b> ${this.cfg.stake}\n` +
+      `<b>Growth rates:</b> ${this.cfg.pulseGrowthRates.map(g => (g*100).toFixed(0)+'%').join(', ')}\n` +
+      `<b>Sizing:</b> ${this.cfg.sizingModeV3} ` +
+        `(loss×${this.cfg.lossStakeReduction}, win×${this.cfg.winStakeRecovery})\n` +
+      martingaleLine +
+      `<b>Min EV:</b> ${(this.cfg.apexMinEV*100).toFixed(1)}%\n` +
+      `<b>Min survival:</b> ${(this.cfg.apexMinSurvival*100).toFixed(1)}%\n` +
+      `<b>Spread cost:</b> ${(this.cfg.pulseSpreadCost*100).toFixed(2)}%\n\n` +
+      `<b>v3 Risk Gates</b>\n` +
+      `• Max entries/window: ${this.cfg.maxEntriesPerSpikeWindow}\n` +
+      `• Loss cooldown: ${this.cfg.assetLossCooldownMs/1000}s\n` +
+      `• Pause after ${this.cfg.assetMaxConsecutiveLosses} losses: ${this.cfg.assetPauseDurationMs/1000}s\n` +
+      `• Min win rate: ${(this.cfg.minWinRateToTrade*100).toFixed(0)}% (over ${this.cfg.rollingWindowSize} trades)\n` +
+      `• Session max DD: ${this.cfg.sessionMaxDrawdown}\n` +
+      `• Correlated filter: ${this.cfg.correlatedGroups.length} groups\n\n` +
+      `<b>APEX engine active</b>\n` +
+      `Post-spike (Boom/Crash) + vol-compression (Vol) · holds ≤${this.cfg.apexMaxHoldBoom} ticks\n\n` +
+      `<b>Overall Profit:</b> ${money(this.stats.overallProfit, this.currencyStr())}\n` +
+      `Loss streak: current ${this.stats.currentLossStreak}, x2=${this.stats.lossStreakEvents.x2}, x3=${this.stats.lossStreakEvents.x3}, x4=${this.stats.lossStreakEvents.x4}`,
+    );
+
+    Promise.allSettled([
+      this.market.loadSymbols(),
+      this.market.bootstrap(this.cfg.assets),
+      this._refreshBarriers(),
+    ]).then(async (results) => {
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          logger.warn('startup/resume task failed:', result.reason?.message || result.reason);
+        }
+      }
+      await this._restoreOpenTrades();
+
+      // v3: Dynamic asset discovery (if enabled)
+      if (this.cfg.autoDiscoverAssets) {
+        try {
+          const discovered = await this.market.discoverAccuAssets();
+          if (discovered.length > this.cfg.assets.length) {
+            const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
+            if (newAssets.length) {
+              logger.info(`v3: discovered ${newAssets.length} new assets: ${newAssets.join(', ')}`);
+              // Add to runtime asset list (mutate cfg.assets array)
+              for (const a of newAssets) {
+                if (!this.cfg.assets.includes(a)) this.cfg.assets.push(a);
+              }
+              // Bootstrap newly discovered assets (subscribe + backfill)
+              await this.market.bootstrap(newAssets);
+              // Refresh barriers for new assets too
+              await this._refreshBarriers();
+              telegram.send(
+                `<b>v3: New Assets Discovered</b>\n` +
+                `Added: ${newAssets.join(', ')}\n` +
+                `Total: ${this.cfg.assets.length} assets`,
+              );
+            }
+          }
+        } catch (e) {
+          logger.warn(`v3: asset discovery error: ${e.message}`);
+        }
+        // Schedule periodic re-discovery
+        if (this._discoveryT) clearInterval(this._discoveryT);
+        this._discoveryT = setInterval(async () => {
+          try {
+            const discovered = await this.market.discoverAccuAssets();
+            const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
+            if (newAssets.length) {
+              for (const a of newAssets) this.cfg.assets.push(a);
+              await this.market.bootstrap(newAssets);
+              await this._refreshBarriers();
+              logger.info(`v3: periodic discovery found ${newAssets.length} new assets: ${newAssets.join(', ')}`);
+            }
+          } catch (e) {
+            logger.debug(`v3: periodic discovery error: ${e.message}`);
+          }
+        }, this.cfg.discoveryIntervalMs);
+      }
+
+      if (this._analysisT) clearInterval(this._analysisT);
+      this._analyzeAndTrade();
+      this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
+      if (this._barrierT) clearInterval(this._barrierT);
+      this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
+      this._schedulePause();
+    });
   }
 
   // ── State persistence ─────────────────────────────────────
