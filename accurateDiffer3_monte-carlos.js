@@ -242,8 +242,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'monte-carlos_differ_0002_state.json'),
-  logFile: strEnv('LOG_FILE', 'monte-carlos_differ_0002_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'monte-carlos_differ_0004_state.json'),
+  logFile: strEnv('LOG_FILE', 'monte-carlos_differ_0004_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
@@ -1342,12 +1342,10 @@ class MonteCarloAnalyzer {
   runMonteCarlo(digits, nSimulations) {
     const n = digits.length;
 
-    // Empirical null model: digit probabilities from observed data
     const counts = Array(10).fill(0);
     for (const d of digits) counts[d]++;
     const probs = counts.map(c => c / n);
 
-    // Precompute cumulative distribution for sampling
     const cumProbs = [];
     let cumSum = 0;
     for (let d = 0; d < 10; d++) {
@@ -1355,18 +1353,12 @@ class MonteCarloAnalyzer {
       cumProbs.push(cumSum);
     }
 
-    // For each digit, compute observed differ hit rate
-    const observedHitRates = Array(10).fill(0);
-    for (let d = 0; d < 10; d++) {
-      observedHitRates[d] = 1 - (counts[d] / n);
-    }
-
-    // Run simulations
-    const simHitRates = Array.from({ length: 10 }, () => []);
-    const bestDigitCounts = Array(10).fill(0);
+    const observedHitRates = counts.map(c => 1 - c / n);
+    const exceedCounts = Array(10).fill(0);
+    const simCounts = Array(10).fill(0);
 
     for (let s = 0; s < nSimulations; s++) {
-      const simCounts = Array(10).fill(0);
+      simCounts.fill(0);
       for (let i = 0; i < n; i++) {
         const r = Math.random();
         for (let d = 0; d < 10; d++) {
@@ -1374,31 +1366,17 @@ class MonteCarloAnalyzer {
         }
       }
 
-      let bestD = 0;
-      let bestRate = -1;
       for (let d = 0; d < 10; d++) {
         const simHitRate = 1 - (simCounts[d] / n);
-        simHitRates[d].push(simHitRate);
-        if (simHitRate > bestRate) {
-          bestRate = simHitRate;
-          bestD = d;
-        }
+        if (simHitRate >= observedHitRates[d]) exceedCounts[d]++;
       }
-      bestDigitCounts[bestD]++;
     }
 
-    // Compute p-value and confidence for each digit
     const results = [];
     for (let d = 0; d < 10; d++) {
       const observed = observedHitRates[d];
-      const simDist = simHitRates[d];
-      let exceedCount = 0;
-      for (const sim of simDist) {
-        if (sim >= observed) exceedCount++;
-      }
-      const pValue = exceedCount / nSimulations;
+      const pValue = exceedCounts[d] / nSimulations;
       const confidence = 1 - pValue;
-
       results.push({
         digit: d,
         observedHitRate: observed,
@@ -1417,7 +1395,8 @@ class MonteCarloAnalyzer {
    * Score candidates and check stability via bootstrap resampling.
    */
   scoreCandidates(mcResults, randomness) {
-    const sorted = [...mcResults].sort((a, b) => b.confidence - a.confidence);
+    const results = Array.isArray(mcResults) ? mcResults : mcResults.results;
+    const sorted = [...results].sort((a, b) => b.confidence - a.confidence);
     const top = sorted[0];
 
     if (!top) return { topCandidate: null, allCandidates: [], confidence: 0, stability: 0, shouldTrade: false, reason: 'no-candidates' };
@@ -1431,7 +1410,6 @@ class MonteCarloAnalyzer {
       let bestRate = -1;
       for (let d = 0; d < 10; d++) {
         const noise = (Math.random() - 0.5) * 0.02;
-        const resampledRate = top.observedHitRate + (d === top.digit ? 0 : noise);
         const candidateRate = mcResults[d].observedHitRate + (Math.random() - 0.5) * 0.02;
         if (candidateRate > bestRate) {
           bestRate = candidateRate;
@@ -1479,23 +1457,16 @@ class MonteCarloAnalyzer {
 
   _bootstrapCIForDigit(digits, targetDigit) {
     const n = digits.length;
-    const B = Math.min(this.cfg.bootstrapIterations, 300);
-    const freqs = [];
-
-    for (let b = 0; b < B; b++) {
-      let count = 0;
-      for (let i = 0; i < n; i++) {
-        if (digits[Math.floor(Math.random() * n)] === targetDigit) count++;
-      }
-      freqs.push(count / n);
-    }
-
-    freqs.sort((a, b) => a - b);
-    const mean = freqs.reduce((s, v) => s + v, 0) / B;
-    const p5 = freqs[Math.floor(B * 0.05)] || 0;
-    const p95 = freqs[Math.floor(B * 0.95)] || 0;
-
-    return { mean, lower: p5, upper: p95, width: p95 - p5 };
+    if (n === 0) return { mean: 0, lower: 0, upper: 0, width: 0 };
+    const count = digits.reduce((acc, d) => acc + (d === targetDigit ? 1 : 0), 0);
+    const pHat = count / n;
+    const z = 1.6448536269514722; // 90% CI
+    const denom = 1 + (z * z) / n;
+    const centre = (pHat + (z * z) / (2 * n)) / denom;
+    const half = z * Math.sqrt((pHat * (1 - pHat)) / n + (z * z) / (4 * n * n)) / denom;
+    const lower = Math.max(0, centre - half);
+    const upper = Math.min(1, centre + half);
+    return { mean: pHat, lower, upper, width: upper - lower };
   }
 
   _normalizedEntropy(counts, n) {
@@ -2331,25 +2302,31 @@ class TradingBot {
 
   async _analyzeAndTrade() {
     if (this.stopped || !this.client.authorized) return;
-    if (this.paused) {
-      logger.debug('trading paused — skipping analysis cycle');
+    if (this._isAnalyzing) {
+      logger.debug('analysis still running — skipping overlapping cycle');
       return;
     }
-    // Check if trading is allowed on current day of week
-    if (!this._isTradingAllowedToday()) {
-      return;
-    }
-    if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
-    if (this.exec.count() >= this.cfg.maxOpenTrades) return;
-
-    // Tick-based cooldown: don't re-analyze within N ticks of last trade
-    if (this._lastTradeTickIdx != null) {
-      const ticksSinceTrade = this._tickCounter - this._lastTradeTickIdx;
-      if (ticksSinceTrade < this.cfg.cooldownTicks) {
-        logger.debug(`cooldownTicks: ${ticksSinceTrade}/${this.cfg.cooldownTicks} — skipping`);
+    this._isAnalyzing = true;
+    try {
+      if (this.paused) {
+        logger.debug('trading paused — skipping analysis cycle');
         return;
       }
-    }
+      // Check if trading is allowed on current day of week
+      if (!this._isTradingAllowedToday()) {
+        return;
+      }
+      if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
+      if (this.exec.count() >= this.cfg.maxOpenTrades) return;
+
+      // Tick-based cooldown: don't re-analyze within N ticks of last trade
+      if (this._lastTradeTickIdx != null) {
+        const ticksSinceTrade = this._tickCounter - this._lastTradeTickIdx;
+        if (ticksSinceTrade < this.cfg.cooldownTicks) {
+          logger.debug(`cooldownTicks: ${ticksSinceTrade}/${this.cfg.cooldownTicks} — skipping`);
+          return;
+        }
+      }
 
     const today = utcDateStr();
     const todayTrades = this.stats.todayTrades(today);
@@ -2408,7 +2385,6 @@ class TradingBot {
         if (!(payout > ask)) continue;
         const payoutMult = payout / ask;
         const breakEvenLossProb = 1 - ask / payout;
-        // Value edge: break-even loss prob minus lose probability (observed hit rate of digit appearing)
         const valueEdge = breakEvenLossProb - a.pEstimate;
         proposalCandidates.push({
           analysis: a,
@@ -2516,7 +2492,10 @@ class TradingBot {
       `hitRate=${(a.observedHitRate*100).toFixed(1)}% edge=${best.valueEdge.toFixed(4)} ` +
       `confidence=${a.confidence.toFixed(3)} stability=${a.stability.toFixed(3)}`
     );
+  } finally {
+    this._isAnalyzing = false;
   }
+}
 
   // ── Trade Watchdog ─────────────────────────────────────────────────
 
