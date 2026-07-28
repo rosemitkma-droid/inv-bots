@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -112,7 +112,7 @@ const CONFIG = {
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // ── Capital & Risk [RETAINED] ────────────────────────────
-    INITIAL_CAPITAL: 128,
+    INITIAL_CAPITAL: 148,
     BASE_RISK_PERCENT_PER_TRADE: 0.01,
     MIN_STAKE: 1,
     MAX_STAKE: 64,
@@ -136,8 +136,8 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 200,
     MAX_CANDLES_STORED: 300,
-    DURATION: 60,
-    DURATION_UNIT: 's',
+    DURATION: 1,
+    DURATION_UNIT: 'm',
     MIN_CANDLES_REQUIRED: 82,    
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
@@ -1537,10 +1537,10 @@ class IndexBot {
         // Detect new CANDLE DIRECTION signals
         const dir = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
 
-        // const mode = a.recoveryStep < 3 ? 'trend' : a.recoveryStep > 6 ? 'trend' : 'range';
+        const mode = a.recoveryStep < 3 ? 'trend' : a.recoveryStep > 6 ? 'trend' : 'range';
         //Candle formation of Bullish -> Bearish -> Bullish or Bearish -> Bullish -> Bearish can be considered as a Range, while a series of candles Bullish -> Bullish or Bearish -> Bearish can be considered as a Trend. 
         // You can implement a function to analyze the last few closed candles and determine if the market is trending or ranging.
-        const mode = this._determineMarketMode(a.closedCandles);
+        // const mode = this._determineMarketMode(a.closedCandles);
 
         if (mode === 'trend') {
             if (dir === 'CALLE') {
