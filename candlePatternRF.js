@@ -473,13 +473,13 @@ const DEFAULT_CONFIG = {
   symbol: 'R_75', // Volatility Index 100
   tickDuration: 60, // seconds (trade duration)
   initialStake: 0.35,
-  investmentAmount: 120,
+  investmentAmount: 150,
 
-  martingaleMultiplier: 1.48,
-  maxMartingaleLevel: 3,
+  martingaleMultiplier: 1.8,
+  maxMartingaleLevel: 2,
   afterMaxLoss: 'continue',
-  continueExtraLevels: 6,
-  extraLevelMultipliers: [2.0, 2.0, 2.1, 2.1, 2.2, 2.3],
+  continueExtraLevels: 7,
+  extraLevelMultipliers: [2.0, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3],
 
   autoCompounding: true,
   compoundPercentage: 0.35,
@@ -536,7 +536,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST-grid-state-pattern-v200002.json');
+const STATE_FILE = path.join(__dirname, 'ST-grid-state-pattern-v200003.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
