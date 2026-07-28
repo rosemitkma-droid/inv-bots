@@ -479,7 +479,7 @@ const DEFAULT_CONFIG = {
   maxMartingaleLevel: 2,
   afterMaxLoss: 'continue',
   continueExtraLevels: 7,
-  extraLevelMultipliers: [2.0, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3],
+  extraLevelMultipliers: [2.0, 2.1, 2.1, 2.2, 2.2, 2.3],
 
   autoCompounding: true,
   compoundPercentage: 0.35,
@@ -536,7 +536,7 @@ const DEFAULT_CONFIG = {
 // FILE PATHS
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'ST-grid-state-pattern-v200003.json');
+const STATE_FILE = path.join(__dirname, 'ST-grid-state-pattern-v200005.json');
 const STATE_SAVE_INTERVAL = 5000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1550,10 +1550,8 @@ class STEPINDEXGridBot {
     const b = msg.buy;
     this.currentContractId = b.contract_id;
     this.tradeStartTime = Date.now();
-    this.investmentRemaining = Math.max(
-      0,
-      Number((this.investmentRemaining - b.buy_price).toFixed(2))
-    );
+    // Note: investmentRemaining was already reduced in _placeTrade
+    // Do NOT reduce again here to avoid double-deduction
 
     this.log(
       `Contract opened: ${b.contract_id} | Stake: $${b.buy_price.toFixed(2)} | ` +
