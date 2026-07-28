@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_02-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_02-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_03-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_03-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -112,14 +112,14 @@ const CONFIG = {
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // ── Capital & Risk [RETAINED] ────────────────────────────
-    INITIAL_CAPITAL: 148,
+    INITIAL_CAPITAL: 128,
     BASE_RISK_PERCENT_PER_TRADE: 0.01,
     MIN_STAKE: 1,
     MAX_STAKE: 64,
     MAX_RISK_PCT: 100.00,
 
     // ── Single capped recoup step (NOT martingale) [RETAINED] ─
-    RECOVERY_ENABLED: false,
+    RECOVERY_ENABLED: true,
     RECOVERY_MULTIPLIER: 2.00,
     MAX_RECOVERY_STEPS: 20,
     MAX_RECOVERY_STAKE_PCT: 80.0,
@@ -1538,6 +1538,7 @@ class IndexBot {
         const dir = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
 
         const mode = a.recoveryStep < 3 ? 'trend' : a.recoveryStep > 6 ? 'trend' : 'range';
+
         //Candle formation of Bullish -> Bearish -> Bullish or Bearish -> Bullish -> Bearish can be considered as a Range, while a series of candles Bullish -> Bullish or Bearish -> Bearish can be considered as a Trend. 
         // You can implement a function to analyze the last few closed candles and determine if the market is trending or ranging.
         // const mode = this._determineMarketMode(a.closedCandles);
