@@ -11,8 +11,71 @@ require('dotenv').config();
 
 const WebSocket = require('ws');
 const TelegramBot = require('node-telegram-bot-api');
+const https = require('https');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { URL } = require('url');
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DERIV REST CLIENT  (for the PAT / OAuth OTP-based auth flow)
+// ══════════════════════════════════════════════════════════════════════════════
+class RestClient {
+  constructor(baseUrl, appId, token) {
+    this.baseUrl = baseUrl || 'https://api.derivws.com';
+    this.appId = appId || '1089';
+    this.token = token || '';
+  }
+
+  static isPat(token) {
+    return typeof token === 'string'
+      && /^pat_[a-z0-9_\-]{16,}$/i.test(token.trim());
+  }
+
+  _request(method, urlPath, body = null) {
+    return new Promise((resolve, reject) => {
+      let url;
+      try { url = new URL(urlPath, this.baseUrl); }
+      catch (e) { return reject(new Error(`Invalid URL: ${urlPath}`)); }
+
+      const isHttps = url.protocol === 'https:';
+      const lib = isHttps ? https : http;
+
+      const opts = {
+        method,
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname + url.search,
+        headers: {
+          'Deriv-App-ID': this.appId,
+          'Authorization': 'Bearer ' + this.token,
+          'Accept': 'application/json',
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        timeout: 15000,
+      };
+
+      const req = lib.request(opts, res => {
+        let data = '';
+        res.on('data', d => data += d);
+        res.on('end', () => {
+          let parsed = data;
+          try { parsed = JSON.parse(data); } catch (_) { }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      });
+
+      req.on('timeout', () => { req.destroy(new Error('REST request timeout')); });
+      req.on('error', reject);
+      if (body) req.write(JSON.stringify(body));
+      req.end();
+    });
+  }
+
+  get(p) { return this._request('GET', p); }
+  post(p, b) { return this._request('POST', p, b); }
+  delete(p) { return this._request('DELETE', p); }
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CANDLE PATTERN ANALYZER CLASS
@@ -403,13 +466,14 @@ class CandlePatternAnalyzer {
 // ══════════════════════════════════════════════════════════════════════════════
 
 const DEFAULT_CONFIG = {
-  apiToken: 'rgNedekYXvCaPeP',
-  appId: '1089',
+  apiToken: 'pat_27a3197287bae3ec6c2c9cbdd68fffaa2a524e3b0a6e1ecf298b5ffb338adb10',
+  appId: '33uslPtthXBEkQOdfKfoY',
+  accountType: 'demo',
 
-  symbol: 'stpRNG',
-  tickDuration: 58, // seconds (trade duration)
+  symbol: 'R_75', // Volatility Index 100
+  tickDuration: 60, // seconds (trade duration)
   initialStake: 0.35,
-  investmentAmount: 100,
+  investmentAmount: 120,
 
   martingaleMultiplier: 1.48,
   maxMartingaleLevel: 3,
@@ -430,7 +494,7 @@ const DEFAULT_CONFIG = {
     // 0.60 = 60% — the bot will only trade when it's at least 60% sure
     // Increase for fewer but higher-quality trades
     // Decrease for more frequent trading with lower accuracy
-    minConfidence: 0.51,
+    minConfidence: 0.50,
 
     // Pattern lengths to analyze
     // Shorter (3-4): more matches, less specific
@@ -438,7 +502,7 @@ const DEFAULT_CONFIG = {
     patternLengths: [3],  //[3, 4, 5, 6, 7, 8]
 
     // Minimum historical occurrences of a pattern before trusting it
-    minOccurrences: 5,
+    minOccurrences: 3,
 
     // Recency decay factor — how much to weight recent vs old patterns
     // 0.9990 = moderate (recommended for Step Index)
@@ -463,7 +527,7 @@ const DEFAULT_CONFIG = {
     granularity: 60,
   },
 
-  telegramToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
+  telegramToken: '8565754902:AAHS6UQWEgLJ0DO-JTpAGQhZLs-UDVVNAQc',
   telegramChatId: '752497117',
   telegramEnabled: true,
 };
@@ -567,6 +631,15 @@ class STEPINDEXGridBot {
     this.reconnectDelay = 5000;
     this.reconnectTimer = null;
     this.isReconnecting = false;
+
+    // ── PAT / OTP Auth ─────────────────────────────────────────────────────
+    this._isPat = RestClient.isPat(this.config.apiToken);
+    this._rest = this._isPat
+      ? new RestClient('https://api.derivws.com', this.config.appId, this.config.apiToken)
+      : null;
+    this._otpUrl = null;
+    this._targetAccount = null;
+    this.accountInfo = null;
 
     // ── Ping / Keepalive ────────────────────────────────────────────────────
     this.pingInterval = null;
@@ -802,16 +875,135 @@ class STEPINDEXGridBot {
     }
 
     this._cleanupWs();
+    this.log(`Connecting to Deriv API… (attempt ${this.reconnectAttempts + 1})`);
 
-    const wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=${this.config.appId}`;
-    this.log(`Connecting to Deriv WebSocket… (attempt ${this.reconnectAttempts + 1})`);
+    if (this._isPat) {
+      this.log('PAT token detected — using NEW Deriv API (OTP flow)');
+      this._newApiConnect().catch(err => {
+        this.log(`New API connect failed: ${err.message}`, 'error');
+        this._onClose(4001);
+      });
+    } else {
+      this.log('Using legacy Deriv API (token authorize flow)');
+      this._openWs(`wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(this.config.appId)}`);
+    }
+  }
 
-    this.ws = new WebSocket(wsUrl);
+  _openWs(url) {
+    try {
+      this.ws = new WebSocket(url, {
+        headers: { 'User-Agent': 'Bot/1.0 (+Node.js)' },
+        handshakeTimeout: 15000,
+      });
+    } catch (e) {
+      this.log(`WS construct failed: ${e.message}`, 'error');
+      this._onClose(4001);
+      return;
+    }
 
     this.ws.on('open', () => this._onOpen());
     this.ws.on('message', data => this._onRawMessage(data));
     this.ws.on('error', err => this._onError(err));
     this.ws.on('close', (code) => this._onClose(code));
+    this.ws.on('unexpected-response', (_req, res) => {
+      this.log(`WS handshake failed: ${res.statusCode} ${res.statusMessage}`, 'error');
+      try { res.destroy(); } catch (_) { }
+      this._onClose(4001);
+    });
+  }
+
+  async _newApiConnect() {
+    this.log('REST: GET /trading/v1/options/accounts');
+    const accRes = await this._rest.get('/trading/v1/options/accounts');
+
+    if (accRes.status !== 200) {
+      const msg = accRes.body?.errors?.[0]?.message || accRes.body?.message || JSON.stringify(accRes.body);
+      let hint = '';
+      if (accRes.status === 401) hint = ' — check PAT validity and APP_ID registration';
+      else if (accRes.status === 403) hint = ' — PAT may lack "trade" scope';
+      throw new Error(`Account list failed (${accRes.status}): ${msg}${hint}`);
+    }
+
+    const accounts = Array.isArray(accRes.body?.data) ? accRes.body.data : [];
+    if (!accounts.length) throw new Error('No Options accounts found for this token');
+
+    const desiredType = (this.config.accountType || 'demo').toLowerCase();
+    const acct = accounts.find(a => (a.account_type || '').toLowerCase() === desiredType) || accounts[0];
+
+    this._targetAccount = acct;
+    this.accountInfo = {
+      loginid: acct.account_id, email: acct.email,
+      isVirtual: (acct.account_type || '').toLowerCase() === 'demo',
+      accountType: acct.account_type, currency: acct.currency,
+      balance: parseFloat(acct.balance), group: acct.group,
+    };
+
+    this.log(`Selected account ${acct.account_id} (${acct.account_type}, ${acct.currency}, balance=${acct.balance})`);
+
+    const otpPath = `/trading/v1/options/accounts/${encodeURIComponent(acct.account_id)}/otp`;
+    const otpRes = await this._rest.post(otpPath);
+
+    if (otpRes.status !== 200) {
+      const msg = otpRes.body?.errors?.[0]?.message || JSON.stringify(otpRes.body);
+      throw new Error(`OTP request failed (${otpRes.status}): ${msg}`);
+    }
+
+    const wsUrl = otpRes.body?.data?.url;
+    if (!wsUrl || !/^wss?:/i.test(wsUrl)) {
+      throw new Error(`OTP response missing .data.url: ${JSON.stringify(otpRes.body)}`);
+    }
+
+    this._otpUrl = wsUrl;
+    this._openWs(wsUrl);
+  }
+
+  _newApiMarkAuthorized() {
+    if (!this.accountInfo) return;
+
+    this.log(
+      `Authorized ${this.accountInfo.loginid}` +
+      `(${this.accountInfo.isVirtual ? 'DEMO' : 'REAL'})` +
+      `balance=${this.accountInfo.balance} ${this.accountInfo.currency} via PAT/new-API`,
+      'success'
+    );
+
+    this.isAuthorized = true;
+    this.accountId = this.accountInfo.loginid;
+    this.balance = this.accountInfo.balance;
+    this.currency = this.accountInfo.currency;
+
+    this._send({ balance: 1, subscribe: 1 });
+    this._subscribeToCandles(this.config.symbol);
+
+    if (this.reconnectAttempts > 0 && this.currentContractId) {
+      this.tradeInProgress = true;
+      this._send({
+        proposal_open_contract: 1,
+        contract_id: this.currentContractId,
+        subscribe: 1
+      });
+      this._startTradeWatchdog(this.currentContractId, 5000);
+    }
+
+    if (!this.hasStartedOnce) {
+      // this._sendTelegram(
+      //   `✅ <b>${this.config.symbol} Pattern Bot Connected</b>\n` +
+      //   `Account: ${this.accountId}\n` +
+      //   `Balance: ${this.currency} ${this.balance.toFixed(2)}\n` +
+      //   `Pattern Confidence Threshold: ${(this.config.pattern.minConfidence * 100).toFixed(0)}%\n` +
+      //   `Candle History: ${this.config.candle.loadCount} candles\n` +
+      //   `Recency Decay: ${this.config.pattern.recencyDecay}`
+      // );
+      setTimeout(() => { if (!this.running) this.start(); }, 300);
+    } else {
+      this.tradeInProgress = false;
+      this.log(
+        `🔄 Reconnected — resuming | L${this.currentGridLevel} | ` +
+        `Recovery: ${this.inRecoveryMode ? 'YES' : 'NO'} | ` +
+        `Waiting for candle data + pattern analysis`,
+        'success'
+      );
+    }
   }
 
   _onOpen() {
@@ -823,7 +1015,11 @@ class STEPINDEXGridBot {
     this._startPing();
     StatePersistence.startAutoSave(this);
 
-    this._send({ authorize: this.config.apiToken });
+    if (this._isPat) {
+      this._newApiMarkAuthorized();
+    } else {
+      this._send({ authorize: this.config.apiToken });
+    }
   }
 
   _onError(err) {
@@ -942,7 +1138,7 @@ class STEPINDEXGridBot {
       if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
         this._send({ ping: 1 });
       }
-    }, 5000);
+    }, 30000);
   }
 
   _stopPing() {
@@ -1661,6 +1857,7 @@ class STEPINDEXGridBot {
 
       if (contractId && this.isConnected && this.isAuthorized) {
         this.log(`🔍 Polling contract ${contractId} for current status…`);
+        this._send({ forget_all: 'proposal_open_contract' });
         this._send({
           proposal_open_contract: 1,
           contract_id: contractId,
@@ -1674,8 +1871,8 @@ class STEPINDEXGridBot {
             `— force-releasing lock`,
             'error'
           );
-          this._recoverStuckTrade('watchdog-force');
-        }, timeoutMs);
+          this._recoverStuckTrade('watchdog-timeout');
+        }, 30000);
 
       } else {
         this._recoverStuckTrade('watchdog-offline');
@@ -1780,6 +1977,7 @@ class STEPINDEXGridBot {
       `Contract: ${contractId || 'unknown'}\n` +
       `Grid Level: ${this.currentGridLevel}\n` +
       `Recovery Mode: ${this.inRecoveryMode ? 'YES' : 'NO'}\n` +
+      `⚠️ VERIFY OUTCOME MANUALLY ON DERIV\n` +
       `Action: waiting for next candle + pattern analysis`
     );
 
@@ -1881,14 +2079,18 @@ class STEPINDEXGridBot {
     };
 
     this._send({
-      proposal: 1,
-      amount: stake,
-      basis: 'stake',
-      contract_type: direction,
-      currency: this.currency,
-      duration: this.config.tickDuration,
-      duration_unit: 's', //t=ticks, s=seconds, m=minutes, h=hours 
-      symbol: this.config.symbol,
+      buy: 1,
+      subscribe: 1,
+      price: stake.toFixed(2),
+      parameters: {
+        contract_type: direction,
+        [this._isPat ? 'underlying_symbol' : 'symbol']: this.config.symbol,
+        currency: this.currency,
+        amount: stake.toFixed(2),
+        duration: this.config.tickDuration,
+        duration_unit: 's',
+        basis: 'stake',
+      },
     });
   }
 
