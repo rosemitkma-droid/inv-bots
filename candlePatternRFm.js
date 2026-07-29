@@ -14,31 +14,35 @@ const WebSocket = require('ws');
 const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
+const { URL } = require('url');
 
 // ══════════════════════════════════════════════════════════════════════════════
 // GLOBAL CONFIGURATION
 // ══════════════════════════════════════════════════════════════════════════════
 
 const CONFIG = {
-  // API Settings
-  API_TOKEN: 'hsj0tA0XJoIzJG5',
-  APP_ID: '1089',
+  // API Settings (updated to PAT / new API credentials)
+  API_TOKEN: 'pat_27a3197287bae3ec6c2c9cbdd68fffaa2a524e3b0a6e1ecf298b5ffb338adb10',
+  APP_ID: '33uslPtthXBEkQOdfKfoY',
   WS_URL: 'wss://ws.derivws.com/websockets/v3',
+  ACCOUNT_TYPE: 'demo',
 
   // Capital Settings
-  INITIAL_CAPITAL: 500,
+  INITIAL_CAPITAL: 152,
   SESSION_PROFIT_TARGET: 50000,
-  SESSION_STOP_LOSS: -250,
+  SESSION_STOP_LOSS: -152,
 
   // Telegram
   TELEGRAM_ENABLED: true,
-  TELEGRAM_BOT_TOKEN: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
+  TELEGRAM_BOT_TOKEN: '8565754902:AAHS6UQWEgLJ0DO-JTpAGQhZLs-UDVVNAQc',
   TELEGRAM_CHAT_ID: '752497117',
 
   // Recovery Strategy Settings
   // When enabled: After a loss, trade immediately on next candle in SAME direction (no analysis)
   // When disabled: After a loss, wait for pattern analysis signal
-  USE_RECOVERY_STRATEGY: false,
+  USE_RECOVERY_STRATEGY: true,
 
   // State
   STATE_SAVE_INTERVAL: 5000
@@ -49,7 +53,7 @@ const ACTIVE_ASSETS = [
   // 'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
   // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V',
   // 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'
-  'stpRNG'
+  'R_75'
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -60,38 +64,38 @@ const DEFAULT_ASSET_CONFIG = {
   // Candle Settings
   GRANULARITY: 60,
   TIMEFRAME_LABEL: '1m',
-  MAX_CANDLES_STORED: 4,
-  CANDLES_TO_LOAD: 30,
+  MAX_CANDLES_STORED: 5000,
+  CANDLES_TO_LOAD: 5000,
 
   // Trade Duration
-  DURATION: 58,
-  DURATION_UNIT: 's',
+  DURATION: 1,
+  DURATION_UNIT: 'm',
 
   // Stake Settings
   INITIAL_STAKE: 0.35,
-  INVESTMENT_AMOUNT: 153,
+  INVESTMENT_AMOUNT: 152,
 
   // Martingale Settings
-  MARTINGALE_MULTIPLIER: 1,
+  MARTINGALE_MULTIPLIER: 1.48,
   MAX_MARTINGALE_LEVEL: 1,
   AFTER_MAX_LOSS: 'continue',
-  CONTINUE_EXTRA_LEVELS: 10,
-  EXTRA_LEVEL_MULTIPLIERS: [1, 1, 1.48, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
+  CONTINUE_EXTRA_LEVELS: 8,
+  EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
 
   // Auto-Compounding
   AUTO_COMPOUNDING: true,
   COMPOUND_PERCENTAGE: 0.24,
 
   // Risk Management
-  STOP_LOSS: 153,
+  STOP_LOSS: 321,
   TAKE_PROFIT: 10000,
 
   // Pattern Analysis Settings
-  PATTERN_MIN_CONFIDENCE: 0.91,
-  MIN_AGREEMENT_RATIO_CONFIDENCE: 0.91,
-  MIN_PATTERN_CONFIDENCE: 0.91,
-  MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.91,
-  PATTERN_LENGTHS: [2], //[3, 4, 5, 6, 7, 8]
+  PATTERN_MIN_CONFIDENCE: 0.50, //0.91
+  MIN_AGREEMENT_RATIO_CONFIDENCE: 0.50, //0.91
+  MIN_PATTERN_CONFIDENCE: 0.50, //0.91
+  MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.50, // 0.91
+  PATTERN_LENGTHS: [3], //[3, 4, 5, 6, 7, 8]
   PATTERN_MIN_OCCURRENCES: 1,
   PATTERN_RECENCY_DECAY: 0.9990,
   PATTERN_DOJI_THRESHOLD: 0.00001
@@ -417,7 +421,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFn-multi-history01008.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFm-multii-history001.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -548,7 +552,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state01008.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFn-multi-state01005.json');
 
 const state = {
   assets: {},
@@ -760,25 +764,28 @@ class TelegramService {
         ⚡ Same direction as loss trade (NO pattern analysis)`;
       } else if (details.analysis) {
         const analysis = details.analysis;
-        const agreementRatio = analysis.details?.consensus?.agreementRatio
+        const agreementRatio = analysis?.details?.consensus?.agreementRatio
           ? (analysis.details.consensus.agreementRatio * 100).toFixed(0)
           : 'N/A';
-        const bestPattern = analysis.details?.bestPattern;
+        const bestPattern = analysis?.details?.bestPattern;
+        const confPct = ((analysis?.confidence || 0) * 100).toFixed(1);
+        const bestConf = bestPattern && bestPattern.confidence ? (bestPattern.confidence * 100).toFixed(1) + '%' : 'N/A';
         analysisDetails = `
         🧠 <b>PATTERN ANALYSIS:</b>
-        📊 Confidence: ${(analysis.confidence * 100).toFixed(1)}%
-        📊 Pattern Occurrence: ${analysis.patternOccurrence}
+        📊 Confidence: ${confPct}%
+        📊 Pattern Occurrence: ${analysis?.patternOccurrence || 0}
         🤝 Agreement: ${agreementRatio}%
-        📈 Best Pattern: L${bestPattern?.patternLength || 'N/A'} "${bestPattern?.pattern || 'N/A'}" (${(bestPattern?.confidence * 100).toFixed(1)}%)`;
+        📈 Best Pattern: L${bestPattern?.patternLength || 'N/A'} "${bestPattern?.pattern || 'N/A'}" (${bestConf})`;
       }
     }
 
     // Profit/Loss details for WIN/LOSS trades
     let resultDetails = '';
     if (details.profit !== undefined) {
-      const isWin = details.profit > 0;
+      const profitNum = Number(details.profit) || 0;
+      const isWin = profitNum > 0;
       resultDetails = `
-      ${isWin ? '🟢' : '🔴'} <b>Profit: $${details.profit.toFixed(2)}</b>
+      ${isWin ? '🟢' : '🔴'} <b>Profit: $${profitNum.toFixed(2)}</b>
 
       📊 Today's P/L: $${today.netPL.toFixed(2)}
       Today W/L: ${today.winsCount || 0}/${today.lossesCount || 0} 
@@ -926,6 +933,65 @@ P/L: $${stats.netPL.toFixed(2)}
   }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════=
+// REST CLIENT (for PAT / new API OTP flow)
+// ═════════════════════════════════════════════════════════════════════════════=
+
+class RestClient {
+  constructor(baseUrl, appId, token) {
+    this.baseUrl = baseUrl || 'https://api.derivws.com';
+    this.appId = appId || '1089';
+    this.token = token || '';
+  }
+
+  static isPat(token) {
+    return typeof token === 'string' && /^pat_[a-z0-9_\-]{16,}$/i.test(token.trim());
+  }
+
+  _request(method, urlPath, body = null) {
+    return new Promise((resolve, reject) => {
+      let url;
+      try { url = new URL(urlPath, this.baseUrl); } catch (e) { return reject(new Error(`Invalid URL: ${urlPath}`)); }
+
+      const isHttps = url.protocol === 'https:';
+      const lib = isHttps ? https : http;
+
+      const opts = {
+        method,
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname + url.search,
+        headers: {
+          'Deriv-App-ID': this.appId,
+          'Authorization': 'Bearer ' + this.token,
+          'Accept': 'application/json',
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        timeout: 15000,
+      };
+
+      const req = lib.request(opts, res => {
+        let data = '';
+        res.on('data', d => data += d);
+        res.on('end', () => {
+          let parsed = data;
+          try { parsed = JSON.parse(data); } catch (_) { }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      });
+
+      req.on('timeout', () => { req.destroy(new Error('REST request timeout')); });
+      req.on('error', reject);
+      if (body) req.write(JSON.stringify(body));
+      req.end();
+    });
+  }
+
+  get(p) { return this._request('GET', p); }
+  post(p, b) { return this._request('POST', p, b); }
+  delete(p) { return this._request('DELETE', p); }
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // CONNECTION MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
@@ -939,6 +1005,10 @@ class ConnectionManager {
     this.pingInterval = null;
     this.autoSaveStarted = false;
     this.isReconnecting = false;
+    this._isPat = RestClient.isPat(CONFIG.API_TOKEN);
+    this._rest = this._isPat ? new RestClient('https://api.derivws.com', CONFIG.APP_ID, CONFIG.API_TOKEN) : null;
+    this._otpUrl = null;
+    this.accountInfo = null;
   }
 
   connect() {
@@ -950,12 +1020,15 @@ class ConnectionManager {
     LOGGER.info('🔌 Connecting to Deriv API...');
     this.cleanup();
 
-    this.ws = new WebSocket(`${CONFIG.WS_URL}?app_id=${CONFIG.APP_ID}`);
-
-    this.ws.on('open', () => this.onOpen());
-    this.ws.on('message', data => this.onMessage(data));
-    this.ws.on('error', error => this.onError(error));
-    this.ws.on('close', () => this.onClose());
+    if (this._isPat) {
+      LOGGER.info('PAT token detected — using new API OTP flow');
+      this._newApiConnect().catch(err => {
+        LOGGER.error(`New API connect failed: ${err.message}`);
+        this.onClose();
+      });
+    } else {
+      this._openWs(`${CONFIG.WS_URL}?app_id=${CONFIG.APP_ID}`);
+    }
   }
 
   onOpen() {
@@ -971,7 +1044,12 @@ class ConnectionManager {
       this.autoSaveStarted = true;
     }
 
-    this.send({ authorize: CONFIG.API_TOKEN });
+    if (this._isPat) {
+      // For PAT flow, mark authorized using accountInfo
+      this._newApiMarkAuthorized();
+    } else {
+      this.send({ authorize: CONFIG.API_TOKEN });
+    }
   }
 
   initializeAssets() {
@@ -1232,7 +1310,7 @@ class ConnectionManager {
       // Mark as processed BEFORE recording result
       bot._processedContracts.add(String(contractId));
 
-      const profit = contract.profit;
+      const profit = Number(contract.profit) || 0;
       const isWin = profit > 0;
 
       LOGGER.trade(`[${ownerSymbol}] Contract ${contractId} closed: ${isWin ? 'WIN' : 'LOSS'} $${profit.toFixed(2)}`);
@@ -1502,6 +1580,85 @@ class ConnectionManager {
     this.ws.send(JSON.stringify(data));
     return data.req_id;
   }
+
+  _openWs(url) {
+    try {
+      this.ws = new WebSocket(url, {
+        headers: { 'User-Agent': 'Bot/1.0 (+Node.js)' },
+        handshakeTimeout: 15000,
+      });
+    } catch (e) {
+      LOGGER.error(`WS construct failed: ${e.message}`);
+      this.onClose();
+      return;
+    }
+
+    this.ws.on('open', () => this.onOpen());
+    this.ws.on('message', data => this.onMessage(data));
+    this.ws.on('error', error => this.onError(error));
+    this.ws.on('close', () => this.onClose());
+    this.ws.on('unexpected-response', (_req, res) => {
+      LOGGER.error(`WS handshake failed: ${res.statusCode} ${res.statusMessage}`);
+      try { res.destroy(); } catch (_) { }
+      this.onClose();
+    });
+  }
+
+  async _newApiConnect() {
+    LOGGER.info('REST: GET /trading/v1/options/accounts');
+    const accRes = await this._rest.get('/trading/v1/options/accounts');
+
+    if (accRes.status !== 200) {
+      const msg = accRes.body?.errors?.[0]?.message || accRes.body?.message || JSON.stringify(accRes.body);
+      let hint = '';
+      if (accRes.status === 401) hint = ' — check PAT validity and APP_ID registration';
+      else if (accRes.status === 403) hint = ' — PAT may lack "trade" scope';
+      throw new Error(`Account list failed (${accRes.status}): ${msg}${hint}`);
+    }
+
+    const accounts = Array.isArray(accRes.body?.data) ? accRes.body.data : [];
+    if (!accounts.length) throw new Error('No Options accounts found for this token');
+
+    const desiredType = (CONFIG.ACCOUNT_TYPE || 'demo').toLowerCase();
+    const acct = accounts.find(a => (a.account_type || '').toLowerCase() === desiredType) || accounts[0];
+
+    this.accountInfo = acct;
+    LOGGER.info(`Selected account ${acct.account_id} (${acct.account_type}, ${acct.currency}, balance=${acct.balance})`);
+
+    const otpPath = `/trading/v1/options/accounts/${encodeURIComponent(acct.account_id)}/otp`;
+    const otpRes = await this._rest.post(otpPath);
+
+    if (otpRes.status !== 200) {
+      const msg = otpRes.body?.errors?.[0]?.message || JSON.stringify(otpRes.body);
+      throw new Error(`OTP request failed (${otpRes.status}): ${msg}`);
+    }
+
+    const wsUrl = otpRes.body?.data?.url;
+    if (!wsUrl || !/^wss?:/i.test(wsUrl)) {
+      throw new Error(`OTP response missing .data.url: ${JSON.stringify(otpRes.body)}`);
+    }
+
+    this._otpUrl = wsUrl;
+    this._openWs(wsUrl);
+  }
+
+  _newApiMarkAuthorized() {
+    if (!this.accountInfo) return;
+
+    LOGGER.info(`Authorized ${this.accountInfo.account_id} (${this.accountInfo.account_type}) via PAT/new-API`);
+
+    state.isAuthorized = true;
+    state.accountBalance = parseFloat(this.accountInfo.balance) || 0;
+
+    this.send({ balance: 1, subscribe: 1 });
+
+    if (this.reconnectAttempts > 0 && this.hasAnyActivePositions()) {
+      this.restoreSubscriptions();
+    }
+
+    // Start the bot once authorized
+    bot.start();
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1610,7 +1767,12 @@ class DerivPatternBot {
       return;
     }
 
-    // Capital check
+    // Authorization / capital checks
+    if (!state.isAuthorized) {
+      LOGGER.warn(`[${symbol}] Not authorized yet — cannot place trade`);
+      return;
+    }
+
     if (state.capital < assetState.currentStake) {
       LOGGER.warn(`[${symbol}] Insufficient capital`);
       return;
@@ -1630,7 +1792,7 @@ class DerivPatternBot {
       analysis = assetState.patternAnalyzer.analyze(assetState.closedCandles);
       assetState.lastAnalysis = analysis;
 
-      const bestPatternConfidence = analysis.details?.bestPattern.confidence;
+      const bestPatternConfidence = analysis?.details?.bestPattern?.confidence || 0;
 
       if (!analysis.shouldTrade) {
         LOGGER.info(`[${symbol}] No trade signal - Confidence too low)`);
@@ -1638,7 +1800,7 @@ class DerivPatternBot {
         return;
       }
 
-      // direction = analysis.direction;
+      direction = analysis.direction;
 
       if ((symbol === 'stpRNG' || symbol === 'stpRNG2' || symbol === 'stpRNG3' || symbol === 'stpRNG4' || symbol === 'stpRNG5')) {
         if (bestPatternConfidence < DEFAULT_ASSET_CONFIG.MIN_PATTERN_CONFIDENCE_STEP_RNG) {
@@ -1654,7 +1816,7 @@ class DerivPatternBot {
         }
       }
 
-      LOGGER.trade(`🎯 [${symbol}] PATTERN TRADE - Direction: ${direction} | Confidence: ${(analysis.confidence * 100).toFixed(1)}% | Pattern Occurrence: ${analysis.patternOccurrence}`);
+      LOGGER.trade(`🎯 [${symbol}] PATTERN TRADE - Direction: ${direction} | Confidence: ${((analysis?.confidence||0) * 100).toFixed(1)}% | Pattern Occurrence: ${analysis?.patternOccurrence || 0}`);
 
       if (analysis.patternOccurrence >= 2) {
         // const newDirection = analysis.direction;
@@ -1668,6 +1830,21 @@ class DerivPatternBot {
     if (!direction) return;
 
     const stake = assetState.currentStake;
+    // Stake / investmentRemaining checks (match reference behavior)
+    if (stake > assetState.investmentRemaining) {
+      LOGGER.error(`[${symbol}] Insufficient investment: stake $${stake} > remaining $${assetState.investmentRemaining.toFixed(2)}`);
+      assetState.canTrade = false;
+      return;
+    }
+    if (stake > state.capital) {
+      LOGGER.error(`[${symbol}] Insufficient balance: stake $${stake} > capital $${state.capital.toFixed(2)}`);
+      assetState.canTrade = false;
+      return;
+    }
+
+    // Deduct investment immediately as in reference
+    assetState.investmentRemaining = Number((assetState.investmentRemaining - stake).toFixed(2));
+    state.capital = Number((state.capital - stake).toFixed(2));
     const duration = assetConfig.DURATION;
     const durationUnit = assetConfig.DURATION_UNIT;
 
@@ -1676,7 +1853,9 @@ class DerivPatternBot {
       LOGGER.trade(`   Recovery Mode: ${isRecovery ? 'YES' : 'NO'} | Same direction as loss | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel}`);
     } else {
       const agreementRatio = analysis?.details?.consensus?.agreementRatio ? (analysis.details.consensus.agreementRatio * 100).toFixed(0) : 'N/A';
-      LOGGER.trade(`   Recovery Mode: NO | Confidence: ${(analysis.confidence * 100).toFixed(1)}% | Agreement: ${agreementRatio}% | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel} | Pattern Occurrence: ${analysis.patternOccurrence}`);
+      const confPct = ((analysis?.confidence || 0) * 100).toFixed(1);
+      const patternOcc = analysis?.patternOccurrence || 0;
+      LOGGER.trade(`   Recovery Mode: NO | Confidence: ${confPct}% | Agreement: ${agreementRatio}% | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel} | Pattern Occurrence: ${patternOcc}`);
     }
 
     // Execute trade
@@ -1690,17 +1869,30 @@ class DerivPatternBot {
 
     assetState.activePositions.push(position);
 
+    // Global trade lock / pending info (reference bot uses global state)
+    state.tradeInProgress = true;
+    state.currentContractId = null;
+    state.pendingTradeInfo = { symbol, stake, direction, time: Date.now() };
+
     // Send enhanced Telegram notification
     TelegramService.sendTradeAlert('OPEN', symbol, direction, stake, `${duration}${durationUnit}`, {
       isRecovery,
       analysis: isRecovery ? null : analysis
     });
 
+    const symbolKey = this.connection && this.connection._isPat ? 'underlying_symbol' : 'symbol';
     const tradeRequest = {
-      buy: 1, subscribe: 1, price: stake.toFixed(2),
+      buy: 1,
+      subscribe: 1,
+      price: Number(stake).toFixed(2),
       parameters: {
-        contract_type: direction, symbol, currency: 'USD',
-        amount: stake.toFixed(2), duration, duration_unit: durationUnit, basis: 'stake'
+        contract_type: direction,
+        [symbolKey]: symbol,
+        currency: 'USD',
+        amount: Number(stake).toFixed(2),
+        duration,
+        duration_unit: durationUnit,
+        basis: 'stake'
       }
     };
 
