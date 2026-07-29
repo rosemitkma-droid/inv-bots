@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_07-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_07-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_09-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_09-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -536,9 +536,11 @@ class TelegramService {
             lines.push(``);
             lines.push(`\u{1f4cb} <b>${symbol} Stats:</b>`);
             lines.push(`W/L: ${a?.winsCount ?? 0}/${a?.lossesCount ?? 0} | P/L: $${(a?.netPL ?? 0).toFixed(2)}`);
+            lines.push(`\u{1f522} Martingale Level: ${a?.martingaleLevel ?? 0}`);
             lines.push(``);
             lines.push(`\u{1f4cb} <b>Today:</b>`);
             lines.push(`Trades: ${today.tradesCount} | W/L: ${today.winsCount}/${today.lossesCount} | P/L: $${(today.netPL || 0).toFixed(2)}`);
+            lines.push(`\u{1f4c9} x2-x9: ${state.session.x2Losses || 0} | ${state.session.x3Losses || 0} | ${state.session.x4Losses || 0} | ${state.session.x5Losses || 0} | ${state.session.x6Losses || 0} | ${state.session.x7Losses || 0} | ${state.session.x8Losses || 0} | ${state.session.x9Losses || 0}`);
             lines.push(`Capital: $${state.capital.toFixed(2)}`);
             lines.push(``);
             lines.push(`\u{1f4cb} <b>Overall:</b>`);
