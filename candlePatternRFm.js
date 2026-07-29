@@ -42,7 +42,7 @@ const CONFIG = {
   // Recovery Strategy Settings
   // When enabled: After a loss, trade immediately on next candle in SAME direction (no analysis)
   // When disabled: After a loss, wait for pattern analysis signal
-  USE_RECOVERY_STRATEGY: true,
+  USE_RECOVERY_STRATEGY: false,
 
   // State
   STATE_SAVE_INTERVAL: 5000
@@ -421,7 +421,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFm-multii-history001.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFm-multii-history003.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -434,7 +434,7 @@ class TradeHistoryManager {
       if (!fs.existsSync(HISTORY_FILE)) {
         LOGGER.info('📂 No trade history file found, starting fresh');
         return {
-          overall: { tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0, x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0, x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0 },
+          overall: { tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0, x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0, x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0, firstTradeDate: null, lastTradeDate: null },
           overallAssets: {},
           dailyHistory: {},
           lastUpdated: Date.now()
@@ -444,10 +444,13 @@ class TradeHistoryManager {
       if (data.overall && data.overall.x2Losses === undefined) {
         data.overall = { ...data.overall, x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0, x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0 };
       }
+      if (data.overall && data.overall.firstTradeDate === undefined) {
+        data.overall = { ...data.overall, firstTradeDate: null, lastTradeDate: null };
+      }
       return data;
     } catch (error) {
       LOGGER.error(`Failed to load history: ${error.message}`);
-      return { overall: { tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0, x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0, x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0 }, overallAssets: {}, dailyHistory: {}, lastUpdated: Date.now() };
+      return { overall: { tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0, x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0, x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0, firstTradeDate: null, lastTradeDate: null }, overallAssets: {}, dailyHistory: {}, lastUpdated: Date.now() };
     }
   }
 
@@ -532,19 +535,32 @@ class TradeHistoryManager {
       }
     }
 
+    if (!tradeHistory.overall.firstTradeDate) tradeHistory.overall.firstTradeDate = dateKey;
+    tradeHistory.overall.lastTradeDate = dateKey;
     dayStats.endCapital = state.capital;
     tradeHistory.lastUpdated = Date.now();
     this.saveHistory();
   }
 
-  static getTodayStats() {
-    const dateKey = this.getDateKey();
+  static getDayStats(dateKey) {
     this.ensureDayEntry(dateKey);
     return tradeHistory.dailyHistory[dateKey];
   }
 
+  static getTodayStats() {
+    return this.getDayStats(this.getDateKey());
+  }
+
   static getOverallStats() {
     return tradeHistory.overall;
+  }
+
+  static getAllDays() {
+    return Object.keys(tradeHistory.dailyHistory).sort();
+  }
+
+  static getRecentDays(n = 7) {
+    return this.getAllDays().slice(-n).map(d => ({ date: d, ...tradeHistory.dailyHistory[d] }));
   }
 }
 
@@ -784,13 +800,21 @@ class TelegramService {
     if (details.profit !== undefined) {
       const profitNum = Number(details.profit) || 0;
       const isWin = profitNum > 0;
+      const a = state.assets[symbol];
       resultDetails = `
       ${isWin ? '🟢' : '🔴'} <b>Profit: $${profitNum.toFixed(2)}</b>
 
-      📊 Today's P/L: $${today.netPL.toFixed(2)}
-      Today W/L: ${today.winsCount || 0}/${today.lossesCount || 0} 
-      📈 Overall P/L: $${overall.netPL.toFixed(2)}
-      💰 Capital: $${state.capital.toFixed(2)}`;
+      📋 <b>${symbol} Stats:</b>
+      W/L: ${a?.winsCount ?? 0}/${a?.lossesCount ?? 0} | P/L: $${(a?.netPL ?? 0).toFixed(2)}
+      🔢 Martingale Level: ${a?.martingaleLevel ?? 0}
+
+      📋 <b>Today:</b>
+      Trades: ${today.tradesCount} | W/L: ${today.winsCount || 0}/${today.lossesCount || 0} | P/L: $${(today.netPL || 0).toFixed(2)}
+      📉 x2-x9: ${state.session.x2Losses || 0} | ${state.session.x3Losses || 0} | ${state.session.x4Losses || 0} | ${state.session.x5Losses || 0} | ${state.session.x6Losses || 0} | ${state.session.x7Losses || 0} | ${state.session.x8Losses || 0} | ${state.session.x9Losses || 0}
+      💰 Capital: $${state.capital.toFixed(2)}
+
+      📋 <b>Overall:</b>
+      Trades: ${overall.tradesCount} | W/L: ${overall.winsCount}/${overall.lossesCount} | P/L: $${(overall.netPL || 0).toFixed(2)}`;
     }
 
     const recoveryStatus = asset?.isRecovery ? '🔄 RECOVERY' : '🎯 NORMAL';
@@ -811,75 +835,33 @@ class TelegramService {
   }
 
   static async sendHourlySummary() {
-    const statsSnapshot = { ...state.hourlyStats };
-
-    if (statsSnapshot.trades === 0) {
+    const h = state.hourlyStats;
+    if (h.trades === 0) {
       LOGGER.info('📱 Telegram: Skipping hourly summary (no trades this hour)');
       return;
     }
 
-    const totalTrades = statsSnapshot.wins + statsSnapshot.losses;
-    const winRate = totalTrades > 0 ? ((statsSnapshot.wins / totalTrades) * 100).toFixed(1) : 0;
-    const pnlEmoji = statsSnapshot.pnl >= 0 ? '🟢' : '🔴';
-    const pnlStr = (statsSnapshot.pnl >= 0 ? '+' : '') + '$' + statsSnapshot.pnl.toFixed(2);
-
+    const wr = h.trades > 0 ? ((h.wins / h.trades) * 100).toFixed(1) : '0.0';
     const today = TradeHistoryManager.getTodayStats();
-    const overall = TradeHistoryManager.getOverallStats();
 
-    // Per-asset hourly info
     let assetInfo = '';
-    ACTIVE_ASSETS.forEach(symbol => {
-      const a = state.assets[symbol];
+    ACTIVE_ASSETS.forEach(sym => {
+      const a = state.assets[sym];
       if (a && a.tradesCount > 0) {
-        const ac = getAssetConfig(symbol);
-        const recoveryStatus = a.isRecovery ? '🔄 REC' : '🎯 NORM';
-        assetInfo += `\n  ${symbol} ${recoveryStatus}: ${a.tradesCount}t, ${a.winsCount}W/${a.lossesCount}L, P/L:$${a.netPL.toFixed(2)}, M:${a.martingaleLevel}`;
+        assetInfo += `\n  ${sym}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L $${(a.netPL || 0).toFixed(2)} M:${a.martingaleLevel}`;
       }
     });
 
-    const msg = `
-    ⏰ <b>Pattern Bot Hourly Summary</b>
+    await this.sendMessage([
+      `⏰ <b>Pattern Bot Hourly Summary</b>`,
+      `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '🟢' : '🔴'} $${h.pnl.toFixed(2)}`,
+      `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
+      `Loss Stats: x2:${today.x2Losses || 0} x3:${today.x3Losses || 0} x4:${today.x4Losses || 0} x5:${today.x5Losses || 0} x6:${today.x6Losses || 0} x7:${today.x7Losses || 0} x8:${today.x8Losses || 0} x9:${today.x9Losses || 0}`,
+      `Capital: $${state.capital.toFixed(2)}`,
+      assetInfo ? `\n<b>Per-Asset:</b>${assetInfo}` : '',
+    ].join('\n'));
 
-    📊 <b>Last Hour</b>
-    ├ Trades: ${statsSnapshot.trades}
-    ├ Wins: ${statsSnapshot.wins} | Losses: ${statsSnapshot.losses}
-    ├ Win Rate: ${winRate}%
-    └ ${pnlEmoji} <b>P&L:</b> ${pnlStr}
-
-    📅 <b>Today (${TradeHistoryManager.getDateKey()})</b>
-    ├ Total Trades: ${today.tradesCount}
-    ├ Total W/L: ${today.winsCount}/${today.lossesCount}
-    ├ Today P/L: ${today.netPL >= 0 ? '+' : ''}$${today.netPL.toFixed(2)}
-    └ Loss Stats: x2:${today.x2Losses || 0} x3:${today.x3Losses || 0} x4:${today.x4Losses || 0} x5:${today.x5Losses || 0} x6:${today.x6Losses || 0} x7:${today.x7Losses || 0} x8:${today.x8Losses || 0} x9:${today.x9Losses || 0}
-
-    📈 <b>Overall (All Time)</b>
-    ├ Total Trades: ${overall.tradesCount}
-    ├ Total W/L: ${overall.winsCount}/${overall.lossesCount}
-    └ Overall P/L: ${overall.netPL >= 0 ? '+' : ''}$${overall.netPL.toFixed(2)}
-
-    💰 Current Capital: $${state.capital.toFixed(2)}
-
-    🔧 <b>Per-Asset Status:</b>${assetInfo || '\n  No trades yet'}
-
-    🔄 Recovery Strategy: ${CONFIG.USE_RECOVERY_STRATEGY ? 'ENABLED' : 'DISABLED'}
-    `.trim();
-
-    try {
-      await this.sendMessage(msg);
-      LOGGER.info('📱 Telegram: Hourly Summary sent');
-      LOGGER.info(`   📊 Hour Stats: ${statsSnapshot.trades} trades, ${statsSnapshot.wins}W/${statsSnapshot.losses}L, ${pnlStr}`);
-    } catch (error) {
-      LOGGER.error(`❌ Telegram hourly summary failed: ${error.message}`);
-    }
-
-    // Reset hourly stats
-    state.hourlyStats = {
-      trades: 0,
-      wins: 0,
-      losses: 0,
-      pnl: 0,
-      lastHour: new Date().getHours()
-    };
+    state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
   }
 
   static startHourlyTimer() {
@@ -905,31 +887,129 @@ class TelegramService {
     }, timeUntilNextHour);
   }
 
-  static async sendSessionSummary() {
-    const stats = state.session;
-    const today = TradeHistoryManager.getTodayStats();
+  static async sendStartupMessage() {
     const overall = TradeHistoryManager.getOverallStats();
+    let assetInfo = '';
+    ACTIVE_ASSETS.forEach(sym => {
+      const ac = getAssetConfig(sym);
+      assetInfo += `\n  ${sym}: ${ac.TIMEFRAME_LABEL} | ${ac.DURATION}${ac.DURATION_UNIT}`;
+    });
 
-    let assetBreakdown = '';
-    ACTIVE_ASSETS.forEach(symbol => {
-      const a = state.assets[symbol];
+    await this.sendMessage([
+      `🤖 <b>MULTI-ASSET PATTERN BOT STARTED</b>`,
+      `Strategy: Candle Pattern Recognition + Grid Martingale`,
+      `Risk: Martingale progression with cap $${CONFIG.INVESTMENT_AMOUNT}`,
+      `Recovery: ${CONFIG.USE_RECOVERY_STRATEGY ? 'ENABLED (immediate same-direction retry)' : 'DISABLED (wait for pattern analysis)'}`,
+      `Capital: $${state.capital.toFixed(2)}`,
+      ``,
+      `📊 Overall: ${overall.tradesCount} trades | P/L: $${(overall.netPL || 0).toFixed(2)}`,
+      `<b>Active Assets:</b>${assetInfo}`,
+    ].join('\n'));
+  }
+
+  static async sendSessionSummary() {
+    const stats = SessionManager.getSessionStats();
+    const overall = TradeHistoryManager.getOverallStats();
+    const today = TradeHistoryManager.getTodayStats();
+    const wr = overall.tradesCount > 0 ? ((overall.winsCount / overall.tradesCount) * 100).toFixed(1) : '0.0';
+
+    let pairBreakdown = '';
+    ACTIVE_ASSETS.forEach(sym => {
+      const a = state.assets[sym];
       if (a && a.tradesCount > 0) {
-        assetBreakdown += `\n  ${symbol}: ${a.tradesCount} trades, ${a.winsCount}W/${a.lossesCount}L, P/L: $${a.netPL.toFixed(2)}, Mart: ${a.martingaleLevel}`;
+        const pairWr = a.tradesCount > 0 ? ((a.winsCount / a.tradesCount) * 100).toFixed(1) : '0.0';
+        pairBreakdown += `\n  ${sym}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L (${pairWr}%) $${(a.netPL || 0).toFixed(2)}`;
       }
     });
 
-    const msg = `
-📊 <b>SESSION SUMMARY</b>
+    await this.sendMessage([
+      `📊 <b>CANDLE PATTERN BOT SESSION SUMMARY</b>`,
+      `Duration: ${stats.duration} | Trades: ${stats.trades}`,
+      `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
+      `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
+      `Today P/L: $${(today.netPL || 0).toFixed(2)}`,
+      ``,
+      `📋 <b>Overall:</b> ${overall.tradesCount} trades | WR: ${wr}% | P/L: $${(overall.netPL || 0).toFixed(2)}`,
+      pairBreakdown ? `\n<b>Per-Asset:</b>${pairBreakdown}` : '',
+      ``,
+      `💰 Capital: $${state.capital.toFixed(2)}`,
+    ].join('\n'));
+  }
 
-📅 Today: ${stats.tradesCount} trades, ${stats.winsCount}W/${stats.lossesCount}L
-P/L: $${stats.netPL.toFixed(2)}
-📉 Loss Stats: x2:${stats.x2Losses || 0} x3:${stats.x3Losses || 0} x4:${stats.x4Losses || 0} x5:${stats.x5Losses || 0} x6:${stats.x6Losses || 0} x7:${stats.x7Losses || 0} x8:${stats.x8Losses || 0} x9:${stats.x9Losses || 0}
+  static startDailyTimer() {
+    if (this.dailyTimerStarted) return;
+    this.dailyTimerStarted = true;
+    const now = new Date();
+    const nextDay = new Date(now);
+    nextDay.setDate(nextDay.getDate() + 1);
+    nextDay.setHours(0, 0, 0, 0);
+    setTimeout(() => {
+      SessionManager.checkDayChange();
+      this.dailyTimerId = setInterval(() => SessionManager.checkDayChange(), 86400000);
+    }, nextDay.getTime() - now.getTime());
+  }
 
-📈 Per-Asset:${assetBreakdown || '\n  No trades yet'}
+  static clearTimers() {
+    if (this.hourlyTimerId) { clearInterval(this.hourlyTimerId); this.hourlyTimerId = null; this.hourlyTimerStarted = false; }
+    if (this.dailyTimerId) { clearInterval(this.dailyTimerId); this.dailyTimerId = null; this.dailyTimerStarted = false; }
+  }
+}
 
-💰 Capital: $${state.capital.toFixed(2)}
-`.trim();
-    await this.sendMessage(msg);
+// ══════════════════════════════════════════════════════════════════════════════
+// SESSION MANAGER — day change detection, EOD report, per-asset reset
+// ══════════════════════════════════════════════════════════════════════════════
+
+class SessionManager {
+  static hourlyTimerStarted = false;
+  static dailyTimerStarted = false;
+  static hourlyTimerId = null;
+  static dailyTimerId = null;
+
+  static getSessionStats() {
+    const dur = Date.now() - state.session.startTime;
+    const hrs = Math.floor(dur / 3600000);
+    const mins = Math.floor((dur % 3600000) / 60000);
+    const wr = state.session.tradesCount > 0
+      ? ((state.session.winsCount / state.session.tradesCount) * 100).toFixed(1) + '%'
+      : '0%';
+    return { duration: `${hrs}h ${mins}m`, trades: state.session.tradesCount, wins: state.session.winsCount, losses: state.session.lossesCount, winRate: wr, netPL: state.session.netPL };
+  }
+
+  static checkDayChange() {
+    const today = TradeHistoryManager.getDateKey();
+    if (state.currentTradeDay && state.currentTradeDay !== today) {
+      LOGGER.info(`Day changed: ${state.currentTradeDay} -> ${today}`);
+      const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
+      TelegramService.sendMessage(
+        `🌙 <b>CANDLE PATTERN BOT END OF DAY ${state.currentTradeDay}</b>\n` +
+        `P/L: $${(dayStats?.netPL || 0).toFixed(2)}\n` +
+        `Capital: $${state.capital.toFixed(2)}`
+      );
+      this._resetDailyStats();
+      if (!state.session.isActive) {
+        state.session.isActive = true;
+        LOGGER.info('Session re-activated for new day');
+      }
+    }
+    state.currentTradeDay = today;
+  }
+
+  static _resetDailyStats() {
+    const s = state.session;
+    s.tradesCount = 0; s.winsCount = 0; s.lossesCount = 0;
+    s.profit = 0; s.loss = 0; s.netPL = 0;
+    s.startTime = Date.now(); s.startCapital = state.capital;
+    state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
+
+    ACTIVE_ASSETS.forEach(sym => {
+      const a = state.assets[sym];
+      if (a) {
+        a.tradesCount = 0; a.winsCount = 0; a.lossesCount = 0;
+        a.profit = 0; a.loss = 0; a.netPL = 0;
+        a.x2Losses = 0; a.x3Losses = 0; a.x4Losses = 0; a.x5Losses = 0;
+        a.x6Losses = 0; a.x7Losses = 0; a.x8Losses = 0; a.x9Losses = 0;
+      }
+    });
   }
 }
 
@@ -1316,7 +1396,7 @@ class ConnectionManager {
       LOGGER.trade(`[${ownerSymbol}] Contract ${contractId} closed: ${isWin ? 'WIN' : 'LOSS'} $${profit.toFixed(2)}`);
 
       // Record result
-      this.recordTradeResult(ownerSymbol, profit, position.direction);
+      this.recordTradeResult(ownerSymbol, profit, position.direction, position.stake);
 
       TelegramService.sendTradeAlert(isWin ? 'WIN' : 'LOSS', ownerSymbol, position.direction, position.stake, `${position.duration}${position.durationUnit}`, { profit });
 
@@ -1337,16 +1417,22 @@ class ConnectionManager {
     }
   }
 
-  recordTradeResult(symbol, profit, direction) {
+  recordTradeResult(symbol, profit, direction, stake) {
     const assetState = state.assets[symbol];
     if (!assetState) return;
+
+    // Check day change before recording (ensures EOD report on day boundary)
+    SessionManager.checkDayChange();
 
     // Clear watchdog FIRST
     bot._clearAllWatchdogTimers();
 
     const isWin = profit > 0;
     state.isWinTrade = isWin;
-    state.capital += profit;
+    // Return stake + profit to capital (stake was deducted on open, profit is the payout)
+    state.capital = Number((state.capital + stake + profit).toFixed(2));
+    // Restore stake to investmentRemaining (was deducted on open, now returned on close)
+    assetState.investmentRemaining = Number((assetState.investmentRemaining + stake).toFixed(2));
 
     // Global session
     state.session.tradesCount++;
@@ -1671,6 +1757,7 @@ class DerivPatternBot {
     this._processedContracts = new Set();
     this.tradeWatchdogMs = 120000; // 120 second watchdog timeout
     this.timeCheckStarted = false;
+    this.sessionTimeCheckerId = null;
   }
 
   checkTimeForDisconnectReconnect() {
@@ -1730,13 +1817,18 @@ class DerivPatternBot {
       this.subscribeToCandles(symbol);
     });
 
-    // Start hourly Telegram timer
+    // Start Telegram timers
     TelegramService.startHourlyTimer();
+    TelegramService.startDailyTimer();
+    SessionManager.checkDayChange();
 
     // Start time-based disconnect/reconnect monitoring
     this.checkTimeForDisconnectReconnect();
 
-    TelegramService.sendMessage(`🤖 <b>MULTI-ASSET PATTERN BOT STARTED</b>\nAssets: ${ACTIVE_ASSETS.length}\nCapital: $${state.capital}\n🔄 Recovery Strategy: ${CONFIG.USE_RECOVERY_STRATEGY ? 'ENABLED' : 'DISABLED'}`);
+    // Session time checker for day change detection every 60s
+    this.sessionTimeCheckerId = setInterval(() => SessionManager.checkDayChange(), 60000);
+
+    TelegramService.sendStartupMessage();
   }
 
   subscribeToCandles(symbol) {
@@ -1907,6 +1999,11 @@ class DerivPatternBot {
         state.assets[symbol].canTrade = false;
       }
     });
+    TelegramService.clearTimers();
+    if (this.sessionTimeCheckerId) {
+      clearInterval(this.sessionTimeCheckerId);
+      this.sessionTimeCheckerId = null;
+    }
     StatePersistence.saveState();
     TradeHistoryManager.saveHistory();
     setTimeout(() => {
@@ -2090,9 +2187,21 @@ bot.connection.connect();
 
 // Status display every 60 seconds
 setInterval(() => {
-  if (state.isAuthorized) {
-    const status = bot.getStatus();
-    console.log(`\n📊 ${getGMTTime()} | Capital: $${status.capital.toFixed(2)} | Session: ${status.session.tradesCount}t $${status.session.netPL.toFixed(2)}`);
-    console.log(`📈 Per-Asset:${status.assets}`);
-  }
+  if (!state.isAuthorized) return;
+
+  const status = bot.getStatus();
+  const overall = TradeHistoryManager.getOverallStats();
+  const today = TradeHistoryManager.getTodayStats();
+
+  let pairLines = '';
+  ACTIVE_ASSETS.forEach(sym => {
+    const a = state.assets[sym];
+    if (a) {
+      pairLines += `\n  ${sym}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L $${(a.netPL || 0).toFixed(2)} M:${a.martingaleLevel}`;
+    }
+  });
+
+  console.log(`\n📊 ${getGMTTime()} | Session: ${state.session.tradesCount}t $${(state.session.netPL || 0).toFixed(2)} | Capital: $${status.capital.toFixed(2)}`);
+  console.log(`📋 Overall: ${overall.tradesCount}t | P/L: $${(overall.netPL || 0).toFixed(2)} | Days: ${TradeHistoryManager.getAllDays().length}`);
+  console.log(`📈 Assets:${pairLines}`);
 }, 60000);
