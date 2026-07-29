@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_06-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_06-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_07-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_07-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -111,24 +111,21 @@ const CONFIG = {
     ACCOUNT_TYPE: 'demo',          // 'demo' | 'real' (PAT mode only)
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
-    // ── Capital & Risk [RETAINED] ────────────────────────────
-    INITIAL_CAPITAL: 128,
-    BASE_RISK_PERCENT_PER_TRADE: 0.01,
-    MIN_STAKE: 1,
-    MAX_STAKE: 64,
-    MAX_RISK_PCT: 100.00,
+    // ── Martingale / staking settings mirrored from candlePatternRFm.js ─
+    INITIAL_STAKE: 0.35,
+    INVESTMENT_AMOUNT: 152,
+    MARTINGALE_MULTIPLIER: 1.48,
+    MAX_MARTINGALE_LEVEL: 1,
+    AFTER_MAX_LOSS: 'continue',
+    CONTINUE_EXTRA_LEVELS: 8,
+    EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
+    AUTO_COMPOUNDING: true,
+    COMPOUND_PERCENTAGE: 0.24,
+    STOP_LOSS: 152,
 
-    // ── Single capped recoup step (NOT martingale) [RETAINED] ─
-    RECOVERY_ENABLED: true,
-    RECOVERY_MULTIPLIER: 2.00,
-    MAX_RECOVERY_STEPS: 20,
-    MAX_RECOVERY_STAKE_PCT: 80.0,
-
-    // ── Session / daily guards [RETAINED] ───────────────────
+    // ── Session / daily guards ───────────────────
     SESSION_PROFIT_TARGET: 500000,
-    SESSION_STOP_LOSS: -15000,
-    DAILY_STOP_LOSS: -100,
-    MAX_CONSECUTIVE_LOSSES: 7,
+    SESSION_STOP_LOSS: -152,
     COOLDOWN_CANDLES: 5,
 
     // ── Candle / Contract Settings [RETAINED] ────────────────
@@ -167,43 +164,34 @@ const CONFIG = {
 };
 
 // ============================================================
-// STAKE CALCULATOR — Kelly-fractional + single capped recoup  [RETAINED]
+// STAKE CALCULATOR — martingale based sizing from reference bot
 // ============================================================
 class StakeCalculator {
 
-    static calculate(capital, recoveryStep = 0, pWin = null) {
-        const b = 0.90;
-        const p = pWin && pWin > 0.5 ? pWin : 0.54;
-        let stake;
+    static calculate(capital, martingaleLevel = 0) {
+        const level = Math.max(0, martingaleLevel || 0);
+        let stake = CONFIG.INITIAL_STAKE;
 
-        if (!CONFIG.RECOVERY_ENABLED) {
-            const kelly = b > 0 ? (p * b - (1 - p)) / b : 0;
-            const frac = Math.max(0, Math.min(0.5, kelly * 0.5));
-            const riskCapital = capital * (CONFIG.BASE_RISK_PERCENT_PER_TRADE / 100);
-            stake = riskCapital * (0.5 + frac);
-        } else if (recoveryStep >= 1) {
-            stake = CONFIG.MIN_STAKE * Math.pow(CONFIG.RECOVERY_MULTIPLIER, recoveryStep);
+        if (level <= CONFIG.MAX_MARTINGALE_LEVEL) {
+            stake = CONFIG.INITIAL_STAKE * Math.pow(CONFIG.MARTINGALE_MULTIPLIER, level);
         } else {
-            const riskCapital = capital * (CONFIG.BASE_RISK_PERCENT_PER_TRADE / 100);
-            stake = riskCapital;
+            let baseStake = CONFIG.INITIAL_STAKE * Math.pow(CONFIG.MARTINGALE_MULTIPLIER, CONFIG.MAX_MARTINGALE_LEVEL);
+            const extraIdx = level - CONFIG.MAX_MARTINGALE_LEVEL - 1;
+            for (let i = 0; i <= extraIdx; i++) {
+                baseStake *= (CONFIG.EXTRA_LEVEL_MULTIPLIERS[i] || CONFIG.MARTINGALE_MULTIPLIER);
+            }
+            stake = baseStake;
         }
 
-        const maxRisk = capital * (CONFIG.MAX_RISK_PCT / 100);
-        stake = Math.min(stake, maxRisk, CONFIG.MAX_STAKE);
-
-        if (recoveryStep >= 1) {
-            const maxRecoup = capital * (CONFIG.MAX_RECOVERY_STAKE_PCT / 100);
-            stake = Math.min(stake, maxRecoup);
-        }
-
-        stake = Math.max(CONFIG.MIN_STAKE, stake);
+        stake = Math.min(stake, CONFIG.INVESTMENT_AMOUNT);
+        stake = Math.max(CONFIG.INITIAL_STAKE, stake);
         return parseFloat(stake.toFixed(2));
     }
 
-    static describe(capital, recoveryStep, pWin) {
-        const stake = this.calculate(capital, recoveryStep, pWin);
+    static describe(capital, martingaleLevel) {
+        const stake = this.calculate(capital, martingaleLevel);
         const pct = ((stake / capital) * 100).toFixed(2);
-        return `$${stake.toFixed(2)} (${pct}% capital, recovery step ${recoveryStep})`;
+        return `$${stake.toFixed(2)} (${pct}% capital, martingale level ${martingaleLevel})`;
     }
 }
 
@@ -271,7 +259,7 @@ class TradeHistoryManager {
     }
 
     static _emptyOverall() {
-        return { tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0, firstTradeDate: null, lastTradeDate: null };
+        return { tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0, x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0, x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0, firstTradeDate: null, lastTradeDate: null };
     }
 
     static _emptyHistory() {
@@ -287,7 +275,7 @@ class TradeHistoryManager {
         if (!tradeHistory.dailyHistory[dateKey]) {
             tradeHistory.dailyHistory[dateKey] = {
                 date: dateKey, tradesCount: 0, winsCount: 0, lossesCount: 0,
-                profit: 0, loss: 0, netPL: 0, assets: {}, startCapital: state.capital, endCapital: state.capital,
+                profit: 0, loss: 0, netPL: 0, x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0, x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0, assets: {}, startCapital: state.capital, endCapital: state.capital,
             };
         }
     }
@@ -295,33 +283,50 @@ class TradeHistoryManager {
     static ensureAssetDayEntry(dateKey, symbol) {
         this.ensureDayEntry(dateKey);
         if (!tradeHistory.dailyHistory[dateKey].assets[symbol]) {
-            tradeHistory.dailyHistory[dateKey].assets[symbol] = { tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0 };
+            tradeHistory.dailyHistory[dateKey].assets[symbol] = { tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0, x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0, x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0 };
         }
     }
 
     static ensureOverallAssetEntry(symbol) {
         if (!tradeHistory.overallAssets[symbol]) {
-            tradeHistory.overallAssets[symbol] = { tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0 };
+            tradeHistory.overallAssets[symbol] = { tradesCount: 0, winsCount: 0, lossesCount: 0, profit: 0, loss: 0, netPL: 0, x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0, x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0 };
         }
     }
 
-    static recordTrade(symbol, profit, recoveryStep) {
+    static recordTrade(symbol, profit, martingaleLevel = 0) {
         const dateKey = this.getDateKey();
         this.ensureAssetDayEntry(dateKey, symbol);
         this.ensureOverallAssetEntry(symbol);
 
-        const targets = [
-            tradeHistory.dailyHistory[dateKey],
-            tradeHistory.dailyHistory[dateKey].assets[symbol],
-            tradeHistory.overall,
-            tradeHistory.overallAssets[symbol],
-        ];
+        const dayStats = tradeHistory.dailyHistory[dateKey];
+        const dayAssetStats = dayStats.assets[symbol];
+        const overall = tradeHistory.overall;
+        const overallAsset = tradeHistory.overallAssets[symbol];
 
-        targets.forEach(t => {
-            t.tradesCount++;
-            if (profit > 0) { t.winsCount++; t.profit += profit; t.netPL += profit; }
-            else { t.lossesCount++; t.loss += Math.abs(profit); t.netPL += profit; }
-        });
+        dayStats.tradesCount++;
+        dayAssetStats.tradesCount++;
+        overall.tradesCount++;
+        overallAsset.tradesCount++;
+
+        if (profit > 0) {
+            dayStats.winsCount++; dayStats.profit += profit; dayStats.netPL += profit;
+            dayAssetStats.winsCount++; dayAssetStats.profit += profit; dayAssetStats.netPL += profit;
+            overall.winsCount++; overall.profit += profit; overall.netPL += profit;
+            overallAsset.winsCount++; overallAsset.profit += profit; overallAsset.netPL += profit;
+        } else {
+            dayStats.lossesCount++; dayStats.loss += Math.abs(profit); dayStats.netPL += profit;
+            dayAssetStats.lossesCount++; dayAssetStats.loss += Math.abs(profit); dayAssetStats.netPL += profit;
+            overall.lossesCount++; overall.loss += Math.abs(profit); overall.netPL += profit;
+            overallAsset.lossesCount++; overallAsset.loss += Math.abs(profit); overallAsset.netPL += profit;
+
+            if (martingaleLevel >= 2 && martingaleLevel <= 9) {
+                const key = `x${martingaleLevel}Losses`;
+                dayStats[key]++;
+                dayAssetStats[key]++;
+                overall[key]++;
+                overallAsset[key]++;
+            }
+        }
 
         if (!tradeHistory.overall.firstTradeDate) tradeHistory.overall.firstTradeDate = dateKey;
         tradeHistory.overall.lastTradeDate = dateKey;
@@ -365,6 +370,8 @@ class StatePersistence {
                     forceRecoverDirection: a.forceRecoverDirection,
                     recoveryStep: a.recoveryStep,
                     currentStake: a.currentStake,
+                    martingaleLevel: a.martingaleLevel,
+                    investmentRemaining: a.investmentRemaining,
                     consecutiveWins: a.consecutiveWins,
                     consecutiveLosses: a.consecutiveLosses,
                     cooldownCandles: a.cooldownCandles,
@@ -423,7 +430,9 @@ class StatePersistence {
                         a.lastTradeWasWin = saved.lastTradeWasWin ?? null;
                         a.forceRecoverDirection = saved.forceRecoverDirection ?? null;
                         a.recoveryStep = saved.recoveryStep || 0;
+                        a.martingaleLevel = saved.martingaleLevel || 0;
                         a.currentStake = saved.currentStake || StakeCalculator.calculate(state.capital);
+                        a.investmentRemaining = saved.investmentRemaining || CONFIG.INVESTMENT_AMOUNT;
                         a.consecutiveWins = saved.consecutiveWins || 0;
                         a.consecutiveLosses = saved.consecutiveLosses || 0;
                         a.cooldownCandles = saved.cooldownCandles || 0;
@@ -558,6 +567,7 @@ class TelegramService {
             `⏰ <b>CANDLE DIRECTION BOT v1.0 Hourly</b>`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '\u{1f7e2}' : '\u{1f534}'} $${h.pnl.toFixed(2)}`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
+            `Loss Stats: x2:${today.x2Losses || 0} x3:${today.x3Losses || 0} x4:${today.x4Losses || 0} x5:${today.x5Losses || 0} x6:${today.x6Losses || 0} x7:${today.x7Losses || 0} x8:${today.x8Losses || 0} x9:${today.x9Losses || 0}`,
             `Capital: $${state.capital.toFixed(2)}`,
             TradingSessionManager.getStatusString(),
             assetInfo ? `\n<b>Per-Asset:</b>${assetInfo}` : '',
@@ -606,8 +616,8 @@ class TelegramService {
             `\u{1f916} <b>CANDLE DIRECTION BOT v1.0 STARTED</b>`,
             `Strategy: Candle Direction + Normal Trading Mode`,
             `Candle Period: ${CONFIG.CANDLE_PERIOD} | Overbought: ${CONFIG.CANDLE_OVERBOUGHT} | Oversold: ${CONFIG.CANDLE_OVERSOLD}`,
-            `Risk: ${CONFIG.BASE_RISK_PERCENT_PER_TRADE}%/trade (cap ${CONFIG.MAX_RISK_PCT}%)`,
-            `Recovery: ${CONFIG.RECOVERY_ENABLED ? `single capped step (×${CONFIG.RECOVERY_MULTIPLIER})` : 'Disabled'} — no martingale`,
+            `Risk: Martingale progression with cap $${CONFIG.INVESTMENT_AMOUNT}`,
+            `Recovery: ${CONFIG.AFTER_MAX_LOSS === 'continue' ? 'Continue after max loss using extra levels' : 'Reset on max loss'}`,
             `Capital: $${state.capital.toFixed(2)}`,
             TradingSessionManager.getStatusString(),
             ``,
@@ -670,12 +680,6 @@ class SessionManager {
         }
 
         const today = TradeHistoryManager.getTodayStats();
-        if (today.netPL <= CONFIG.DAILY_STOP_LOSS) {
-            LOGGER.error(`Daily stop-loss reached: $${(today?.netPL || 0).toFixed(2)}`);
-            this.endSession('DAILY_STOP_LOSS');
-            return true;
-        }
-
         return false;
     }
 
@@ -729,11 +733,14 @@ class SessionManager {
         });
     }
 
-    static recordTradeResult(symbol, profit, direction) {
+    static recordTradeResult(symbol, profit, direction, stake) {
         const a = state.assets[symbol];
         if (!a) return;
 
         this.checkDayChange();
+
+        // Credit stake + profit back to rolling pool (stake deducted on open, so return full payout)
+        state.capital = Number((state.capital + stake + profit).toFixed(2));
 
         const hour = new Date().getUTCHours();
         if (hour !== state.hourlyStats.lastHour) {
@@ -757,8 +764,9 @@ class SessionManager {
             a.consecutiveWins++;
             a.consecutiveLosses = 0;
             a.recoveryStep = 0;
+            a.martingaleLevel = 0;
             a.cooldownCandles = 0;
-            a.currentStake = StakeCalculator.calculate(state.capital);
+            a.currentStake = StakeCalculator.calculate(state.capital, 0);
             a.lastTradeWasWin = true;
             a.forceRecoverDirection = null;  // win exits forced recovery mode
 
@@ -777,6 +785,7 @@ class SessionManager {
             a.consecutiveWins = 0;
             a.lastTradeWasWin = false;
             a.forceRecoverDirection = a.lastTradeDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+            a.martingaleLevel = (a.martingaleLevel || 0) + 1;
 
             // Pause normal mode during recovery
             if (a.normalModeActive) {
@@ -784,31 +793,31 @@ class SessionManager {
                 LOGGER.recovery(`[${symbol}] Normal mode PAUSED for recovery`);
             }
 
-            if (a.recoveryStep < CONFIG.MAX_RECOVERY_STEPS) {
-                a.recoveryStep++;
-            } else {
-                a.recoveryStep = 0;
+            if (a.martingaleLevel >= 2 && a.martingaleLevel <= 9) {
+                const key = `x${a.martingaleLevel}Losses`;
+                state.session[key]++;
+                a[key]++;
             }
 
-            a.currentStake = StakeCalculator.calculate(state.capital, a.recoveryStep);
+            a.currentStake = StakeCalculator.calculate(state.capital, a.martingaleLevel);
 
-            if (a.consecutiveLosses >= CONFIG.MAX_CONSECUTIVE_LOSSES) {
-                a.currentStake = CONFIG.MIN_STAKE;
+            if (a.consecutiveLosses >= 10) {
+                a.currentStake = CONFIG.INITIAL_STAKE;
                 a.cooldownCandles = CONFIG.COOLDOWN_CANDLES;
                 a.forceRecoverDirection = null;
-                LOGGER.warn(`[${symbol}] ${CONFIG.MAX_CONSECUTIVE_LOSSES} consecutive losses — cooling down for ${CONFIG.COOLDOWN_CANDLES} candles`);
+                LOGGER.warn(`[${symbol}] 10 consecutive losses — cooling down for ${CONFIG.COOLDOWN_CANDLES} candles`);
                 TelegramService.sendMessage(
                     `❄️ <b>[${symbol}] CANDLE DIRECTION BOT COOL-DOWN ACTIVATED</b>\n` +
-                    `${CONFIG.MAX_CONSECUTIVE_LOSSES} consecutive losses\n` +
+                    `10 consecutive losses\n` +
                     `Pausing for ${CONFIG.COOLDOWN_CANDLES} candles\n` +
                     `Capital: $${state.capital.toFixed(2)}`
                 );
             }
 
-            LOGGER.trade(`LOSS [${symbol}] -$${Math.abs(profit || 0).toFixed(2)} | ${direction} | Next Stake: $${(a.currentStake || 0).toFixed(2)} (recoup=${a.recoveryStep})`);
+            LOGGER.trade(`LOSS [${symbol}] -$${Math.abs(profit || 0).toFixed(2)} | ${direction} | Next Stake: $${(a.currentStake || 0).toFixed(2)} (martingale=${a.martingaleLevel})`);
         }
 
-        TradeHistoryManager.recordTrade(symbol, profit, a.recoveryStep);
+        TradeHistoryManager.recordTrade(symbol, profit, a.martingaleLevel);
     }
 }
 
@@ -817,13 +826,15 @@ class SessionManager {
 // ============================================================
 const state = {
     assets: {},
-    capital: CONFIG.INITIAL_CAPITAL,
+    capital: CONFIG.INVESTMENT_AMOUNT,
     accountBalance: 0,
     currentTradeDay: null,
     session: {
         profit: 0, loss: 0, netPL: 0,
         tradesCount: 0, winsCount: 0, lossesCount: 0,
-        isActive: true, startTime: Date.now(), startCapital: CONFIG.INITIAL_CAPITAL,
+        x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0,
+        x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0,
+        isActive: true, startTime: Date.now(), startCapital: CONFIG.INVESTMENT_AMOUNT,
     },
     isConnected: false,
     isAuthorized: false,
@@ -1009,6 +1020,9 @@ class ConnectionManager {
                     forceRecoverDirection: null,
                     recoveryStep: 0,
                     currentStake: StakeCalculator.calculate(state.capital),
+                    martingaleLevel: 0,
+                    recoveryStep: 0,
+                    investmentRemaining: CONFIG.INVESTMENT_AMOUNT,
                     canTrade: false,
                     consecutiveWins: 0,
                     consecutiveLosses: 0,
@@ -1200,7 +1214,7 @@ class ConnectionManager {
         const pos = a.activePositions[posIdx];
         const profit = Number(contract.profit);
 
-        SessionManager.recordTradeResult(ownerSym, profit, pos.direction);
+        SessionManager.recordTradeResult(ownerSym, profit, pos.direction, pos.stake);
         a.canTrade = true;
 
         TelegramService.sendTradeAlert(
@@ -1432,7 +1446,7 @@ class IndexBot {
         console.log('═'.repeat(74));
         console.log(`Assets    : ${CONFIG.ACTIVE_ASSETS.join(', ')}`);
         console.log(`Timeframe : ${CONFIG.TIMEFRAME_LABEL} candles | Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT}`);
-        console.log(`Risk      : cap ${CONFIG.MAX_RISK_PCT}% | Recoup: 1 step ×${CONFIG.RECOVERY_MULTIPLIER} (no martingale)`);
+        console.log(`Risk      : Martingale level progression with cap $${CONFIG.INVESTMENT_AMOUNT}`);
         console.log(`Capital   : $${state.capital.toFixed(2)}`);
         console.log(`Sessions  : ${TradingSessionManager.getStatusString()}`);
         console.log('═'.repeat(74) + '\n');
@@ -1480,7 +1494,7 @@ class IndexBot {
     // CORE TRADE LOGIC — called on every candle close (FIXED)
     //
     // PRIORITY ORDER:
-    //   1. RECOVERY mode — forced trade after loss (retained from v3)
+    //   1. MARTINGALE recovery after loss
     //   2. NORMAL mode — trade candle direction for N trades
     // ════════════════════════════════════════════════════════
     processNewCandle(symbol, lastClosedCandle) {
@@ -1539,10 +1553,10 @@ class IndexBot {
             return;
         }
 
-        // ── Only trade the asset that is in recovery; skip all others ──
+        // ── Only trade the asset that is in martingale recovery; skip all others ──
         const recoveringAsset = CONFIG.ACTIVE_ASSETS.find(s => state.assets[s]?.forceRecoverDirection);
         if (recoveringAsset && recoveringAsset !== symbol) {
-            LOGGER.debug(`[${symbol}] Skipping — ${recoveringAsset} is in forced recovery`);
+            LOGGER.debug(`[${symbol}] Skipping — ${recoveringAsset} is in martingale recovery`);
             return;
         }
 
@@ -1684,6 +1698,10 @@ class IndexBot {
     _executeBuy(symbol, direction, stake, signalInfo = {}) {
         this._tradeLocked = true;
         state.assets[symbol].canTrade = false;
+
+        // Deduct stake from rolling investment pool (reference bot behavior)
+        state.assets[symbol].investmentRemaining = Number((state.assets[symbol].investmentRemaining - stake).toFixed(2));
+        state.capital = Number((state.capital - stake).toFixed(2));
 
         const pos = {
             symbol, direction, stake,
