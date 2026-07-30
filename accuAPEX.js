@@ -142,7 +142,7 @@ const CONFIG = Object.freeze({
   // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
 
-  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ─ Telegram ─
@@ -177,7 +177,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_apex_bot_04.log',
+  logFile : 'deriv_apex_bot_06.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -279,14 +279,14 @@ const CONFIG = Object.freeze({
   //   Max entries per post-spike window per asset. After a spike fires,
   //   the bot has a limited exploitable window. Re-entering too many
   //   times in the same window increases exposure to the next spike.
-  maxEntriesPerSpikeWindow : parseInt('3', 10),
+  maxEntriesPerSpikeWindow : parseInt('2', 10),
 
   //   Cooldown after a loss on a specific asset (ms). Prevents
   //   re-entering the same asset immediately after a loss.
   assetLossCooldownMs      : parseInt('120000', 10),  // 2 minutes
 
   //   After N consecutive losses on one asset, pause that asset entirely.
-  assetMaxConsecutiveLosses: parseInt('3', 10),
+  assetMaxConsecutiveLosses: parseInt('5', 10),
 
   //   How long to pause an asset after hitting consecutive loss limit (ms).
   assetPauseDurationMs     : parseInt('600000', 10),  // 10 minutes
@@ -376,7 +376,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_apex_bot_state_04.json',
+  stateFile          : 'deriv_apex_bot_state_06.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
 
@@ -768,7 +768,7 @@ class DerivClient extends EventEmitter {
     }
   }
 
-  _onDisconnected(code, reason, wasAuthorized) {
+  async _onDisconnected(code, reason, wasAuthorized) {
     this._clearWatchdogTimers();
     this._clearPauseTimers();
     telegram.send(
@@ -778,6 +778,10 @@ class DerivClient extends EventEmitter {
       `reconnecting…`,
     );
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
+    if (this.exec) {
+      this.exec.open.clear();
+      await this.exec.cleanupAllSubscriptions().catch(() => {});
+    }
   }
 
   _scheduleSummaries() {
@@ -1590,69 +1594,67 @@ class DerivClient extends EventEmitter {
       `Loss streak: current ${this.stats.currentLossStreak}, x2=${this.stats.lossStreakEvents.x2}, x3=${this.stats.lossStreakEvents.x3}, x4=${this.stats.lossStreakEvents.x4}`,
     );
 
-    Promise.allSettled([
+    const startupResults = await Promise.allSettled([
       this.market.loadSymbols(),
       this.market.bootstrap(this.cfg.assets),
       this._refreshBarriers(),
-    ]).then(async (results) => {
-      for (const result of results) {
-        if (result.status === 'rejected') {
-          logger.warn('startup/resume task failed:', result.reason?.message || result.reason);
-        }
+    ]);
+    for (const result of startupResults) {
+      if (result.status === 'rejected') {
+        logger.warn('startup/resume task failed:', result.reason?.message || result.reason);
       }
-      await this._restoreOpenTrades();
+    }
 
-      // v3: Dynamic asset discovery (if enabled)
-      if (this.cfg.autoDiscoverAssets) {
+    // v3: Dynamic asset discovery (if enabled)
+    if (this.cfg.autoDiscoverAssets) {
+      try {
+        const discovered = await this.market.discoverAccuAssets();
+        if (discovered.length > this.cfg.assets.length) {
+          const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
+          if (newAssets.length) {
+            logger.info(`v3: discovered ${newAssets.length} new assets: ${newAssets.join(', ')}`);
+            // Add to runtime asset list (mutate cfg.assets array)
+            for (const a of newAssets) {
+              if (!this.cfg.assets.includes(a)) this.cfg.assets.push(a);
+            }
+            // Bootstrap newly discovered assets (subscribe + backfill)
+            await this.market.bootstrap(newAssets);
+            // Refresh barriers for new assets too
+            await this._refreshBarriers();
+            telegram.send(
+              `<b>v3: New Assets Discovered</b>\n` +
+              `Added: ${newAssets.join(', ')}\n` +
+              `Total: ${this.cfg.assets.length} assets`,
+            );
+          }
+        }
+      } catch (e) {
+        logger.warn(`v3: asset discovery error: ${e.message}`);
+      }
+      // Schedule periodic re-discovery
+      if (this._discoveryT) clearInterval(this._discoveryT);
+      this._discoveryT = setInterval(async () => {
         try {
           const discovered = await this.market.discoverAccuAssets();
-          if (discovered.length > this.cfg.assets.length) {
-            const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
-            if (newAssets.length) {
-              logger.info(`v3: discovered ${newAssets.length} new assets: ${newAssets.join(', ')}`);
-              // Add to runtime asset list (mutate cfg.assets array)
-              for (const a of newAssets) {
-                if (!this.cfg.assets.includes(a)) this.cfg.assets.push(a);
-              }
-              // Bootstrap newly discovered assets (subscribe + backfill)
-              await this.market.bootstrap(newAssets);
-              // Refresh barriers for new assets too
-              await this._refreshBarriers();
-              telegram.send(
-                `<b>v3: New Assets Discovered</b>\n` +
-                `Added: ${newAssets.join(', ')}\n` +
-                `Total: ${this.cfg.assets.length} assets`,
-              );
-            }
+          const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
+          if (newAssets.length) {
+            for (const a of newAssets) this.cfg.assets.push(a);
+            await this.market.bootstrap(newAssets);
+            await this._refreshBarriers();
+            logger.info(`v3: periodic discovery found ${newAssets.length} new assets: ${newAssets.join(', ')}`);
           }
         } catch (e) {
-          logger.warn(`v3: asset discovery error: ${e.message}`);
+          logger.debug(`v3: periodic discovery error: ${e.message}`);
         }
-        // Schedule periodic re-discovery
-        if (this._discoveryT) clearInterval(this._discoveryT);
-        this._discoveryT = setInterval(async () => {
-          try {
-            const discovered = await this.market.discoverAccuAssets();
-            const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
-            if (newAssets.length) {
-              for (const a of newAssets) this.cfg.assets.push(a);
-              await this.market.bootstrap(newAssets);
-              await this._refreshBarriers();
-              logger.info(`v3: periodic discovery found ${newAssets.length} new assets: ${newAssets.join(', ')}`);
-            }
-          } catch (e) {
-            logger.debug(`v3: periodic discovery error: ${e.message}`);
-          }
-        }, this.cfg.discoveryIntervalMs);
-      }
+      }, this.cfg.discoveryIntervalMs);
+    }
 
-      if (this._analysisT) clearInterval(this._analysisT);
-      this._analyzeAndTrade();
-      this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
-      if (this._barrierT) clearInterval(this._barrierT);
-      this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
-      this._schedulePause();
-    });
+    if (this._analysisT) clearInterval(this._analysisT);
+    this._analyzeAndTrade();
+    this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
+    if (this._barrierT) clearInterval(this._barrierT);
+    this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
+    this._schedulePause();
   }
 
   // ── State persistence ─────────────────────────────────────
@@ -2425,6 +2427,7 @@ class TradeExecutor extends EventEmitter {
     this.open     = new Map();
     this.analyzer = null;
     this._selling = new Set();
+    this._subscriptions = new Map();
   }
 
   async buy(symbol, growthRate, stake, limit, analysis = null) {
@@ -2489,10 +2492,12 @@ class TradeExecutor extends EventEmitter {
 
       if (this.bot?.market?.cacheStays) this.bot.market.cacheStays(symbol, growthRate, cd);
 
-      await this.client.subscribe(
+      const subId = await this.client.subscribe(
         { proposal_open_contract: 1, contract_id: b.contract_id },
         msg => this._onUpdate(msg, info),
       );
+      this._subscriptions.set(b.contract_id, subId);
+      info._subscriptionId = subId;
 
       this.emit('open', info);
       return info;
@@ -2672,10 +2677,12 @@ class TradeExecutor extends EventEmitter {
         currentSpot,
       };
       this.open.delete(cid);
-      this.emit('result', finished);
-      if (msg.subscription?.id) {
-        await this.client.forget(msg.subscription.id).catch(() => {});
+      const subId = this._subscriptions.get(cid) || msg.subscription?.id;
+      if (subId) {
+        this._subscriptions.delete(cid);
+        await this.client.forget(subId).catch(() => {});
       }
+      this.emit('result', finished);
     }
   }
 
@@ -2711,7 +2718,24 @@ class TradeExecutor extends EventEmitter {
       }
       logger.error(`sell(${contractId}) failed:`, e.message);
       throw e;
+    } finally {
+      const subId = this._subscriptions.get(contractId);
+      if (subId) {
+        this._subscriptions.delete(contractId);
+        this.client.forget(subId).catch(() => {});
+      }
     }
+  }
+
+  async cleanupAllSubscriptions() {
+    const promises = [];
+    for (const [contractId, subId] of this._subscriptions) {
+      promises.push(
+        this.client.forget(subId).catch(e => logger.debug(`cleanup sub ${contractId}: ${e.message}`)),
+      );
+    }
+    await Promise.all(promises);
+    this._subscriptions.clear();
   }
 
   openTrades() { return Array.from(this.open.values()); }
