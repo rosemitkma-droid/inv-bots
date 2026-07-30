@@ -235,8 +235,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'simple3_differ_003_state.json'),
-  logFile: strEnv('LOG_FILE', 'simple3_differ_003_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'simple3_differ_005_state.json'),
+  logFile: strEnv('LOG_FILE', 'simple3_differ_005_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'SIMPLE3 INFO').toUpperCase(),
 
   // Telegram
@@ -1557,7 +1557,6 @@ class TradingBot {
     this.stopped = false;
     this.paused = false;
     this._analysisT = null;
-    this._analysisKickTimer = null;
     this._hourlyBoot = null;
     this._hourlyT = null;
     this._eodBoot = null;
@@ -1682,7 +1681,6 @@ class TradingBot {
     if (action === 'pause') {
       this.paused = true;
       logger.info(`TRADING PAUSED at ${this.cfg.pauseStartGmt} GMT until ${this.cfg.pauseEndGmt} GMT`);
-      this._triggerAnalysisSoon(1500);
       telegram.send(
         `⏸️ <b>SIMPLE DIGIT DIFFER TRADING PAUSED</b>\n\n` +
         `Scheduled pause active from <b>${htmlEscape(this.cfg.pauseStartGmt)}</b> to <b>${htmlEscape(this.cfg.pauseEndGmt)}</b> GMT.\n` +
@@ -1699,7 +1697,6 @@ class TradingBot {
     } else {
       this.paused = false;
       logger.info(`TRADING RESUMED at ${this.cfg.pauseEndGmt} GMT`);
-      this._triggerAnalysisSoon(1500);
       telegram.send(
         `▶️ <b>SIMPLE DIGIT DIFFER TRADING RESUMED</b>\n\n` +
         `Scheduled pause ended. Bot is now scanning for trades.\n\n` +
@@ -1792,38 +1789,9 @@ class TradingBot {
 
   _clearAnalysisLoop() {
     if (this._analysisT) {
-      clearTimeout(this._analysisT);
+      clearInterval(this._analysisT);
       this._analysisT = null;
     }
-    if (this._analysisKickTimer) {
-      clearTimeout(this._analysisKickTimer);
-      this._analysisKickTimer = null;
-    }
-  }
-
-  _startAnalysisLoop() {
-    this._clearAnalysisLoop();
-    const run = async () => {
-      if (this.stopped) return;
-      try {
-        await this._analyzeAndTrade();
-      } catch (e) {
-        logger.error('analysis loop error:', e.message);
-      }
-      if (!this.stopped) {
-        this._analysisT = setTimeout(run, Math.max(1000, this.cfg.analysisIntervalMs));
-      }
-    };
-    this._analysisT = setTimeout(run, Math.max(1000, this.cfg.analysisIntervalMs));
-  }
-
-  _triggerAnalysisSoon(delayMs = 1000) {
-    if (this.stopped) return;
-    if (this._analysisKickTimer) clearTimeout(this._analysisKickTimer);
-    this._analysisKickTimer = setTimeout(() => {
-      this._analysisKickTimer = null;
-      this._analyzeAndTrade().catch(e => logger.error('triggered analyze:', e.message));
-    }, delayMs);
   }
 
   async start() {
@@ -1908,17 +1876,14 @@ class TradingBot {
 
     await this.market.bootstrap(this.cfg.assets);
     this._schedulePause();
-    this._startAnalysisLoop();
-    this._triggerAnalysisSoon(1500);
+    this._clearAnalysisLoop();
+    this._analysisT = setInterval(() => this._analyzeAndTrade().catch(e => logger.error('analysis:', e.message)), this.cfg.analysisIntervalMs);
   }
 
   _onDisconnected(code, reason, wasAuthorized) {
-    telegram.send(`⚠️ <b>SIMPLE Digit Differ Bot Connection lost</b>\ncode: <code>${code}</code>\nwas authorized: ${wasAuthorized ? 'yes' : 'no'}\n🔄 reconnecting...`);
+    telegram.send(`⚠️ <b>SIMPLE DIGIT DIFFER Bot Connection lost</b>\ncode: <code>${code}</code>\nwas authorized: ${wasAuthorized ? 'yes' : 'no'}\n🔄 reconnecting...`);
     this._clearAnalysisLoop();
-    // Recover stuck trades on disconnect instead of silently clearing them
-    if (this.exec.open.size > 0) {
-      this._recoverStuckTrade('disconnect');
-    }
+    this.exec.open.clear();
   }
 
   /**
@@ -2248,7 +2213,6 @@ class TradingBot {
     }
 
     logger.warn('Lock released. Bot will continue...');
-    this._triggerAnalysisSoon(1500);
     this._saveState('stuck-trade-recovery');
   }
 
@@ -2347,7 +2311,6 @@ class TradingBot {
     );
 
     this.lastTradeAt = Date.now();
-    this._triggerAnalysisSoon(1000);
     this._saveState('after-trade');
   }
 
