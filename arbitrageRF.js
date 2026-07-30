@@ -30,9 +30,9 @@ const CONFIG = {
   ACCOUNT_TYPE: 'demo',
 
   // Capital Settings
-  INITIAL_CAPITAL: 152,
+  INITIAL_CAPITAL: 478,
   SESSION_PROFIT_TARGET: 50000,
-  SESSION_STOP_LOSS: -152,
+  SESSION_STOP_LOSS: -478,
 
   // Telegram
   TELEGRAM_ENABLED: true,
@@ -467,7 +467,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'abitrage1-02.json');
+const HISTORY_FILE = path.join(__dirname, 'abitrage1-03.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -614,7 +614,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'abitrage1-state_02.json');
+const STATE_FILE = path.join(__dirname, 'abitrage1-state_03.json');
 
 const state = {
   assets: {},
