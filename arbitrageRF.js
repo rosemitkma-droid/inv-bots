@@ -80,7 +80,7 @@ const DEFAULT_ASSET_CONFIG = {
   MAX_MARTINGALE_LEVEL: 1,
   AFTER_MAX_LOSS: 'continue',
   CONTINUE_EXTRA_LEVELS: 4,
-  EXTRA_LEVEL_MULTIPLIERS: [1, 1, 1, 1],
+  EXTRA_LEVEL_MULTIPLIERS: [4, 4, 4, 4],
 
   // Auto-Compounding
   AUTO_COMPOUNDING: true,
@@ -467,7 +467,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'abitrage1-01.json');
+const HISTORY_FILE = path.join(__dirname, 'abitrage1-02.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -614,7 +614,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'abitrage1-state_01.json');
+const STATE_FILE = path.join(__dirname, 'abitrage1-state_02.json');
 
 const state = {
   assets: {},
