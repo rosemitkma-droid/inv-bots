@@ -1494,7 +1494,8 @@ class ConnectionManager {
     // WIN:  credit full payout (stake + profit) so the pool GROWS with wins
     // LOSS: do NOT credit anything — stake stays gone so the pool SHRINKS
     if (isWin) {
-      const credit = (payout != null && payout > 0) ? payout : (stake + profit);
+      const payoutNum = (payout != null) ? Number(payout) : null;
+      const credit = (payoutNum != null && payoutNum > 0) ? payoutNum : (stake + profit);
       assetState.investmentRemaining = Number((assetState.investmentRemaining + credit).toFixed(2));
       LOGGER.trade(
         `[${symbol}] Investment pool +$${credit.toFixed(2)} (payout) → $${assetState.investmentRemaining.toFixed(2)}`
