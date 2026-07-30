@@ -204,6 +204,52 @@ function getAssetConfig(symbol) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// STAKE CALCULATOR — auto-compounding + martingale (from candlePatternRF.js)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// INVESTMENT_AMOUNT pool model:
+//   • On open:  investmentRemaining -= stake
+//   • On WIN:   investmentRemaining += payout (stake + profit)  → pool grows
+//   • On LOSS:  stake stays deducted (nothing added back)      → pool shrinks
+//   • AUTO_COMPOUNDING: baseStake = max(pool * COMPOUND_PERCENTAGE/100, INITIAL_STAKE)
+//
+class StakeCalculator {
+  static getBaseStake(symbol, investmentRemaining) {
+    const cfg = getAssetConfig(symbol);
+    if (cfg.AUTO_COMPOUNDING && investmentRemaining > 0) {
+      return Math.max(
+        Number((investmentRemaining * cfg.COMPOUND_PERCENTAGE / 100).toFixed(2)),
+        cfg.INITIAL_STAKE
+      );
+    }
+    return cfg.INITIAL_STAKE;
+  }
+
+  static calculate(symbol, martingaleLevel, investmentRemaining) {
+    const cfg = getAssetConfig(symbol);
+    const level = Math.max(0, martingaleLevel || 0);
+    let base = this.getBaseStake(symbol, investmentRemaining);
+    base = Math.max(base, cfg.INITIAL_STAKE);
+
+    let stake;
+    if (level <= cfg.MAX_MARTINGALE_LEVEL) {
+      stake = base * Math.pow(cfg.MARTINGALE_MULTIPLIER, level);
+    } else {
+      stake = base * Math.pow(cfg.MARTINGALE_MULTIPLIER, cfg.MAX_MARTINGALE_LEVEL);
+      const extraIdx = level - cfg.MAX_MARTINGALE_LEVEL - 1;
+      for (let i = 0; i <= extraIdx; i++) {
+        stake *= (cfg.EXTRA_LEVEL_MULTIPLIERS[i] || cfg.MARTINGALE_MULTIPLIER);
+      }
+    }
+
+    // Cap at remaining investment pool
+    stake = Math.min(stake, investmentRemaining > 0 ? investmentRemaining : stake);
+    stake = Math.max(cfg.INITIAL_STAKE, stake);
+    return parseFloat(stake.toFixed(2));
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // CANDLE PATTERN ANALYZER CLASS (same as original)
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -421,7 +467,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFm-multii-history003.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFm-multii-history004.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -584,7 +630,7 @@ const state = {
   },
   isConnected: false,
   isAuthorized: false,
-  hourlyStats: { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() },
+  hourlyStats: { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getUTCHours() },
   requestId: 1,
   // Time-based control
   isWinTrade: false,
@@ -674,7 +720,7 @@ class StatePersistence {
 
       LOGGER.info(`📂 Restoring state from ${ageMinutes.toFixed(1)} minutes ago`);
 
-      state.capital = savedData.capital;
+      state.capital = savedData.capital || CONFIG.INITIAL_CAPITAL;
       state.session = { ...state.session, ...savedData.session };
       state.hourlyStats = savedData.hourlyStats || state.hourlyStats;
       state.currentTradeDay = savedData.currentTradeDay || TradeHistoryManager.getDateKey();
@@ -695,7 +741,7 @@ class StatePersistence {
             asset.martingaleLevel = saved.martingaleLevel || 0;
             asset.currentStake = saved.currentStake || getAssetConfig(symbol).INITIAL_STAKE;
             asset.baseStake = saved.baseStake || getAssetConfig(symbol).INITIAL_STAKE;
-            asset.investmentRemaining = saved.investmentRemaining || getAssetConfig(symbol).INVESTMENT_AMOUNT;
+            asset.investmentRemaining = saved.investmentRemaining !== undefined ? saved.investmentRemaining : getAssetConfig(symbol).INVESTMENT_AMOUNT;
             asset.canTrade = saved.canTrade || false;
             asset.tradesCount = saved.tradesCount || 0;
             asset.winsCount = saved.winsCount || 0;
@@ -861,7 +907,7 @@ class TelegramService {
       assetInfo ? `\n<b>Per-Asset:</b>${assetInfo}` : '',
     ].join('\n'));
 
-    state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
+    state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getUTCHours() };
   }
 
   static startHourlyTimer() {
@@ -870,10 +916,7 @@ class TelegramService {
 
     const now = new Date();
     const nextHour = new Date(now);
-    nextHour.setHours(nextHour.getHours() + 1);
-    nextHour.setMinutes(0);
-    nextHour.setSeconds(0);
-    nextHour.setMilliseconds(0);
+    nextHour.setUTCHours(nextHour.getUTCHours() + 1, 0, 0, 0);
 
     const timeUntilNextHour = nextHour.getTime() - now.getTime();
 
@@ -999,7 +1042,7 @@ class SessionManager {
     s.tradesCount = 0; s.winsCount = 0; s.lossesCount = 0;
     s.profit = 0; s.loss = 0; s.netPL = 0;
     s.startTime = Date.now(); s.startCapital = state.capital;
-    state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getHours() };
+    state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getUTCHours() };
 
     ACTIVE_ASSETS.forEach(sym => {
       const a = state.assets[sym];
@@ -1377,7 +1420,18 @@ class ConnectionManager {
       }
     }
 
-    if (posIndex < 0 || !ownerSymbol) return;
+    if (posIndex < 0 || !ownerSymbol) {
+      // Retry once in case of race condition (contract settles before position registered)
+      if (!response._contractMatchRetry) {
+        response._contractMatchRetry = true;
+        LOGGER.warn(`Contract ${contractId} settled but position not found — retrying in 500ms`);
+        setTimeout(() => this.handleOpenContract(response), 500);
+        return;
+      }
+      LOGGER.warn(`Contract ${contractId} settled but position still not found after retry — releasing trade lock`);
+      bot._forceReleaseTradeLock();
+      return;
+    }
 
     const assetState = state.assets[ownerSymbol];
     const position = assetState.activePositions[posIndex];
@@ -1396,7 +1450,7 @@ class ConnectionManager {
       LOGGER.trade(`[${ownerSymbol}] Contract ${contractId} closed: ${isWin ? 'WIN' : 'LOSS'} $${profit.toFixed(2)}`);
 
       // Record result
-      this.recordTradeResult(ownerSymbol, profit, position.direction, position.stake);
+      this.recordTradeResult(ownerSymbol, profit, position.direction, position.stake, contract.payout);
 
       TelegramService.sendTradeAlert(isWin ? 'WIN' : 'LOSS', ownerSymbol, position.direction, position.stake, `${position.duration}${position.durationUnit}`, { profit });
 
@@ -1417,7 +1471,7 @@ class ConnectionManager {
     }
   }
 
-  recordTradeResult(symbol, profit, direction, stake) {
+  recordTradeResult(symbol, profit, direction, stake, payout = null) {
     const assetState = state.assets[symbol];
     if (!assetState) return;
 
@@ -1427,12 +1481,30 @@ class ConnectionManager {
     // Clear watchdog FIRST
     bot._clearAllWatchdogTimers();
 
+    const cfg = getAssetConfig(symbol);
     const isWin = profit > 0;
     state.isWinTrade = isWin;
-    // Return stake + profit to capital (stake was deducted on open, profit is the payout)
+
+    // ── Capital: stake was deducted on open; credit stake + profit back ──
+    // Net capital change = profit (win grows capital, loss shrinks it)
     state.capital = Number((state.capital + stake + profit).toFixed(2));
-    // Restore stake to investmentRemaining (was deducted on open, now returned on close)
-    assetState.investmentRemaining = Number((assetState.investmentRemaining + stake).toFixed(2));
+
+    // ── Investment pool (INVESTMENT_AMOUNT) — match candlePatternRF.js ──
+    // Stake was already deducted on open.
+    // WIN:  credit full payout (stake + profit) so the pool GROWS with wins
+    // LOSS: do NOT credit anything — stake stays gone so the pool SHRINKS
+    if (isWin) {
+      const credit = (payout != null && payout > 0) ? payout : (stake + profit);
+      assetState.investmentRemaining = Number((assetState.investmentRemaining + credit).toFixed(2));
+      LOGGER.trade(
+        `[${symbol}] Investment pool +$${credit.toFixed(2)} (payout) → $${assetState.investmentRemaining.toFixed(2)}`
+      );
+    } else {
+      // Loss: stake already removed on open — pool correctly reduced
+      LOGGER.trade(
+        `[${symbol}] Investment pool unchanged on loss (stake already deducted) → $${assetState.investmentRemaining.toFixed(2)}`
+      );
+    }
 
     // Global session
     state.session.tradesCount++;
@@ -1446,13 +1518,21 @@ class ConnectionManager {
     state.session.netPL += profit;
 
     // Track consecutive loss stats in session and assetState
-    if (!isWin && assetState.martingaleLevel >= 2 && assetState.martingaleLevel <= 9) {
-      const key = `x${assetState.martingaleLevel}Losses`;
-      state.session[key]++;
-      assetState[key]++;
+    // (use level BEFORE increment so x2/x3 stats map to the level that just lost)
+    if (!isWin && assetState.martingaleLevel >= 1 && assetState.martingaleLevel <= 8) {
+      const nextLevel = assetState.martingaleLevel + 1;
+      if (nextLevel >= 2 && nextLevel <= 9) {
+        const key = `x${nextLevel}Losses`;
+        state.session[key] = (state.session[key] || 0) + 1;
+        assetState[key] = (assetState[key] || 0) + 1;
+      }
     }
 
-    // Hourly stats
+    // Hourly stats — roll over on hour change (UTC, matches reference bot)
+    const hour = new Date().getUTCHours();
+    if (hour !== state.hourlyStats.lastHour) {
+      state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: hour };
+    }
     state.hourlyStats.trades++;
     state.hourlyStats.pnl += profit;
     if (isWin) state.hourlyStats.wins++; else state.hourlyStats.losses++;
@@ -1465,43 +1545,54 @@ class ConnectionManager {
       assetState.netPL += profit;
       assetState.martingaleLevel = 0;
       assetState.lastTradeWasWin = true;
-      assetState.currentStake = assetState.baseStake;
+
+      // Auto-compound: grow base stake from the enlarged investment pool
+      assetState.baseStake = StakeCalculator.getBaseStake(symbol, assetState.investmentRemaining);
+      assetState.currentStake = StakeCalculator.calculate(symbol, 0, assetState.investmentRemaining);
+
       // Exit recovery mode on win
       if (assetState.isRecovery) {
         assetState.isRecovery = false;
         LOGGER.info(`[${symbol}] Recovery mode EXITED - Win achieved`);
       }
+
+      LOGGER.trade(
+        `WIN [${symbol}] +$${profit.toFixed(2)} | Pool: $${assetState.investmentRemaining.toFixed(2)} | ` +
+        `Base: $${assetState.baseStake.toFixed(2)} | Next stake: $${assetState.currentStake.toFixed(2)}`
+      );
     } else {
       assetState.lossesCount++;
       assetState.loss += Math.abs(profit);
       assetState.netPL += profit;
       assetState.martingaleLevel++;
       assetState.lastTradeWasWin = false;
+
       // Enter recovery mode on loss (if recovery strategy is enabled)
       if (CONFIG.USE_RECOVERY_STRATEGY) {
         assetState.isRecovery = true;
         LOGGER.info(`[${symbol}] Recovery mode ENTERED - Will trade ${direction} on next candle without analysis`);
       }
 
-      // Calculate next stake
-      const cfg = getAssetConfig(symbol);
-      if (assetState.martingaleLevel <= cfg.MAX_MARTINGALE_LEVEL) {
-        assetState.currentStake = Number((assetState.baseStake * Math.pow(cfg.MARTINGALE_MULTIPLIER, assetState.martingaleLevel)).toFixed(2));
-      } else {
-        let stake = assetState.baseStake * Math.pow(cfg.MARTINGALE_MULTIPLIER, cfg.MAX_MARTINGALE_LEVEL);
-        const extraIdx = assetState.martingaleLevel - cfg.MAX_MARTINGALE_LEVEL - 1;
-        for (let i = 0; i <= extraIdx; i++) {
-          stake *= (cfg.EXTRA_LEVEL_MULTIPLIERS[i] || cfg.MARTINGALE_MULTIPLIER);
-        }
-        assetState.currentStake = Number(stake.toFixed(2));
+      // Recalculate next martingale stake from current pool / base
+      if (cfg.AUTO_COMPOUNDING) {
+        assetState.baseStake = StakeCalculator.getBaseStake(symbol, assetState.investmentRemaining);
       }
+      assetState.currentStake = StakeCalculator.calculate(
+        symbol, assetState.martingaleLevel, assetState.investmentRemaining
+      );
 
       if (assetState.martingaleLevel >= cfg.MAX_MARTINGALE_LEVEL + cfg.CONTINUE_EXTRA_LEVELS) {
         LOGGER.warn(`⚠️ [${symbol}] Max martingale reached, resetting`);
         assetState.martingaleLevel = 0;
-        assetState.currentStake = cfg.INITIAL_STAKE;
+        assetState.baseStake = StakeCalculator.getBaseStake(symbol, assetState.investmentRemaining);
+        assetState.currentStake = StakeCalculator.calculate(symbol, 0, assetState.investmentRemaining);
         assetState.isRecovery = false;
       }
+
+      LOGGER.trade(
+        `LOSS [${symbol}] -$${Math.abs(profit).toFixed(2)} | Pool: $${assetState.investmentRemaining.toFixed(2)} | ` +
+        `Next stake: $${assetState.currentStake.toFixed(2)} (martingale=${assetState.martingaleLevel})`
+      );
     }
 
     TradeHistoryManager.recordTrade(symbol, profit, assetState.martingaleLevel);
@@ -2012,6 +2103,15 @@ class DerivPatternBot {
     }, 2000);
   }
 
+  _countActivePositions() {
+    let count = 0;
+    ACTIVE_ASSETS.forEach(sym => {
+      const a = state.assets[sym];
+      if (a && a.activePositions) count += a.activePositions.length;
+    });
+    return count;
+  }
+
   getStatus() {
     let assetLines = '';
     ACTIVE_ASSETS.forEach(symbol => {
@@ -2093,6 +2193,19 @@ class DerivPatternBot {
       clearTimeout(state.tradeWatchdogPollTimer);
       state.tradeWatchdogPollTimer = null;
     }
+  }
+
+  _forceReleaseTradeLock() {
+    this._clearAllWatchdogTimers();
+    state.tradeInProgress = false;
+    state.currentContractId = null;
+    state.tradeStartTime = null;
+    state.pendingTradeInfo = null;
+    ACTIVE_ASSETS.forEach(sym => {
+      const a = state.assets[sym];
+      if (a) a.canTrade = true;
+    });
+    LOGGER.warn('🔓 Trade lock force-released');
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -2188,6 +2301,19 @@ bot.connection.connect();
 // Status display every 60 seconds
 setInterval(() => {
   if (!state.isAuthorized) return;
+
+  // Safety checks (from reference bot)
+  if (state.currentContractId && state.tradeStartTime) {
+    const elapsed = Date.now() - state.tradeStartTime;
+    if (elapsed > 420000) {
+      LOGGER.error(`🚨 SAFETY: Trade stuck ${Math.round(elapsed / 1000)}s — forcing recovery`);
+      bot._recoverStuckTrade('safety-timeout');
+    }
+  }
+  if (state.tradeInProgress && bot._countActivePositions() === 0) {
+    LOGGER.warn('🔓 Trade lock stuck with no open positions — auto-releasing');
+    bot._forceReleaseTradeLock();
+  }
 
   const status = bot.getStatus();
   const overall = TradeHistoryManager.getOverallStats();
