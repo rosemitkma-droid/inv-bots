@@ -8,13 +8,13 @@
  *
  *  Multi-asset Deriv Accumulator trading bot.
  *
- *  ─ CORE STRATEGY: APEX (analysis + execution ported from accuAPEX.js) ─
- *  A Deriv Accumulator's barrier is recomputed every tick around the
+ *  ─ CORE STRATEGY: APEX (Asymmetric Post-spike EXploit) ─
+ *  A Deriv Accumulator's barrier is recomputed EVERY tick around the
  *  PREVIOUS spot, so a knockout happens when a *single* tick's move
  *  exceeds the ± barrier — it is NOT cumulative drift from entry.
  *  Per-tick survival is P(|one-tick return| < barrier), and K-tick
- *  survival is that raised to the K-th power. APEX exploits two
- *  observations:
+ *  survival is that raised to the K-th power (approx. iid). APEX
+ *  exploits two observations:
  *
  *    • BOOM / CRASH indices are bimodal: tiny orderly drift punctuated
  *      by rare large spikes. The ONLY real knockout is a spike, and its
@@ -34,15 +34,14 @@
  *  Stake sizing is adaptive + v3 per-asset risk management.
  *
  *  ─ INFRASTRUCTURE ─
- *  Scaffolded from: liveMultiAccum.js, accuAgent.js, AccuPULSE2b (ARCA).
- *  API Token, Telegram credentials retained from reference bots.
- *  PAT/OAuth REST→WS auth flow retained from accuAgent.js.
+ *  Trading system (analysis + execution) ported from accuAPEX.js into
+ *  the AccuPULSE2b framework, which is kept verbatim: WS/REST client,
+ *  PAT/OAuth auth, Telegram, stats, state persistence, GMT summaries,
+ *  scheduled pause/resume and day-of-week filters.
  *
  *  Author: Cowork 3P  |  License: MIT
  * =====================================================================
  */
-
-'use strict';
 
 // ═══════════════════════════════════════════════════════════════════════
 // 0. DEPENDENCIES
@@ -83,31 +82,33 @@ const CONFIG = Object.freeze({
   // ── Deriv API ──
   // apiToken  : ('0P94g4WdSrSrzir').trim(),   // retained from reference
   // appId     : '1089',
-  apiToken:    'pat_27a3197287bae3ec6c2c9cbdd68fffaa2a524e3b0a6e1ecf298b5ffb338adb10',
+  apiToken:    'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
   appId:       '33uslPtthXBEkQOdfKfoY',
   wsUrl     : 'wss://ws.derivws.com/websockets/v3',
   currency  : 'USD',
   accountType: 'demo',    // 'demo' | 'real'
 
   // ── Trade parameters ──
-  stake           : parseFloat('5.0'),
-  growthRate      : parseFloat('0.05'),    // 5% base growth rate
-  stopLoss        : parseFloat('100.0'),   // hard $ stop per contract
-  takeProfit      : parseFloat('5000.0'),   // session take-profit
+  stake          : parseFloat('5.0'),
+  multiplier     : parseFloat('0.04'), // legacy hint
+  multiplierStep : parseFloat('0.0'),
+  stopLoss       : parseFloat('900.0'),   // hard $ stop per contract
+  takeProfit     : parseFloat('10000.0'), // session take-profit
 
-  // ── APEX smart position sizing (v3, replaces anti-martingale) ──
-  sizingModeV3         : 'adaptive',  // 'flat'|'adaptive'|'kelly'
-  lossStakeReduction   : parseFloat('0.70'),  // stake × 0.70 after each loss
-  winStakeRecovery     : parseFloat('1.15'),  // stake × 1.15 after each win
-  minStakeFraction     : parseFloat('0.25'),  // never go below 25% of base
-  maxStakeFraction     : parseFloat('2.50'),  // never exceed 250% of base
-  kellyFraction        : parseFloat('0.20'),
+  // ── Martingale (off by default — APEX uses adaptive sizing instead) ──
+  martingale:            parseFloat('0'),   // 0 = off
+  martingaleStep:        parseFloat('9'),
+  lossesBeforeMartingale:parseInt  ('0'),
+  maxMartingaleStep:     parseFloat('900'),
 
-  // ── Assets ──
-  // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
-  //   .split(',').map(s => s.trim()).filter(Boolean),
+  // ── Sizing (legacy 'edge' mode) ──
+  sizingMode:        'flat',            // 'flat' | 'edge'
+  edgeScaleMax:      parseFloat('2.0'),
+  edgeScaleEdgeRef:  parseFloat('0.05'),
+  downscaleAfterLoss:false,
 
-  assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  // ── Assets (Deriv synthetic indices) ──
+  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Telegram (retained) ──
@@ -117,68 +118,120 @@ const CONFIG = Object.freeze({
     chatId  : '752497117',
   },
 
-  // ── Strategy: APEX tunables ──
-  tickWindow          : parseInt('500', 10),
-  minTicksForAnalysis : parseInt('200', 10),
-  analysisIntervalMs  : parseInt('8000', 10),
-  tradeCooldownMs     : parseInt('5000', 10),
-  maxOpenTrades       : parseInt('1', 10),
+  // ── Strategy timing ──
+  tickWindow          : parseInt('200',   10),
+  minTicksForAnalysis : parseInt('80',    10),
+  analysisIntervalMs  : parseInt('15000', 10),
+  tradeCooldownMs     : parseInt('4000',  10),
+  maxOpenTrades       : parseInt('1',     10),
 
-  // ── APEX engine: conditional-volatility bimodal survival ──
-  apexHistoryWindow    : parseInt('6000', 10),  // depth so spike cadence is measurable
-  apexEwmaFast         : parseFloat('0.30'),    // fast EWMA-σ weight (recent)
-  apexEwmaSlow         : parseFloat('0.03'),    // slow EWMA-σ weight (baseline)
-  apexSpikeK           : parseFloat('5.0'),     // |log-return| ≥ K×MAD = spike
-  apexMinSpikesSeen    : parseInt('2', 10),     // need ≥2 spikes to trust cadence
+  // ── PULSE-COMPAT TUNABLES (shared helpers) ──
+  pulseReturnWindow   : parseInt('120',   10),
+  pulseHorizon        : parseInt('20',    10),
+  pulseTrials         : parseInt('10000', 10),
+  pulseMinTrials      : parseInt('4000',  10),
 
-  // ── Post-spike entry (Boom/Crash) ──
+  // ── EV gates ──
+  pulseEdgeThreshold  : parseFloat('0.985'), //1.005 //1.015
+  pulseMinEV          : parseFloat('0.005'),   //0.015
+  pulseMinSurvival    : parseFloat('0.93'),   //0.985
+  pulseMaxHorizon     : parseInt  ('6', 10),
+
+  // ── Growth-rate candidates (Deriv supports 0.01-0.05) ──
+  pulseGrowthRates    : [0.05, 0.04, 0.03], // eval multiple rates, let EV pick best
+
+  // ── Volatility regime ──
+  pulseCalmMaxRatio   : parseFloat('1.05'),
+  pulseStormyMinRatio : parseFloat('1.20'),
+
+  // ── Spread model ──
+  pulseSpreadCost     : parseFloat('0.002'),
+
+  // ═══════════════════════════════════════════════════════════════════
+  // APEX STRATEGY TUNABLES  (engine ported from accuAPEX.js)
+  // ═══════════════════════════════════════════════════════════════════
+  //   History depth. Spike cadence can only be measured if the analysis
+  //   window spans SEVERAL spike intervals. Boom/Crash 1000 spikes every
+  //   ~1000 ticks, so we keep ≥6000 ticks so ≥2 spikes are almost always
+  //   in view. This is the single most important APEX tunable.
+  apexHistoryWindow   : parseInt('6000', 10),
+
+  //   Robust scale + spike model.
+  apexScaleWindow     : parseInt('150', 10),   // ticks for MAD robust scale
+  apexEwmaFast        : parseFloat('0.30'),     // fast EWMA-σ weight (recent)
+  apexEwmaSlow        : parseFloat('0.03'),     // slow EWMA-σ weight (baseline)
+
+  // ── Spike detection ──
+  apexSpikeK          : parseFloat('5.0'),
+  apexMinSpikesSeen   : parseInt('2', 10),      // need ≥2 spikes to trust cadence
+
+  // ── Post-spike entry window (Boom/Crash) ──
   apexPostSpikeMin        : parseInt('1', 10),
-  apexPostSpikeWindowFrac : parseFloat('0.35'),  // fraction of mean cadence
-  apexMinSpikeSurvival    : parseFloat('0.80'),  // hold-period-aware survival floor
+  apexPostSpikeWindowFrac : parseFloat('0.35'), // fraction of mean cadence
+  apexMaxHazard           : parseFloat('0.010'), // legacy (superseded by apexMinSpikeSurvival)
+  // v3: Hold-period-aware spike survival.
+  apexMinSpikeSurvival    : parseFloat('0.80'), //0.50
 
-  // ── Vol-compression entry (Volatility / Jump) ──
+  // ── Vol-compression entry (Volatility / Jump indices) ──
   apexVolCompressRatio : parseFloat('0.90'),
   apexBarrierSafety    : parseFloat('3.2'),
 
-  // ── Survival / EV requirements ──
-  apexMinSurvival      : parseFloat('0.90'),
-  apexMinEV            : parseFloat('0.010'),
-  apexMaxHoldBoom      : parseInt('4', 10),
-  apexMaxHoldVol       : parseInt('4', 10),
+  // ── Survival / EV requirements (per-class overrides of pulse* gates) ──
+  apexMinSurvival     : parseFloat('0.90'),  // forward K-tick survival floor
+  apexMinEV           : parseFloat('0.010'), // ≥ +1% net EV to fire
+  apexMaxHoldBoom     : parseInt('7',  10),  // Boom/Crash hold cap (ticks)
+  apexMaxHoldVol      : parseInt('7',  10),  // Vol/Jump hold cap (ticks)
 
-  // ── APEX adaptive exit ──
-  apexExitHazard       : parseFloat('0.020'),
-  apexExitDriftFrac    : parseFloat('0.55'),
-  apexProfitLockFrac   : parseFloat('0.60'),
+  // ── Adaptive-exit (APEX) ──
+  apexExitHazard      : parseFloat('0.020'),
+  apexExitDriftFrac   : parseFloat('0.55'),
+  apexProfitLockFrac  : parseFloat('0.60'),  // lock ≥60% of expected remaining
   apexMinProfitLockFrac: parseFloat('0.004'),
 
-  // ── PULSE-compat gates ──
-  pulseGrowthRates     : [0.05, 0.04, 0.03],
-  pulseEdgeThreshold   : parseFloat('0.985'),
-  pulseMinEV           : parseFloat('0.005'),
-  pulseMinSurvival     : parseFloat('0.93'),
-  pulseSpreadCost      : parseFloat('0.002'),
+  // ── Legacy adaptive early-exit tuning (kept from accuAPEX.js) ──
+  pulseExitProfitLockFrac : parseFloat('0.55'),
+  pulseExitDriftFrac      : parseFloat('0.50'),
+  pulseExitNextTickEdge   : parseFloat('1.00'),
+  pulseMinProfitLockFrac  : parseFloat('0.003'),
 
-  // ── v3: Per-asset risk management ──
-  maxEntriesPerSpikeWindow : parseInt('2', 10),
+  // ═══════════════════════════════════════════════════════════════════
+  // v3: PER-ASSET RISK MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════════
+  maxEntriesPerSpikeWindow : parseInt('1', 10),
   assetLossCooldownMs      : parseInt('120000', 10),  // 2 minutes
-  assetMaxConsecutiveLosses: parseInt('5', 10),
+  assetMaxConsecutiveLosses: parseInt('3', 10),
   assetPauseDurationMs     : parseInt('600000', 10),  // 10 minutes
-  minWinRateToTrade        : parseFloat('0.38'),
+  minWinRateToTrade        : parseFloat('0.38'),  // 38%
   rollingWindowSize        : parseInt('15', 10),
   sessionMaxDrawdown       : parseFloat('300'),
   maxAssetsTrading         : parseInt('2', 10),
-  edgeAfterLossBoost       : parseFloat('0.008'),
+  edgeAfterLossBoost       : parseFloat('0.008'),  // +0.8% edge per loss in streak
+
+  // ═══════════════════════════════════════════════════════════════════
+  // v3: DYNAMIC ASSET DISCOVERY
+  // ═══════════════════════════════════════════════════════════════════
+  autoDiscoverAssets       : true,
+  discoveryIntervalMs      : parseInt('3600000', 10),  // re-discover every hour
+  assetFamilyFilter        : ['BOOM', 'CRASH'],
+
+  //   Correlated assets to avoid trading simultaneously.
   correlatedGroups         : [
     ['BOOM1000', 'BOOM900', 'BOOM600', 'BOOM500', 'BOOM300N', 'BOOM150N', 'BOOM50'],
     ['CRASH1000', 'CRASH900', 'CRASH600', 'CRASH500', 'CRASH1300N', 'CRASH150N', 'CRASH50'],
   ],
 
-  // ── Streak circuit breaker (retained from AccuPULSE2b) ──
-  streakStopDay      : parseInt('7'),
+  // ═══════════════════════════════════════════════════════════════════
+  // v3: SMART POSITION SIZING (replaces raw martingale)
+  // ═══════════════════════════════════════════════════════════════════
+  sizingModeV3             : 'adaptive',  // 'flat'|'adaptive'|'kelly'
+  lossStakeReduction       : parseFloat('0.70'),  // stake × 0.70 after each loss
+  winStakeRecovery         : parseFloat('1.15'),  // stake × 1.15 after each win
+  minStakeFraction         : parseFloat('0.25'),  // never go below 25% of base
+  maxStakeFraction         : parseFloat('2.50'),  // never exceed 250% of base
+  kellyFraction            : parseFloat('0.20'),
 
   // ── Daily limits ──
-  dailyMaxLoss   : parseFloat('110'),
+  dailyMaxLoss   : parseFloat('500'),
   dailyMaxTrades : parseInt('2000000000'),
 
   // ── Reconnect ──
@@ -196,11 +249,11 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging ──
-  logFile : 'newAPEX_01.log',
+  logFile : 'accuPULSE2b_04.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'newAPEX_state_01.json',
+  stateFile           : 'accuPULSE2b_state_04.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -626,7 +679,7 @@ class MarketDataManager extends EventEmitter {
   }
 
   /**
-   * Deep historical backfill for the APEX engine.
+   * Deep historical backfill for the APEX engine (ported from accuAPEX.js).
    * Deriv `ticks_history` returns up to 5000 ticks per call; chain calls
    * backwards using `end` = earliest epoch − 1. Returns oldest → newest.
    */
@@ -670,6 +723,44 @@ class MarketDataManager extends EventEmitter {
     return out;
   }
 
+  /**
+   * v3: Dynamic asset discovery (ported from accuAPEX.js) — queries Deriv
+   * for all ACCU-capable synthetic indices, filters by configured families,
+   * and returns the discovered list.
+   */
+  async discoverAccuAssets() {
+    const discovered = [];
+    try {
+      const res = await this.client._send({ active_symbols: 'full' }, 20000);
+      const list = res.active_symbols || [];
+      const families = (this.cfg.assetFamilyFilter || []).map(f => f.toUpperCase());
+      for (const s of list) {
+        const key = (s.underlying_symbol || s.symbol || '').toUpperCase();
+        if (!key) continue;
+        const market = (s.market || '').toLowerCase();
+        const symbolType = (s.symbol_type || '').toLowerCase();
+        const isSynth = market === 'synthetic_index' || symbolType === 'synthetic_index';
+        if (!isSynth) continue;
+        if (families.length > 0) {
+          const matchesFamily = families.some(f => key.includes(f));
+          if (!matchesFamily) continue;
+        }
+        discovered.push(key);
+      }
+      discovered.sort((a, b) => {
+        const aBoom = a.includes('BOOM') || a.includes('CRASH') ? 0 : 1;
+        const bBoom = b.includes('BOOM') || b.includes('CRASH') ? 0 : 1;
+        return aBoom - bBoom || a.localeCompare(b);
+      });
+      logger.info(`v3: discovered ${discovered.length} ACCU-capable assets: ${discovered.join(', ')}`);
+    } catch (e) {
+      logger.warn(`v3: asset discovery failed: ${e.message} — using configured list`);
+      return this.cfg.assets.slice();
+    }
+    const merged = new Set([...this.cfg.assets, ...discovered]);
+    return [...merged];
+  }
+
   async subscribe(symbol) {
     if (this.subs.has(symbol)) return this.subs.get(symbol);
     const subId = await this.client.subscribe({ ticks: symbol }, msg => {
@@ -680,6 +771,7 @@ class MarketDataManager extends EventEmitter {
       const arr = this.history.get(symbol);
       if (arr) {
         arr.push(tick);
+        // APEX needs a deep buffer so spike cadence stays measurable.
         const cap = Math.max(this.cfg.apexHistoryWindow + 500, this.cfg.tickWindow * 8, 2000);
         // Use array replacement instead of splice to avoid O(n) operation every tick
         if (arr.length > cap) {
@@ -720,11 +812,10 @@ class MarketDataManager extends EventEmitter {
   historyFor(symbol) { return this.history.get(symbol) || []; }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// 8. APEX ANALYZER  (conditional-volatility bimodal survival engine)
-// ═══════════════════════════════════════════════════════════════════════
+// 8. APEX ANALYZER  (Conditional-volatility bimodal survival engine)
+// ─────────────────────────────────────────────────────────────────────
 //
-// KEY MODELLING CORRECTION vs the ARCA scaffold:
+// KEY MODELLING CORRECTION vs the scaffold:
 //   A Deriv Accumulator's barrier is recomputed EVERY tick around the
 //   PREVIOUS spot. A knockout therefore happens when a *single* tick's
 //   move exceeds the ± barrier — it is NOT a cumulative drift from the
@@ -834,6 +925,10 @@ class ApexAnalyzer {
     // v3: ADAPTIVE EV THRESHOLD based on asset cadence.
     // Fast-cadence assets (BOOM50, cadence~50) have tighter barriers and
     // thinner per-trade EV, but compensate with 10x more opportunities.
+    // BOOM1000: cadence~1000 → EV threshold stays at apexMinEV (0.5%)
+    // BOOM50:   cadence~50   → EV threshold drops to ~0.125%
+    // The threshold scales linearly from apexMinEV at cadence≥200 down
+    // to 25% of apexMinEV at cadence≤50.
     const adaptiveMinEV = regimeClass === 'VOL'
       ? this.cfg.apexMinEV
       : Math.max(
@@ -842,6 +937,10 @@ class ApexAnalyzer {
         );
 
     // v3: ADAPTIVE SURVIVAL THRESHOLD based on asset cadence.
+    // Fast-cadence assets (BOOM50, perTickSurv=94.56%) drop below 93%
+    // at K=2 (0.9456²=89.4%). But 89% survival over 2 ticks is fine for
+    // a fast-cadence asset with many daily opportunities. Scale the
+    // survival floor down for fast assets.
     const adaptiveMinSurvival = regimeClass === 'VOL'
       ? this.cfg.apexMinSurvival
       : Math.max(
@@ -870,6 +969,9 @@ class ApexAnalyzer {
       if (logBarrierHalf <= 0) continue;
 
       // ── 6. Per-tick survival = (1-hazard)·(1-P(calm breach)) ────────
+      //   Calm-breach probability: fraction of calm ticks whose single
+      //   move would exceed the barrier (≈0 for Boom/Crash, meaningful
+      //   for Vol indices where the barrier is only a few σ wide).
       const calmBreaches = calmReturns.reduce(
         (c, r) => c + (Math.abs(r) >= logBarrierHalf ? 1 : 0), 0);
       const pBreachCalm = calmReturns.length ? calmBreaches / calmReturns.length : 1;
@@ -886,17 +988,27 @@ class ApexAnalyzer {
       if (perTickSurv <= 0) continue;
 
       // ── 7. Class-specific entry window (the exploitable moment) ─────
+      // v3: ASSET-ADAPTIVE parameters based on detected cadence.
+      // Fast-cadence assets (BOOM50, cadence~50) get shorter holds and
+      // wider windows; slow-cadence assets (BOOM1000, cadence~1000) keep
+      // the standard settings.
       let maxHold, windowFrac;
       if (regimeClass === 'VOL') {
         maxHold    = this.cfg.apexMaxHoldVol;
         windowFrac = 1.0;  // vol compression has no spike window concept
       } else if (spikeCadence > 0) {
         // Adaptive max hold: scale with cadence (12% of cadence, min 3, max configured)
+        // BOOM50:  min(8, max(3, floor(50*0.12)))  = min(8, 6)  = 6 ticks
+        // BOOM150: min(8, max(3, floor(150*0.12))) = min(8, 18) = 8 ticks
+        // BOOM1000: min(8, max(3, floor(1000*0.12))) = min(8, 120) = 8 ticks
         maxHold = Math.min(
           this.cfg.apexMaxHoldBoom,
           Math.max(3, Math.floor(spikeCadence * 0.12)),
         );
         // Adaptive window: faster assets get a wider fraction (more opportunities)
+        // BOOM50:  min(0.50, 0.35 + 10*0.05) = min(0.50, 0.85) = 0.50 → 25 ticks
+        // BOOM150: min(0.50, 0.35 + 3.3*0.05) = min(0.50, 0.52) = 0.50 → 75 ticks
+        // BOOM1000: min(0.50, 0.35 + 0.5*0.05) = min(0.50, 0.375) = 0.375 → 375 ticks
         windowFrac = Math.min(
           0.50,
           this.cfg.apexPostSpikeWindowFrac + (500 / Math.max(spikeCadence, 50)) * 0.05,
@@ -921,6 +1033,13 @@ class ApexAnalyzer {
                              ticksSinceSpike <= windowFrac * spikeCadence;
 
         // v3: HOLD-PERIOD-AWARE hazard check (replaces fixed per-tick threshold).
+        // Instead of rejecting assets where hazard > 1% (which blocks BOOM50 at
+        // 2% even though its 8-tick hold only has ~15% spike risk), we check
+        // whether the spike survival over the actual hold duration is acceptable.
+        // spikeSurvival = (1 - hazard)^maxHold
+        // e.g. BOOM50: (1-0.02)^8 = 0.85 → 85% survival → OK
+        //      BOOM1000: (1-0.001)^8 = 0.992 → 99.2% survival → OK
+        //      Extreme: hazard=10%, hold=8: (0.9)^8 = 0.43 → REJECTED
         const spikeSurvivalHold = Math.pow(Math.max(0, 1 - hazard), maxHold);
         const hazardOK = spikeSurvivalHold >= this.cfg.apexMinSpikeSurvival;
         entryOK = cadenceKnown && freshWindow && hazardOK && !barrierEstimated;
@@ -932,6 +1051,7 @@ class ApexAnalyzer {
       }
 
       // ── 8. EV-optimal compounding horizon (closed form) ─────────────
+      //   value(K) = ((1+g)·perTickSurv)^K ; edge = value − spread.
       let bestN = 0, bestEv = -Infinity, bestEdge = 0, bestSurv = 0;
       let rawEdge = -Infinity, rawEv = -Infinity, rawN = 1, rawSurv = perTickSurv;
       for (let K = 1; K <= maxHold; K++) {
@@ -996,9 +1116,10 @@ class ApexAnalyzer {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
+
 // 9. TRADE EXECUTOR (Accumulator) — APEX adaptive early-exit
-// ═══════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
 class TradeExecutor extends EventEmitter {
   constructor(client, cfg) {
     super();
@@ -1007,7 +1128,7 @@ class TradeExecutor extends EventEmitter {
     this.open     = new Map();
     this.analyzer = null;
     this._selling = new Set();
-    this._subscriptions = new Map();
+    this._subscriptions = new Map(); // Track subscription IDs for cleanup
   }
 
   async buy(symbol, growthRate, stake, limit, analysis = null) {
@@ -1060,7 +1181,7 @@ class TradeExecutor extends EventEmitter {
         balanceAfter: parseFloat(b.balance_after ?? this.client.balance),
         ticksHeld   : 0,
         peakProfit  : 0,
-        lastBid     : null,   // track live bid_price for sells
+        lastBid     : null,   // Bug 6 — track live bid_price for sells
       };
       if (analysis && typeof analysis === 'object') info._analysis = analysis;
 
@@ -1087,7 +1208,7 @@ class TradeExecutor extends EventEmitter {
     }
   }
 
-  // ── Adaptive early-exit (APEX) ─────────────────────────────
+  // ── Adaptive early-exit ────────────────────────────────────
   _adaptiveExitDecision(info, currentProfit, currentSpot) {
     const cfg      = this.cfg;
     const analysis = info._analysis;
@@ -1123,9 +1244,13 @@ class TradeExecutor extends EventEmitter {
     const ticksHeld = info.ticksHeld ?? 0;
 
     // ── Signal A: EV-optimal horizon reached ─────────────────
+    //   We entered planning to compound bestN ticks; once we've held
+    //   that many, banking is the whole thesis — don't get greedy.
     const targetReached = ticksHeld >= (analysis.bestN ?? bestNLive);
 
     // ── Signal B: Profit-lock ────────────────────────────────
+    //   Require BOTH an absolute floor and a fraction of the still-
+    //   expected remaining upside, so we don't lock at ~$0.
     const lockFrac            = cfg.apexProfitLockFrac;
     const expectedRemaining   = stake * Math.max(bestEVLive, 0);
     const profitLockThreshold = lockFrac * expectedRemaining;
@@ -1134,6 +1259,8 @@ class TradeExecutor extends EventEmitter {
                     && currentProfit >= profitLockThreshold;
 
     // ── Signal C: Rising spike hazard (Boom/Crash core exit) ──
+    //   As ticks-since-spike grows the hazard clock re-arms; bail once
+    //   the live per-tick spike hazard exceeds the exit threshold.
     const hazardExit = hazardLive >= cfg.apexExitHazard;
 
     // ── Signal D: Holding is now EV-negative ─────────────────
@@ -1141,6 +1268,9 @@ class TradeExecutor extends EventEmitter {
     const nextTickExit = nextTickEdge < 1.0;
 
     // ── Signal E: A near-miss big tick (drift danger) ─────────
+    //   Per-tick model: look at the most recent single-tick move vs the
+    //   barrier. A tick that used a large fraction of the barrier warns
+    //   volatility is expanding — exit before the next one breaches.
     let driftExit = false, driftFrac = 0;
     const hist = ticks;
     if (hist.length >= 2) {
@@ -1199,7 +1329,7 @@ class TradeExecutor extends EventEmitter {
     const status      = c.status;
 
     // Track ticks, peak, and any live bid price we can use as a floor
-    // for sell() (mitigates unexpectedly bad fill prices on short holds).
+    // for sell() (Bug 6 mitigation).
     if (status === 'open') {
       info.ticksHeld  = (info.ticksHeld ?? 0) + 1;
       info.peakProfit = Math.max(info.peakProfit ?? 0, profit);
@@ -1258,9 +1388,13 @@ class TradeExecutor extends EventEmitter {
   }
 
   /**
-   * Sell. When we have a recent bid_price from the proposal_open_contract
-   * stream we pass a small floor (95% of that bid) so Deriv doesn't fill an
-   * order at an unexpectedly bad price on 1-2 tick holds.
+   * Sell.
+   *
+   * Bug 6 mitigation — when we have a recent bid_price from the
+   * proposal_open_contract stream we pass a small floor (95% of that
+   * bid) so Deriv doesn't fill an order at an unexpectedly bad price.
+   * Passing `price: 0` alone means "accept anything", which on 1-2
+   * tick holds can leak significant sell-side spread.
    */
   async sell(contractId, minPrice = 0, info = null) {
     try {
@@ -1285,23 +1419,18 @@ class TradeExecutor extends EventEmitter {
       }
       logger.error(`sell(${contractId}) failed:`, e.message);
       throw e;
-    } finally {
-      const subId = this._subscriptions.get(contractId);
-      if (subId) {
-        this._subscriptions.delete(contractId);
-        this.client.forget(subId).catch(() => {});
-      }
     }
   }
 
+  // Cleanup all open subscriptions
   async cleanupAllSubscriptions() {
-    const promises = [];
+    const cleanupPromises = [];
     for (const [contractId, subId] of this._subscriptions) {
-      promises.push(
-        this.client.forget(subId).catch(e => logger.debug(`cleanup sub ${contractId}: ${e.message}`)),
+      cleanupPromises.push(
+        this.client.forget(subId).catch(e => logger.debug(`cleanup sub ${contractId}:`, e.message)),
       );
     }
-    await Promise.all(promises);
+    await Promise.all(cleanupPromises);
     this._subscriptions.clear();
   }
 
@@ -1309,14 +1438,16 @@ class TradeExecutor extends EventEmitter {
   count()      { return this.open.size; }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
+
 // 9b. PER-ASSET RISK TRACKER (v3 — the "don't over-trade" brain)
-// ═══════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
 //
 // WHY THIS EXISTS:
-//   Without per-asset memory, when a post-spike window opens on BOOM1000
-//   the analyzer keeps recommending re-entries because the edge still
-//   looks positive — but each successive entry in the same window has
+//   The original APEX engine had no memory of per-asset trading history
+//   within a session. When a post-spike window opened on BOOM1000, the
+//   analyzer would keep recommending re-entries because the edge still
+//   looked positive — but each successive entry in the same window has
 //   diminishing edge and increasing exposure to the next spike. This
 //   tracker enforces hard limits on:
 //     1. Entries per spike window per asset
@@ -1600,8 +1731,9 @@ class PerAssetTracker {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════
-// 10. STATISTICS MANAGER
+// 11. STATISTICS MANAGER
 // ═══════════════════════════════════════════════════════════════════════
 const utcDateStr = (d = new Date()) => d.toISOString().slice(0, 10);
 const utcHour = (d = new Date()) => d.getUTCHours();
@@ -1675,7 +1807,7 @@ class StatisticsManager {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 11. TRADING BOT  (Main Orchestrator)
+// 12. TRADING BOT  (Main Orchestrator)
 // ═══════════════════════════════════════════════════════════════════════
 class AccuPULSE2Bot {
   constructor(cfg) {
@@ -1703,11 +1835,17 @@ class AccuPULSE2Bot {
     this._eodBoot = null;
     this._barrierT = null;
     this._tradeWatchdogTimer = null;
+    this._discoveryT = null;
     this.paused = false;
     this._pauseStartTimer = null;
     this._pauseEndTimer   = null;
     this._lastDayISODate  = null;
 
+    // ── Legacy martingale state (martingale off by default; kept for
+    //    the APEX v3Note / currentStake() fallback paths) ──
+    this.lossesStreak = 0;
+    this.martingaleMultiplier = 1.0;
+    this.currentStake2 = this.cfg.stake;
   }
 
   async start() {
@@ -1862,7 +2000,7 @@ class AccuPULSE2Bot {
       `<b>Account:</b> ${info.loginid}\n` +
       `<b>Type:</b> ${info.isVirtual ? '🟡 DEMO' : '🔴 REAL'}\n` +
       `<b>Balance:</b> ${this.startBalance.toFixed(2)} ${this.currencyStr()}\n` +
-      `<b>Assets:</b> ${this.cfg.assets.join(', ')}\n` +
+      `<b>Assets:</b> ${this.cfg.assets.length} ${this.cfg.autoDiscoverAssets ? '(auto-discover ON)' : ''}\n` +
       `<b>Stake:</b> ${this.cfg.stake}\n` +
       `<b>Growth rates:</b> ${this.cfg.pulseGrowthRates.map(g => (g*100).toFixed(0)+'%').join(', ')}\n` +
       `<b>Sizing:</b> ${this.cfg.sizingModeV3} ` +
@@ -1887,13 +2025,54 @@ class AccuPULSE2Bot {
       this.market.loadSymbols(),
       this.market.bootstrap(this.cfg.assets),
       this._refreshBarriers(),
-    ]);
+    ]).then(async () => {
+      // v3: Dynamic asset discovery (if enabled)
+      if (this.cfg.autoDiscoverAssets) {
+        try {
+          const discovered = await this.market.discoverAccuAssets();
+          if (discovered.length > this.cfg.assets.length) {
+            const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
+            if (newAssets.length) {
+              logger.info(`v3: discovered ${newAssets.length} new assets: ${newAssets.join(', ')}`);
+              for (const a of newAssets) {
+                if (!this.cfg.assets.includes(a)) this.cfg.assets.push(a);
+              }
+              await this.market.bootstrap(newAssets);
+              await this._refreshBarriers();
+              telegram.send(
+                `<b>v3: New Assets Discovered</b>\n` +
+                `Added: ${newAssets.join(', ')}\n` +
+                `Total: ${this.cfg.assets.length} assets`,
+              );
+            }
+          }
+        } catch (e) {
+          logger.warn(`v3: asset discovery error: ${e.message}`);
+        }
+        // Schedule periodic re-discovery
+        if (this._discoveryT) clearInterval(this._discoveryT);
+        this._discoveryT = setInterval(async () => {
+          try {
+            const discovered = await this.market.discoverAccuAssets();
+            const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
+            if (newAssets.length) {
+              for (const a of newAssets) this.cfg.assets.push(a);
+              await this.market.bootstrap(newAssets);
+              await this._refreshBarriers();
+              logger.info(`v3: periodic discovery found ${newAssets.length} new assets: ${newAssets.join(', ')}`);
+            }
+          } catch (e) {
+            logger.debug(`v3: periodic discovery error: ${e.message}`);
+          }
+        }, this.cfg.discoveryIntervalMs);
+      }
 
-    if (this._analysisT) clearInterval(this._analysisT);
-    this._analyzeAndTrade();
-    this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
-    if (this._barrierT) clearInterval(this._barrierT);
-    this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
+      if (this._analysisT) clearInterval(this._analysisT);
+      this._analyzeAndTrade();
+      this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
+      if (this._barrierT) clearInterval(this._barrierT);
+      this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
+    });
     this._schedulePause();
   }
 
@@ -1962,7 +2141,7 @@ class AccuPULSE2Bot {
     const emoji = t.status === 'won' ? '✅' : '❌';
     const label = t.status === 'won' ? 'WIN' : 'LOSS';
     const dur = Math.max(0, (t.sellTime || Date.now() / 1000) - (t.buyTime || 0));
-    this.lastBalance = (this.lastBalance ?? 0) + t.profit;
+    this.lastBalance = (this.lastBalance ?? this.balance ?? 0) + t.profit;
     this.overallProfit += t.profit;
 
     // v3: Update per-asset tracker
@@ -2008,33 +2187,14 @@ class AccuPULSE2Bot {
       ` x2=${this.stats.lossStreakEvents.x2} x3=${this.stats.lossStreakEvents.x3} x4=${this.stats.lossStreakEvents.x4}`;
     telegram.send(msg);
     this.lastTradeAt = Date.now();
-
-    // Circuit breakers (retained from AccuPULSE2b scaffold)
-    if (this._checkCircuitBreakers()) {
-      this.paused = true;
-      telegram.send(`🛑 <b>Trading paused</b> — circuit breaker (resets tomorrow)`);
-    }
     this._saveState('after-trade');
   }
 
-  // ── Stake sizing ──────────────────────────────────────────
-  //   APEX uses v3 adaptive sizing via PerAssetTracker; this is a flat
-  //   fallback for non-adaptive sizingModeV3.
-  currentStake(edge) { return this.cfg.stake; }
-
-  _checkCircuitBreakers() {
-    const today = this.stats.todayTrades();
-    const pl = today.reduce((s, t) => s + (t.profit || 0), 0);
-    if (pl <= -this.cfg.dailyMaxLoss) { telegram.send(`🛑 Daily loss limit: ${pl.toFixed(2)}`); return true; }
-    if (today.length >= this.cfg.dailyMaxTrades) { telegram.send(`🛑 Daily trade limit`); return true; }
-    if (this.stats.currentLossStreak >= this.cfg.streakStopDay) { telegram.send(`🛑 Loss streak limit: ${this.stats.currentLossStreak}`); return true; }
-    return false;
-  }
-
-  // ── Main APEX decision loop ─────────────────────────────────
+  // ── Main APEX strategy loop ────────────────────────────────
   async _analyzeAndTrade() {
     try {
-      if (this.stopped || !this.client.authorized) return;
+      if (this.stopped) return;
+      if (!this.client.authorized) return;
       if (this.paused) {
         logger.debug('trading paused — skipping analysis cycle');
         return;
@@ -2092,7 +2252,10 @@ class AccuPULSE2Bot {
       }
 
       // v3: Filter candidates through per-asset risk checks
+      //     Try each candidate in ranked order; the first one that passes
+      //     all risk gates is the one we trade.
       let chosen = null;
+      let chosenCheck = null;
       for (const cand of candidates) {
         // v3: Check correlated assets — don't double up on same regime
         if (this.assetTracker.isCorrelated(cand.symbol)) {
@@ -2108,6 +2271,7 @@ class AccuPULSE2Bot {
         }
 
         chosen = cand;
+        chosenCheck = check;
         break;
       }
 
@@ -2147,6 +2311,7 @@ class AccuPULSE2Bot {
         vrRatio: best.vrRatio, sigma: best.sigma,
         growthRate: best.growthRate, halfBarrierFrac: best.halfBarrierFrac,
         logBarrierHalf: best.logBarrierHalf,
+        // v3: Use adaptive sizing info instead of martingale
         sizingMode: this.cfg.sizingModeV3,
         adaptiveStake: stake,
         baseStake: baseStake,
@@ -2166,7 +2331,7 @@ class AccuPULSE2Bot {
 
       const v3Note = this.cfg.sizingModeV3 === 'adaptive'
         ? ` adaptive-stake=${stake} (WR=${(analysis.rollingWinRate*100).toFixed(0)}%)`
-        : '';
+        : ` martingale × ${this.martingaleMultiplier.toFixed(2)} (${this.lossesStreak} losses)`;
       logger.info(
         `trade placed #${trade.contractId} ${best.symbol} g=${best.growthRate} ` +
         `stake=${stake}${v3Note} tp=${takeProfit} ` +
@@ -2177,12 +2342,33 @@ class AccuPULSE2Bot {
     }
   }
 
+  // ── Stake sizing (v3 adaptive / legacy edge) ───────────────
+  currentStake(edge) {
+    const base = this.stats.currentLossStreak > 0 ? Number(this.currentStake2) : this.cfg.stake;
+    let mult = 1.0;
+    if (this.cfg.sizingMode === 'edge' && edge && edge > 1) {
+      const evFrac = Math.max(0, edge - 1);
+      const scaled = 1 + (evFrac / this.cfg.edgeScaleEdgeRef) * (this.cfg.edgeScaleMax - 1);
+      mult = Math.max(1, Math.min(this.cfg.edgeScaleMax, scaled));
+    }
+    if (this.cfg.downscaleAfterLoss && this.stats.currentLossStreak > 0) {
+      mult *= Math.max(0.5, Math.pow(0.85, this.stats.currentLossStreak));
+    }
+    const m = this.cfg.martingale || 0;
+    if (m > 0 && this.lossesStreak > (this.cfg.lossesBeforeMartingale || 0)) {
+      mult *= this.martingaleMultiplier;
+    }
+    return +(base * mult).toFixed(2);
+  }
+
   async _refreshBarriers() {
     try {
       if (!this.client.authorized) return;
       await this.market.refreshBarriers(this.cfg.assets, this.cfg.pulseGrowthRates);
-      logger.debug('barriers refreshed');
-    } catch (e) { logger.debug('barrier refresh:', e.message); }
+      logger.debug('barrier cache refreshed');
+    } catch (e) {
+      logger.debug('barrier refresh error:', e.message);
+    }
   }
 
   // ── Watchdog ────────────────────────────────────────────────
@@ -2236,12 +2422,15 @@ class AccuPULSE2Bot {
 
   // ── State persistence ──────────────────────────────────────
   _saveState(reason = 'checkpoint') {
+    if (!this.cfg.stateSaveOnTrade    && reason === 'after-trade') return;
+    if (!this.cfg.stateSaveOnShutdown && reason === 'shutdown')    return;
     try {
       const payload = {
-        version: 4, engine: 'APEX', savedAt: new Date().toISOString(), savedReason: reason,
+        version: 4, engine: 'APEX v3', savedAt: new Date().toISOString(), savedReason: reason,
         startBalance: this.startBalance, lastBalance: this.lastBalance, overallProfit: this.overallProfit,
         stats: this.stats.serialize(),
-        assetTracker: this.assetTracker ? this.assetTracker.serialize() : undefined,
+        // v3: per-asset tracker state
+        assetTracker: this.assetTracker.serialize(),
       };
       const tmp = this.cfg.stateFile + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify(payload, null, 2));
@@ -2259,8 +2448,13 @@ class AccuPULSE2Bot {
       if (d.overallProfit != null) this.overallProfit = d.overallProfit;
       this.stats = new StatisticsManager(d.stats || {});
       // v3: restore per-asset tracker state
-      if (d.assetTracker && this.assetTracker) this.assetTracker.loadSaved(d.assetTracker);
-      logger.info(`state restored: overall=${this.overallProfit.toFixed(2)} lossStreak=${this.stats.currentLossStreak}`);
+      if (d.assetTracker) this.assetTracker.loadSaved(d.assetTracker);
+      logger.info(
+        `state restored (APEX v3): overallProfit=${this.stats.overallProfit.toFixed(2)} ` +
+        `lossStreak=${this.stats.currentLossStreak} ` +
+        `sessionPnl=${this.assetTracker.sessionPnl.toFixed(2)} ` +
+        `trackedAssets=${this.assetTracker.assets.size}`,
+      );
     } catch (e) { logger.warn('state load:', e.message); }
   }
 
@@ -2270,12 +2464,12 @@ class AccuPULSE2Bot {
     this._clearWatchdog();
     this._clearPauseTimers();
     logger.info(`stopping (${signal})`);
-    telegram.send(`🛑 <b>APEX Bot stopped</b>\nSignal: ${signal}`);
+    telegram.send(`<b>APEX Bot stopped</b>\nSignal: ${signal}`);
     if (this._analysisT) clearInterval(this._analysisT);
     if (this._hourlyT) clearInterval(this._hourlyT);
-    if (this._hourlyBoot) clearTimeout(this._hourlyBoot);
     if (this._eodBoot) clearTimeout(this._eodBoot);
     if (this._barrierT) clearInterval(this._barrierT);
+    if (this._discoveryT) clearInterval(this._discoveryT);
 
     // Cleanup subscriptions
     this.exec.cleanupAllSubscriptions().catch(e => logger.warn('cleanup failed:', e.message)).finally(() => {
@@ -2292,13 +2486,14 @@ class AccuPULSE2Bot {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 12. BOOTSTRAP
+// 13. BOOTSTRAP
 // ═══════════════════════════════════════════════════════════════════════
 function printBanner() {
-  console.log('╔═══════════════════════════════════════════════════════╗');
-  console.log('║   AccuPULSE2b — APEX engine (conditional-vol)       ║');
-  console.log('║   Multi-Asset • Anti-Martingale • Adaptive Exit     ║');
-  console.log('╚═══════════════════════════════════════════════════════╝\n');
+  console.log('╔══════════════════════════════════════════════════════╗');
+  console.log('║   AccuPULSE2b — APEX engine (v3)                    ║');
+  console.log('║   post-spike exploit • conditional-vol • EV-optimal  ║');
+  console.log('║   v3: adaptive sizing • per-asset risk • auto-discover║');
+  console.log('╚══════════════════════════════════════════════════════╝\n');
 }
 
 async function main() {
