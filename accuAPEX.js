@@ -142,7 +142,7 @@ const CONFIG = Object.freeze({
   // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
 
-  assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ─ Telegram ─
@@ -177,7 +177,7 @@ const CONFIG = Object.freeze({
   },
 
   // ─ Logging ─
-  logFile : 'deriv_apex_bot_06.log',
+  logFile : 'deriv_apex_bot_01.log',
   logLevel: ('INFO').toUpperCase(),
 
   // ═══════════════════════════════════════════════════════════════════
@@ -279,14 +279,14 @@ const CONFIG = Object.freeze({
   //   Max entries per post-spike window per asset. After a spike fires,
   //   the bot has a limited exploitable window. Re-entering too many
   //   times in the same window increases exposure to the next spike.
-  maxEntriesPerSpikeWindow : parseInt('2', 10),
+  maxEntriesPerSpikeWindow : parseInt('3', 10),
 
   //   Cooldown after a loss on a specific asset (ms). Prevents
   //   re-entering the same asset immediately after a loss.
   assetLossCooldownMs      : parseInt('120000', 10),  // 2 minutes
 
   //   After N consecutive losses on one asset, pause that asset entirely.
-  assetMaxConsecutiveLosses: parseInt('5', 10),
+  assetMaxConsecutiveLosses: parseInt('3', 10),
 
   //   How long to pause an asset after hitting consecutive loss limit (ms).
   assetPauseDurationMs     : parseInt('600000', 10),  // 10 minutes
@@ -358,25 +358,11 @@ const CONFIG = Object.freeze({
   // fraction of stake before it can fire (prevents "lock at 0.001$").
   pulseMinProfitLockFrac  : parseFloat('0.003'),
 
-  // ─ Scheduled pause/resume ─
-  pauseEnabled   : true,
-  pauseStartGmt  : '23:00',
-  pauseEndGmt    : '01:00',
-
-  // ─ Day-of-week trading filter ─
-  tradeSunday    : true,
-  tradeMonday    : true,
-  tradeTuesday   : true,
-  tradeWednesday : true,
-  tradeThursday  : true,
-  tradeFriday    : true,
-  tradeSaturday  : true,
-
   // ─ Trade watchdog ─
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ─ State persistence ─
-  stateFile          : 'deriv_apex_bot_state_06.json',
+  stateFile          : 'deriv_apex_bot_state_01.json',
   stateSaveOnTrade   : true,
   stateSaveOnShutdown: true,
 
@@ -404,7 +390,7 @@ const CONFIG = Object.freeze({
   backtestBatchSize   : parseInt('5000',   10),
   backtestStepEvery   : parseInt('1',      10),
   backtestReportEvery : parseInt('10000',  10),
-  backtestOutFile     : 'apex_backtest_report_02.json',
+  backtestOutFile     : 'apex_backtest_report_01.json',
 
   backtestEdge        : process.env.BACKTEST_EDGE        ? parseFloat(process.env.BACKTEST_EDGE)        : null,
   backtestMinEV       : process.env.BACKTEST_MIN_EV      ? parseFloat(process.env.BACKTEST_MIN_EV)      : null,
@@ -612,9 +598,6 @@ class DerivClient extends EventEmitter {
     this._tradeWatchdogPollTimer = null;
     this.dailyHistory   = {};
     this._lastDayISODate = null;
-    this.paused = false;
-    this._pauseStartTimer = null;
-    this._pauseEndTimer   = null;
 
     // ── Martingale state ──
     this.lossesStreak         = 0;
@@ -648,8 +631,6 @@ class DerivClient extends EventEmitter {
 
     process.on('SIGINT',  () => this.stop('SIGINT'));
     process.on('SIGTERM', () => this.stop('SIGTERM'));
-    process.on('uncaughtException', e => { logger.error('uncaughtException:', e); this._saveState('uncaughtException'); });
-    process.on('unhandledRejection', e => { logger.error('unhandledRejection:', e); this._saveState('unhandledRejection'); });
 
     this._loadState();
     this._scheduleSummaries();
@@ -746,31 +727,11 @@ class DerivClient extends EventEmitter {
       this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
       if (this._barrierT) clearInterval(this._barrierT);
       this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
-      this._schedulePause();
     });
   }
 
-  async _restoreOpenTrades() {
-    if (!this.exec || this.exec.count() === 0) return;
-    logger.info(`restoring ${this.exec.count()} open contract(s) after reconnect`);
-    for (const info of this.exec.open.values()) {
-      const cid = info.contractId;
-      try {
-        await this.subscribe(
-          { proposal_open_contract: 1, contract_id: cid },
-          msg => this.exec._onUpdate(msg, info),
-        );
-        logger.info(`resubscribed open contract #${cid}`);
-        this._startTradeWatchdog(cid);
-      } catch (e) {
-        logger.warn(`resubscribe open contract #${cid} failed: ${e.message}`);
-      }
-    }
-  }
-
-  async _onDisconnected(code, reason, wasAuthorized) {
+  _onDisconnected(code, reason, wasAuthorized) {
     this._clearWatchdogTimers();
-    this._clearPauseTimers();
     telegram.send(
       `<b>Connection3 lost</b>\n` +
       `code: <code>${code}</code>\n` +
@@ -778,10 +739,7 @@ class DerivClient extends EventEmitter {
       `reconnecting…`,
     );
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
-    if (this.exec) {
-      this.exec.open.clear();
-      await this.exec.cleanupAllSubscriptions().catch(() => {});
-    }
+    if (this.exec) this.exec.open.clear();
   }
 
   _scheduleSummaries() {
@@ -1178,106 +1136,6 @@ class DerivClient extends EventEmitter {
     logger.debug(`apex-exit #${t.contractId} urg=${t.dec.urgency.toFixed(2)} ${t.dec.reason}`);
   }
 
-  // ── Scheduled pause helpers ─────────────────────────────────
-  _parsePauseTime(str) {
-    const m = String(str || '').match(/^(\d{1,2}):(\d{2})$/);
-    if (!m) return null;
-    return { h: Math.max(0, Math.min(23, Number(m[1]))), min: Math.max(0, Math.min(59, Number(m[2]))) };
-  }
-  _msToTarget(targetH, targetMin) {
-    const now = new Date();
-    const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
-    const targetMinOfDay = targetH * 60 + targetMin;
-    let diff = targetMinOfDay - nowMin;
-    if (diff <= 0) diff += 24 * 60;
-    return diff * 60_000 - (now.getUTCSeconds() * 1000) - now.getUTCMilliseconds();
-  }
-  _clearPauseTimers() {
-    if (this._pauseStartTimer) { clearTimeout(this._pauseStartTimer); this._pauseStartTimer = null; }
-    if (this._pauseEndTimer)   { clearTimeout(this._pauseEndTimer);   this._pauseEndTimer = null; }
-  }
-  _schedulePause() {
-    this._clearPauseTimers();
-    if (!this.cfg.pauseEnabled) return;
-    const now = new Date();
-    const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
-    const start = this._parsePauseTime(this.cfg.pauseStartGmt);
-    const end   = this._parsePauseTime(this.cfg.pauseEndGmt);
-    if (!start || !end) { logger.warn('pause schedule: invalid pauseStartGmt or pauseEndGmt format'); return; }
-    const startMin = start.h * 60 + start.min;
-    const endMin   = end.h   * 60 + end.min;
-
-    if (startMin > endMin) {
-      if (nowMin >= startMin || nowMin < endMin) {
-        this.paused = true;
-        const delay = this._msToTarget(end.h, end.min);
-        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
-        logger.info(`pause: currently active (overnight), resumes in ${(delay/60000).toFixed(1)}m`);
-      } else {
-        this.paused = false;
-        const delay = this._msToTarget(start.h, start.min);
-        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
-        logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
-      }
-    } else {
-      if (nowMin >= startMin && nowMin < endMin) {
-        this.paused = true;
-        const delay = this._msToTarget(end.h, end.min);
-        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
-        logger.info(`pause: currently active, resumes in ${(delay/60000).toFixed(1)}m`);
-      } else {
-        this.paused = false;
-        const delay = this._msToTarget(start.h, start.min);
-        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
-        logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
-      }
-    }
-  }
-  _onPauseResume(action) {
-    this._clearPauseTimers();
-    if (action === 'pause') {
-      this.paused = true;
-      logger.info(`TRADING PAUSED at ${this.cfg.pauseStartGmt} GMT until ${this.cfg.pauseEndGmt} GMT`);
-      telegram.send(`⏸️ <b>TRADING PAUSED</b>\nPaused from <b>${this.cfg.pauseStartGmt}</b> to <b>${this.cfg.pauseEndGmt}</b> GMT.\nNo new trades until resume.`);
-      const end = this._parsePauseTime(this.cfg.pauseEndGmt);
-      if (end) {
-        const delay = this._msToTarget(end.h, end.min);
-        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
-      }
-    } else {
-      this.paused = false;
-      logger.info(`TRADING RESUMED at ${this.cfg.pauseEndGmt} GMT`);
-      telegram.send(`▶️ <b>TRADING RESUMED</b>\nScanning for trades again.\nOverall Profit: ${money(this.stats.overallProfit, this.currencyStr())}`);
-      const start = this._parsePauseTime(this.cfg.pauseStartGmt);
-      if (start) {
-        const delay = this._msToTarget(start.h, start.min);
-        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
-      }
-    }
-  }
-  _isTradingAllowedToday() {
-    const dayOfWeek = new Date().getUTCDay();
-    const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    const daySettings = [this.cfg.tradeSunday, this.cfg.tradeMonday, this.cfg.tradeTuesday, this.cfg.tradeWednesday, this.cfg.tradeThursday, this.cfg.tradeFriday, this.cfg.tradeSaturday];
-    if (!daySettings[dayOfWeek]) {
-      logger.debug(`trading disabled for ${dayNames[dayOfWeek]} (GMT)`);
-      return false;
-    }
-    return true;
-  }
-  _checkDayChange() {
-    const today = this._todayISO();
-    if (this._lastDayISODate && this._lastDayISODate !== today) {
-      logger.info(`new day detected: ${this._lastDayISODate} → ${today}`);
-      this.dailyHistory[this._lastDayISODate] = true;
-      if (this.assetTracker) this.assetTracker.resetSession();
-      telegram.send(`📅 <b>New trade day: ${today}</b>\nOverall Profit: ${money(this.stats.overallProfit, this.currencyStr())}`);
-      this._lastDayISODate = today;
-    } else if (!this._lastDayISODate) {
-      this._lastDayISODate = today;
-    }
-  }
-
   // ── PULSE sizing ────────────────────────────────────────────
   currentStake(edge) {
     const base = this.stats.currentLossStreak > 0 ? Number(this.currentStake2) : this.cfg.stake;
@@ -1399,12 +1257,6 @@ class DerivClient extends EventEmitter {
     try {
       if (this.stopped)   return;
       if (!this.authorized) return;
-      if (this.paused) {
-        logger.debug('trading paused — skipping analysis cycle');
-        return;
-      }
-      if (!this._isTradingAllowedToday()) return;
-      this._checkDayChange();
 
       // Daily limits
       const today = this.stats.todayTrades();
@@ -1556,105 +1408,6 @@ class DerivClient extends EventEmitter {
     } catch (e) {
       logger.debug('barrier refresh error:', e.message);
     }
-  }
-
-  async _onAuthorized(info) {
-    this.startBalance = this.balance;
-    this.lastBalance  = this.balance;
-    logger.info(`start-of-day balance: ${this.startBalance} ${this.currencyStr()}`);
-
-    const martingaleLine = (this.cfg.sizingModeV3 !== 'adaptive' && this.cfg.martingale && this.cfg.martingale > 0)
-      ? `<b>Martingale:</b> ×${this.cfg.martingale} (after ${this.cfg.lossesBeforeMartingale} losses, +${this.cfg.martingaleStep}/loss, cap ×${this.cfg.maxMartingaleStep})\n`
-      : '';
-
-    telegram.send(
-      `<b>APEX v3 Bot Online</b>\n\n` +
-      `<b>Account:</b> ${info.loginid}\n` +
-      `<b>Type:</b> ${info.isVirtual ? 'DEMO' : 'REAL'}\n` +
-      `<b>Balance:</b> ${this.startBalance.toFixed(2)} ${this.currencyStr()}\n` +
-      `<b>Assets:</b> ${this.cfg.assets.length} ${this.cfg.autoDiscoverAssets ? '(auto-discover ON)' : ''}\n` +
-      `<b>Stake:</b> ${this.cfg.stake}\n` +
-      `<b>Growth rates:</b> ${this.cfg.pulseGrowthRates.map(g => (g*100).toFixed(0)+'%').join(', ')}\n` +
-      `<b>Sizing:</b> ${this.cfg.sizingModeV3} ` +
-        `(loss×${this.cfg.lossStakeReduction}, win×${this.cfg.winStakeRecovery})\n` +
-      martingaleLine +
-      `<b>Min EV:</b> ${(this.cfg.apexMinEV*100).toFixed(1)}%\n` +
-      `<b>Min survival:</b> ${(this.cfg.apexMinSurvival*100).toFixed(1)}%\n` +
-      `<b>Spread cost:</b> ${(this.cfg.pulseSpreadCost*100).toFixed(2)}%\n\n` +
-      `<b>v3 Risk Gates</b>\n` +
-      `• Max entries/window: ${this.cfg.maxEntriesPerSpikeWindow}\n` +
-      `• Loss cooldown: ${this.cfg.assetLossCooldownMs/1000}s\n` +
-      `• Pause after ${this.cfg.assetMaxConsecutiveLosses} losses: ${this.cfg.assetPauseDurationMs/1000}s\n` +
-      `• Min win rate: ${(this.cfg.minWinRateToTrade*100).toFixed(0)}% (over ${this.cfg.rollingWindowSize} trades)\n` +
-      `• Session max DD: ${this.cfg.sessionMaxDrawdown}\n` +
-      `• Correlated filter: ${this.cfg.correlatedGroups.length} groups\n\n` +
-      `<b>APEX engine active</b>\n` +
-      `Post-spike (Boom/Crash) + vol-compression (Vol) · holds ≤${this.cfg.apexMaxHoldBoom} ticks\n\n` +
-      `<b>Overall Profit:</b> ${money(this.stats.overallProfit, this.currencyStr())}\n` +
-      `Loss streak: current ${this.stats.currentLossStreak}, x2=${this.stats.lossStreakEvents.x2}, x3=${this.stats.lossStreakEvents.x3}, x4=${this.stats.lossStreakEvents.x4}`,
-    );
-
-    const startupResults = await Promise.allSettled([
-      this.market.loadSymbols(),
-      this.market.bootstrap(this.cfg.assets),
-      this._refreshBarriers(),
-    ]);
-    for (const result of startupResults) {
-      if (result.status === 'rejected') {
-        logger.warn('startup/resume task failed:', result.reason?.message || result.reason);
-      }
-    }
-
-    // v3: Dynamic asset discovery (if enabled)
-    if (this.cfg.autoDiscoverAssets) {
-      try {
-        const discovered = await this.market.discoverAccuAssets();
-        if (discovered.length > this.cfg.assets.length) {
-          const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
-          if (newAssets.length) {
-            logger.info(`v3: discovered ${newAssets.length} new assets: ${newAssets.join(', ')}`);
-            // Add to runtime asset list (mutate cfg.assets array)
-            for (const a of newAssets) {
-              if (!this.cfg.assets.includes(a)) this.cfg.assets.push(a);
-            }
-            // Bootstrap newly discovered assets (subscribe + backfill)
-            await this.market.bootstrap(newAssets);
-            // Refresh barriers for new assets too
-            await this._refreshBarriers();
-            telegram.send(
-              `<b>v3: New Assets Discovered</b>\n` +
-              `Added: ${newAssets.join(', ')}\n` +
-              `Total: ${this.cfg.assets.length} assets`,
-            );
-          }
-        }
-      } catch (e) {
-        logger.warn(`v3: asset discovery error: ${e.message}`);
-      }
-      // Schedule periodic re-discovery
-      if (this._discoveryT) clearInterval(this._discoveryT);
-      this._discoveryT = setInterval(async () => {
-        try {
-          const discovered = await this.market.discoverAccuAssets();
-          const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
-          if (newAssets.length) {
-            for (const a of newAssets) this.cfg.assets.push(a);
-            await this.market.bootstrap(newAssets);
-            await this._refreshBarriers();
-            logger.info(`v3: periodic discovery found ${newAssets.length} new assets: ${newAssets.join(', ')}`);
-          }
-        } catch (e) {
-          logger.debug(`v3: periodic discovery error: ${e.message}`);
-        }
-      }, this.cfg.discoveryIntervalMs);
-    }
-
-    if (this._analysisT) clearInterval(this._analysisT);
-    this._analyzeAndTrade();
-    this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
-    if (this._barrierT) clearInterval(this._barrierT);
-    this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
-    this._schedulePause();
   }
 
   // ── State persistence ─────────────────────────────────────
@@ -1818,7 +1571,6 @@ class DerivClient extends EventEmitter {
     if (this.stopped) return;
     this.stopped = true;
     this._clearWatchdogTimers();
-    this._clearPauseTimers();
     logger.info(`stopping (signal: ${signal})`);
     telegram.send(`<b>APEX Bot stopped</b>\nSignal: ${signal}`);
     if (this._analysisT)  clearInterval(this._analysisT);
@@ -2427,7 +2179,6 @@ class TradeExecutor extends EventEmitter {
     this.open     = new Map();
     this.analyzer = null;
     this._selling = new Set();
-    this._subscriptions = new Map();
   }
 
   async buy(symbol, growthRate, stake, limit, analysis = null) {
@@ -2492,12 +2243,10 @@ class TradeExecutor extends EventEmitter {
 
       if (this.bot?.market?.cacheStays) this.bot.market.cacheStays(symbol, growthRate, cd);
 
-      const subId = await this.client.subscribe(
+      await this.client.subscribe(
         { proposal_open_contract: 1, contract_id: b.contract_id },
         msg => this._onUpdate(msg, info),
       );
-      this._subscriptions.set(b.contract_id, subId);
-      info._subscriptionId = subId;
 
       this.emit('open', info);
       return info;
@@ -2677,12 +2426,10 @@ class TradeExecutor extends EventEmitter {
         currentSpot,
       };
       this.open.delete(cid);
-      const subId = this._subscriptions.get(cid) || msg.subscription?.id;
-      if (subId) {
-        this._subscriptions.delete(cid);
-        await this.client.forget(subId).catch(() => {});
-      }
       this.emit('result', finished);
+      if (msg.subscription?.id) {
+        await this.client.forget(msg.subscription.id).catch(() => {});
+      }
     }
   }
 
@@ -2718,24 +2465,7 @@ class TradeExecutor extends EventEmitter {
       }
       logger.error(`sell(${contractId}) failed:`, e.message);
       throw e;
-    } finally {
-      const subId = this._subscriptions.get(contractId);
-      if (subId) {
-        this._subscriptions.delete(contractId);
-        this.client.forget(subId).catch(() => {});
-      }
     }
-  }
-
-  async cleanupAllSubscriptions() {
-    const promises = [];
-    for (const [contractId, subId] of this._subscriptions) {
-      promises.push(
-        this.client.forget(subId).catch(e => logger.debug(`cleanup sub ${contractId}: ${e.message}`)),
-      );
-    }
-    await Promise.all(promises);
-    this._subscriptions.clear();
   }
 
   openTrades() { return Array.from(this.open.values()); }
