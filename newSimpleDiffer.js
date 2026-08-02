@@ -257,8 +257,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'simpleDiffern_state_01.json'),
-  logFile: strEnv('LOG_FILE', 'simpleDiffern_bot_01.log'),
+  stateFile: strEnv('STATE_FILE', 'simpleDiffern_state_001.json'),
+  logFile: strEnv('LOG_FILE', 'simpleDiffern_bot_001.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO SIMPLEDIFFER').toUpperCase(),
 
   // Telegram — MUST come from .env / environment, never hardcode a real
@@ -1762,7 +1762,7 @@ class TradingBot {
     this.exec.on('open', t => this._onTradeOpen(t));
     this.exec.on('result', t => this._onTradeResult(t));
     this.exec.on('update', t => logger.debug(`update #${t.contractId} ${t.status} profit=${t.profit}`));
-    this.market.on('tick', () => { this._tickCounter++; });
+    this.market.on('tick', () => { this._tickCounter++; this.analyzer.tick(); });
 
     process.on('SIGINT', () => this.stop('SIGINT'));
     process.on('SIGTERM', () => this.stop('SIGTERM'));
@@ -1976,7 +1976,17 @@ class TradingBot {
     const analyses = tradeableAssets.map(s => this.analyzer.analyze(s, this.market.historyFor(s)));
     const ranked = this.analyzer.rank(analyses);
     if (!ranked.length) {
-      logger.debug('not enough digit data yet');
+      const valid = analyses.filter(Boolean);
+      if (!valid.length) {
+        logger.debug('not enough digit data yet');
+      } else {
+        // Every analysis was vetoed — surface the gates so a stuck
+        // cooldown (or any other systemic gate) is visible in logs.
+        const sample = valid.slice(0, 3).map(a =>
+          `${a.symbol} d${a.digit} cooldown=${a.predictionCooldown == null ? 'n/a' : a.predictionCooldown}t [${a.gates.join(',')}]`
+        ).join(' | ');
+        logger.info(`ALL analyses vetoed: ${sample}`);
+      }
       return;
     }
 
