@@ -3,7 +3,7 @@
 
 /**
  * =====================================================================
- *  AccuPULSE2b — APEX engine  (conditional-volatility bimodal survival)
+ *  AccuAPEXnew — APEX engine  (conditional-volatility bimodal survival)
  * =====================================================================
  *
  *  Multi-asset Deriv Accumulator trading bot.
@@ -35,7 +35,7 @@
  *
  *  ─ INFRASTRUCTURE ─
  *  Trading system (analysis + execution) ported from accuAPEX.js into
- *  the AccuPULSE2b framework, which is kept verbatim: WS/REST client,
+ *  the AccuAPEXnew framework, which is kept verbatim: WS/REST client,
  *  PAT/OAuth auth, Telegram, stats, state persistence, GMT summaries,
  *  scheduled pause/resume and day-of-week filters.
  *
@@ -108,7 +108,10 @@ const CONFIG = Object.freeze({
   downscaleAfterLoss:false,
 
   // ── Assets (Deriv synthetic indices) ──
-  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
+
+  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Telegram (retained) ──
@@ -175,6 +178,12 @@ const CONFIG = Object.freeze({
   // ── Vol-compression entry (Volatility / Jump indices) ──
   apexVolCompressRatio : parseFloat('0.90'),
   apexBarrierSafety    : parseFloat('3.2'),
+  //   Minimum barrier width, in units of current σ, before a VOL asset is
+  //   considered "loose enough" to enter. Used by the barrier-clears gate
+  //   (barrierFrac >= apexBarrierSafety * sigmaFast). The old entry gate also
+  //   required a *ratio* signal (fast/slow σ ≤ 0.90), but that ratio is ~1.0
+  //   in steady-state quiet conditions, so the gate was effectively closed
+  //   most of the time — that was the "stops trading until restart" bug.
 
   // ── Survival / EV requirements (per-class overrides of pulse* gates) ──
   apexMinSurvival     : parseFloat('0.90'),  // forward K-tick survival floor
@@ -210,7 +219,7 @@ const CONFIG = Object.freeze({
   // ═══════════════════════════════════════════════════════════════════
   // v3: DYNAMIC ASSET DISCOVERY
   // ═══════════════════════════════════════════════════════════════════
-  autoDiscoverAssets       : true,
+  autoDiscoverAssets       : false,
   discoveryIntervalMs      : parseInt('3600000', 10),  // re-discover every hour
   assetFamilyFilter        : ['BOOM', 'CRASH'],
 
@@ -227,7 +236,7 @@ const CONFIG = Object.freeze({
   lossStakeReduction       : parseFloat('0.70'),  // stake × 0.70 after each loss
   winStakeRecovery         : parseFloat('1.15'),  // stake × 1.15 after each win
   minStakeFraction         : parseFloat('0.25'),  // never go below 25% of base
-  maxStakeFraction         : parseFloat('2.50'),  // never exceed 250% of base
+  maxStakeFraction         : parseFloat('1.50'),  // never exceed 250% of base
   kellyFraction            : parseFloat('0.20'),
 
   // ── Daily limits ──
@@ -249,11 +258,11 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging ──
-  logFile : 'accuPULSE2b_04.log',
+  logFile : 'accuAPEXnew_01.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuPULSE2b_state_04.json',
+  stateFile           : 'accuAPEXnew_state_01.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -429,7 +438,7 @@ class DerivClient extends EventEmitter {
 
   _openWs(url) {
     try {
-      this.ws = new WebSocket(url, { headers: { 'User-Agent': 'AccuPULSE2b/2.0 (+Node.js)' }, handshakeTimeout: 15000 });
+      this.ws = new WebSocket(url, { headers: { 'User-Agent': 'AccuAPEXnew/2.0 (+Node.js)' }, handshakeTimeout: 15000 });
     } catch (e) { logger.error('ws construct failed:', e.message); this._scheduleReconnect(); return false; }
     this.ws.on('open', () => this._onOpen());
     this.ws.on('message', d => this._onMessage(d));
@@ -607,6 +616,7 @@ class MarketDataManager extends EventEmitter {
     this._barrierCache = new Map();
     this._refreshInFlight = false;
     this._bootstrapping = false;
+    this._unsupportedSymbols = new Set(); // ACCU rejected by the API on this account
     client.on('close', () => this.subs.clear());
   }
 
@@ -624,11 +634,22 @@ class MarketDataManager extends EventEmitter {
     return sub ? sub.get(+(+growthRate).toFixed(4)) || null : null;
   }
 
-  cacheBarrier(symbol, growthRate, cd) {
+  cacheBarrier(symbol, growthRate, cd, spot = 0) {
     if (!cd) return;
     const key = `${symbol}:${growthRate}`;
+    const spotNum = parseFloat(spot ?? 0);
+    // Prefer the exact per-tick barrier % from Deriv. On the new API the
+    // field can be 0/missing for some synthetics — fall back to deriving
+    // the ±% from the spot distance, then from the high/low barrier band.
+    let halfBarrierPct = parseFloat(cd.tick_size_barrier_percentage || 0);
+    if (!halfBarrierPct && spotNum > 0) {
+      halfBarrierPct = (parseFloat(cd.barrier_spot_distance || 0) / spotNum) * 100;
+    }
+    if (!halfBarrierPct && spotNum > 0 && cd.high_barrier && cd.low_barrier) {
+      halfBarrierPct = ((parseFloat(cd.high_barrier) - parseFloat(cd.low_barrier)) / 2) / spotNum * 100;
+    }
     this._barrierCache.set(key, {
-      halfBarrierPct: parseFloat(cd.tick_size_barrier_percentage || 0),
+      halfBarrierPct: +halfBarrierPct.toFixed(6),
       highBarrier: parseFloat(cd.high_barrier || 0),
       lowBarrier: parseFloat(cd.low_barrier || 0),
       maxPayout: parseFloat(cd.maximum_payout || 0),
@@ -641,18 +662,55 @@ class MarketDataManager extends EventEmitter {
   async refreshBarriers(assets, growthRates) {
     if (this._refreshInFlight || !this.client.authorized) return;
     this._refreshInFlight = true;
+    const symbolKey = this.client._isPat ? 'underlying_symbol' : 'symbol';
+    const fetchOne = async (sym, gr) => {
+      const res = await this.client._send({
+        proposal: 1, amount: this.cfg.stake, basis: 'stake',
+        contract_type: 'ACCU', currency: this.cfg.currency,
+        [symbolKey]: sym, growth_rate: gr,
+      }, 8000);
+      if (res?.proposal?.contract_details) {
+        this.cacheBarrier(sym, gr, res.proposal.contract_details, res.proposal.spot);
+        this.cacheStays(sym, gr, res.proposal.contract_details);
+        return true;
+      }
+      if (res?.error) {
+        // Hard API rejections (e.g. "Trading is not offered for this duration."
+        // for assets that don't support ACCU on this account) will NEVER
+        // resolve — stop asking for them so we stop wasting cycles + rate limit.
+        this._unsupportedSymbols.add(sym);
+        logger.info(`refreshBarriers: ${sym} ACCU rejected (${res.error.code || res.error.message}) — excluded from this account`);
+      }
+      return false;
+    };
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
     try {
-      for (const sym of assets) {
+      const eligible = assets.filter(s => !this._unsupportedSymbols.has(s));
+      for (const sym of eligible) {
         for (const gr of growthRates) {
-          try {
-            const symbolKey = this.client._isPat ? 'underlying_symbol' : 'symbol';
-            const res = await this.client._send({ proposal: 1, amount: this.cfg.stake, basis: 'stake', contract_type: 'ACCU', currency: this.cfg.currency, [symbolKey]: sym, growth_rate: gr }, 8000);
-            if (res?.proposal?.contract_details) {
-              this.cacheBarrier(sym, gr, res.proposal.contract_details);
-              this.cacheStays(sym, gr, res.proposal.contract_details);
-            }
-          } catch (e) { logger.debug(`refreshBarriers(${sym},${gr}):`, e.message); }
+          try { await fetchOne(sym, gr); }
+          catch (e) { logger.debug(`refreshBarriers(${sym},${gr}):`, e.message); }
+          await sleep(50); // throttle the burst so late assets aren't rate-limited
         }
+      }
+      // Retry once for any asset still lacking a barrier (transient failures
+      // / rate limits hit earlier in the burst).
+      const hasBarrier = sym => growthRates.some(gr =>
+        this._barrierCache.get(`${sym}:${gr}`)?.halfBarrierPct > 0);
+      const missing = eligible.filter(sym => !hasBarrier(sym));
+      for (const sym of missing) {
+        for (const gr of growthRates) {
+          if (this._barrierCache.get(`${sym}:${gr}`)?.halfBarrierPct > 0) continue;
+          try { await fetchOne(sym, gr); }
+          catch (e) { logger.debug(`refreshBarriers retry(${sym},${gr}):`, e.message); }
+          await sleep(150);
+        }
+      }
+      // Visibility: if some assets STILL have no usable barrier, the analyzer
+      // will refuse them with 'no-barrier' — surface that here at WARN.
+      const stillMissing = eligible.filter(sym => !hasBarrier(sym));
+      if (stillMissing.length) {
+        logger.warn(`refreshBarriers: NO usable barrier for ${stillMissing.join(', ')} — those assets will not trade`);
       }
     } finally { this._refreshInFlight = false; }
   }
@@ -876,9 +934,12 @@ class ApexAnalyzer {
     const scale = Math.max(1.4826 * this._median(absR), 1e-12);
     const spikeThresh = this.cfg.apexSpikeK * scale;
 
-    // ── 3. EWMA fast/slow σ  → volatility-compression signal ──────────
-    //   Iterate oldest→newest; fast reacts to recent regime, slow is the
-    //   baseline the barrier was effectively priced against.
+    // ── 3. EWMA fast/slow σ ─────────────────────────────────────────────
+    //   fast reacts to the recent regime; slow is the baseline the barrier
+    //   was effectively priced against. The VOL entry gate uses these to
+    //   measure how loose the barrier is relative to CURRENT σ (see gate 7)
+    //   rather than a fast/slow ratio, which is ~1.0 in steady state and
+    //   therefore kept the gate effectively closed most of the time.
     let fastVar = returns[0] * returns[0];
     let slowVar = fastVar;
     const af = this.cfg.apexEwmaFast, as = this.cfg.apexEwmaSlow;
@@ -962,8 +1023,13 @@ class ApexAnalyzer {
         barrierFrac = (barrierInfoRef.halfBarrierPct / 100) * (refGr / growthRate);
         barrierEstimated = true;
       } else {
-        barrierFrac = 6 * scale;    // last-resort estimate — never traded on
-        barrierEstimated = true;
+        // No known barrier for this asset. Historically this fell back to a
+        // `6 * scale` guess, which produced inflated, phantom "edge≈1.39 /
+        // ev≈39%" candidates for assets the API does NOT offer ACCU on at all
+        // (e.g. BOOM/CRASH on this account → "Trading is not offered for this
+        // duration"). We must never fabricate a barrier to trade on — skip
+        // this growth rate entirely.
+        continue;
       }
       const logBarrierHalf = Math.log(1 + barrierFrac);
       if (logBarrierHalf <= 0) continue;
@@ -1020,11 +1086,15 @@ class ApexAnalyzer {
 
       let entryOK = false, entryReason = '';
       if (regimeClass === 'VOL') {
-        const compressed   = volRatio <= this.cfg.apexVolCompressRatio;
+        // Loose-barrier gate: the barrier must be at least
+        // `apexBarrierSafety` × current σ wide. This is a stable measure
+        // (constant in steady state) that directly captures "the barrier is
+        // temporarily loose", unlike a fast/slow σ ratio which is ~1.0 in
+        // steady state and kept the gate effectively closed most of the time
+        // — the cause of the "stops trading until restart" behaviour.
         const barrierClears = barrierFrac >= this.cfg.apexBarrierSafety * sigmaFast;
-        entryOK = compressed && barrierClears && !barrierEstimated;
+        entryOK = barrierClears && !barrierEstimated;
         entryReason = barrierEstimated ? 'no-barrier'
-                    : !compressed      ? 'vol-not-compressed'
                     : !barrierClears   ? 'barrier-too-tight'
                     : 'vol-compressed';
       } else {
@@ -1182,6 +1252,7 @@ class TradeExecutor extends EventEmitter {
         ticksHeld   : 0,
         peakProfit  : 0,
         lastBid     : null,   // Bug 6 — track live bid_price for sells
+        lastUpdateAt: Date.now(),   // for stale-slot detection / force-settle
       };
       if (analysis && typeof analysis === 'object') info._analysis = analysis;
 
@@ -1191,7 +1262,14 @@ class TradeExecutor extends EventEmitter {
         `[${lowBarrier.toFixed(2)} … ${highBarrier.toFixed(2)}] maxPayout=${maxPayout}`,
       );
 
-      if (this.bot?.market?.cacheStays) this.bot.market.cacheStays(symbol, growthRate, cd);
+      if (this.bot?.market?.cacheStays) {
+        this.bot.market.cacheStays(symbol, growthRate, cd);
+        // Cache the exact-rate barrier too, so a successful trade on this
+        // asset keeps its barrier known even if the periodic refresh misses.
+        if (this.bot.market.cacheBarrier) {
+          this.bot.market.cacheBarrier(symbol, growthRate, cd, p.spot);
+        }
+      }
 
       const subId = await this.client.subscribe(
         { proposal_open_contract: 1, contract_id: b.contract_id },
@@ -1331,8 +1409,9 @@ class TradeExecutor extends EventEmitter {
     // Track ticks, peak, and any live bid price we can use as a floor
     // for sell() (Bug 6 mitigation).
     if (status === 'open') {
-      info.ticksHeld  = (info.ticksHeld ?? 0) + 1;
-      info.peakProfit = Math.max(info.peakProfit ?? 0, profit);
+      info.ticksHeld   = (info.ticksHeld ?? 0) + 1;
+      info.peakProfit  = Math.max(info.peakProfit ?? 0, profit);
+      info.lastUpdateAt = Date.now();
     }
     if (c.bid_price != null) info.lastBid = parseFloat(c.bid_price);
 
@@ -1368,12 +1447,34 @@ class TradeExecutor extends EventEmitter {
       return;
     }
 
-    // ── Contract settled ────────────────────────────────────
-    if (status === 'won' || status === 'lost') {
+    // ── Contract settled (won / lost / sold / cancelled / expired) ──
+    //   CRITICAL: when the bot sells early, Deriv reports status 'sold'
+    //   (NOT 'won'/'lost'). If we don't settle here, the entry stays in
+    //   this.open forever and maxOpenTrades blocks every future trade.
+    const TERMINAL = new Set(['won', 'lost', 'sold', 'cancelled', 'expired', 'refunded']);
+    if (TERMINAL.has(status)) {
+      // Already settled by sell()/forceSettle() — just drop the sub.
+      if (!this.open.has(cid)) {
+        const leftover = this._subscriptions.get(cid);
+        if (leftover) {
+          this._subscriptions.delete(cid);
+          this.client.forget(leftover).catch(() => {});
+        }
+        return;
+      }
+      const soldFor = parseFloat(c.sell_price ?? 0);
+      // For a sold contract the stream gives realized profit directly;
+      // prefer sell_price − buy_price when both are present.
+      const terminalProfit =
+        (status === 'sold' && soldFor > 0 && info.buyPrice > 0)
+          ? soldFor - parseFloat(info.buyPrice)
+          : profit;
       const finished = {
         ...info,
-        contractId: cid, profit, status,
-        sellPrice: parseFloat(c.sell_price ?? 0),
+        contractId: cid,
+        profit: terminalProfit,
+        status: status === 'sold' ? (terminalProfit >= 0 ? 'won' : 'lost') : status,
+        sellPrice: soldFor,
         sellTime : c.sell_time ?? (Date.now() / 1000),
         currentSpot,
       };
@@ -1383,6 +1484,7 @@ class TradeExecutor extends EventEmitter {
         this._subscriptions.delete(cid);
         await this.client.forget(subId).catch(() => {});
       }
+      logger.info(`settled #${cid} status=${finished.status} profit=${finished.profit.toFixed(2)} — open slot freed`);
       this.emit('result', finished);
     }
   }
@@ -1402,24 +1504,83 @@ class TradeExecutor extends EventEmitter {
       if (info && info.lastBid && info.lastBid > 0 && floor === 0) {
         floor = +(info.lastBid * 0.95).toFixed(2);
       }
-      const res = await this.client._send({ sell: contractId, price: floor }, 15000);
-      logger.info(`sold #${contractId} for ${res.sell?.sold_for} (floor=${floor})`);
-      return res.sell;
-    } catch (e) {
-      // If the floor was rejected, retry with price:0 once as a safety net.
-      if (minPrice === 0 && /price/i.test(e.message || '')) {
-        try {
-          const res = await this.client._send({ sell: contractId, price: 0 }, 15000);
-          logger.warn(`sell fallback (price:0) #${contractId} for ${res.sell?.sold_for}`);
-          return res.sell;
-        } catch (e2) {
-          logger.error(`sell(${contractId}) fallback failed:`, e2.message);
-          throw e2;
-        }
+      let sold;
+      try {
+        const res = await this.client._send({ sell: contractId, price: floor }, 15000);
+        sold = res.sell || {};
+      } catch (e) {
+        // If the floor was rejected, retry with price:0 once as a safety net.
+        if (minPrice !== 0 || !/price/i.test(e.message || '')) throw e;
+        logger.warn(`sell fallback (price:0) #${contractId}: ${e.message}`);
+        const res = await this.client._send({ sell: contractId, price: 0 }, 15000);
+        sold = res.sell || {};
       }
+      const soldFor = parseFloat(sold.sold_for ?? sold.sell_price ?? 0);
+      logger.info(`sold #${contractId} for ${soldFor} (floor=${floor})`);
+      // Free the open slot immediately — do NOT wait for the contract
+      // stream. A sold accumulator reports status 'sold', which the old
+      // code ignored, leaking the slot and permanently blocking new trades.
+      this._settleSold(contractId, soldFor);
+      return sold;
+    } catch (e) {
       logger.error(`sell(${contractId}) failed:`, e.message);
       throw e;
     }
+  }
+
+  // Settle a contract that was just sold. Idempotent: if the slot was
+  // already settled by a duplicate path, this is a no-op.
+  _settleSold(contractId, soldFor) {
+    const info = this.open.get(contractId);
+    if (!info) return null;
+    const profit = soldFor > 0 && info.buyPrice > 0
+      ? soldFor - parseFloat(info.buyPrice)
+      : 0;
+    const finished = {
+      ...info,
+      contractId,
+      profit,
+      status: profit >= 0 ? 'won' : 'lost',
+      sellPrice: soldFor,
+      sellTime: Date.now() / 1000,
+      currentSpot: info.entrySpot ?? info._entrySpot ?? 0,
+    };
+    this.open.delete(contractId);
+    const subId = this._subscriptions.get(contractId);
+    if (subId) {
+      this._subscriptions.delete(contractId);
+      this.client.forget(subId).catch(() => {});
+    }
+    logger.info(`sell-settled #${contractId} profit=${profit.toFixed(2)} — open slot freed`);
+    this.emit('result', finished);
+    return finished;
+  }
+
+  // Last-resort cleanup for a slot that never settles (stream silent,
+  // connection lost, or a terminal status we didn't recognise). Books it
+  // as a LOSS so the maxOpenTrades gate can never block trading forever.
+  forceSettle(contractId, reason = 'force') {
+    const info = this.open.get(contractId);
+    if (!info) return null;
+    const stake = parseFloat(info.stake ?? 0);
+    const finished = {
+      ...info,
+      contractId,
+      profit: -stake,
+      status: 'lost',
+      sellPrice: 0,
+      sellTime: Date.now() / 1000,
+      currentSpot: info.entrySpot ?? info._entrySpot ?? 0,
+    };
+    this.open.delete(contractId);
+    const subId = this._subscriptions.get(contractId);
+    if (subId) {
+      this._subscriptions.delete(contractId);
+      this.client.forget(subId).catch(() => {});
+    }
+    logger.warn(`forceSettle #${contractId} [${reason}] — booked as LOSS (-${stake.toFixed(2)})`);
+    this.emit('result', finished);
+    return finished;
   }
 
   // Cleanup all open subscriptions
@@ -1523,13 +1684,26 @@ class PerAssetTracker {
     }
 
     // 4. Spike window entry limit
-    //    If a new spike has fired since our last check, reset the window counter.
-    if (currentSpikeEpoch > a.lastSpikeEpoch && currentSpikeEpoch > 0) {
-      a.lastSpikeEpoch = currentSpikeEpoch;
-      a.entriesInWindow = 0;
-    }
-    if (a.entriesInWindow >= this.cfg.maxEntriesPerSpikeWindow) {
-      return { allowed: false, reason: `window-limit: ${a.entriesInWindow}/${this.cfg.maxEntriesPerSpikeWindow} entries in current window`, adjustedEdge: rawEdge };
+    //    The analyzer passes ticksSinceSpike as currentSpikeEpoch. For
+    //    BOOM/CRASH that is a positive tick count since the last spike, so
+    //    the window counter legitimately resets as the hazard clock advances
+    //    past a previously-seen epoch. VOL assets pass -1 (no spike process)
+    //    and would NEVER reset, permanently blocking them after
+    //    maxEntriesPerSpikeWindow trades — so the spike-window limit only
+    //    applies to spike-driven assets.
+    if (currentSpikeEpoch > 0) {
+      // Only treat an epoch INCREASE as a new window once we've already
+      // established a baseline epoch (lastSpikeEpoch > 0). The first-ever
+      // positive epoch must NOT clear a trade that was just counted by
+      // onTradeOpen(), or the limit would never bind on the first window.
+      if (a.lastSpikeEpoch > 0 && currentSpikeEpoch > a.lastSpikeEpoch) {
+        a.lastSpikeEpoch = currentSpikeEpoch;
+        a.entriesInWindow = 0;
+      }
+      if (a.lastSpikeEpoch === 0) a.lastSpikeEpoch = currentSpikeEpoch;
+      if (a.entriesInWindow >= this.cfg.maxEntriesPerSpikeWindow) {
+        return { allowed: false, reason: `window-limit: ${a.entriesInWindow}/${this.cfg.maxEntriesPerSpikeWindow} entries in current window`, adjustedEdge: rawEdge };
+      }
     }
 
     // 5. Rolling win rate filter
@@ -1809,7 +1983,7 @@ class StatisticsManager {
 // ═══════════════════════════════════════════════════════════════════════
 // 12. TRADING BOT  (Main Orchestrator)
 // ═══════════════════════════════════════════════════════════════════════
-class AccuPULSE2Bot {
+class AccuAPEXnewBot {
   constructor(cfg) {
     this.cfg = cfg;
     this.client = new DerivClient(cfg);
@@ -1850,7 +2024,7 @@ class AccuPULSE2Bot {
 
   async start() {
     logger.info('═══════════════════════════════════════════');
-    logger.info('  AccuPULSE2b — APEX Strategy');
+    logger.info('  AccuAPEXnew — APEX Strategy');
     logger.info('═══════════════════════════════════════════');
     logger.info(`assets: ${this.cfg.assets.join(', ')}`);
 
@@ -2228,8 +2402,13 @@ class AccuPULSE2Bot {
         return;
       }
 
-      // Analyse every asset with APEX
-      const analyses = this.cfg.assets.map(s =>
+      // Analyse every asset with APEX. Skip assets the API permanently
+      // rejects (no ACCU on this account) — they'd otherwise waste cycles and
+      // spam "no-barrier" scans every interval.
+      const tradeable = this.cfg.assets.filter(
+        s => !(this.market._unsupportedSymbols && this.market._unsupportedSymbols.has(s)),
+      );
+      const analyses = tradeable.map(s =>
         this.analyzer.analyze(s, this.market.historyFor(s), this.market));
       const ranked = this.analyzer.rank(analyses);
       const candidates = ranked.filter(a => a.recommend);
@@ -2372,14 +2551,22 @@ class AccuPULSE2Bot {
   }
 
   // ── Watchdog ────────────────────────────────────────────────
+  // A stuck contract must never hold the single open slot forever. We
+  // sell it if we can, and ALWAYS free the slot (forceSettle) so the
+  // maxOpenTrades gate can't silently stop trading.
   _startWatchdog(contractId) {
     this._clearWatchdog();
     this._tradeWatchdogTimer = setTimeout(() => {
-      if (this.exec.count() === 0) { this._clearWatchdog(); return; }
-      logger.warn(`watchdog: #${contractId} stuck for ${this.cfg.tradeWatchdogMs / 1000}s`);
-      if (contractId && this.client.authorized) {
-        this.exec.sell(contractId, 0).catch(() => {});
+      const open = this.exec.openTrades();
+      if (!open.length) { this._clearWatchdog(); return; }
+      const stuck = open.find(t => t.contractId === contractId) || open[0];
+      const cid = stuck ? stuck.contractId : contractId;
+      logger.warn(`watchdog: #${cid} stuck for ${this.cfg.tradeWatchdogMs / 1000}s`);
+      if (cid && this.client.authorized) {
+        this.exec.sell(cid, 0, stuck).catch(() => {});
       }
+      // Free the slot regardless of whether the sell succeeded.
+      this.exec.forceSettle(cid, 'watchdog');
       this._clearWatchdog();
     }, this.cfg.tradeWatchdogMs);
   }
@@ -2490,7 +2677,7 @@ class AccuPULSE2Bot {
 // ═══════════════════════════════════════════════════════════════════════
 function printBanner() {
   console.log('╔══════════════════════════════════════════════════════╗');
-  console.log('║   AccuPULSE2b — APEX engine (v3)                    ║');
+  console.log('║   AccuAPEXnew — APEX engine (v3)                    ║');
   console.log('║   post-spike exploit • conditional-vol • EV-optimal  ║');
   console.log('║   v3: adaptive sizing • per-asset risk • auto-discover║');
   console.log('╚══════════════════════════════════════════════════════╝\n');
@@ -2501,7 +2688,7 @@ async function main() {
   try { require.resolve('ws'); } catch (_) { console.error('npm install ws'); process.exit(1); }
   if (!CONFIG.apiToken) { console.error('API token not set'); process.exit(1); }
   console.log(CONFIG.telegram.enabled ? '✅ Telegram: ENABLED' : 'ℹ️ Telegram: DISABLED');
-  const bot = new AccuPULSE2Bot(CONFIG);
+  const bot = new AccuAPEXnewBot(CONFIG);
   await bot.start();
 }
 
