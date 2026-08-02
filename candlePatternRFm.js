@@ -64,8 +64,8 @@ const DEFAULT_ASSET_CONFIG = {
   // Candle Settings
   GRANULARITY: 60,
   TIMEFRAME_LABEL: '1m',
-  MAX_CANDLES_STORED: 5000,
-  CANDLES_TO_LOAD: 5000,
+  MAX_CANDLES_STORED: 4,
+  CANDLES_TO_LOAD: 30,
 
   // Trade Duration
   DURATION: 1,
@@ -80,7 +80,7 @@ const DEFAULT_ASSET_CONFIG = {
   MAX_MARTINGALE_LEVEL: 1,
   AFTER_MAX_LOSS: 'continue',
   CONTINUE_EXTRA_LEVELS: 8,
-  EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
+  EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3],
 
   // Auto-Compounding
   AUTO_COMPOUNDING: true,
@@ -91,11 +91,11 @@ const DEFAULT_ASSET_CONFIG = {
   TAKE_PROFIT: 10000,
 
   // Pattern Analysis Settings
-  PATTERN_MIN_CONFIDENCE: 0.50, //0.91
-  MIN_AGREEMENT_RATIO_CONFIDENCE: 0.50, //0.91
-  MIN_PATTERN_CONFIDENCE: 0.50, //0.91
+  PATTERN_MIN_CONFIDENCE: 0.10, //0.91
+  MIN_AGREEMENT_RATIO_CONFIDENCE: 1.50, //0.91
+  MIN_PATTERN_CONFIDENCE: 0.10, //0.91
   MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.50, // 0.91
-  PATTERN_LENGTHS: [3], //[3, 4, 5, 6, 7, 8]
+  PATTERN_LENGTHS: [2], //[3, 4, 5, 6, 7, 8]
   PATTERN_MIN_OCCURRENCES: 1,
   PATTERN_RECENCY_DECAY: 0.9990,
   PATTERN_DOJI_THRESHOLD: 0.00001
@@ -467,7 +467,7 @@ const LOGGER = {
 // TRADE HISTORY MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 
-const HISTORY_FILE = path.join(__dirname, 'candlePatternRFm-multii-history006.json');
+const HISTORY_FILE = path.join(__dirname, 'candlePatternRFm-multii-history007.json');
 let tradeHistory = null;
 
 class TradeHistoryManager {
@@ -614,7 +614,7 @@ class TradeHistoryManager {
 // STATE MANAGEMENT
 // ══════════════════════════════════════════════════════════════════════════════
 
-const STATE_FILE = path.join(__dirname, 'candlePatternRFm-multii-state_06.json');
+const STATE_FILE = path.join(__dirname, 'candlePatternRFm-multii-state_07.json');
 
 const state = {
   assets: {},
