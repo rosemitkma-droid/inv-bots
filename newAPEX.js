@@ -186,16 +186,16 @@ const CONFIG = Object.freeze({
   //   most of the time — that was the "stops trading until restart" bug.
 
   // ── Survival / EV requirements (per-class overrides of pulse* gates) ──
-  apexMinSurvival     : parseFloat('0.90'),  // forward K-tick survival floor
+  apexMinSurvival     : parseFloat('0.80'),  // forward K-tick survival floor
   apexMinEV           : parseFloat('0.010'), // ≥ +1% net EV to fire
   apexMaxHoldBoom     : parseInt('7',  10),  // Boom/Crash hold cap (ticks)
-  apexMaxHoldVol      : parseInt('7',  10),  // Vol/Jump hold cap (ticks)
+  apexMaxHoldVol      : parseInt('10',  10),  // Vol/Jump hold cap (ticks)
 
   // ── Adaptive-exit (APEX) ──
-  apexExitHazard      : parseFloat('0.020'),
-  apexExitDriftFrac   : parseFloat('0.55'),
-  apexProfitLockFrac  : parseFloat('0.60'),  // lock ≥60% of expected remaining
-  apexMinProfitLockFrac: parseFloat('0.004'),
+  apexExitHazard      : parseFloat('0.050'), // exit if hazard ≥ 5%
+  apexExitDriftFrac   : parseFloat('0.75'), // fraction of expected remaining drift to exit
+  apexProfitLockFrac  : parseFloat('0.90'),  // lock ≥90% of expected remaining
+  apexMinProfitLockFrac: parseFloat('0.025'), // lock ≥2.5% of expected remaining
 
   // ── Legacy adaptive early-exit tuning (kept from accuAPEX.js) ──
   pulseExitProfitLockFrac : parseFloat('0.55'),
@@ -258,11 +258,11 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging ──
-  logFile : 'accuAPEXnew_01.log',
+  logFile : 'accuAPEXnew_02.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuAPEXnew_state_01.json',
+  stateFile           : 'accuAPEXnew_state_02.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -2422,7 +2422,7 @@ class AccuAPEXnewBot {
             `[${[
               b.edgeOK ? '' : `edge<${this.cfg.pulseEdgeThreshold}`,
               b.evOK   ? '' : `ev<${this.cfg.apexMinEV}`,
-              b.survOK ? '' : `surv<${this.cfg.apexMinSurvival}`,
+              b.survOK ? '' : `surv<${this.cfg.apexMinSurvival} (${(b.perTickSurv*100).toFixed(2)}%)`,
               b.calmOK ? '' : `window:${b.entryReason}`,
             ].filter(Boolean).join(',')}] no trade`,
           );
@@ -2460,6 +2460,14 @@ class AccuAPEXnewBot {
       }
 
       const best = chosen;
+
+      this.previousBest = best.symbol;
+
+      //Return if the best symbol is already being traded
+      if(this.previousBest === best.symbol) {
+        logger.debug(`already traded ${best.symbol} — skipping`);
+        return;
+      }
 
       logger.info(
         `APEX ENTER ${best.symbol} [${best.regimeClass}:${best.entryReason}] g=${(best.growthRate*100).toFixed(0)}% ` +
