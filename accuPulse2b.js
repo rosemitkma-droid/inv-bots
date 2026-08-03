@@ -160,7 +160,7 @@ const CONFIG = Object.freeze({
   ddFullStake    : parseFloat('0.05'),
   ddReduce25     : parseFloat('0.10'),
   ddReduce50     : parseFloat('0.15'),
-  ddStopTrading  : parseFloat('0.70'),
+  ddStopTrading  : parseFloat('0.20'),
 
   // ── Streak circuit breakers ──
   streakReduceStake  : parseInt('3'),
@@ -168,7 +168,7 @@ const CONFIG = Object.freeze({
   streakStopDay      : parseInt('7'),
 
   // ── Daily limits ──
-  dailyMaxLoss   : parseFloat('150'),
+  dailyMaxLoss   : parseFloat('110'),
   dailyMaxTrades : parseInt('2000000000'),
 
   // ── Reconnect ──
@@ -186,13 +186,27 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging ──
-  logFile : 'accuPULSE2bc_01.log',
+  logFile : 'accuPULSE2bc_02.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuPULSE2bc_state_01.json',
+  stateFile           : 'accuPULSE2bc_state_02.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
+
+  // ── Scheduled pause/resume ──
+  pauseEnabled   : true,
+  pauseStartGmt  : '23:00',
+  pauseEndGmt    : '01:00',
+
+  // ── Day-of-week trading filter ──
+  tradeSunday    : true,
+  tradeMonday    : true,
+  tradeTuesday   : true,
+  tradeWednesday : true,
+  tradeThursday  : true,
+  tradeFriday    : true,
+  tradeSaturday  : true,
 
   // ── EOD scheduling (GMT) ──
   eodTimeGmt          : '00:00',
@@ -1045,6 +1059,10 @@ class AccuPULSE2Bot {
     this._eodBoot = null;
     this._barrierT = null;
     this._tradeWatchdogTimer = null;
+    this.paused = false;
+    this._pauseStartTimer = null;
+    this._pauseEndTimer   = null;
+    this._lastDayISODate  = null;
 
     // Anti-Martingale state
     this.winStreak = 0;
@@ -1072,6 +1090,8 @@ class AccuPULSE2Bot {
 
     process.on('SIGINT', () => this.stop('SIGINT'));
     process.on('SIGTERM', () => this.stop('SIGTERM'));
+    process.on('uncaughtException', e => { logger.error('uncaughtException:', e); this._saveState('uncaughtException'); });
+    process.on('unhandledRejection', e => { logger.error('unhandledRejection:', e); this._saveState('unhandledRejection'); });
 
     this._loadState();
     this._scheduleSummaries();
@@ -1092,6 +1112,111 @@ class AccuPULSE2Bot {
       this._eodBoot = setTimeout(() => { this._sendEod('scheduled'); scheduleNextEod(); }, delay);
     };
     scheduleNextEod();
+  }
+
+  // ── Scheduled pause helpers ─────────────────────────────────
+  _parsePauseTime(str) {
+    const m = String(str || '').match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    return { h: Math.max(0, Math.min(23, Number(m[1]))), min: Math.max(0, Math.min(59, Number(m[2]))) };
+  }
+  _msToTarget(targetH, targetMin) {
+    const now = new Date();
+    const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const targetMinOfDay = targetH * 60 + targetMin;
+    let diff = targetMinOfDay - nowMin;
+    if (diff <= 0) diff += 24 * 60;
+    return diff * 60_000 - (now.getUTCSeconds() * 1000) - now.getUTCMilliseconds();
+  }
+  _clearPauseTimers() {
+    if (this._pauseStartTimer) { clearTimeout(this._pauseStartTimer); this._pauseStartTimer = null; }
+    if (this._pauseEndTimer)   { clearTimeout(this._pauseEndTimer);   this._pauseEndTimer = null; }
+  }
+  _schedulePause() {
+    this._clearPauseTimers();
+    if (!this.cfg.pauseEnabled) return;
+    const now = new Date();
+    const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const start = this._parsePauseTime(this.cfg.pauseStartGmt);
+    const end   = this._parsePauseTime(this.cfg.pauseEndGmt);
+    if (!start || !end) { logger.warn('pause schedule: invalid pauseStartGmt or pauseEndGmt format'); return; }
+    const startMin = start.h * 60 + start.min;
+    const endMin   = end.h   * 60 + end.min;
+
+    if (startMin > endMin) {
+      if (nowMin >= startMin || nowMin < endMin) {
+        this.paused = true;
+        const delay = this._msToTarget(end.h, end.min);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+        logger.info(`pause: currently active (overnight), resumes in ${(delay/60000).toFixed(1)}m`);
+      } else {
+        this.paused = false;
+        const delay = this._msToTarget(start.h, start.min);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+        logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
+      }
+    } else {
+      if (nowMin >= startMin && nowMin < endMin) {
+        this.paused = true;
+        const delay = this._msToTarget(end.h, end.min);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+        logger.info(`pause: currently active, resumes in ${(delay/60000).toFixed(1)}m`);
+      } else {
+        this.paused = false;
+        const delay = this._msToTarget(start.h, start.min);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+        logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
+      }
+    }
+  }
+  _onPauseResume(action) {
+    this._clearPauseTimers();
+    if (action === 'pause') {
+      this.paused = true;
+      logger.info(`TRADING PAUSED at ${this.cfg.pauseStartGmt} GMT until ${this.cfg.pauseEndGmt} GMT`);
+      telegram.send(`⏸️ <b>TRADING PAUSED</b>\nPaused from <b>${this.cfg.pauseStartGmt}</b> to <b>${this.cfg.pauseEndGmt}</b> GMT.\nNo new trades until resume.`);
+      const end = this._parsePauseTime(this.cfg.pauseEndGmt);
+      if (end) {
+        const delay = this._msToTarget(end.h, end.min);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+      }
+    } else {
+      this.paused = false;
+      logger.info(`TRADING RESUMED at ${this.cfg.pauseEndGmt} GMT`);
+      telegram.send(`▶️ <b>TRADING RESUMED</b>\nScanning for trades again.\nOverall Profit: ${money(this.overallProfit, this.currencyStr())}`);
+      const start = this._parsePauseTime(this.cfg.pauseStartGmt);
+      if (start) {
+        const delay = this._msToTarget(start.h, start.min);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+      }
+    }
+  }
+  _isTradingAllowedToday() {
+    const dayOfWeek = new Date().getUTCDay();
+    const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const daySettings = [this.cfg.tradeSunday, this.cfg.tradeMonday, this.cfg.tradeTuesday, this.cfg.tradeWednesday, this.cfg.tradeThursday, this.cfg.tradeFriday, this.cfg.tradeSaturday];
+    if (!daySettings[dayOfWeek]) {
+      logger.debug(`trading disabled for ${dayNames[dayOfWeek]} (GMT)`);
+      return false;
+    }
+    return true;
+  }
+  _checkDayChange() {
+    const today = utcDateStr();
+    if (this._lastDayISODate && this._lastDayISODate !== today) {
+      logger.info(`new day detected: ${this._lastDayISODate} → ${today}`);
+      telegram.send(`📅 <b>New trade day: ${today}</b>\nOverall Profit: ${money(this.overallProfit, this.currencyStr())}`);
+      // Reset circuit breakers for the new day
+      this.stopped = false;
+      this.equityPeak = this.lastBalance ?? this.startBalance ?? 0;
+      this.ddReducer = 1.0;
+      this.lossStreak = 0;
+      this.winStreak = 0;
+      this.winStakeMultiplier = 1.0;
+      this._lastDayISODate = today;
+    } else if (!this._lastDayISODate) {
+      this._lastDayISODate = today;
+    }
   }
 
   // ── Authorised ──────────────────────────────────────────────
@@ -1126,10 +1251,12 @@ class AccuPULSE2Bot {
     this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
     if (this._barrierT) clearInterval(this._barrierT);
     this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
+    this._schedulePause();
   }
 
   _onDisconnected(code, reason, wasAuth) {
     this._clearWatchdog();
+    this._clearPauseTimers();
     telegram.send(`⚠️ <b>Connection lost</b>\ncode: <code>${code}</code>\nwas auth: ${wasAuth ? 'yes' : 'no'}\n🔄 reconnecting…`);
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
     if (this.exec) this.exec.open.clear();
@@ -1210,8 +1337,8 @@ class AccuPULSE2Bot {
 
     // Circuit breakers
     if (this._checkCircuitBreakers()) {
-      this.stopped = true;
-      telegram.send(`🛑 <b>Bot stopped</b> — circuit breaker`);
+      this.paused = true;
+      telegram.send(`🛑 <b>Trading paused</b> — circuit breaker (resets tomorrow)`);
     }
     this._saveState('after-trade');
   }
@@ -1248,6 +1375,12 @@ class AccuPULSE2Bot {
   async _analyzeAndTrade() {
     try {
       if (this.stopped || !this.client.authorized) return;
+      if (this.paused) {
+        logger.debug('trading paused — skipping analysis cycle');
+        return;
+      }
+      if (!this._isTradingAllowedToday()) return;
+      this._checkDayChange();
       if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
       if (this.exec.count() >= this.cfg.maxOpenTrades) return;
 
@@ -1381,6 +1514,7 @@ class AccuPULSE2Bot {
     if (this.stopped) return;
     this.stopped = true;
     this._clearWatchdog();
+    this._clearPauseTimers();
     logger.info(`stopping (${signal})`);
     telegram.send(`🛑 <b>AccuPULSE2b stopped</b>\nSignal: ${signal}`);
     if (this._analysisT) clearInterval(this._analysisT);
