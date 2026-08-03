@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_09-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_09-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_011-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_011-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -118,7 +118,7 @@ const CONFIG = {
     MAX_MARTINGALE_LEVEL: 1,
     AFTER_MAX_LOSS: 'continue',
     CONTINUE_EXTRA_LEVELS: 8,
-    EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
+    EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3],
     AUTO_COMPOUNDING: true,
     COMPOUND_PERCENTAGE: 0.24,
     STOP_LOSS: 152,
@@ -131,11 +131,11 @@ const CONFIG = {
     // ── Candle / Contract Settings [RETAINED] ────────────────
     GRANULARITY: 60,     // 1-minute candles
     TIMEFRAME_LABEL: '1m',
-    CANDLES_TO_LOAD: 200,
-    MAX_CANDLES_STORED: 300,
+    CANDLES_TO_LOAD: 30,
+    MAX_CANDLES_STORED: 30,
     DURATION: 1,
-    DURATION_UNIT: 'm',
-    MIN_CANDLES_REQUIRED: 82,    
+    DURATION_UNIT: 't',
+    MIN_CANDLES_REQUIRED: 30,    
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
     USE_TRADING_SESSIONS: false,
@@ -146,14 +146,18 @@ const CONFIG = {
 
     // ── Position Management ───────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS: 6,
-    MAX_TRADES_PER_CYCLE: 3,
+    MAX_TOTAL_POSITIONS: 1,
+    MAX_TRADES_PER_CYCLE: 9,
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
-        'R_75',
+        // 'R_75',
         // 'R_100',
-        // 'stpRNG',
+        'stpRNG',
+        'stpRNG2',
+        'stpRNG3',
+        'stpRNG4',
+        'stpRNG5',
     ],
 
     // ── Misc ──────────────────────────────────────────────────
@@ -164,34 +168,53 @@ const CONFIG = {
 };
 
 // ============================================================
-// STAKE CALCULATOR — martingale based sizing from reference bot
+// STAKE CALCULATOR — auto-compounding + martingale (from reference bot)
 // ============================================================
+//
+// INVESTMENT_AMOUNT pool model:
+//   • On open:  investmentRemaining -= stake
+//   • On WIN:   investmentRemaining += payout (stake + profit)  → pool grows
+//   • On LOSS:  stake stays deducted (nothing added back)      → pool shrinks
+//   • AUTO_COMPOUNDING: baseStake = max(pool * COMPOUND_PERCENTAGE/100, INITIAL_STAKE)
+//
 class StakeCalculator {
 
-    static calculate(capital, martingaleLevel = 0) {
-        const level = Math.max(0, martingaleLevel || 0);
-        let stake = CONFIG.INITIAL_STAKE;
+    static getBaseStake(investmentRemaining) {
+        if (CONFIG.AUTO_COMPOUNDING && investmentRemaining > 0) {
+            return Math.max(
+                Number((investmentRemaining * CONFIG.COMPOUND_PERCENTAGE / 100).toFixed(2)),
+                CONFIG.INITIAL_STAKE
+            );
+        }
+        return CONFIG.INITIAL_STAKE;
+    }
 
+    static calculate(investmentRemaining, martingaleLevel = 0) {
+        const level = Math.max(0, martingaleLevel || 0);
+        let base = this.getBaseStake(investmentRemaining);
+        base = Math.max(base, CONFIG.INITIAL_STAKE);
+
+        let stake;
         if (level <= CONFIG.MAX_MARTINGALE_LEVEL) {
-            stake = CONFIG.INITIAL_STAKE * Math.pow(CONFIG.MARTINGALE_MULTIPLIER, level);
+            stake = base * Math.pow(CONFIG.MARTINGALE_MULTIPLIER, level);
         } else {
-            let baseStake = CONFIG.INITIAL_STAKE * Math.pow(CONFIG.MARTINGALE_MULTIPLIER, CONFIG.MAX_MARTINGALE_LEVEL);
+            stake = base * Math.pow(CONFIG.MARTINGALE_MULTIPLIER, CONFIG.MAX_MARTINGALE_LEVEL);
             const extraIdx = level - CONFIG.MAX_MARTINGALE_LEVEL - 1;
             for (let i = 0; i <= extraIdx; i++) {
-                baseStake *= (CONFIG.EXTRA_LEVEL_MULTIPLIERS[i] || CONFIG.MARTINGALE_MULTIPLIER);
+                stake *= (CONFIG.EXTRA_LEVEL_MULTIPLIERS[i] || CONFIG.MARTINGALE_MULTIPLIER);
             }
-            stake = baseStake;
         }
 
-        stake = Math.min(stake, CONFIG.INVESTMENT_AMOUNT);
+        // Cap at remaining investment pool
+        stake = Math.min(stake, investmentRemaining > 0 ? investmentRemaining : stake);
         stake = Math.max(CONFIG.INITIAL_STAKE, stake);
         return parseFloat(stake.toFixed(2));
     }
 
-    static describe(capital, martingaleLevel) {
-        const stake = this.calculate(capital, martingaleLevel);
-        const pct = ((stake / capital) * 100).toFixed(2);
-        return `$${stake.toFixed(2)} (${pct}% capital, martingale level ${martingaleLevel})`;
+    static describe(investmentRemaining, martingaleLevel) {
+        const stake = this.calculate(investmentRemaining, martingaleLevel);
+        const pct = investmentRemaining > 0 ? ((stake / investmentRemaining) * 100).toFixed(2) : '0.00';
+        return `$${stake.toFixed(2)} (${pct}% pool, martingale level ${martingaleLevel})`;
     }
 }
 
@@ -431,7 +454,7 @@ class StatePersistence {
                         a.forceRecoverDirection = saved.forceRecoverDirection ?? null;
                         a.recoveryStep = saved.recoveryStep || 0;
                         a.martingaleLevel = saved.martingaleLevel || 0;
-                        a.currentStake = saved.currentStake || StakeCalculator.calculate(state.capital);
+                        a.currentStake = saved.currentStake || StakeCalculator.calculate(a.investmentRemaining);
                         a.investmentRemaining = saved.investmentRemaining || CONFIG.INVESTMENT_AMOUNT;
                         a.consecutiveWins = saved.consecutiveWins || 0;
                         a.consecutiveLosses = saved.consecutiveLosses || 0;
@@ -768,9 +791,12 @@ class SessionManager {
             a.recoveryStep = 0;
             a.martingaleLevel = 0;
             a.cooldownCandles = 0;
-            a.currentStake = StakeCalculator.calculate(state.capital, 0);
             a.lastTradeWasWin = true;
             a.forceRecoverDirection = null;  // win exits forced recovery mode
+
+            // Credit payout (stake + profit) back to investment pool — pool grows on win
+            a.investmentRemaining = Number((a.investmentRemaining + stake + profit).toFixed(2));
+            a.currentStake = StakeCalculator.calculate(a.investmentRemaining, 0);
 
             LOGGER.trade(`WIN [${symbol}] +$${(profit || 0).toFixed(2)} | ${direction} | P/L: $${(a.netPL || 0).toFixed(2)}`);
         } else {
@@ -801,7 +827,7 @@ class SessionManager {
                 a[key]++;
             }
 
-            a.currentStake = StakeCalculator.calculate(state.capital, a.martingaleLevel);
+            a.currentStake = StakeCalculator.calculate(a.investmentRemaining, a.martingaleLevel);
 
             if (a.consecutiveLosses >= 10) {
                 a.currentStake = CONFIG.INITIAL_STAKE;
@@ -1021,7 +1047,7 @@ class ConnectionManager {
                     lastTradeWasWin: null,
                     forceRecoverDirection: null,
                     recoveryStep: 0,
-                    currentStake: StakeCalculator.calculate(state.capital),
+                    currentStake: StakeCalculator.calculate(CONFIG.INVESTMENT_AMOUNT),
                     martingaleLevel: 0,
                     recoveryStep: 0,
                     investmentRemaining: CONFIG.INVESTMENT_AMOUNT,
@@ -1544,7 +1570,7 @@ class IndexBot {
             LOGGER.error(`[${symbol}] Stake $${stake.toFixed(2)} exceeds capital $${state.capital.toFixed(2)}`);
             a.recoveryStep = 0;
             a.forceRecoverDirection = null;
-            a.currentStake = StakeCalculator.calculate(state.capital);
+            a.currentStake = StakeCalculator.calculate(a.investmentRemaining);
             a.canTrade = false;
             return;
         }
@@ -1565,16 +1591,16 @@ class IndexBot {
         // Detect new CANDLE DIRECTION signals
         const dir = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
 
-        const mode = a.recoveryStep < 3 ? 'trend' : a.recoveryStep > 6 ? 'trend' : 'range';
+        // const mode = a.recoveryStep < 3 ? 'trend' : a.recoveryStep > 6 ? 'trend' : 'range';
 
         //Candle formation of Bullish -> Bearish -> Bullish or Bearish -> Bullish -> Bearish can be considered as a Range, while a series of candles Bullish -> Bullish or Bearish -> Bearish can be considered as a Trend. 
         // You can implement a function to analyze the last few closed candles and determine if the market is trending or ranging.
-        // const mode = this._determineMarketMode(a.closedCandles);
+        const mode = this._determineMarketMode(a.closedCandles);
 
         if (mode === 'trend') {
             if (dir === 'CALLE') {
                 LOGGER.signal(`[${symbol}] BUY SIGNAL`);
-                const setupSuccess = dir === 'CALLE';
+                const setupSuccess = 'CALLE';
 
                 if (setupSuccess) {
                     // Execute first trade as CALLE
@@ -1598,7 +1624,7 @@ class IndexBot {
                 return;
             } else {
                 LOGGER.signal(`[${symbol}] SELL SIGNAL`);
-                const setupSuccess = dir === 'PUTE';
+                const setupSuccess = 'PUTE';
 
                 if (setupSuccess) {
                     // Execute first trade as PUTE
@@ -1621,78 +1647,81 @@ class IndexBot {
                 }
                 return;
             }
-        } else {
-            if (dir === 'CALLE') {
-                LOGGER.signal(`[${symbol}] BUY SIGNAL`);
-                const firstDir = 'CALLE';
-                a.normalModeActive = true;
-                a.tradesInNormalMode = 1;
-                a.normalModeDirection = firstDir;
-                a.lastTradeDirection = firstDir;
-                a.currentDirection = firstDir;
+        } 
+        // else {
+        //     if (dir === 'CALLE') {
+        //         LOGGER.signal(`[${symbol}] BUY SIGNAL`);
+        //         const setupSuccess = 'PUTE';
 
-                LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+        //         if (setupSuccess) {
+        //             // Execute first trade as PUTE
+        //             const firstDir = 'PUTE';
+        //             a.normalModeActive = true;
+        //             a.tradesInNormalMode = 1;
+        //             a.normalModeDirection = firstDir;
+        //             a.lastTradeDirection = firstDir;
+        //             a.currentDirection = firstDir;
 
-                this._executeBuy(symbol, firstDir, stake, {
-                    method: 'CANDLE_CLOSE_BULLISH',
-                    reason: `CANDLE_CLOSE_BULLISH signal — candle closed above previous candle (bullish pattern)`,
-                    marketMode: mode,
-                });
+        //             LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
-                a.buyFlagActive = false; // consumed
-                return;
-            }
+        //             this._executeBuy(symbol, firstDir, stake, {
+        //                 method: 'CANDLE_CLOSE_BULLISH',
+        //                 reason: `CANDLE_CLOSE_BULLISH signal — candle closed above previous candle (bullish pattern)`,
+        //                 marketMode: mode,
+        //             });
 
-            LOGGER.signal(`[${symbol}] SELL SIGNAL`);
-            const firstDir = 'PUTE';
-            a.normalModeActive = true;
-            a.tradesInNormalMode = 1;
-            a.normalModeDirection = firstDir;
-            a.lastTradeDirection = firstDir;
-            a.currentDirection = firstDir;
+        //             a.buyFlagActive = false; // consumed
+        //         }
+        //         return;
+        //     } else {
+        //         LOGGER.signal(`[${symbol}] BUY SIGNAL`);
+        //         const setupSuccess = 'CALLE';
 
-            LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+        //         if (setupSuccess) {
+        //             // Execute first trade as PUTE
+        //             const firstDir = 'CALLE';
+        //             a.normalModeActive = true;
+        //             a.tradesInNormalMode = 1;
+        //             a.normalModeDirection = firstDir;
+        //             a.lastTradeDirection = firstDir;
+        //             a.currentDirection = firstDir;
 
-            this._executeBuy(symbol, firstDir, stake, {
-                method: 'CANDLE_CLOSE_BEARISH',
-                reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
-                marketMode: mode,
-            });
+        //             LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
-            a.sellFlagActive = false; // consumed
-            return;
-        }
+        //             this._executeBuy(symbol, firstDir, stake, {
+        //                 method: 'CANDLE_CLOSE_BEARISH',
+        //                 reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
+        //                 marketMode: mode,
+        //             });
+
+        //             a.sellFlagActive = false; // consumed
+        //         }
+        //         return;
+        //     }
+        // }
 
         // No signal — log status
         LOGGER.debug(`[${symbol}] No new trade signal detected — last closed candle: O:${lastClosedCandle.open.toFixed(5)} H:${lastClosedCandle.high.toFixed(5)} L:${lastClosedCandle.low.toFixed(5)} C:${lastClosedCandle.close.toFixed(5)}`);
     }
 
-    // ── Determine market mode from recent candle sequence ──
-    // Alternating (B→R→B or R→B→R) = range
-    // Consecutive same direction (B→B or R→R) = trend
+    // ── Determine market mode from last 3 closed candles ──
+    // Ranging: candles alternate every time (B→R→B or R→B→R)
+    // Trending: candles do NOT fully alternate (B→R→R, R→B→B, B→B→B, etc.)
     _determineMarketMode(closedCandles) {
         if (!closedCandles || closedCandles.length < 3) return 'range';
 
         const recent = closedCandles.slice(-3);
-
         const types = recent.map(c => (c.close > c.open ? 'B' : 'R'));
 
+        // Count how many times adjacent candles differ (alternate)
         let alternations = 0;
-        let consecutive = 0;
-
         for (let i = 1; i < types.length; i++) {
             if (types[i] !== types[i - 1]) alternations++;
-            else consecutive++;
         }
 
-        const total = types.length - 1;
-        const alternationRatio = alternations / total;
-
-        // More than 10% alternations → range; otherwise trend
-        const mode = alternationRatio > 0.1 ? 'range' : 'trend';
-
-        LOGGER.debug(`[MarketMode] types=${types.join('')} alt=${alternations} con=${consecutive} ratio=${alternationRatio.toFixed(2)} → ${mode}`);
-
+        // With 3 candles (2 pairs): all pairs alternate → range; otherwise → trend
+        const mode = alternations === 2 ? 'range' : 'trend';
+        LOGGER.debug(`[MarketMode] ${types.join('→')} → ${mode} (${alternations} alternations)`);
         return mode;
     }
 
