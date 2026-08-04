@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitrage_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitrage_04-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_04-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -124,8 +124,8 @@ const CONFIG = {
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
     GRANULARITY: 60,
     TIMEFRAME_LABEL: '1m',
-    CANDLES_TO_LOAD: 5000,
-    MAX_CANDLES_STORED: 5000,
+    CANDLES_TO_LOAD: 30,
+    MAX_CANDLES_STORED: 4,
     DURATION: 2,
     DURATION_UNIT: 't',
     MIN_CANDLES_REQUIRED: 82,
@@ -161,11 +161,9 @@ const DEFAULT_ASSET_CONFIG = {
     // Candle Settings
     GRANULARITY: 60,
     TIMEFRAME_LABEL: '1m',
-    MAX_CANDLES_STORED: 5000,
-    CANDLES_TO_LOAD: 5000,
 
     // Trade Duration
-    DURATION: 2,
+    DURATION: 5,
     DURATION_UNIT: 't',
 
     // Stake Settings
@@ -173,11 +171,11 @@ const DEFAULT_ASSET_CONFIG = {
     INVESTMENT_AMOUNT: 152,
 
     // Martingale Settings
-    MARTINGALE_MULTIPLIER: 4,
+    MARTINGALE_MULTIPLIER: 1.48,
     MAX_MARTINGALE_LEVEL: 1,
     AFTER_MAX_LOSS: 'continue',
-    CONTINUE_EXTRA_LEVELS: 4,
-    EXTRA_LEVEL_MULTIPLIERS: [4, 4, 4, 4],
+    CONTINUE_EXTRA_LEVELS: 8,
+    EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3],
 
     // Auto-Compounding
     AUTO_COMPOUNDING: true,
@@ -187,10 +185,10 @@ const DEFAULT_ASSET_CONFIG = {
     STOP_LOSS: 152,
 
     // Pattern Analysis Settings
-    PATTERN_MIN_CONFIDENCE: 0.50,
-    MIN_PATTERN_CONFIDENCE: 0.50,
-    MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.50,
-    PATTERN_LENGTHS: [3],
+    PATTERN_MIN_CONFIDENCE: 0.10,
+    MIN_PATTERN_CONFIDENCE: 0.10,
+    MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.10,
+    PATTERN_LENGTHS: [2], //[3, 4, 5, 6, 7, 8]
     PATTERN_MIN_OCCURRENCES: 1,
     PATTERN_RECENCY_DECAY: 0.9990,
     PATTERN_DOJI_THRESHOLD: 0.00001,
@@ -214,199 +212,199 @@ function getAssetConfig(symbol) {
 // CANDLE PATTERN ANALYZER CLASS (from arbitrageRF.js)
 // ============================================================
 class CandlePatternAnalyzer {
-    constructor(options = {}) {
-        this.minConfidence = options.minConfidence || 0.60;
-        this.patternLengths = options.patternLengths || [3, 4, 5, 6, 7, 8];
-        this.minOccurrences = options.minOccurrences || 5;
-        this.recencyDecay = options.recencyDecay || 0.9990;
-        this.dojiThreshold = options.dojiThreshold || 0.00001;
-        this.lastAnalysis = null;
-        this.lastAnalysisTime = 0;
+  constructor(options = {}) {
+    this.minConfidence = options.minConfidence || 0.60;
+    this.patternLengths = options.patternLengths || [3, 4, 5, 6, 7, 8];
+    this.minOccurrences = options.minOccurrences || 5;
+    this.recencyDecay = options.recencyDecay || 0.9990;
+    this.dojiThreshold = options.dojiThreshold || 0.00001;
+    this.lastAnalysis = null;
+    this.lastAnalysisTime = 0;
+  }
+
+  classifyCandle(candle) {
+    const bodySize = Math.abs(candle.close - candle.open);
+    const threshold = candle.open * this.dojiThreshold;
+    if (bodySize <= threshold) return 'D';
+    if (candle.close > candle.open) return 'B';
+    return 'R';
+  }
+
+  classifyAll(candles) {
+    return candles.map(c => this.classifyCandle(c));
+  }
+
+  analyze(closedCandles) {
+    const maxPatLen = Math.max(...this.patternLengths);
+    if (closedCandles.length < maxPatLen) {
+      return {
+        shouldTrade: false,
+        direction: null,
+        confidence: 0,
+        reason: `Insufficient candle history: ${closedCandles.length} candles`,
+        details: {}
+      };
     }
 
-    classifyCandle(candle) {
-        const bodySize = Math.abs(candle.close - candle.open);
-        const threshold = candle.open * this.dojiThreshold;
-        if (bodySize <= threshold) return 'D';
-        if (candle.close > candle.open) return 'B';
-        return 'R';
+    const types = this.classifyAll(closedCandles);
+    const totalCandles = types.length;
+    const patternResults = [];
+
+    for (const patLen of this.patternLengths) {
+      if (totalCandles < patLen + 1) continue;
+
+      const currentPattern = types.slice(totalCandles - patLen);
+      let bullishWeightedSum = 0;
+      let bearishWeightedSum = 0;
+      let dojiWeightedSum = 0;
+      let totalWeight = 0;
+      let rawOccurrences = 0;
+
+      const searchEnd = totalCandles - patLen - 1;
+
+      for (let i = 0; i <= searchEnd; i++) {
+        let matches = true;
+        for (let j = 0; j < patLen; j++) {
+          if (types[i + j] !== currentPattern[j]) {
+            matches = false;
+            break;
+          }
+        }
+
+        if (matches) {
+          const nextType = types[i + patLen];
+          const distanceFromPresent = searchEnd - i;
+          const weight = Math.pow(this.recencyDecay, distanceFromPresent);
+
+          rawOccurrences++;
+          totalWeight += weight;
+
+          if (nextType === 'B') bullishWeightedSum += weight;
+          else if (nextType === 'R') bearishWeightedSum += weight;
+          else dojiWeightedSum += weight;
+        }
+      }
+
+      if (rawOccurrences < this.minOccurrences) continue;
+
+      const decisiveWeight = bullishWeightedSum + bearishWeightedSum;
+      if (decisiveWeight === 0) continue;
+
+      const bullProb = bullishWeightedSum / decisiveWeight;
+      const bearProb = bearishWeightedSum / decisiveWeight;
+      const confidence = Math.max(bullProb, bearProb);
+      const direction = bullProb > bearProb ? 'CALLE' : 'PUTE';
+
+      patternResults.push({
+        patternLength: patLen,
+        pattern: currentPattern.join(''),
+        direction,
+        confidence,
+        bullProb,
+        bearProb,
+        rawOccurrences,
+        totalWeight: totalWeight.toFixed(2),
+        decisiveWeight: decisiveWeight.toFixed(2)
+      });
     }
 
-    classifyAll(candles) {
-        return candles.map(c => this.classifyCandle(c));
+    if (patternResults.length === 0) {
+      return {
+        shouldTrade: false,
+        direction: null,
+        confidence: 0,
+        reason: 'No patterns met minimum occurrence threshold',
+        details: { patternResults: [] }
+      };
     }
 
-    analyze(closedCandles) {
-        const maxPatLen = Math.max(...this.patternLengths);
-        if (closedCandles.length < maxPatLen) {
-            return {
-                shouldTrade: false,
-                direction: null,
-                confidence: 0,
-                reason: `Insufficient candle history: ${closedCandles.length} candles`,
-                details: {}
-            };
-        }
+    let consensusBullScore = 0;
+    let consensusBearScore = 0;
+    let totalVoteWeight = 0;
 
-        const types = this.classifyAll(closedCandles);
-        const totalCandles = types.length;
-        const patternResults = [];
-
-        for (const patLen of this.patternLengths) {
-            if (totalCandles < patLen + 1) continue;
-
-            const currentPattern = types.slice(totalCandles - patLen);
-            let bullishWeightedSum = 0;
-            let bearishWeightedSum = 0;
-            let dojiWeightedSum = 0;
-            let totalWeight = 0;
-            let rawOccurrences = 0;
-
-            const searchEnd = totalCandles - patLen - 1;
-
-            for (let i = 0; i <= searchEnd; i++) {
-                let matches = true;
-                for (let j = 0; j < patLen; j++) {
-                    if (types[i + j] !== currentPattern[j]) {
-                        matches = false;
-                        break;
-                    }
-                }
-
-                if (matches) {
-                    const nextType = types[i + patLen];
-                    const distanceFromPresent = searchEnd - i;
-                    const weight = Math.pow(this.recencyDecay, distanceFromPresent);
-
-                    rawOccurrences++;
-                    totalWeight += weight;
-
-                    if (nextType === 'B') bullishWeightedSum += weight;
-                    else if (nextType === 'R') bearishWeightedSum += weight;
-                    else dojiWeightedSum += weight;
-                }
-            }
-
-            if (rawOccurrences < this.minOccurrences) continue;
-
-            const decisiveWeight = bullishWeightedSum + bearishWeightedSum;
-            if (decisiveWeight === 0) continue;
-
-            const bullProb = bullishWeightedSum / decisiveWeight;
-            const bearProb = bearishWeightedSum / decisiveWeight;
-            const confidence = Math.max(bullProb, bearProb);
-            const direction = bullProb > bearProb ? 'CALLE' : 'PUTE';
-
-            patternResults.push({
-                patternLength: patLen,
-                pattern: currentPattern.join(''),
-                direction,
-                confidence,
-                bullProb,
-                bearProb,
-                rawOccurrences,
-                totalWeight: totalWeight.toFixed(2),
-                decisiveWeight: decisiveWeight.toFixed(2)
-            });
-        }
-
-        if (patternResults.length === 0) {
-            return {
-                shouldTrade: false,
-                direction: null,
-                confidence: 0,
-                reason: 'No patterns met minimum occurrence threshold',
-                details: { patternResults: [] }
-            };
-        }
-
-        let consensusBullScore = 0;
-        let consensusBearScore = 0;
-        let totalVoteWeight = 0;
-
-        for (const r of patternResults) {
-            const voteWeight = Math.sqrt(r.rawOccurrences) * Math.sqrt(r.patternLength);
-            consensusBullScore += voteWeight * r.bullProb;
-            consensusBearScore += voteWeight * r.bearProb;
-            totalVoteWeight += voteWeight;
-        }
-
-        const finalBullProb = consensusBullScore / totalVoteWeight;
-        const finalBearProb = consensusBearScore / totalVoteWeight;
-        const consensusConfidence = Math.max(finalBullProb, finalBearProb);
-        const consensusDirection = finalBullProb > finalBearProb ? 'CALLE' : 'PUTE';
-
-        patternResults.sort((a, b) => b.confidence - a.confidence);
-        const bestPattern = patternResults[0];
-
-        const agreeingPatterns = patternResults.filter(r => r.direction === consensusDirection);
-        const agreementRatio = agreeingPatterns.length / patternResults.length;
-
-        const finalDirection = consensusDirection;
-        const finalConfidence = consensusConfidence;
-        const decisionMethod = 'CONSENSUS+BEST_AGREE';
-        const patternOccurrence = bestPattern.rawOccurrences;
-
-        const shouldTrade = finalConfidence >= this.minConfidence;
-
-        let reason;
-        if (shouldTrade) {
-            const dirLabel = finalDirection === 'CALLE' ? 'BULLISH' : 'BEARISH';
-            reason = `Pattern analysis predicts ${dirLabel} with ${(finalConfidence * 100).toFixed(1)}% confidence`;
-        } else {
-            reason = `Confidence ${(finalConfidence * 100).toFixed(1)}% below threshold ${(this.minConfidence * 100).toFixed(1)}%`;
-        }
-
-        this.lastAnalysis = {
-            shouldTrade,
-            direction: shouldTrade ? finalDirection : null,
-            confidence: finalConfidence,
-            reason,
-            patternOccurrence: patternOccurrence,
-            details: {
-                patternResults,
-                consensus: {
-                    direction: consensusDirection,
-                    confidence: consensusConfidence,
-                    bullProb: finalBullProb,
-                    bearProb: finalBearProb,
-                    agreementRatio
-                },
-                bestPattern,
-                decisionMethod,
-                totalCandlesAnalyzed: totalCandles,
-                timestamp: Date.now()
-            }
-        };
-        this.lastAnalysisTime = Date.now();
-
-        return this.lastAnalysis;
+    for (const r of patternResults) {
+      const voteWeight = Math.sqrt(r.rawOccurrences) * Math.sqrt(r.patternLength);
+      consensusBullScore += voteWeight * r.bullProb;
+      consensusBearScore += voteWeight * r.bearProb;
+      totalVoteWeight += voteWeight;
     }
 
-    getAnalysisSummary(result) {
-        if (!result || !result.details || !result.details.patternResults) {
-            return 'No analysis available';
-        }
+    const finalBullProb = consensusBullScore / totalVoteWeight;
+    const finalBearProb = consensusBearScore / totalVoteWeight;
+    const consensusConfidence = Math.max(finalBullProb, finalBearProb);
+    const consensusDirection = finalBullProb > finalBearProb ? 'CALLE' : 'PUTE';
 
-        const lines = [];
-        lines.push(`📊 Pattern Analysis (${result.details.totalCandlesAnalyzed} candles):`);
-        lines.push(`   Decision: ${result.details.decisionMethod}`);
+    patternResults.sort((a, b) => b.confidence - a.confidence);
+    const bestPattern = patternResults[0];
 
-        for (const r of result.details.patternResults) {
-            const dirIcon = r.direction === 'CALLE' ? '🟢' : '🔴';
-            lines.push(
-                `   L${r.patternLength} "${r.pattern}" → ${dirIcon} ${(r.confidence * 100).toFixed(1)}% (${r.rawOccurrences} matches)`
-            );
-        }
+    const agreeingPatterns = patternResults.filter(r => r.direction === consensusDirection);
+    const agreementRatio = agreeingPatterns.length / patternResults.length;
 
-        if (result.shouldTrade) {
-            lines.push(`   ✅ SIGNAL: ${result.direction} @ ${(result.confidence * 100).toFixed(1)}%`);
-        } else {
-            lines.push(`   ⏳ NO TRADE: ${(result.confidence * 100).toFixed(1)}% < ${(this.minConfidence * 100).toFixed(1)}%`);
-        }
+    const finalDirection = consensusDirection;
+    const finalConfidence = consensusConfidence;
+    const decisionMethod = 'CONSENSUS+BEST_AGREE';
+    const patternOccurrence = bestPattern.rawOccurrences;
 
-        return lines.join('\n');
+    const shouldTrade = finalConfidence >= this.minConfidence;
+
+    let reason;
+    if (shouldTrade) {
+      const dirLabel = finalDirection === 'CALLE' ? 'BULLISH' : 'BEARISH';
+      reason = `Pattern analysis predicts ${dirLabel} with ${(finalConfidence * 100).toFixed(1)}% confidence`;
+    } else {
+      reason = `Confidence ${(finalConfidence * 100).toFixed(1)}% below threshold ${(this.minConfidence * 100).toFixed(1)}%`;
     }
+
+    this.lastAnalysis = {
+      shouldTrade,
+      direction: shouldTrade ? finalDirection : null,
+      confidence: finalConfidence,
+      reason,
+      patternOccurrence: patternOccurrence,
+      details: {
+        patternResults,
+        consensus: {
+          direction: consensusDirection,
+          confidence: consensusConfidence,
+          bullProb: finalBullProb,
+          bearProb: finalBearProb,
+          agreementRatio
+        },
+        bestPattern,
+        decisionMethod,
+        totalCandlesAnalyzed: totalCandles,
+        timestamp: Date.now()
+      }
+    };
+    this.lastAnalysisTime = Date.now();
+
+    return this.lastAnalysis;
+  }
+
+  getAnalysisSummary(result) {
+    if (!result || !result.details || !result.details.patternResults) {
+      return 'No analysis available';
+    }
+
+    const lines = [];
+    lines.push(`📊 Pattern Analysis (${result.details.totalCandlesAnalyzed} candles):`);
+    lines.push(`   Decision: ${result.details.decisionMethod}`);
+
+    for (const r of result.details.patternResults) {
+      const dirIcon = r.direction === 'CALLE' ? '🟢' : '🔴';
+      lines.push(
+        `   L${r.patternLength} "${r.pattern}" → ${dirIcon} ${(r.confidence * 100).toFixed(1)}% (${r.rawOccurrences} matches)`
+      );
+    }
+
+    if (result.shouldTrade) {
+      lines.push(`   ✅ SIGNAL: ${result.direction} @ ${(result.confidence * 100).toFixed(1)}%`);
+    } else {
+      lines.push(`   ⏳ NO TRADE: ${(result.confidence * 100).toFixed(1)}% < ${(this.minConfidence * 100).toFixed(1)}%`);
+    }
+
+    return lines.join('\n');
+  }
 }
 
 // ============================================================
