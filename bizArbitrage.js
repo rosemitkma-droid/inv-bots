@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitrage_04-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_04-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitrage_07-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_07-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -125,10 +125,10 @@ const CONFIG = {
     GRANULARITY: 60,
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 30,
-    MAX_CANDLES_STORED: 4,
-    DURATION: 2,
-    DURATION_UNIT: 't',
-    MIN_CANDLES_REQUIRED: 82,
+    MAX_CANDLES_STORED: 30,
+    DURATION: 21,
+    DURATION_UNIT: 's',
+    // MIN_CANDLES_REQUIRED: 82,
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
     USE_TRADING_SESSIONS: false,
@@ -139,12 +139,18 @@ const CONFIG = {
 
     // ── Position Management ───────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS: 6,
-    MAX_TRADES_PER_CYCLE: 3,
+    MAX_TOTAL_POSITIONS: 7,
+    MAX_TRADES_PER_CYCLE: 1,
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
+        'R_75',
+        'R_100',
+        '1HZ10V',
+        '1HZ25V',
+        '1HZ100V',
         'stpRNG',
+        'stpRNG3',
     ],
 
     // ── Misc ──────────────────────────────────────────────────
@@ -163,16 +169,16 @@ const DEFAULT_ASSET_CONFIG = {
     TIMEFRAME_LABEL: '1m',
 
     // Trade Duration
-    DURATION: 5,
-    DURATION_UNIT: 't',
+    DURATION: 21,
+    DURATION_UNIT: 's',
 
     // Stake Settings
     INITIAL_STAKE: 0.35,
     INVESTMENT_AMOUNT: 152,
 
     // Martingale Settings
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1,
+    MARTINGALE_MULTIPLIER: 1,
+    MAX_MARTINGALE_LEVEL: 5,
     AFTER_MAX_LOSS: 'continue',
     CONTINUE_EXTRA_LEVELS: 8,
     EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3],
@@ -185,9 +191,9 @@ const DEFAULT_ASSET_CONFIG = {
     STOP_LOSS: 152,
 
     // Pattern Analysis Settings
-    PATTERN_MIN_CONFIDENCE: 0.10,
+    PATTERN_MIN_CONFIDENCE: 0.60,
     MIN_PATTERN_CONFIDENCE: 0.10,
-    MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.10,
+    MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.60,
     PATTERN_LENGTHS: [2], //[3, 4, 5, 6, 7, 8]
     PATTERN_MIN_OCCURRENCES: 1,
     PATTERN_RECENCY_DECAY: 0.9990,
@@ -1820,6 +1826,14 @@ class IndexBot {
         if (!SessionManager.isSessionActive()) return;
 
         const assetConfig = getAssetConfig(symbol);
+
+        const totalPositions = CONFIG.ACTIVE_ASSETS.reduce(
+            (sum, s) => sum + (state.assets[s]?.activePositions?.length ?? 0), 0
+        );
+        if (totalPositions >= CONFIG.MAX_TOTAL_POSITIONS) {
+            LOGGER.debug(`[${symbol}] Max total positions (${totalPositions}/${CONFIG.MAX_TOTAL_POSITIONS})`);
+            return;
+        }
 
         // Check position limit
         if (assetState.activePositions.length >= CONFIG.MAX_OPEN_POSITIONS_PER_ASSET) {
