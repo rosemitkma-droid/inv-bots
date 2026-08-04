@@ -258,11 +258,11 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging ──
-  logFile : 'accuAPEXnew_02.log',
+  logFile : 'accuAPEXnew_03.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuAPEXnew_state_02.json',
+  stateFile           : 'accuAPEXnew_state_03.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -2461,13 +2461,13 @@ class AccuAPEXnewBot {
 
       const best = chosen;
 
-      this.previousBest = best.symbol;
-
       //Return if the best symbol is already being traded
-      if(this.previousBest === best.symbol) {
+      if(this.lastTradedBestSymbol === best.symbol) {
         logger.debug(`already traded ${best.symbol} — skipping`);
         return;
       }
+
+      this.lastTradedBestSymbol = best.symbol;
 
       logger.info(
         `APEX ENTER ${best.symbol} [${best.regimeClass}:${best.entryReason}] g=${(best.growthRate*100).toFixed(0)}% ` +
