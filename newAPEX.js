@@ -115,7 +115,7 @@ const CONFIG = Object.freeze({
   stake          : parseFloat('5.0'),
   stopLoss       : parseFloat('900.0'),   // catastrophic per-contract stop ($)
   dailyMaxLoss   : parseFloat('500'),     // hard daily loss → stop until next UTC day
-  dailyMaxTrades : parseInt('60', 10),    // hard daily trade cap → stop until next UTC day
+  dailyMaxTrades : parseInt('600', 10),    // hard daily trade cap → stop until next UTC day
 
   // ── Sizing ──
   //   'flat'    — always base stake
@@ -123,7 +123,7 @@ const CONFIG = Object.freeze({
   //              clamped to [minStakeFraction, maxStakeFraction] × base.
   //   'kelly'   — fractional Kelly from the model EV (fraction of the
   //              gross multiple), clamped to the same bounds.
-  sizingModeV3        : 'adaptive',  // 'flat' | 'adaptive' | 'kelly'
+  sizingModeV3        : 'flat',  // 'flat' | 'adaptive' | 'kelly'
   lossStakeReduction  : parseFloat('0.70'),
   winStakeRecovery    : parseFloat('1.15'),
   minStakeFraction    : parseFloat('0.25'),
@@ -153,7 +153,7 @@ const CONFIG = Object.freeze({
 
   // ── EV / survival gates (per-trade floors; NOT loosened by cadence) ──
   apexMinEV       : parseFloat('0.010'),   // ≥ +1% net EV to fire
-  apexMinSurvival : parseFloat('0.80'),    // forward K-tick survival floor
+  apexMinSurvival : parseFloat('0.90'),    // forward K-tick survival floor
   pulseSpreadCost : parseFloat('0.002'),   // flat spread model (low; see honesty note)
   pulseGrowthRates: [0.05, 0.04, 0.03, 0.02, 0.01], // grid searched by EV (lower rates = looser barrier)
 
@@ -170,7 +170,7 @@ const CONFIG = Object.freeze({
   // ── Post-spike entry (BOOM/CRASH) ──
   apexPostSpikeMin        : parseInt('1', 10),
   apexPostSpikeWindowFrac : parseFloat('0.35'),
-  apexMinSpikeSurvival    : parseFloat('0.80'), // (1-hazard)^maxHold floor
+  apexMinSpikeSurvival    : parseFloat('0.90'), // (1-hazard)^maxHold floor
   apexMaxHoldBoom         : parseInt('7', 10),
 
   // ── Vol-compression entry (VOL) ──
@@ -221,9 +221,9 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging / state ──
-  logFile           : 'accuAPEXnew_06.log',
+  logFile           : 'accuAPEXnew_07.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnew_state_06.json',
+  stateFile         : 'accuAPEXnew_state_07.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 
