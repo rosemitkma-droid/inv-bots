@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_012-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_012-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_013-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_013-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -133,8 +133,8 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 30,
     MAX_CANDLES_STORED: 30,
-    DURATION: 1,
-    DURATION_UNIT: 't',
+    DURATION: 73,
+    DURATION_UNIT: 's',
     MIN_CANDLES_REQUIRED: 30,    
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
@@ -151,13 +151,13 @@ const CONFIG = {
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
-        // 'R_75',
-        // 'R_100',
+        'R_75',
+        'R_100',
         'stpRNG',
-        'stpRNG2',
-        'stpRNG3',
-        'stpRNG4',
-        'stpRNG5',
+        // 'stpRNG2',
+        // 'stpRNG3',
+        // 'stpRNG4',
+        // 'stpRNG5',
     ],
 
     // ── Misc ──────────────────────────────────────────────────
