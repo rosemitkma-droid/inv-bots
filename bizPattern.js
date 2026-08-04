@@ -125,7 +125,7 @@ const CONFIG = {
 
     // ── Candle Pattern Recognition settings (from candlePatternRFm.js) ─
     USE_RECOVERY_STRATEGY: false,
-    PATTERN_MIN_CONFIDENCE: 0.50,
+    PATTERN_MIN_CONFIDENCE: 0.10,
     MIN_AGREEMENT_RATIO_CONFIDENCE: 0.10,
     MIN_PATTERN_CONFIDENCE: 0.10,
     MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.10,
