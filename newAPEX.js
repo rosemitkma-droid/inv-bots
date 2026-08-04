@@ -123,7 +123,7 @@ const CONFIG = Object.freeze({
   //              clamped to [minStakeFraction, maxStakeFraction] × base.
   //   'kelly'   — fractional Kelly from the model EV (fraction of the
   //              gross multiple), clamped to the same bounds.
-  sizingModeV3        : 'flat',  // 'flat' | 'adaptive' | 'kelly'
+  sizingModeV3        : 'adaptive',  // 'flat' | 'adaptive' | 'kelly'
   lossStakeReduction  : parseFloat('0.70'),
   winStakeRecovery    : parseFloat('1.15'),
   minStakeFraction    : parseFloat('0.25'),
@@ -221,9 +221,9 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging / state ──
-  logFile           : 'accuAPEXnew_07.log',
+  logFile           : 'accuAPEXnew_09.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnew_state_07.json',
+  stateFile         : 'accuAPEXnew_state_09.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 
