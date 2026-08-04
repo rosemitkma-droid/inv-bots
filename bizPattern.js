@@ -135,8 +135,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [kept — this bot's own artifacts]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizPattern_07-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizPattern_07-history.json');
+const STATE_FILE = path.join(__dirname, 'bizPattern_08-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizPattern_08-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -228,17 +228,17 @@ const CONFIG = {
     // NOTE: v1 used PATTERN_MIN_CONFIDENCE 0.10 which was mathematically dead
     // (confidence was always >= 0.5). All *Confidence knobs were removed; the
     // trade gate is now a Wilson lower bound vs the breakeven win rate.
-    PATTERN_LENGTHS: [3, 4, 5],        // >=2 lengths => real consensus gate
-    PATTERN_MIN_OCCURRENCES: 8,        // per pattern, train windows (stride-counted)
-    PATTERN_MIN_VALIDATION_SAMPLES: 4, // per pattern, holdout windows
-    PATTERN_CONFIDENCE_LEVEL: 0.90,    // Wilson z (0.90/0.95/0.99)
-    PATTERN_BREAKEVEN_MARGIN: 0.005,   // cushion above breakeven p*
-    MIN_CANDIDATES_FOR_TRADE: 2,       // require this many lengths to pass+agree
-    PATTERN_AGREEMENT_RATIO: 1.0,      // passing lengths must agree 100% by default
-    PATTERN_DOJI_ATR_FRACTION: 0.25,   // body <= 25% of recent ATR => Doji (no-trade)
+    PATTERN_LENGTHS: [3, 4, 5],        //[3, 4, 5] >=2 lengths => real consensus gate
+    PATTERN_MIN_OCCURRENCES: 4,        //8 per pattern, train windows (stride-counted)
+    PATTERN_MIN_VALIDATION_SAMPLES: 2, //4 per pattern, holdout windows
+    PATTERN_CONFIDENCE_LEVEL: 0.90,    //0.90 Wilson z (0.90/0.95/0.99)
+    PATTERN_BREAKEVEN_MARGIN: 0.005,   //0.005 cushion above breakeven p*
+    MIN_CANDIDATES_FOR_TRADE: 1,       //2 require this many lengths to pass+agree
+    PATTERN_AGREEMENT_RATIO: 1.0,      //1.0 passing lengths must agree 100% by default
+    PATTERN_DOJI_ATR_FRACTION: 0.25,   //0.25 body <= 25% of recent ATR => Doji (no-trade)
     PATTERN_RECENCY_DECAY: 1.0,        // 1.0 = uniform. <1 adds weighting but is
                                        // statistically noisy on a 500-candle window.
-    PATTERN_TRAIN_FRACTION: 0.70,      // older fraction = train; recent = holdout
+    PATTERN_TRAIN_FRACTION: 0.70,      //0.70 older fraction = train; recent = holdout
     USE_RECOVERY_STRATEGY: false,      // v1 "same-direction retry after loss, no
                                        // analysis". Keep OFF: on a near-50% game it
                                        // only adds exposure to the house edge and
