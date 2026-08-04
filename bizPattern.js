@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizPattern_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizPattern_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizPattern_03-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizPattern_03-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -126,9 +126,9 @@ const CONFIG = {
     // ── Candle Pattern Recognition settings (from candlePatternRFm.js) ─
     USE_RECOVERY_STRATEGY: false,
     PATTERN_MIN_CONFIDENCE: 0.50,
-    MIN_AGREEMENT_RATIO_CONFIDENCE: 0.50,
-    MIN_PATTERN_CONFIDENCE: 0.50,
-    MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.50,
+    MIN_AGREEMENT_RATIO_CONFIDENCE: 0.10,
+    MIN_PATTERN_CONFIDENCE: 0.10,
+    MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.10,
     PATTERN_LENGTHS: [3],
     PATTERN_MIN_OCCURRENCES: 1,
     PATTERN_RECENCY_DECAY: 0.9990,
@@ -143,13 +143,13 @@ const CONFIG = {
     GRANULARITY: 60,     // 1-minute candles
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 200,
-    MAX_CANDLES_STORED: 300,
-    DURATION: 1,
-    DURATION_UNIT: 'm',
+    MAX_CANDLES_STORED: 3,
+    DURATION: 26,
+    DURATION_UNIT: 's',
     MIN_CANDLES_REQUIRED: 82,    
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
-    USE_TRADING_SESSIONS: false,
+    USE_TRADING_SESSIONS: true,
     SESSIONS: [
         { name: 'LONDON_OPEN', start: 2, end: 17 },
         { name: 'NY_OPEN', start: 12, end: 22 },
@@ -163,8 +163,11 @@ const CONFIG = {
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
         'R_75',
-        // 'R_100',
-        // 'stpRNG',
+        'R_100',
+        '1HZ10V',
+        '1HZ25V',
+        '1HZ100V',
+        'stpRNG',
     ],
 
     // ── Misc ──────────────────────────────────────────────────
