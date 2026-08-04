@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizPattern_03-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizPattern_03-history.json');
+const STATE_FILE = path.join(__dirname, 'bizPattern_04-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizPattern_04-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -143,13 +143,13 @@ const CONFIG = {
     GRANULARITY: 60,     // 1-minute candles
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 200,
-    MAX_CANDLES_STORED: 3,
+    MAX_CANDLES_STORED: 200,
     DURATION: 26,
     DURATION_UNIT: 's',
-    MIN_CANDLES_REQUIRED: 82,    
+    // MIN_CANDLES_REQUIRED: 82,    
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
-    USE_TRADING_SESSIONS: true,
+    USE_TRADING_SESSIONS: false,
     SESSIONS: [
         { name: 'LONDON_OPEN', start: 2, end: 17 },
         { name: 'NY_OPEN', start: 12, end: 22 },
@@ -1816,11 +1816,11 @@ class IndexBot {
             }
         }
 
-        if (a.closedCandles.length < CONFIG.MIN_CANDLES_REQUIRED) {
-            LOGGER.debug(`[${symbol}] Not enough candles yet (${a.closedCandles.length}/${CONFIG.MIN_CANDLES_REQUIRED})`);
-            a.canTrade = false;
-            return;
-        }
+        // if (a.closedCandles.length < CONFIG.MIN_CANDLES_REQUIRED) {
+        //     LOGGER.debug(`[${symbol}] Not enough candles yet (${a.closedCandles.length}/${CONFIG.MIN_CANDLES_REQUIRED})`);
+        //     a.canTrade = false;
+        //     return;
+        // }
 
         let direction;
         let analysis = null;
