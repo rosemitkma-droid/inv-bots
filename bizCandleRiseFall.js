@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_011-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_011-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_012-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_012-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -147,7 +147,7 @@ const CONFIG = {
     // ── Position Management ───────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
     MAX_TOTAL_POSITIONS: 1,
-    MAX_TRADES_PER_CYCLE: 9,
+    MAX_TRADES_PER_CYCLE: 1,
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
