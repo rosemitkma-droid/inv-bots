@@ -115,7 +115,7 @@ const CONFIG = Object.freeze({
   stake          : parseFloat('5.0'),
   stopLoss       : parseFloat('900.0'),   // catastrophic per-contract stop ($)
   dailyMaxLoss   : parseFloat('500'),     // hard daily loss → stop until next UTC day
-  dailyMaxTrades : parseInt('600', 10),    // hard daily trade cap → stop until next UTC day
+  dailyMaxTrades : parseInt('6000', 10),    // hard daily trade cap → stop until next UTC day
 
   // ── Sizing ──
   //   'flat'    — always base stake
