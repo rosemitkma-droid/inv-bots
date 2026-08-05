@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitrage_001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_001-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitrage_002-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_002-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -124,9 +124,9 @@ const CONFIG = {
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
     GRANULARITY: 60,
     TIMEFRAME_LABEL: '1m',
-    CANDLES_TO_LOAD: 30,
-    MAX_CANDLES_STORED: 30,
-    DURATION: 21,
+    CANDLES_TO_LOAD: 60,
+    MAX_CANDLES_STORED: 60,
+    DURATION: 22,
     DURATION_UNIT: 's',
     // MIN_CANDLES_REQUIRED: 82,
 
@@ -169,7 +169,7 @@ const DEFAULT_ASSET_CONFIG = {
     TIMEFRAME_LABEL: '1m',
 
     // Trade Duration
-    DURATION: 21,
+    DURATION: 22,
     DURATION_UNIT: 's',
 
     // Stake Settings
@@ -192,7 +192,7 @@ const DEFAULT_ASSET_CONFIG = {
 
     // Pattern Analysis Settings
     PATTERN_MIN_CONFIDENCE: 0.60,
-    MIN_PATTERN_CONFIDENCE: 0.10,
+    MIN_PATTERN_CONFIDENCE: 0.60,
     MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.60,
     PATTERN_LENGTHS: [2], //[3, 4, 5, 6, 7, 8]
     PATTERN_MIN_OCCURRENCES: 1,
@@ -1812,6 +1812,27 @@ class IndexBot {
         this.connection.activeSubscriptions.add(symbol);
     }
 
+    // ── Determine market mode from last 3 closed candles ──
+    // Ranging: candles alternate every time (B→R→B or R→B→R)
+    // Trending: candles do NOT fully alternate (B→R→R, R→B→B, B→B→B, etc.)
+    _determineMarketMode(closedCandles) {
+        if (!closedCandles || closedCandles.length < 3) return 'range';
+
+        const recent = closedCandles.slice(-3);
+        const types = recent.map(c => (c.close > c.open ? 'B' : 'R'));
+
+        // Count how many times adjacent candles differ (alternate)
+        let alternations = 0;
+        for (let i = 1; i < types.length; i++) {
+            if (types[i] !== types[i - 1]) alternations++;
+        }
+
+        // With 3 candles (2 pairs): all pairs alternate → range; otherwise → trend
+        const mode = alternations === 2 ? 'range' : 'trend';
+        LOGGER.debug(`[MarketMode] ${types.join('→')} → ${mode} (${alternations} alternations)`);
+        return mode;
+    }
+
     // ════════════════════════════════════════════════════════
     // CORE TRADE LOGIC — called on every candle close (FIXED)
     //
@@ -1861,6 +1882,14 @@ class IndexBot {
             direction = assetState.lastTradeDirection;
             LOGGER.trade(`🔄 [${symbol}] RECOVERY TRADE - Same direction: ${direction} (NO analysis)`);
         } else {
+            const mode = this._determineMarketMode(assetState.closedCandles);
+            //Returm if Market is not Trending
+            if (mode === 'range') {
+                LOGGER.info(`[${symbol}] Market is in RANGE mode — skipping trade`);
+                assetState.canTrade = false;
+                return;
+            }
+
             // Normal mode: run pattern analysis
             analysis = assetState.patternAnalyzer.analyze(assetState.closedCandles);
             assetState.lastAnalysis = analysis;
