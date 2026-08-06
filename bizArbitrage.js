@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitrage_003-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_003-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitrage_005-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_005-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -169,7 +169,7 @@ const DEFAULT_ASSET_CONFIG = {
     TIMEFRAME_LABEL: '1m',
 
     // Trade Duration
-    DURATION: 22,
+    DURATION: 59,
     DURATION_UNIT: 's',
 
     // Stake Settings
@@ -443,8 +443,12 @@ class StakeCalculator {
         base = Math.max(base, cfg.INITIAL_STAKE);
 
         let stake;
-        if (level <= cfg.MAX_MARTINGALE_LEVEL) {
+        if (level <= cfg.MAX_MARTINGALE_LEVEL + cfg.CONTINUE_EXTRA_LEVELS) {
             stake = base * Math.pow(cfg.MARTINGALE_MULTIPLIER, level);
+        } else if (level >= cfg.CONTINUE_EXTRA_LEVELS) {
+            //reset to base stake after exceeding max martingale + extra levels
+            stake = base;
+            level = 0; // Reset level to 0 for calculation
         } else {
             stake = base * Math.pow(cfg.MARTINGALE_MULTIPLIER, cfg.MAX_MARTINGALE_LEVEL);
             const extraIdx = level - cfg.MAX_MARTINGALE_LEVEL - 1;
