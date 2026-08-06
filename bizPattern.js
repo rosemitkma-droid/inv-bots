@@ -144,8 +144,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [kept — this bot's own artifacts]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizPattern_09-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizPattern_09-history.json');
+const STATE_FILE = path.join(__dirname, 'bizPattern_001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizPattern_001-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
