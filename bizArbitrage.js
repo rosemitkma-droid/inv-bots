@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitragee_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitragee_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -126,8 +126,8 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 60,
     MAX_CANDLES_STORED: 60,
-    DURATION: 58,
-    DURATION_UNIT: 's',
+    DURATION: 1,
+    DURATION_UNIT: 'm',
     // MIN_CANDLES_REQUIRED: 82,
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
@@ -169,8 +169,8 @@ const DEFAULT_ASSET_CONFIG = {
     TIMEFRAME_LABEL: '1m',
 
     // Trade Duration
-    DURATION: 58,
-    DURATION_UNIT: 's',
+    DURATION: 1,
+    DURATION_UNIT: 'm',
 
     // Stake Settings
     INITIAL_STAKE: 0.5,
@@ -184,8 +184,8 @@ const DEFAULT_ASSET_CONFIG = {
     EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.3], //[2.0, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3]
 
     // Auto-Compounding
-    AUTO_COMPOUNDING: false,
-    COMPOUND_PERCENTAGE: 0.24,
+    AUTO_COMPOUNDING: true,
+    COMPOUND_PERCENTAGE: 0.1,
 
     // Risk Management
     STOP_LOSS: 152,
@@ -443,17 +443,19 @@ class StakeCalculator {
         base = Math.max(base, cfg.INITIAL_STAKE);
 
         let stake;
-        if (level <= cfg.MAX_MARTINGALE_LEVEL + cfg.CONTINUE_EXTRA_LEVELS) {
+        if (level <= cfg.MAX_MARTINGALE_LEVEL) {
             stake = base * Math.pow(cfg.MARTINGALE_MULTIPLIER, level);
-        } else if (level >= cfg.CONTINUE_EXTRA_LEVELS) {
-            //reset to base stake after exceeding max martingale + extra levels
-            stake = base;
-            level = 0; // Reset level to 0 for calculation
         } else {
             stake = base * Math.pow(cfg.MARTINGALE_MULTIPLIER, cfg.MAX_MARTINGALE_LEVEL);
             const extraIdx = level - cfg.MAX_MARTINGALE_LEVEL - 1;
             for (let i = 0; i <= extraIdx; i++) {
                 stake *= (cfg.EXTRA_LEVEL_MULTIPLIERS[i] || cfg.MARTINGALE_MULTIPLIER);
+            }
+
+            //reset to base stake after exceeding max martingale + extra levels
+            if (level > cfg.MAX_MARTINGALE_LEVEL + cfg.CONTINUE_EXTRA_LEVELS) {
+                stake = base;
+                level = 0; // Reset level to 0 for calculation
             }
         }
 
@@ -1887,7 +1889,7 @@ class IndexBot {
             LOGGER.trade(`🔄 [${symbol}] RECOVERY TRADE - Same direction: ${direction} (NO analysis)`);
         } else {
             const mode = this._determineMarketMode(assetState.closedCandles);
-            //Returm if Market is not Trending
+            //Return if Market is not Trend Mode
             if (mode === 'range') {
                 LOGGER.info(`[${symbol}] Market is in RANGE mode — skipping trade`);
                 assetState.canTrade = false;
