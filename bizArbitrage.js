@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitrage_002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_002-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitrage_003-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_003-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -126,7 +126,7 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 60,
     MAX_CANDLES_STORED: 60,
-    DURATION: 22,
+    DURATION: 59,
     DURATION_UNIT: 's',
     // MIN_CANDLES_REQUIRED: 82,
 
@@ -173,18 +173,18 @@ const DEFAULT_ASSET_CONFIG = {
     DURATION_UNIT: 's',
 
     // Stake Settings
-    INITIAL_STAKE: 0.35,
+    INITIAL_STAKE: 0.5,
     INVESTMENT_AMOUNT: 152,
 
     // Martingale Settings
-    MARTINGALE_MULTIPLIER: 1.48,
+    MARTINGALE_MULTIPLIER: 1.8,
     MAX_MARTINGALE_LEVEL: 1,
     AFTER_MAX_LOSS: 'continue',
-    CONTINUE_EXTRA_LEVELS: 8,
-    EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3],
+    CONTINUE_EXTRA_LEVELS: 4,
+    EXTRA_LEVEL_MULTIPLIERS: [2.0, 2.1, 2.2, 2.3], //[2.0, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3]
 
     // Auto-Compounding
-    AUTO_COMPOUNDING: true,
+    AUTO_COMPOUNDING: false,
     COMPOUND_PERCENTAGE: 0.24,
 
     // Risk Management
