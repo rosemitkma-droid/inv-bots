@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitrage_005-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_005-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitrage_006-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_006-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -126,7 +126,7 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 60,
     MAX_CANDLES_STORED: 60,
-    DURATION: 59,
+    DURATION: 58,
     DURATION_UNIT: 's',
     // MIN_CANDLES_REQUIRED: 82,
 
@@ -169,7 +169,7 @@ const DEFAULT_ASSET_CONFIG = {
     TIMEFRAME_LABEL: '1m',
 
     // Trade Duration
-    DURATION: 59,
+    DURATION: 58,
     DURATION_UNIT: 's',
 
     // Stake Settings
