@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitrage_007-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_007-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitragee_01-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_01-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
