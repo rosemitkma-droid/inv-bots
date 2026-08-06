@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_018-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_018-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_019-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_019-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -119,8 +119,8 @@ const CONFIG = {
     AFTER_MAX_LOSS: 'continue',
     CONTINUE_EXTRA_LEVELS: 4,
     EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.3], //[2.0, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3]
-    AUTO_COMPOUNDING: false,
-    COMPOUND_PERCENTAGE: 0.24,
+    AUTO_COMPOUNDING: true,
+    COMPOUND_PERCENTAGE: 0.1,
     STOP_LOSS: 152,
 
     // ── Session / daily guards ───────────────────
@@ -195,17 +195,19 @@ class StakeCalculator {
         base = Math.max(base, CONFIG.INITIAL_STAKE);
 
         let stake;
-        if (level <= CONFIG.MAX_MARTINGALE_LEVEL + CONFIG.CONTINUE_EXTRA_LEVELS) {
+        if (level <= CONFIG.MAX_MARTINGALE_LEVEL) {
             stake = base * Math.pow(CONFIG.MARTINGALE_MULTIPLIER, level);
-        } else if (level >= CONFIG.CONTINUE_EXTRA_LEVELS) {
-            // Reset to base stake after exceeding max martingale + extra levels
-            stake = base;
-            level = 0; // Reset level to 0 for calculation
         } else {
             stake = base * Math.pow(CONFIG.MARTINGALE_MULTIPLIER, CONFIG.MAX_MARTINGALE_LEVEL);
             const extraIdx = level - CONFIG.MAX_MARTINGALE_LEVEL - 1;
             for (let i = 0; i <= extraIdx; i++) {
                 stake *= (CONFIG.EXTRA_LEVEL_MULTIPLIERS[i] || CONFIG.MARTINGALE_MULTIPLIER);
+            }
+
+            // Reset to base stake after exceeding max martingale + extra levels
+            if (level > CONFIG.MAX_MARTINGALE_LEVEL + CONFIG.CONTINUE_EXTRA_LEVELS) {
+                stake = base;
+                level = 0; // Reset level to 0 for calculation
             }
         }
 
