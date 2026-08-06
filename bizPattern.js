@@ -144,8 +144,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [kept — this bot's own artifacts]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizPattern_001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizPattern_001-history.json');
+const STATE_FILE = path.join(__dirname, 'bizPattern_002-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizPattern_002-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -276,11 +276,11 @@ const CONFIG = {
                                        // true ONLY after a calibration week proves
                                        // edge; see martingale warnings below.
     // Legacy martingale knobs — only read when ENABLE_MARTINGALE is true.
-    MARTINGALE_MULTIPLIER: 1.8,
+    MARTINGALE_MULTIPLIER: 1.48,
     MAX_MARTINGALE_LEVEL: 1,
     AFTER_MAX_LOSS: 'continue',
     CONTINUE_EXTRA_LEVELS: 4,
-    EXTRA_LEVEL_MULTIPLIERS: [2.0, 2.1, 2.2, 2.3],
+    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.3],
     AUTO_COMPOUNDING: false,
     COMPOUND_PERCENTAGE: 0.24,         // 0.24% of pool — only matters with martingale
     MAX_CONSECUTIVE_LOSSES: 15,         // asset halts for the day after this many
@@ -324,8 +324,8 @@ const CONFIG = {
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
         'R_75',
-        '1HZ25V',
-        'stpRNG',
+        // '1HZ25V',
+        // 'stpRNG',
     ],
 
     // ── Ops ───────────────────────────────────────────────────
