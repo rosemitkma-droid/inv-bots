@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_015-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_015-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_016-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_016-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -195,8 +195,12 @@ class StakeCalculator {
         base = Math.max(base, CONFIG.INITIAL_STAKE);
 
         let stake;
-        if (level <= CONFIG.MAX_MARTINGALE_LEVEL) {
+        if (level <= CONFIG.MAX_MARTINGALE_LEVEL + CONFIG.CONTINUE_EXTRA_LEVELS) {
             stake = base * Math.pow(CONFIG.MARTINGALE_MULTIPLIER, level);
+        } else if (level >= CONFIG.CONTINUE_EXTRA_LEVELS) {
+            // Reset to base stake after exceeding max martingale + extra levels
+            stake = base;
+            level = 0; // Reset level to 0 for calculation
         } else {
             stake = base * Math.pow(CONFIG.MARTINGALE_MULTIPLIER, CONFIG.MAX_MARTINGALE_LEVEL);
             const extraIdx = level - CONFIG.MAX_MARTINGALE_LEVEL - 1;
