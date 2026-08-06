@@ -139,7 +139,7 @@ const CONFIG = Object.freeze({
   // is fatter than Gaussian; q in [1,∞), higher = fatter).
   heavyTailQ         : parseFloat('1.3'),
   // Growth-rate candidates to evaluate. Selection = argmax EV(g).
-  growthRates        : Object.freeze([0.01, 0.02, 0.03, 0.04, 0.05]),
+  growthRates        : Object.freeze([0.01, 0.02, 0.03]), //0.01, 0.02, 0.03, 0.04, 0.05
 
   // ── AEBA weights (informational / diagnostics only; not a soft gate) ──
   weights: {
@@ -167,7 +167,7 @@ const CONFIG = Object.freeze({
 
   // ── Daily limits (real caps now) ──
   dailyMaxLoss   : parseFloat('150'),
-  dailyMaxTrades : parseInt('40'),
+  dailyMaxTrades : parseInt('40000'),
 
   // ── Reconnect ──
   reconnect: {
@@ -184,11 +184,11 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging ──
-  logFile : 'accuPULSE2bc_001.log',
+  logFile : 'accuPULSE2bc_003.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuPULSE2bc_state_001.json',
+  stateFile           : 'accuPULSE2bc_state_003.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
