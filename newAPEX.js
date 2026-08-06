@@ -155,7 +155,7 @@ const CONFIG = Object.freeze({
   apexMinEV       : parseFloat('0.010'),   // ≥ +1% net EV to fire
   apexMinSurvival : parseFloat('1.000'),    // forward K-tick survival floor
   pulseSpreadCost : parseFloat('0.002'),   // flat spread model (low; see honesty note)
-  pulseGrowthRates: [0.05, 0.04, 0.03, 0.02, 0.01], // grid searched by EV (lower rates = looser barrier)
+  pulseGrowthRates: [0.05], //[0.05, 0.04, 0.03, 0.02, 0.01] grid searched by EV (lower rates = looser barrier)
 
   // ── APEX strategy tunables ──
   // History depth: spike cadence needs ≥2 spike intervals in view.
@@ -221,9 +221,9 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging / state ──
-  logFile           : 'accuAPEXnew_005.log',
+  logFile           : 'accuAPEXnew_006.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnew_state_005.json',
+  stateFile         : 'accuAPEXnew_state_006.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 
