@@ -144,8 +144,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [kept — this bot's own artifacts]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizPattern_002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizPattern_002-history.json');
+const STATE_FILE = path.join(__dirname, 'bizPattern_004-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizPattern_004-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -248,9 +248,9 @@ const CONFIG = {
     // Sim result: noise WR 48.3% (no phantom edge), momentum WR 55.4%
     // (~+4pp edge), ~29-35 trades/day. That's the honest-but-active profile.
     PATTERN_LENGTHS: [3, 4, 5],        // >=2 lengths => real consensus gate
-    PATTERN_MIN_OCCURRENCES: 10,       // per pattern, train windows (min sample)
-    PATTERN_MIN_VALIDATION_SAMPLES: 4, // per pattern, holdout windows
-    PATTERN_CONFIDENCE_LEVEL: 0.80,    // Wilson z (0.80/0.90/0.95). 0.80 keeps the
+    PATTERN_MIN_OCCURRENCES: 5,       //10 per pattern, train windows (min sample)
+    PATTERN_MIN_VALIDATION_SAMPLES: 2, //4 per pattern, holdout windows
+    PATTERN_CONFIDENCE_LEVEL: 0.60,    //0.80 Wilson z (0.80/0.90/0.95). 0.80 keeps the
                                        // noise gate while allowing real edges.
     PATTERN_BREAKEVEN_MARGIN: 0.04,    // point-estimate cushion above breakeven
     MIN_CANDIDATES_FOR_TRADE: 2,       // require this many lengths to pass+agree
@@ -281,8 +281,8 @@ const CONFIG = {
     AFTER_MAX_LOSS: 'continue',
     CONTINUE_EXTRA_LEVELS: 4,
     EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.3],
-    AUTO_COMPOUNDING: false,
-    COMPOUND_PERCENTAGE: 0.24,         // 0.24% of pool — only matters with martingale
+    AUTO_COMPOUNDING: true,
+    COMPOUND_PERCENTAGE: 0.1,         // 0.24% of pool — only matters with martingale
     MAX_CONSECUTIVE_LOSSES: 15,         // asset halts for the day after this many
     MIN_POOL_TO_TRADE_FRACTION: 0.20,  // halt asset if pool < 20% of INVESTMENT_AMOUNT
     MIN_POOL_TO_TRADE: 30.4,           // (computed below from the fraction)
