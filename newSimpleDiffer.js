@@ -257,8 +257,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'simpleDiffern_state_002.json'),
-  logFile: strEnv('LOG_FILE', 'simpleDiffern_bot_002.log'),
+  stateFile: strEnv('STATE_FILE', 'simpleDiffern_state_003.json'),
+  logFile: strEnv('LOG_FILE', 'simpleDiffern_bot_003.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO SIMPLEDIFFER').toUpperCase(),
 
   // Telegram — MUST come from .env / environment, never hardcode a real
@@ -1700,7 +1700,7 @@ class TradingBot {
       this.paused = true;
       logger.info(`TRADING PAUSED at ${this.cfg.pauseStartGmt} GMT until ${this.cfg.pauseEndGmt} GMT`);
       telegram.send(
-        `⏸️ <b>x2Digit TRADING PAUSED</b>\n\n` +
+        `⏸️ <b>SIMPLE TRADING PAUSED</b>\n\n` +
         `Scheduled pause active from <b>${htmlEscape(this.cfg.pauseStartGmt)}</b> to <b>${htmlEscape(this.cfg.pauseEndGmt)}</b> GMT.\n` +
         `Open trades will settle normally. No new trades until resume.\n\n` +
         `🕒 ${utcTs()}`
@@ -1716,7 +1716,7 @@ class TradingBot {
       this.paused = false;
       logger.info(`TRADING RESUMED at ${this.cfg.pauseEndGmt} GMT`);
       telegram.send(
-        `▶️ <b>x2Digit TRADING RESUMED</b>\n\n` +
+        `▶️ <b>SIMPLE TRADING RESUMED</b>\n\n` +
         `Scheduled pause ended. Bot is now scanning for trades.\n\n` +
         `💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}\n\n` +
         `🕒 ${utcTs()}`
@@ -1829,7 +1829,7 @@ class TradingBot {
   }
 
   _onDisconnected(code, reason, wasAuthorized) {
-    telegram.send(`⚠️ <b>x2Digit Connection lost</b>\ncode: <code>${code}</code>\nwas authorized: ${wasAuthorized ? 'yes' : 'no'}\n🔄 reconnecting...`);
+    telegram.send(`⚠️ <b>SIMPLE DIGIT Connection lost</b>\ncode: <code>${code}</code>\nwas authorized: ${wasAuthorized ? 'yes' : 'no'}\n🔄 reconnecting...`);
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
     this.exec.open.clear();
   }
@@ -2157,7 +2157,7 @@ class TradingBot {
       const mins = (this.cfg.circuitBreakerCooldownMs / 60000).toFixed(0);
       logger.warn(`circuit breaker tripped: ${this.stats.currentLossStreak} losses in a row → pausing ${mins}m`);
       telegram.send(
-        `🛑 <b>x2Digit CIRCUIT BREAKER TRIPPED</b>\n\n` +
+        `🛑 <b>SIMPLE DIGIT CIRCUIT BREAKER TRIPPED</b>\n\n` +
         `${this.stats.currentLossStreak} losses in a row. Pausing all new trades for ${mins} minutes.\n` +
         `This is not a punishment for the model being "due" — it's a hard stop so a bad stretch can't compound. Consider reviewing before manually resuming.`
       );
@@ -2286,7 +2286,7 @@ class TradingBot {
     this.tradeStartTime = null;
 
     telegram.send(
-      `<b>x2Digit STUCK TRADE RECOVERED [${reason}]</b>\n` +
+      `<b>SIMPLE DIGIT STUCK TRADE RECOVERED [${reason}]</b>\n` +
       `Contract: ${contractId}\n` +
       `Asset: ${symbol}\n` +
       `Stake: $${stake.toFixed(2)}\n` +
@@ -2340,10 +2340,10 @@ class TradingBot {
     const list = this.stats.tradesForHour(date, hour);
     const s = this.stats.stats(list);
     if (!list.length) {
-      telegram.send(`⏰ <b>x2Digit Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\nNo trades this hour.\n\n💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}`);
+      telegram.send(`⏰ <b>SIMPLE Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\nNo trades this hour.\n\n💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}`);
       return;
     }
-    let msg = `⏰ <b>x2Digit Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\n` +
+    let msg = `⏰ <b>SIMPLE Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\n` +
       `📊 Trades: ${s.count} (✅${s.wins} ❌${s.losses})\n` +
       `📈 Win rate: ${s.winRate.toFixed(1)}%\n` +
       `💰 P/L: <b>${money(s.totalProfit, this.currency())}</b>\n` +
@@ -2364,7 +2364,7 @@ class TradingBot {
     const summary = this.stats.archiveDate(date);
     const ds = summary.stats;
 
-    let msg = `🌙 <b>x2Digit END OF TRADE DAY — GMT</b>\n` +
+    let msg = `🌙 <b>SIMPLE END OF TRADE DAY — GMT</b>\n` +
               `📅 Trade day ended: <b>${date}</b>\n\n` +
               `<b>── Current Day Stats ──</b>\n`;
     if (ds.count) {
@@ -2380,7 +2380,7 @@ class TradingBot {
       msg += `No trades recorded for this GMT trade day.\n\n`;
     }
 
-    msg += `<b>──x2Digit Overall / Stored Stats ──</b>\n` +
+    msg += `<b>──SIMPLE Overall / Stored Stats ──</b>\n` +
            `💼 Overall Profit: <b>${money(this.stats.overallProfit, this.currency())}</b>\n` +
            `❌ Consecutive losses: current ${this.stats.currentLossStreak} | max ${this.stats.maxLossStreak}\n` +
            `   x2=${this.stats.lossStreakEvents.x2}  x3=${this.stats.lossStreakEvents.x3}  x4=${this.stats.lossStreakEvents.x4}\n\n`;
@@ -2390,7 +2390,7 @@ class TradingBot {
       const calib = this.calibrator.summary();
       const keys  = Object.keys(calib);
       if (keys.length) {
-        msg += `<b>──x2Digit Symbol Calibration (rolling ${this.cfg.calibWindow}) ──</b>\n`;
+        msg += `<b>──SIMPLE Symbol Calibration (rolling ${this.cfg.calibWindow}) ──</b>\n`;
         for (const sym of keys) {
           const c = calib[sym];
           const emo = c.state === 'enabled'  ? '🟢'
@@ -2463,7 +2463,7 @@ class TradingBot {
     if (this.stopped) return;
     this.stopped = true;
     logger.info(`stopping (${signal})`);
-    telegram.send(`🛑 <b>x2Digit Differ stopped</b>\nSignal: ${htmlEscape(signal)}\n💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}`);
+    telegram.send(`🛑 <b>SIMPLE Differ stopped</b>\nSignal: ${htmlEscape(signal)}\n💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}`);
     if (this._analysisT) clearInterval(this._analysisT);
     if (this._hourlyBoot) clearTimeout(this._hourlyBoot);
     if (this._hourlyT) clearInterval(this._hourlyT);
