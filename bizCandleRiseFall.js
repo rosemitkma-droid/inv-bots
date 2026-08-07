@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_019-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_019-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_020-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_020-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -190,7 +190,7 @@ class StakeCalculator {
     }
 
     static calculate(investmentRemaining, martingaleLevel = 0) {
-        const level = Math.max(0, martingaleLevel || 0);
+        let level = Math.max(0, martingaleLevel || 0);
         let base = this.getBaseStake(investmentRemaining);
         base = Math.max(base, CONFIG.INITIAL_STAKE);
 
