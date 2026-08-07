@@ -144,8 +144,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [kept — this bot's own artifacts]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizPatternn_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizPatternn_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizPatternn_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizPatternn_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -306,8 +306,8 @@ const CONFIG = {
     CANDLES_TO_LOAD: 500,
     MAX_CANDLES_STORED: 600,
     MIN_CANDLES_REQUIRED: 120,         // never analyze/trade on a tiny sample
-    DURATION: 60,                      // v1 was 22s (mismatched to 60s signal).
-    DURATION_UNIT: 's',                // 60s contract ≈ 1m candle outcome.
+    DURATION: 1,                      // v1 was 22s (mismatched to 60s signal).
+    DURATION_UNIT: 'm',                // 60s contract ≈ 1m candle outcome.
 
     // ── Position management ───────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
