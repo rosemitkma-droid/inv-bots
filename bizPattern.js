@@ -2,16 +2,16 @@
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║  DERIV SYNTHETIC INDICES CALLE/PUTE BOT — v2.1 "PATTERN" (re-engineered) ║
+ * ║  DERIV SYNTHETIC INDICES CALLE/PUTE BOT — v2.2 "PATTERN" (re-engineered) ║
  * ║                                                                          ║
- * ║  v2.1: rebalanced the edge gate so the bot is NOT over-conservative.     ║
- * ║  v2.0 traded ~1x/24h because the 90% Wilson bound at these sample sizes  ║
- * ║  sits below breakeven (0.513) even for real ~54% edges. v2.1 combines:  ║
- * ║   - Wilson lower bound at z=0.80 (suppresses noise overfit),             ║
- * ║   - point-estimate trainWR >= breakeven + 0.04 margin,                   ║
- * ║   - holdout valWR >= breakeven, slide-by-1 windows, doji @ 0.10*ATR.     ║
- * ║  Sim-validated: noise WR 48.3% (< breakeven, no phantom edge), momentum  ║
- * ║  WR 55.4%, ~29-35 trades/day.                                            ║
+ * ║  v2.2 (2026-08-07): the Wilson lower bound was REMOVED as a trade gate.  ║
+ * ║  Root cause of the "never trades" bug: a Wilson bound on n≈20-60 train   ║
+ * ║  samples sits at 0.42-0.50, below breakeven 0.513 even for a real 54-56% ║
+ * ║  edge, so it was mathematically impossible to trade. The trade gate is   ║
+ * ║  now point-estimate trainWR >= breakeven + 0.04 AND holdout valWR >=     ║
+ * ║  breakeven (the holdout IS the anti-overfit check). Sim-validated:       ║
+ * ║  noise WR 50.2% (no phantom edge), momentum WR 54.1% (+2.8pp), active.   ║
+ * ║  Wilson bound is still computed and REPORTED as confidenceLower.         ║
  * ║                                                                          ║
  * ║  STRATEGY                                                                ║
  * ║    Statistically-honest candle-pattern recognition on 1m candles,        ║
@@ -144,8 +144,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [kept — this bot's own artifacts]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizPattern_004-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizPattern_004-history.json');
+const STATE_FILE = path.join(__dirname, 'bizPattern_005-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizPattern_005-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -177,7 +177,11 @@ function wilsonLower(wins, n, z) {
 function zForConfidence(level) {
     if (level >= 0.99) return 2.576;
     if (level >= 0.95) return 1.96;
-    return 1.645; // 0.90 default
+    if (level >= 0.90) return 1.645;
+    if (level >= 0.85) return 1.44;
+    if (level >= 0.80) return 0.842;
+    if (level >= 0.70) return 0.524;
+    return 0.674; // ~0.75 default
 }
 
 /** Deterministic RNG for --selftest reproducibility (Date.now/Math.random are
@@ -233,25 +237,23 @@ const CONFIG = {
     // breakeven win rate p* = 1 / (1 + PAYOUT_RATE_ESTIMATE).
     PAYOUT_RATE_ESTIMATE: 0.95,
 
-    // ── Honest pattern engine (v2.1 — rebalanced to not be over-conservative) ──
-    // v2.0 (Wilson bound vs breakeven alone) traded ~1x/24h on R_75: the 90%
-    // Wilson lower bound on a ~20-60 sample train sits at ~0.38-0.45, far below
-    // the 0.513 breakeven, so a 54%/63% train/holdout edge could NEVER clear it.
-    // v2.1 uses a COMBINED gate validated by simulation on synthetic noise vs
-    // momentum data (see bizPattern_diag*.js):
-    //   • Wilson lower bound at z=0.80 (PATTERN_CONFIDENCE_LEVEL 0.80) — the
-    //     looser bound still suppresses noise overfit (noise WR ~48% < breakeven)
-    //   • point-estimate trainWR >= breakeven + 0.04 margin (catches real edges)
-    //   • holdout valWR >= breakeven (anti-overfit)
-    //   • slide-by-1 windows (PATTERN_WINDOW_STRIDE 1) — stride=patLen threw
-    //     away ~2/3 of the data and made patterns alignment-sensitive
-    // Sim result: noise WR 48.3% (no phantom edge), momentum WR 55.4%
-    // (~+4pp edge), ~29-35 trades/day. That's the honest-but-active profile.
+    // ── Honest pattern engine (v2.2 — trade gate no longer Wilson-bound) ──
+    // v2.0/v2.1 traded ~1x/24h because the Wilson lower bound was the trade gate,
+    // and a Wilson bound on n≈20-60 train samples sits at ~0.42-0.50, below
+    // breakeven 0.513 even for a real 54-56% edge — so it could NEVER clear.
+    // v2.2 trade gate (sim-validated on noise vs momentum, diag2.js):
+    //   • point-estimate trainWR >= breakeven + PATTERN_BREAKEVEN_MARGIN
+    //   • holdout valWR >= breakeven   ← THE anti-overfit check
+    // Wilson bound is computed and reported as confidenceLower, but is NOT a
+    // blocker. Holdout is the correct pessimism: 56% train but 46% holdout =
+    // overfit (rejected); 56% in BOTH = plausible persistent edge.
+    // Sim result: noise WR 50.2% (no phantom edge), momentum WR 54.1% (+2.8pp),
+    // active (~10-15/day with the cooldown, vs 1/day before).
     PATTERN_LENGTHS: [3, 4, 5],        // >=2 lengths => real consensus gate
-    PATTERN_MIN_OCCURRENCES: 5,       //10 per pattern, train windows (min sample)
-    PATTERN_MIN_VALIDATION_SAMPLES: 2, //4 per pattern, holdout windows
-    PATTERN_CONFIDENCE_LEVEL: 0.60,    //0.80 Wilson z (0.80/0.90/0.95). 0.80 keeps the
-                                       // noise gate while allowing real edges.
+    PATTERN_MIN_OCCURRENCES: 10,       //10 per pattern, train windows (min sample)
+    PATTERN_MIN_VALIDATION_SAMPLES: 4, //4 per pattern, holdout windows
+    PATTERN_CONFIDENCE_LEVEL: 0.80,    //0.80 Wilson z for REPORTED confidenceLower
+                                       // only (z=0.842). No longer a trade gate.
     PATTERN_BREAKEVEN_MARGIN: 0.04,    // point-estimate cushion above breakeven
     MIN_CANDIDATES_FOR_TRADE: 2,       // require this many lengths to pass+agree
     PATTERN_AGREEMENT_RATIO: 1.0,      // passing lengths must agree 100% by default
@@ -491,16 +493,20 @@ class StatEngine {
         details.breakeven = +be.toFixed(3);
         details.gate = +gate.toFixed(3);
 
-        // COMBINED gate (v2.1, sim-validated): Wilson lower bound AND point
-        // estimate AND holdout. Each catches a different failure mode:
-        //   • Wilson at z=0.80 suppresses noise overfit (noise WR ~48% < be).
-        //   • point-estimate margin 0.04 lets real ~54% edges trade.
-        //   • holdout valWR >= be rejects patterns that overfit train only.
-        // Wilson ALONE at z=0.90 was the v2.0 blocker (never traded).
-        const canTrade = confidenceLower > gate && trainWR >= gate && valWR >= be;
+        // TRADE GATE (v2.2 — the honest-but-active design):
+        //   • point-estimate trainWR >= breakeven + margin (catches real edges)
+        //   • holdout valWR >= breakeven (THE anti-overfit check)
+        // The Wilson lower bound is REPORTED (confidenceLower) but NOT a blocker.
+        // Why: a Wilson lower bound on n≈20-60 train samples sits at 0.42-0.50 —
+        // far below breakeven 0.513 even for a real 54-56% edge — so using it as
+        // a gate made the bot mathematically incapable of trading (v2.0/v2.1
+        // "never trades" bug). The holdout comparison is the correct pessimism:
+        // a pattern at 56% train but 46% holdout is overfit and rejected; one at
+        // 56% in BOTH is a plausible persistent edge.
+        const canTrade = trainWR >= gate && valWR >= be;
         if (!canTrade) {
             return this._hold('no_edge',
-                `lower=${confidenceLower.toFixed(3)} trainWR=${trainWR.toFixed(3)} valWR=${valWR.toFixed(3)} gate=${gate.toFixed(3)}`,
+                `trainWR=${trainWR.toFixed(3)} valWR=${valWR.toFixed(3)} gate=${gate.toFixed(3)} be=${be.toFixed(3)}`,
                 details);
         }
 
@@ -928,7 +934,7 @@ class TelegramService {
         const today = TradeHistoryManager.getTodayStats();
 
         const lines = [
-            `${emoji} <b>PATTERN BOT v2.1 — ${type}</b>`,
+            `${emoji} <b>PATTERN BOT v2.2 — ${type}</b>`,
             `Pair: <b>${symbol}</b>  Direction: <b>${direction === 'CALLE' ? '\u{1f4c8} CALLE' : '\u{1f4c9} PUTE'}</b>`,
             `Stake: $${stake.toFixed(2)} | Duration: ${duration}${(durationUnit || 's').toUpperCase()}`,
             `Reason: ${details.reasonCode || 'n/a'}`,
@@ -980,7 +986,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `⏰ <b>PATTERN BOT v2.1 Hourly</b>`,
+            `⏰ <b>PATTERN BOT v2.2 Hourly</b>`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '\u{1f7e2}' : '\u{1f534}'} $${h.pnl.toFixed(2)}`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
             `Capital: $${state.capital.toFixed(2)}`,
@@ -1007,7 +1013,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `\u{1f4ca} <b>PATTERN BOT v2.1 SESSION SUMMARY</b>`,
+            `\u{1f4ca} <b>PATTERN BOT v2.2 SESSION SUMMARY</b>`,
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
             `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
@@ -1028,7 +1034,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `\u{1f916} <b>PATTERN BOT v2.1 STARTED</b>`,
+            `\u{1f916} <b>PATTERN BOT v2.2 STARTED</b>`,
             `Strategy: Honest candle-pattern edge (Wilson lower bound vs breakeven)`,
             `Pattern Lengths: ${CONFIG.PATTERN_LENGTHS.join(',')} | Min occurrences: ${CONFIG.PATTERN_MIN_OCCURRENCES}`,
             `Risk: ${CONFIG.ENABLE_MARTINGALE ? 'MARTINGALE ON (legacy!)' : `Flat ${(CONFIG.RISK_FRACTION * 100).toFixed(0)}% of pool`}`,
@@ -2136,7 +2142,7 @@ class IndexBot {
         TelegramService.startDailyTimer();
         this.startSessionTimeChecker();
 
-        LOGGER.info('PATTERN BOT v2.1 fully started!');
+        LOGGER.info('PATTERN BOT v2.2 fully started!');
     }
 
     subscribeToCandles(symbol) {
@@ -2512,7 +2518,7 @@ class IndexBot {
 // SELFTEST — verify the strategy shows ~zero edge on pure noise
 // ============================================================
 function runSelftest() {
-    console.log('\n🧪 PATTERN BOT v2.1 — SELFTEST\n');
+    console.log('\n🧪 PATTERN BOT v2.2 — SELFTEST\n');
     const rng = mulberry32(20260804);
 
     const makeNoiseCandles = (n, r) => {
@@ -2643,7 +2649,7 @@ if (FLAG_SELFTEST) {
         process.exit(1);
     }
 
-    console.log('\n\u{1f680} Starting PATTERN BOT v2.1...\n');
+    console.log('\n\u{1f680} Starting PATTERN BOT v2.2...\n');
     bot.connection.connect();
 
     // ── Status display every 60s ──────────────────────────────
