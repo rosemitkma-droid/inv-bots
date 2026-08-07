@@ -131,7 +131,10 @@ const CONFIG = Object.freeze({
   kellyFraction       : parseFloat('0.20'),
 
   // ── Assets (Deriv synthetic indices) ──
-  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
+  // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
+  
+  assets: ('R_10,R_25,R_50,R_75,R_100')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Telegram (existing hardcoded CONFIG values — kept in-file) ──
@@ -221,9 +224,9 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging / state ──
-  logFile           : 'accuAPEXnew_007.log',
+  logFile           : 'accuAPEXnew_009.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnew_state_007.json',
+  stateFile         : 'accuAPEXnew_state_009.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 
