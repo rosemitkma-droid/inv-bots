@@ -438,7 +438,7 @@ class StakeCalculator {
 
     static calculate(symbol, martingaleLevel, investmentRemaining) {
         const cfg = getAssetConfig(symbol);
-        const level = Math.max(0, martingaleLevel || 0);
+        let level = Math.max(0, martingaleLevel || 0);
         let base = this.getBaseStake(symbol, investmentRemaining);
         base = Math.max(base, cfg.INITIAL_STAKE);
 
