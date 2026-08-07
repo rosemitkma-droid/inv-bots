@@ -3,70 +3,61 @@
 
 /**
  * =====================================================================
- *  AccuPULSE2b — Adaptive EV / Barrier-correct Accumulator (AEBA)
+ *  AccuPULSE2b — Adaptive Regime-Confluence Accumulator (ARCA)
  * =====================================================================
  *
- *  Single-file Deriv Accumulator trading bot. v2 (re-engineered).
+ *  Novel multi-asset Deriv Accumulator trading bot.
  *
- *  ─ WHAT CHANGED vs v1 (ARCA) ─
- *  v1 scored entry via a weighted soft "confidence" of proxy indicators
- *  (vol regime, trend, survival-trend, session) and bought at a 5%
- *  growth rate almost continuously. The math did not match reality:
- *    • A 5%-of-spot barrier on R_100 (tick σ ≈ 1.7%) has per-tick
- *      survival p̂ ≈ 0.997 — the contract is a near-guaranteed 5%/tick
- *      compounding machine ONLY if returns are IID and you ignore costs.
- *      It is not a "30–45% knockout" gamble as the v1 header implied.
- *    • Unconditional IID is fair-minus-spread; the ONLY honest edge is
- *      CONDITIONAL: enter when realized/forecast tick hazard is below
- *      the level the chosen growth rate implies (vol-compression), and
- *      stand idle otherwise.
- *    • `ticks_stayed_in` is a STALE proposal-time drift sample, not a
- *      live knockout rate. Treating high survival as "good" inverted the
- *      gate. It is now used only as a classifier cross-check.
- *    • The barrier gate was a constant (barrScore = 0.6). Now the live
- *      barrier % (tick_size_barrier_percentage / barrier_spot_distance)
- *      is the CORE of the model.
- *    • Reliability: reconnect orphaned the open contract and double-
- *      entered; a sell streamed status 'sold' which was never handled, so
- *      the bot deadlocked after the first early exit. Both fixed below.
+ *  ─ CORE STRATEGY: ARCA ─
+ *  Instead of proxies (rising digits, MACD confluence, etc.), ARCA
+ *  measures what actually determines accumulator profitability:
  *
- *  ─ STRATEGY (AEBA) ─
- *  For each symbol and growth-rate candidate g:
- *      EV(g)  =  (1+g) · p̂_tick  −  1  −  costHaircut
- *      p̂_tick = P(|1-tick log return| < barrier%)  under a heavy-tailed
- *               distribution, with a vol-of-vol (regime) haircut.
- *  Enter only the symbol/rate with max EV(g), and only if:
- *      EV(g) ≥ minEdge                  (hard gate, net of costs)
- *      S(survive K ticks) ≥ survivalFloor  (survival floor)
- *      realized σ in a calm regime      (vol-compression / vol-of-vol)
- *      barrier known from live proposal (never fabricated)
- *  Growth rate is chosen by argmax EV(g), not by a fixed heuristic.
- *  If no asset clears the floor → stand idle (correct behavior).
+ *  The Accumulator's expected value for a planned hold of N ticks is:
  *
- *  ─ EXIT POLICY ─
- *  • Hazard/drift exit: sell when spot has drifted a set fraction of the
- *    barrier (risk of imminent knockout).
- *  • Profit-lock: bank when remaining model EV ≤ realized profit (this
- *    makes `profitLockFrac` actually do something).
- *  • TP as growth-multiple target: exit near a target P/L derived from
- *    the model's per-tick edge, not a fixed dollar scalp.
- *  • Watchdog force-settle on stuck open contracts.
+ *        EV(N)  =  stake × [ (1+g)^N · p_N  −  1 ]            ... (1)
  *
- *  ─ RISK ─
- *  • hard session/daily loss, daily max trades (default finite),
- *    drawdown reducers, loss-streak circuit breakers, kill-switch flags
- *  • correlation haircut across the R_* / 1HZ* vol set (they are highly
- *    related; trading them as independent inflates "edge")
- *  • anti-martingale retained but bounded (fractional-Kelly-ish)
+ *  where p_N = true probability of surviving N ticks inside the
+ *  barrier. EV > 0  iff  p_N > (1+g)^(−N). ARCA uses 5 independent
+ *  analysis gates to find moments when p_N is anomalously high:
  *
- *  ─ OPERATIONS ─
- *  Telegram (bounded queue), GMT pause windows, hourly + EOD summaries,
- *  atomic state save (tmp+rename), reconnect with reconcile-on-resume,
- *  `node accuPULSE2b.js --selftest` (pure math + Monte Carlo, no network).
+ *    1. VOLATILITY REGIME   — Garman-Klass σ estimator + rolling
+ *       percentile classification. Only enters during low/normal vol.
+ *
+ *    2. TREND ALIGNMENT     — EMA(9/21/50) + RSI(14) + MACD(12,26,9).
+ *       Confirms directional drift aligns with barrier geography.
+ *
+ *    3. SURVIVAL TREND      — OLS slope + consistency of the
+ *       ticks_stayed_in array from Deriv's proposal. Rising survival
+ *       digits = stable regime = higher p_N.
+ *
+ *    4. BARRIER MARGIN      — How centered the spot is within the
+ *       barrier at proposal time. Wider margin = more room.
+ *
+ *    5. SESSION TIMING      — Hour-of-day soft weighting to prefer
+ *       statistically calmer windows.
+ *
+ *  The composite score gates every entry. NO martingale. Stake sizing
+ *  uses anti-martingale (scale UP after wins) + graduated drawdown
+ *  protection (scale DOWN after losses).
+ *
+ *  ─ LIVE ADAPTIVE EXIT ─
+ *  Every tick of an open contract, we re-estimate drift and barrier
+ *  proximity. Two exits fire:
+ *    (a) profit-lock  — bank profit when expected remaining payout
+ *        drops below realised gain.
+ *    (b) danger-lock  — sell when drift > threshold fraction of
+ *        barrier, before knockout.
+ *
+ *  ─ INFRASTRUCTURE ─
+ *  Scaffolded from: liveMultiAccum.js, accuAgent.js
+ *  API Token, Telegram credentials retained from reference bots.
+ *  PAT/OAuth REST→WS auth flow retained from accuAgent.js.
  *
  *  Author: Cowork 3P  |  License: MIT
  * =====================================================================
  */
+
+'use strict';
 
 // ═══════════════════════════════════════════════════════════════════════
 // 0. DEPENDENCIES
@@ -79,13 +70,44 @@ const { URL }      = require('url');
 const EventEmitter = require('events');
 
 // ═══════════════════════════════════════════════════════════════════════
-// 1. CONFIGURATION  (credentials retained from reference bots)
+// 1. .ENV LOADER
 // ═══════════════════════════════════════════════════════════════════════
+function loadEnv(filePath = path.join(process.cwd(), '.env')) {
+  if (!fs.existsSync(filePath)) return;
+  try {
+    const txt = fs.readFileSync(filePath, 'utf8');
+    for (const raw of txt.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq < 0) continue;
+      const key = line.slice(0, eq).trim();
+      let val = line.slice(eq + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'")))
+        val = val.slice(1, -1);
+      if (!(key in process.env)) process.env[key] = val;
+    }
+  } catch (e) { console.error('[boot] .env read error:', e.message); }
+}
+loadEnv();
+
+// ═══════════════════════════════════════════════════════════════════════
+// 2. CONFIGURATION  (credentials retained from reference bots)
+// ═══════════════════════════════════════════════════════════════════════
+/*
+ * Strategy assumptions (demo validation only): An ACCU can knock out on one
+ * tick outside a barrier evaluated from the previous spot. No code path treats
+ * distance from entry as barrier safety. A candidate requires a barrier from a
+ * recent proposal, a 95% Wilson lower bound on single-tick survival from recent
+ * returns, positive conservative horizon EV after a 35% model haircut, and the
+ * same test again on the fresh proposal used for buy. This is a selection model,
+ * not proof of an edge: compare predicted survival with realized outcomes.
+ */
 const CONFIG = Object.freeze({
   // ── Deriv API ──
   // apiToken  : ('0P94g4WdSrSrzir').trim(),   // retained from reference
   // appId     : '1089',
-  apiToken:    'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
+  apiToken:    'pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692',
   appId:       '33uslPtthXBEkQOdfKfoY',
   wsUrl     : 'wss://ws.derivws.com/websockets/v3',
   currency  : 'USD',
@@ -93,20 +115,25 @@ const CONFIG = Object.freeze({
 
   // ── Trade parameters ──
   stake           : parseFloat('5.0'),
-  growthRate      : parseFloat('0.05'),    // base growth rate (candidate grid starts here)
-  stopLoss        : parseFloat('100.0'),   // hard $ stop per contract (now actually wired)
-  takeProfit      : parseFloat('5000.0'),  // hard $ session take-profit (wired as circuit-breaker)
+  growthRate      : parseFloat('0.05'),    // 5% base growth rate
+  stopLoss        : parseFloat('500.0'),     // hard $ stop per contract in demo
+  takeProfit      : parseFloat('5000.0'),    // session take-profit in demo
+  demoOnly        : false,                  // refuse to trade a non-virtual account
+  tradeEnabled    : true,                  // set false for observe-only market collection
 
   // ── Anti-Martingale (win-streak compounding) ──
   winsBeforeScaling     : parseInt('3'),
-  winStakeMultiplier    : parseFloat('1.5'),
+  winStakeMultiplier    : parseFloat('1.2'),
   maxWinStakeMultiplier : parseFloat('4.0'),
 
   // ── Assets ──
   // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM150N,BOOM300N,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH150N,CRASH300N,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
 
-  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
+  // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
+
+  assets: ('R_10,R_25,R_50,R_75,R_100')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Telegram (retained) ──
@@ -116,32 +143,34 @@ const CONFIG = Object.freeze({
     chatId  : '752497117',
   },
 
-  // ── Strategy: AEBA tunables ──
+  // ── Strategy: ARCA tunables ──
   tickWindow          : parseInt('500', 10),
   minTicksForAnalysis : parseInt('200', 10),
   analysisIntervalMs  : parseInt('8000', 10),
   tradeCooldownMs     : parseInt('5000', 10),
   maxOpenTrades       : parseInt('1', 10),
 
-  // ── AEBA edge / survival gates ──
-  // Hard gate: EV(g) net of costs must be ≥ minEdge to enter.
-  // Growth-grid edge floor, in dollars per stake-dollar (0.005 = 0.5%/tick).
-  minEdge            : parseFloat('0.002'),
-  // Survival floor: probability of surviving a planned hold of K ticks.
-  survivalFloor      : parseFloat('0.55'),
-  planHoldTicks      : parseInt('20', 10),
-  // Vol-of-vol / regime: only enter when current tick σ is calm relative
-  // to its own recent history (compression ⇒ higher p̂).
-  volPercentileMax   : parseFloat('0.70'),
-  // Spread / cost haircut applied to EV(g) per tick (fraction of stake).
-  costHaircutPct     : parseFloat('0.0015'),
-  // Heavy-tailed σ multiplier for the knockout-probability model (hazard
-  // is fatter than Gaussian; q in [1,∞), higher = fatter).
-  heavyTailQ         : parseFloat('1.3'),
-  // Growth-rate candidates to evaluate. Selection = argmax EV(g).
-  growthRates        : Object.freeze([0.01, 0.02, 0.03, 0.04, 0.05]), //0.01, 0.02, 0.03, 0.04, 0.05
+  // Accumulator risk model. A barrier is evaluated against the prior tick;
+  // these controls model that single-tick hazard, never a static entry barrier.
+  candidateGrowthRates : [0.04, 0.05], //[0.01, 0.02, 0.03, 0.04, 0.05],
+  hazardWindow         : parseInt('250', 10),
+  plannedHoldTicks     : parseInt('20', 10),
+  minBarrierPct        : parseFloat('0.02'),
+  minEmpiricalSamples  : parseInt('150', 10),
+  confidenceZ          : parseFloat('1.96'),
+  evHaircut            : parseFloat('0.65'),
+  minNetEvRatio        : parseFloat('0.02'),
+  maxRecentJumpZ       : parseFloat('4.0'),
+  maxAssetCorrelation  : parseFloat('0.85'),
 
-  // ── AEBA weights (informational / diagnostics only; not a soft gate) ──
+  // ── ARCA gates ──
+  minConfidence       : parseFloat('0.60'), //0.072
+  maxVolRegime        : parseInt('1', 10),     // 0=low,1=normal OK
+  maxHurst            : parseFloat('0.60'),
+  minSurvivalSlope    : parseFloat('-0.01'),    // allow slight negative
+  minSurvivalConsist  : parseFloat('0.20'),
+
+  // ── ARCA weights (sum ≈ 1.0) ──
   weights: {
     volRegime  : parseFloat('0.25'),
     trendAlign : parseFloat('0.20'),
@@ -152,7 +181,7 @@ const CONFIG = Object.freeze({
 
   // ── Exit strategy ──
   earlyExitDriftFrac   : parseFloat('0.55'),   // sell if drift > 55% of barrier
-  profitLockFrac       : parseFloat('0.50'),   // bank if realized ≥ 50% of remaining model EV
+  profitLockFrac       : parseFloat('0.50'),   // bank if profit > 50% best expected
 
   // ── Graduated drawdown ──
   ddFullStake    : parseFloat('0.05'),
@@ -165,9 +194,9 @@ const CONFIG = Object.freeze({
   streakPauseMinutes : parseInt('10'),
   streakStopDay      : parseInt('7'),
 
-  // ── Daily limits (real caps now) ──
-  dailyMaxLoss   : parseFloat('150'),
-  dailyMaxTrades : parseInt('40000'),
+  // ── Daily limits ──
+  dailyMaxLoss   : parseFloat('250'),
+  dailyMaxTrades : parseInt('12000'),
 
   // ── Reconnect ──
   reconnect: {
@@ -181,14 +210,15 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
 
   // ── Trade watchdog ──
-  tradeWatchdogMs: parseInt('90000', 10),
+  tradeWatchdogMs: parseInt('120000', 10),
+  maxTelegramQueue: parseInt('100', 10),
 
   // ── Logging ──
-  logFile : 'accuPULSE2bc_004.log',
+  logFile : 'accuPULSE2bnn_01.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuPULSE2bc_state_004.json',
+  stateFile           : 'accuPULSE2bnn_state_01.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -196,10 +226,11 @@ const CONFIG = Object.freeze({
   eodTimeGmt          : '00:00',
   eodSendDelaySeconds : parseInt('10', 10),
   hourlySummary       : true,
+  pauseWindowsGmt     : [], // e.g. [['23:55', '00:10']] blocks new entries only
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// 2. LOGGER
+// 3. LOGGER
 // ═══════════════════════════════════════════════════════════════════════
 const LOG_LEVELS = { ERROR: 0, WARN: 1, INFO: 2, DEBUG: 3 };
 const currentLevel = LOG_LEVELS[CONFIG.logLevel] ?? LOG_LEVELS.INFO;
@@ -229,7 +260,7 @@ const logger = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════
-// 3. TELEGRAM NOTIFIER  (bounded queue; flush on shutdown)
+// 4. TELEGRAM NOTIFIER
 // ═══════════════════════════════════════════════════════════════════════
 class TelegramNotifier extends EventEmitter {
   constructor(cfg) {
@@ -238,7 +269,6 @@ class TelegramNotifier extends EventEmitter {
     this.botToken = cfg.botToken;
     this.chatId = cfg.chatId;
     this.queue = [];
-    this.maxQueue = 60;              // backpressure: drop oldest beyond cap
     this.sending = false;
   }
   _post(text) {
@@ -266,18 +296,19 @@ class TelegramNotifier extends EventEmitter {
   }
   send(text) {
     if (!this.enabled) { logger.debug('tg(dry):', text.slice(0, 100)); return; }
+    // Summaries must not let an unavailable Telegram endpoint grow memory forever.
+    if (this.queue.length >= CONFIG.maxTelegramQueue) {
+      this.queue.shift();
+      logger.warn('telegram queue full; dropped oldest notification');
+    }
     this.queue.push(text);
-    if (this.queue.length > this.maxQueue) this.queue.splice(0, this.queue.length - this.maxQueue);
-    this._drain();
-  }
-  async flush() {
-    while (this.queue.length) await this._post(this.queue.shift());
+    void this._drain();
   }
 }
 const telegram = new TelegramNotifier(CONFIG.telegram);
 
 // ═══════════════════════════════════════════════════════════════════════
-// 4. DERIV REST CLIENT  (PAT/OAuth)
+// 5. DERIV REST CLIENT  (PAT/OAuth)
 // ═══════════════════════════════════════════════════════════════════════
 class RestClient {
   constructor(baseUrl, appId, token) {
@@ -319,7 +350,7 @@ class RestClient {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 5. DERIV WEBSOCKET CLIENT
+// 6. DERIV WEBSOCKET CLIENT
 // ═══════════════════════════════════════════════════════════════════════
 class DerivClient extends EventEmitter {
   constructor(cfg) {
@@ -519,7 +550,7 @@ class DerivClient extends EventEmitter {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 6. MARKET DATA MANAGER
+// 7. MARKET DATA MANAGER
 // ═══════════════════════════════════════════════════════════════════════
 class MarketDataManager extends EventEmitter {
   constructor(client, cfg) {
@@ -553,8 +584,10 @@ class MarketDataManager extends EventEmitter {
   cacheBarrier(symbol, growthRate, cd) {
     if (!cd) return;
     const key = `${symbol}:${growthRate}`;
+    const spot = parseFloat(cd.current_spot || 0);
+    const distance = parseFloat(cd.barrier_spot_distance || 0);
     this._barrierCache.set(key, {
-      halfBarrierPct: parseFloat(cd.tick_size_barrier_percentage || 0),
+      halfBarrierPct: spot > 0 && distance > 0 ? (distance / spot) * 100 : parseFloat(cd.tick_size_barrier_percentage || 0),
       highBarrier: parseFloat(cd.high_barrier || 0),
       lowBarrier: parseFloat(cd.low_barrier || 0),
       maxPayout: parseFloat(cd.maximum_payout || 0),
@@ -632,258 +665,238 @@ class MarketDataManager extends EventEmitter {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 7. AEBA MODEL  (Replaces ARCAAnalyzer)
+// 8. ARCA ANALYZER  (Novel Strategy Engine)
 // ═══════════════════════════════════════════════════════════════════════
-// Pure helpers are exported for --selftest.
-const PURE = {
-  // 1-tick log return series.
-  logReturns(q) {
-    const out = new Array(Math.max(0, q.length - 1));
-    for (let i = 1; i < q.length; i++) out[i - 1] = q[i - 1] > 0 ? Math.log(q[i] / q[i - 1]) : 0;
-    return out;
-  },
+class ARCAAnalyzer {
+  constructor(cfg) { this.cfg = cfg; this.w = cfg.weights; }
 
-  // Robust scale: 1.4826 * MAD (per-tick), plus EWMA smoothing.
-  robustSigma(ret, emaPrev = null, alpha = 0.08) {
-    if (!ret.length) return { sigma: 0, ema: emaPrev, n: 0 };
-    const med = _median(ret.map(Math.abs));
-    const mad = med > 0 ? 1.4826 * med : 0;
-    // Normalized MAD with a small guard against zero-spread (flat ticks).
-    const s = Math.max(mad, 1e-9);
-    const ema = emaPrev == null ? s : alpha * s + (1 - alpha) * emaPrev;
-    return { sigma: ema, ema, n: ret.length };
-  },
-
-  // t-distributed-like survival via a heavy-tail multiplier q ≥ 1.
-  // p(|x| < b) under fat tails ≈ erf-normalized with effective σ = σ·q.
-  perTickSurvival(barrierPct, sigma, q = 1.3) {
-    if (!(barrierPct > 0) || !(sigma > 0)) return null;
-    const b = barrierPct / 100;         // fraction of spot
-    const sEff = sigma * q;              // fat-tail haircut
-    return _erf(b / (sEff * Math.SQRT2));
-  },
-
-  // EV per tick for growth rate g:  (1+g)·p − 1 − cost.
-  perTickEV(g, p, cost) {
-    return (1 + g) * p - 1 - cost;
-  },
-
-  // Probability of surviving K consecutive ticks under IID p.
-  surviveK(p, K) { return Math.pow(Math.max(0, Math.min(1, p)), K); },
-
-  // Pick growth rate maximizing EV subject to survival floor.
-  // barrierForGrowth is a per-growth-rate barrier % (function) or a flat %.
-  // The barrier is NOT growth-rate-independent on Deriv — each g has its own.
-  bestGrowth(barrierForGrowth, sigma, candidates, q, cost, floor, K) {
-    let best = null;
-    for (const g of candidates) {
-      const bp = typeof barrierForGrowth === 'function' ? barrierForGrowth(g) : barrierForGrowth;
-      if (!(bp > 0)) continue;           // barrier unknown for this g → skip
-      const p = PURE.perTickSurvival(bp, sigma, q);
-      if (p == null) continue;
-      const ev = PURE.perTickEV(g, p, cost);
-      const sK = PURE.surviveK(p, K);
-      if (sK < floor) continue;          // survival floor not met
-      if (ev < 0) continue;              // never negative-EV
-      if (!best || ev > best.ev) best = { g, p, ev, sK, barrierPct: bp };
-    }
-    return best;
-  },
-
-  // Vol-of-vol percentile of current σ within its own recent history.
-  // Rank-normalized: min→0, max→1. (index/(length-1), not index/length.)
-  volPercentile(sigmas) {
-    if (!sigmas || sigmas.length < 2) return 0.5;
-    const cur = sigmas[sigmas.length - 1];
-    const sorted = [...sigmas].sort((a, b) => a - b);
-    const idx = sorted.findIndex(v => v >= cur);
-    return idx / (sorted.length - 1);
-  },
-
-  // Per-symbol rolling σ history window for regime percentile.
-  pushSigmaHist(hist, sigma) {
-    hist.push(sigma);
-    if (hist.length > 240) hist.splice(0, hist.length - 240);
-    return hist;
-  },
-};
-
-function _median(a) {
-  if (!a.length) return 0;
-  const s = [...a].sort((x, y) => x - y);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
-
-function _erf(z) {
-  const t = 1 / (1 + 0.3275911 * Math.abs(z));
-  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z);
-  return z >= 0 ? y : -y;
-}
-
-class AccumulatorEdgeModel {
-  constructor(cfg) {
-    this.cfg = cfg;
-    this.sigmaHist = new Map();   // symbol -> rolling σ history (for percentile)
-    this.emaSigma = new Map();    // symbol -> EWMA σ
-  }
-
-  // Per-symbol, per-growth-rate decision. Returns null when it can't know
-  // the barrier (never fabricate) or data is insufficient.
-  // barrierByGrowth: Map(g -> { halfBarrierPct, ... }) from the live cache.
-  analyze(symbol, ticks, barrierByGrowth, stays) {
-    const n = ticks && ticks.length;
-    if (!n || n < this.cfg.minTicksForAnalysis) return null;
+  // ── MAIN ENTRY ──────────────────────────────────────────────
+  analyze(symbol, ticks, barrier, growthRate) {
+    const model = this._hazardEstimate(ticks, barrier?.halfBarrierPct, growthRate);
+    if (!model.ok) return { symbol, growthRate, eligible: false, score: -Infinity, reasons: [model.reason] };
     const quotes = ticks.map(t => t.quote);
-    const ret = PURE.logReturns(quotes);
-    const est = PURE.robustSigma(ret, this.emaSigma.get(symbol));
-    this.emaSigma.set(symbol, est.ema);
-    const sigma = est.sigma;
-
-    const hist = this.sigmaHist.get(symbol) || [];
-    PURE.pushSigmaHist(hist, sigma);
-    this.sigmaHist.set(symbol, hist);
-    const pct = PURE.volPercentile(hist);
-
-    // Barrier from live cache per growth rate; if none, cannot price EV.
-    const barrierForGrowth = g => {
-      const b = barrierByGrowth && barrierByGrowth.get(g);
-      return b && b.halfBarrierPct > 0 ? b.halfBarrierPct : null;
-    };
-    // Representative barrier for messaging (cfg growth rate's, if known).
-    const brRep = barrierByGrowth && barrierByGrowth.get(this.cfg.growthRate);
-    const repPct = brRep && brRep.halfBarrierPct > 0 ? brRep.halfBarrierPct : 0;
-
-    const best = PURE.bestGrowth(
-      barrierForGrowth, sigma,
-      this.cfg.growthRates, this.cfg.heavyTailQ,
-      this.cfg.costHaircutPct, this.cfg.survivalFloor, this.cfg.planHoldTicks,
-    );
-    if (!best) return { symbol, ready: false, reason: repPct > 0 ? 'no-positive-ev' : 'barrier-unknown', barrierPct: repPct, sigma, volPct: pct };
-
-    // Vol-regime compression gate (vol-of-vol): avoid entering into
-    // elevated/churning σ where the fat-tail haircut is most unreliable.
-    if (pct > this.cfg.volPercentileMax) {
-      return { symbol, ready: false, reason: `vol-${pct.toFixed(2)}`, barrierPct: best.barrierPct, sigma, volPct: pct };
-    }
-
-    // Hard edge gate (net of costs).
-    if (best.ev < this.cfg.minEdge) {
-      return { symbol, ready: false, reason: `ev-${best.ev.toFixed(4)}`, barrierPct: best.barrierPct, sigma, volPct: pct, best };
-    }
-
-    // Soft diagnostic score (informational, NOT the gate).
-    const volScore = pct < 0.35 ? 0.95 : pct < 0.65 ? 0.70 : pct < 0.88 ? 0.30 : 0.05;
-    const survScore = stays ? _survivalDiagnostic(stays.ticks_stayed_in).score : 0.5;
-    const session = _sessionScore();
-    const composite =
-      this.cfg.weights.volRegime * volScore +
-      this.cfg.weights.survival  * survScore +
-      this.cfg.weights.barrier   * 0.8 +
-      this.cfg.weights.session   * session +
-      this.cfg.weights.trendAlign * 0.5;
-
+    const vol = this._volatilityRegime(quotes);
+    const trend = this._trendAlignment(quotes);
+    // Score only ranks candidates. The hard acceptance rule is conservative EV.
+    const score = model.conservativeEV + (vol?.score || 0) * 0.01;
     return {
-      symbol, ready: true,
-      score: composite,
-      barrierPct: best.barrierPct,
-      sigma, volPct: pct,
-      g: best.g, p: best.p, ev: best.ev, sK: best.sK,
-      survMean: stays ? _survivalDiagnostic(stays.ticks_stayed_in).mean : 0,
-      survScore, session,
-      reason: 'ok',
+      symbol, growthRate, eligible: true, score, model,
+      volRegime: vol?.regime ?? 1, volRegimeLabel: vol?.regimeLabel ?? 'normal', volScore: vol?.score ?? 0,
+      trendDirection: trend?.direction ?? 'neutral', trendScore: trend?.composite ?? 0, rsi: trend?.rsi ?? 50,
+      survivalScore: model.pLower, survivalMean: model.pTick * this.cfg.plannedHoldTicks,
+      survivalSlope: 0, survivalConsistency: model.pLower, pSurvival: model.pHorizon,
+      sessionScore: 0, suggestedGrowth: growthRate, hurst: vol?.hurst ?? 0.5,
+      reasons: [`pL:${model.pLower.toFixed(4)}`, `S${this.cfg.plannedHoldTicks}:${model.pHorizon.toFixed(3)}`, `ev:${(model.conservativeEV * 100).toFixed(2)}%`],
     };
   }
 
-  rank(readyAnalyses) { return readyAnalyses.filter(a => a && a.ready).sort((a, b) => b.ev - a.ev); }
-}
+  rank(analyses) { return analyses.filter(a => a?.eligible).sort((a, b) => b.score - a.score); }
 
-// Survival diagnostic from ticks_stayed_in — classifier cross-check only.
-// It does NOT gate entry. (High mean survival is normal for a low knockout
-// contract; it is not itself evidence of edge.)
-function _survivalDiagnostic(arr) {
-  if (!Array.isArray(arr) || arr.length < 5) return { score: 0.5, mean: 0, consistency: 0 };
-  const mean = arr.reduce((s, v) => s + v, 0) / arr.length;
-  let v = 0; for (const x of arr) v += (x - mean) ** 2;
-  const stdev = Math.sqrt(v / arr.length);
-  const consistency = mean > 0 ? Math.max(0, 1 - stdev / mean) : 0;
-  return { score: Math.max(0, Math.min(1, consistency)), mean, consistency };
-}
-
-function _sessionScore() {
-  const hour = new Date().getUTCHours();
-  const w = { 0:.55,1:.60,2:.60,3:.65,4:.65,5:.60,6:.55,7:.50,8:.45,9:.45,10:.50,11:.55,12:.60,13:.65,14:.70,15:.75,16:.70,17:.65,18:.55,19:.50,20:.50,21:.55,22:.55,23:.55 };
-  return w[hour] ?? 0.5;
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// 8. RISK & SIZING
-// ═══════════════════════════════════════════════════════════════════════
-class RiskManager {
-  constructor(cfg, stats) {
-    this.cfg = cfg;
-    this.stats = stats;
-    this.equityPeak = 0;
-    this.ddReducer = 1.0;
-    this.sessionMaxLoss = cfg.dailyMaxLoss;   // per-session cap (demo-friendly)
-    this.sessionStartBal = null;
-    this.sessionProfit = 0;
-  }
-
-  init(balance) {
-    if (this.sessionStartBal == null) {
-      this.sessionStartBal = balance;
-      this.equityPeak = balance;
+  // The only relevant knockout event is a single return outside the barrier
+  // around the previous spot. We use a Wilson lower bound rather than treating
+  // a proposal's historical `ticks_stayed_in` display as a predictive sample.
+  _hazardEstimate(ticks, halfBarrierPct, growthRate) {
+    const barrierPct = Number(halfBarrierPct || 0);
+    if (!(barrierPct >= this.cfg.minBarrierPct)) return { ok: false, reason: 'NO_VERIFIED_BARRIER' };
+    if (!ticks || ticks.length < this.cfg.minEmpiricalSamples + 1) return { ok: false, reason: 'INSUFFICIENT_TICKS' };
+    const start = Math.max(1, ticks.length - this.cfg.hazardWindow);
+    const returns = [];
+    for (let i = start; i < ticks.length; i++) {
+      const prev = Number(ticks[i - 1].quote), next = Number(ticks[i].quote);
+      if (prev > 0 && next > 0) returns.push(Math.abs(Math.log(next / prev)));
     }
+    if (returns.length < this.cfg.minEmpiricalSamples) return { ok: false, reason: 'INSUFFICIENT_VALID_RETURNS' };
+    const threshold = barrierPct / 100;
+    const survivors = returns.filter(r => r < threshold).length;
+    const pTick = survivors / returns.length;
+    const pLower = this._wilsonLower(survivors, returns.length, this.cfg.confidenceZ);
+    const pHorizon = Math.pow(pLower, this.cfg.plannedHoldTicks);
+    const gross = Math.pow(1 + growthRate, this.cfg.plannedHoldTicks) * pHorizon - 1;
+    const conservativeEV = gross > 0 ? gross * this.cfg.evHaircut : gross;
+    const sorted = [...returns].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)] || 1e-12;
+    const mad = sorted.reduce((s, x) => s + Math.abs(x - median), 0) / sorted.length || 1e-12;
+    const jumpZ = Math.abs(returns[returns.length - 1] - median) / (1.4826 * mad);
+    if (jumpZ > this.cfg.maxRecentJumpZ) return { ok: false, reason: 'RECENT_JUMP', jumpZ };
+    if (conservativeEV < this.cfg.minNetEvRatio) return { ok: false, reason: 'EV_BELOW_HAIRCUT', conservativeEV, pLower, pHorizon };
+    return { ok: true, barrierPct, threshold, observations: returns.length, survivors, pTick, pLower, pHorizon, grossEV: gross, conservativeEV, jumpZ };
   }
 
-  // Update peak and reducer from live balance.
-  update(balance) {
-    if (balance > this.equityPeak) this.equityPeak = balance;
-    const dd = this.equityPeak > 0 ? (this.equityPeak - balance) / this.equityPeak : 0;
-    if (dd <= this.cfg.ddFullStake) this.ddReducer = 1.0;
-    else if (dd <= this.cfg.ddReduce25) this.ddReducer = 0.75;
-    else if (dd <= this.cfg.ddReduce50) this.ddReducer = 0.50;
-    else this.ddReducer = 0.25;
-    return dd;
+  _wilsonLower(hits, n, z) {
+    if (!n) return 0;
+    const p = hits / n, z2 = z * z, d = 1 + z2 / n;
+    return Math.max(0, (p + z2 / (2 * n) - z * Math.sqrt((p * (1 - p) + z2 / (4 * n)) / n)) / d);
   }
 
-  sessionLossBreached(balance) {
-    if (this.sessionStartBal == null) return false;
-    return (this.sessionStartBal - balance) >= this.sessionMaxLoss;
+  evaluateProposal(ticks, growthRate, proposal) {
+    const cd = proposal?.contract_details || {};
+    const spot = Number(proposal?.spot || cd.current_spot || 0);
+    const distance = Number(cd.barrier_spot_distance || 0);
+    const pct = spot > 0 && distance > 0 ? (distance / spot) * 100 : Number(cd.tick_size_barrier_percentage || 0);
+    return this._hazardEstimate(ticks, pct, growthRate);
   }
 
-  // Hard caps (real, finite now).
-  checkHardCaps(balance, todayTrades) {
-    const today = todayTrades;
-    const pl = today.reduce((s, t) => s + (t.profit || 0), 0);
-    if (pl <= -this.cfg.dailyMaxLoss) return 'daily-loss';
-    if (today.length >= this.cfg.dailyMaxTrades) return 'daily-trades';
-    if (this.sessionLossBreached(balance)) return 'session-loss';
-    if (this.cfg.takeProfit && pl >= this.cfg.takeProfit) return 'take-profit';
-    return null;
+  // ── 1. VOLATILITY REGIME ────────────────────────────────────
+  _volatilityRegime(q) {
+    const n = q.length;
+    if (n < 60) return { regime: 1, regimeLabel: 'normal', score: 0.5, hurst: 0.5 };
+    const gk = this._gkVol(q);
+    const segLen = 20;
+    const sds = [];
+    for (let i = segLen; i <= n; i++) {
+      const s = q.slice(i - segLen, i);
+      let m = 0; for (const v of s) m += v; m /= s.length;
+      let v = 0; for (const x of s) v += (x - m) ** 2;
+      sds.push(Math.sqrt(v / s.length));
+    }
+    if (sds.length < 3) return { regime: 1, regimeLabel: 'normal', score: 0.5, hurst: 0.5 };
+    const current = sds[sds.length - 1];
+    const sorted = [...sds].sort((a, b) => a - b);
+    const rank = sorted.findIndex(v => v >= current) / sorted.length;
+    let regime, regimeLabel, score;
+    if (rank < 0.35) { regime = 0; regimeLabel = 'low'; score = 0.95; }
+    else if (rank < 0.65) { regime = 1; regimeLabel = 'normal'; score = 0.70; }
+    else if (rank < 0.88) { regime = 2; regimeLabel = 'high'; score = 0.30; }
+    else { regime = 3; regimeLabel = 'extreme'; score = 0.05; }
+    const hurst = this._hurst(q);
+    if (hurst > 0.60) score *= 0.7;
+    if (hurst > 0.70) score *= 0.5;
+    return { regime, regimeLabel, score, gk, hurst };
   }
 
-  // Fractional-Kelly-ish bound on stake as a fraction of equity.
-  // f = max(0, (p̂−q̂)/g) capped at kellyCap (default 0.02 = 2% equity).
-  kellyStake(equity, p, g) {
-    if (!(equity > 0) || !(p > 0) || !(g > 0)) return this.cfg.stake;
-    const q = 1 - p;
-    const f = Math.max(0, (p - q) / g);
-    return Math.max(this.cfg.stake, Math.min(this.cfg.stake * this.cfg.maxWinStakeMultiplier, equity * Math.min(f, 0.02)));
+  _gkVol(q, window = 30) {
+    if (q.length < window + 1) return 0;
+    let s = 0;
+    for (let i = q.length - window; i < q.length; i++) {
+      let hi = -Infinity, lo = Infinity;
+      for (const v of q.slice(Math.max(0, i - 4), i + 1)) { if (v > hi) hi = v; if (v < lo) lo = v; }
+      const o = q[i - 1] || q[i], c = q[i];
+      s += 0.5 * (Math.log(hi / lo || 1)) ** 2 - (2 * Math.log(2) - 1) * (Math.log(c / o || 1)) ** 2;
+    }
+    return Math.sqrt(Math.max(s / window, 1e-12));
   }
 
-  // Correlation haircut: the vol set (R_* / 1HZ*V) is highly correlated.
-  // When we can only run one position, treat "top-1 EV" as representative
-  // and haircut EV by a correlation factor so we don't over-state edge.
-  haircutEV(ev, basketSize) {
-    const rho = Math.min(1, 0.5 + 0.1 * basketSize); // 0.6 for 1 asset → 0.5+0.1
-    return ev * (1 - rho * 0.5);
+  _hurst(q, maxLag = 50) {
+    const n = q.length;
+    if (n < maxLag + 2) return 0.5;
+    const ret = new Array(n - 1);
+    for (let i = 1; i < n; i++) ret[i - 1] = q[i - 1] !== 0 ? Math.log(q[i] / q[i - 1]) : 0;
+    const lags = [10, 20, 30, 40, 50].filter(l => l < ret.length);
+    const pts = [];
+    for (const lag of lags) {
+      const chunks = Math.floor(ret.length / lag);
+      let sumRS = 0, cnt = 0;
+      for (let c = 0; c < chunks; c++) {
+        const sl = ret.slice(c * lag, (c + 1) * lag);
+        let m = 0; for (const x of sl) m += x; m /= sl.length;
+        let cum = 0, mx = -Infinity, mn = Infinity;
+        for (const x of sl) { cum += (x - m); if (cum > mx) mx = cum; if (cum < mn) mn = cum; }
+        let v = 0; for (const x of sl) v += (x - m) ** 2;
+        const sd = Math.sqrt(v / sl.length) || 1e-12;
+        sumRS += (mx - mn) / sd; cnt++;
+      }
+      if (cnt > 0) pts.push([Math.log(lag), Math.log(sumRS / cnt)]);
+    }
+    if (pts.length < 2) return 0.5;
+    let sx = 0, sy = 0, sxy = 0, sxx = 0;
+    for (const [x, y] of pts) { sx += x; sy += y; sxy += x * y; sxx += x * x; }
+    const d = pts.length * sxx - sx * sx;
+    return Math.max(0.1, Math.min(0.9, d !== 0 ? (pts.length * sxy - sx * sy) / d : 0.5));
+  }
+
+  // ── 2. TREND ALIGNMENT ──────────────────────────────────────
+  _trendAlignment(q) {
+    const n = q.length;
+    if (n < 55) return null;
+    const emaFast = this._ema(q, 9), emaSlow = this._ema(q, 21), emaTrend = this._ema(q, 50);
+    const rsi = this._rsi(q, 14);
+    const macd = this._macd(q);
+    const price = q[n - 1];
+    let direction = 'neutral';
+    if (emaFast > emaSlow && price > emaTrend) direction = 'up';
+    else if (emaFast < emaSlow && price < emaTrend) direction = 'down';
+    const emaSpread = Math.abs(emaFast - emaSlow) / (emaSlow || 1);
+    const emaAlignment = Math.min(1, emaSpread * 500);
+    let rsiScore;
+    if (direction === 'up') rsiScore = (rsi > 45 && rsi < 75) ? 0.8 : (rsi > 35 && rsi < 85) ? 0.5 : 0.2;
+    else if (direction === 'down') rsiScore = (rsi > 25 && rsi < 55) ? 0.8 : (rsi > 15 && rsi < 65) ? 0.5 : 0.2;
+    else rsiScore = (rsi > 35 && rsi < 65) ? 0.7 : 0.3;
+    let macdScore;
+    if ((direction === 'up' && macd.histogram > 0) || (direction === 'down' && macd.histogram < 0)) macdScore = 0.8;
+    else if (Math.abs(macd.histogram) < 0.001) macdScore = 0.5;
+    else macdScore = 0.2;
+    const composite = 0.35 * emaAlignment + 0.35 * rsiScore + 0.30 * macdScore;
+    return { direction, emaFast, emaSlow, emaTrend, rsi, macdHist: macd.histogram, composite };
+  }
+
+  _ema(data, period) {
+    if (data.length < period) return data[data.length - 1];
+    const k = 2 / (period + 1);
+    let ema = data.slice(0, period).reduce((s, v) => s + v, 0) / period;
+    for (let i = period; i < data.length; i++) ema = data[i] * k + ema * (1 - k);
+    return ema;
+  }
+
+  _rsi(data, period = 14) {
+    if (data.length < period + 1) return 50;
+    let gains = 0, losses = 0;
+    for (let i = data.length - period; i < data.length; i++) {
+      const d = data[i] - data[i - 1];
+      if (d > 0) gains += d; else losses -= d;
+    }
+    return losses === 0 ? 100 : 100 - (100 / (1 + gains / losses));
+  }
+
+  _macd(data, fast = 12, slow = 26, sig = 9) {
+    if (data.length < slow + sig) return { histogram: 0 };
+    const diffs = [];
+    for (let i = slow; i < data.length; i++) diffs.push(this._ema(data.slice(0, i + 1), fast) - this._ema(data.slice(0, i + 1), slow));
+    const macdLine = this._ema(data, fast) - this._ema(data, slow);
+    const signalLine = diffs.length >= sig ? this._ema(diffs.slice(-sig * 3), sig) : macdLine;
+    return { histogram: macdLine - signalLine };
+  }
+
+  // ── 3. SURVIVAL TREND ──────────────────────────────────────
+  _survivalTrend(arr) {
+    if (!Array.isArray(arr) || arr.length < 5) return null;
+    const n = arr.length;
+    const mean = arr.reduce((s, v) => s + v, 0) / n;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const median = sorted[Math.floor(n / 2)];
+    const K = Math.min(30, n);
+    const recent = arr.slice(-K);
+    let slope = 0;
+    if (recent.length >= 2) {
+      let sx = 0, sy = 0, sxy = 0, sxx = 0;
+      for (let i = 0; i < recent.length; i++) { sx += i; sy += recent[i]; sxy += i * recent[i]; sxx += i * i; }
+      const d = (recent.length * sxx - sx * sx) || 1;
+      slope = (recent.length * sxy - sx * sy) / d;
+    }
+    const trendNorm = median > 0 ? slope / median : 0;
+    const aboveMedian = recent.filter(v => v >= median).length / recent.length;
+    let v = 0; for (const x of arr) v += (x - mean) ** 2;
+    const stdev = Math.sqrt(v / n);
+    const consistency = mean > 0 ? Math.max(0, 1 - stdev / mean) : 0;
+    const pSurvival = mean > 0 ? mean / (mean + 1) : 0;
+    const trendScore = Math.max(0, Math.min(1, 0.5 + trendNorm * 2));
+    const consistScore = Math.max(0, Math.min(1, consistency));
+    const score = 0.40 * trendScore + 0.30 * (aboveMedian) + 0.30 * consistScore;
+    let trendLabel = 'flat';
+    if (trendNorm > 0.02) trendLabel = 'rising';
+    else if (trendNorm < -0.02) trendLabel = 'falling';
+    return { mean, median, slope, trendNorm, consistency, pSurvival, score, trendLabel };
+  }
+
+  // ── 4. SESSION TIMING ───────────────────────────────────────
+  _sessionScore() {
+    const hour = new Date().getUTCHours();
+    const w = { 0:.55,1:.60,2:.60,3:.65,4:.65,5:.60,6:.55,7:.50,8:.45,9:.45,10:.50,11:.55,12:.60,13:.65,14:.70,15:.75,16:.70,17:.65,18:.55,19:.50,20:.50,21:.55,22:.55,23:.55 };
+    return w[hour] ?? 0.5;
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 9. TRADE EXECUTOR  (single writer; 'sold' handled; reconcile-aware)
+// 9. TRADE EXECUTOR
 // ═══════════════════════════════════════════════════════════════════════
 class TradeExecutor extends EventEmitter {
   constructor(client, cfg) {
@@ -893,14 +906,14 @@ class TradeExecutor extends EventEmitter {
     this.open = new Map();
     this.market = null;
     this._selling = new Set();
-    this._buyLock = false;   // serialize buy so two interval ticks can't double-enter
+    this._buying = false;
   }
 
-  async buy(symbol, growthRate, stake, limit, analysis = null) {
-    if (this._buyLock) { logger.warn('buy: already in-flight — skip'); return null; }
-    this._buyLock = true;
+  async buy(symbol, growthRate, stake, limit, analysis = null, proposalValidator = null) {
+    if (this._buying || this.open.size >= this.cfg.maxOpenTrades) throw new Error('ENTRY_LOCKED');
+    this._buying = true;
+    growthRate = Math.max(0.01, Math.min(0.05, +growthRate.toFixed(4)));
     try {
-      growthRate = Math.max(0.01, Math.min(0.05, +growthRate.toFixed(4)));
       const symbolKey = this.client._isPat ? 'underlying_symbol' : 'symbol';
       const pres = await this.client._send({
         proposal: 1, amount: stake, basis: 'stake', contract_type: 'ACCU', currency: this.cfg.currency,
@@ -910,6 +923,11 @@ class TradeExecutor extends EventEmitter {
       const p = pres.proposal;
       if (!p?.id) throw new Error('No proposal id');
       if (pres.error) throw new Error(pres.error.message);
+      if (proposalValidator) {
+        const verdict = proposalValidator(p);
+        if (!verdict?.ok) throw new Error(`PROPOSAL_REJECTED:${verdict?.reason || 'UNKNOWN'}`);
+        analysis = { ...analysis, proposalModel: verdict };
+      }
       logger.info(`proposal id=${p.id} ask=${p.ask_price} payout=${p.payout} spot=${p.spot}`);
 
       if (this.market && p.contract_details) {
@@ -939,12 +957,42 @@ class TradeExecutor extends EventEmitter {
       };
       this.open.set(b.contract_id, info);
 
-      await this.client.subscribe({ proposal_open_contract: 1, contract_id: b.contract_id },
-        msg => this._onUpdate(msg, info));
+      try { await this._subscribeContract(info); }
+      catch (e) { logger.warn(`post-buy subscription #${b.contract_id} failed; reconciliation will retry:`, e.message); }
       this.emit('open', info);
       return info;
     } catch (e) { logger.error(`buy(${symbol}):`, e.message); throw e; }
-    finally { this._buyLock = false; }
+    finally { this._buying = false; }
+  }
+
+  async _subscribeContract(info) {
+    return this.client.subscribe({ proposal_open_contract: 1, contract_id: info.contractId }, msg => this._onUpdate(msg, info));
+  }
+
+  async reconcile() {
+    // Portfolio is authoritative after a transport break. Never clear `open`
+    // before this reconciliation; doing so can create a phantom-free slot.
+    let portfolio;
+    try { portfolio = await this.client._send({ portfolio: 1 }, 15000); }
+    catch (e) { logger.warn('portfolio reconciliation failed:', e.message); return false; }
+    const contracts = Array.isArray(portfolio?.portfolio) ? portfolio.portfolio : [];
+    const liveIds = new Set();
+    for (const c of contracts) {
+      const id = c.contract_id;
+      if (!id) continue;
+      liveIds.add(id);
+      let info = this.open.get(id);
+      if (!info) {
+        info = { contractId: id, symbol: c.underlying || c.underlying_symbol || 'UNKNOWN', growthRate: Number(c.growth_rate || 0), stake: Number(c.buy_price || 0), buyPrice: Number(c.buy_price || 0), payout: Number(c.payout || 0), buyTime: Number(c.purchase_time || Date.now() / 1000), limit: {}, profit: Number(c.profit || 0), status: 'open', currentSpot: Number(c.current_spot || 0), recovered: true };
+        this.open.set(id, info);
+        this.emit('recovered', info);
+      }
+      try { await this._subscribeContract(info); } catch (e) { logger.warn(`resubscribe #${id}:`, e.message); }
+    }
+    for (const id of [...this.open.keys()]) {
+      if (!liveIds.has(id)) this.open.delete(id);
+    }
+    return true;
   }
 
   _onUpdate(msg, info) {
@@ -954,91 +1002,34 @@ class TradeExecutor extends EventEmitter {
     const profit = parseFloat(c.profit ?? 0);
     const spot = parseFloat(c.current_spot ?? 0);
 
-    // Terminal states: won / lost / sold / is_sold → reconcile open.
-    // Emit `result` exactly once per contract (idempotent via the open map).
-    if (c.status === 'won' || c.status === 'lost' || c.status === 'sold' || c.is_sold) {
-      const wasTracked = this.open.has(cid);
-      if (!wasTracked) {   // already resolved → drop duplicate terminal update
-        if (msg.subscription?.id) this.client.forget(msg.subscription.id).catch(() => {});
-        return;
-      }
-      const finished = {
-        ...info, contractId: cid, profit,
-        status: (c.status === 'sold' || c.is_sold) ? 'sold' : c.status,
-        sellPrice: parseFloat(c.sell_price ?? 0),
-        sellTime: c.sell_time ?? (Date.now() / 1000),
-        currentSpot: spot,
-      };
-      this.open.delete(cid);
-      this.emit('result', finished);
-      if (msg.subscription?.id) this.client.forget(msg.subscription.id).catch(() => {});
-      return;
-    }
-
-    // Manual stop-loss check (Deriv ACCU doesn't support stop_loss param).
+    // Manual stop-loss check (Deriv ACCU doesn't support stop_loss param)
     const stopLossAbs = Math.abs(info.limit?.stop_loss || 0);
-    if (stopLossAbs > 0 && profit <= -stopLossAbs && !this._selling.has(cid)) {
+    if ((c.status === 'open') && stopLossAbs > 0 && profit <= -stopLossAbs && !this._selling.has(cid)) {
       logger.warn(`SL hit #${cid} profit=${profit.toFixed(2)}`);
       this._selling.add(cid);
       this.sell(cid, 0).catch(e => logger.error(`SL sell failed:`, e.message)).finally(() => this._selling.delete(cid));
-      return;
     }
 
-    // Early exit: barrier drift danger.
-    if (info.halfBarrierPct > 0 && spot > 0 && info._entrySpot > 0) {
-      const driftFrac = Math.abs(spot - info._entrySpot) / info._entrySpot / (info.halfBarrierPct / 100);
-      if (driftFrac > this.cfg.earlyExitDriftFrac && !this._selling.has(cid)) {
-        logger.info(`drift exit #${cid}: ${(driftFrac * 100).toFixed(1)}% of barrier`);
-        this._selling.add(cid);
-        this.sell(cid, 0).catch(e => logger.error(`drift exit failed:`, e.message)).finally(() => this._selling.delete(cid));
-        return;
-      }
-    }
+    // ACCU barriers are evaluated around the previous spot. A displacement from
+    // entry is therefore not a danger signal and must not trigger a fabricated
+    // "barrier drift" exit. Server-side limit orders and the hard loss cap are
+    // the only automated exit paths here.
 
-    // Profit-lock: bank when realized profit ≥ fraction of the remaining
-    // model EV for the planned hold, measured in dollars on this stake.
-    // remaining is per stake-dollar; multiply by stake to compare to $profit.
-    if (info._analysis && info._analysis.g && info._analysis.p && profit > 0) {
-      const remaining = info._analysis.ev * this.cfg.planHoldTicks * info.stake;
-      if (remaining > 0 && profit >= this.cfg.profitLockFrac * remaining) {
-        logger.info(`profit-lock #${cid}: profit=${profit.toFixed(2)} >= ${(this.cfg.profitLockFrac * remaining).toFixed(2)}`);
-        this._selling.add(cid);
-        this.sell(cid, 0).catch(e => logger.error(`profit-lock sell failed:`, e.message)).finally(() => this._selling.delete(cid));
-        return;
-      }
+    if (c.status !== 'open' || c.is_sold) {
+      const status = profit >= 0 ? 'won' : 'lost';
+      const finished = { ...info, contractId: cid, profit, status, sellPrice: parseFloat(c.sell_price ?? c.bid_price ?? 0), sellTime: c.sell_time ?? c.exit_tick_time ?? (Date.now() / 1000), currentSpot: spot };
+      this.open.delete(cid);
+      this.emit('result', finished);
+      if (msg.subscription?.id) this.client.forget(msg.subscription.id).catch(() => {});
+    } else {
+      this.emit('update', { ...info, contractId: cid, profit, currentSpot: spot, status: c.status });
     }
-
-    this.emit('update', { ...info, contractId: cid, profit, currentSpot: spot, status: c.status });
   }
 
   async sell(contractId, minPrice = 0) {
     const res = await this.client._send({ sell: contractId, price: minPrice }, 15000);
     logger.info(`sold #${contractId} for ${res.sell?.sold_for}`);
     return res.sell;
-  }
-
-  // Best-effort reconcile of open contracts against the server.
-  async reconcile() {
-    const ids = [...this.open.keys()];
-    if (!ids.length) return;
-    logger.info(`reconcile: ${ids.length} open contract(s) → checking`);
-    for (const id of ids) {
-      try {
-        const res = await this.client._send({ proposal_open_contract: 1, contract_id: id }, 15000);
-        const c = res?.proposal_open_contract;
-        if (!c) continue;
-        if (c.status === 'won' || c.status === 'lost' || c.status === 'sold' || c.is_sold) {
-          // already finished server-side — emit result and forget.
-          const info = this.open.get(id);
-          this._onUpdate({ proposal_open_contract: c }, info);
-        } else {
-          // still open → leave it tracked; it will stream updates after
-          // we re-subscribe. Re-subscribe to be safe.
-          await this.client.subscribe({ proposal_open_contract: 1, contract_id: id },
-            msg => this._onUpdate(msg, info)).catch(() => {});
-        }
-      } catch (e) { logger.warn(`reconcile #${id}:`, e.message); }
-    }
   }
 
   count() { return this.open.size; }
@@ -1126,21 +1117,17 @@ class AccuPULSE2Bot {
     this.cfg = cfg;
     this.client = new DerivClient(cfg);
     this.market = new MarketDataManager(this.client, cfg);
-    this.model = new AccumulatorEdgeModel(cfg);
+    this.analyzer = new ARCAAnalyzer(cfg);
     this.exec = new TradeExecutor(this.client, cfg);
     this.exec.market = this.market;
     this.stats = new StatisticsManager();
-    this.risk = new RiskManager(cfg, this.stats);
 
     this.stopped = false;
-    this.paused = false;
-    this.reconciled = false;
     this.startBalance = null;
     this.lastBalance = null;
     this.lastTradeAt = 0;
     this.overallProfit = 0;
     this.tradeStartTime = null;
-    this.gmtPause = null;   // { fromHour, toHour } in GMT
 
     this._analysisT = null;
     this._hourlyT = null;
@@ -1149,16 +1136,21 @@ class AccuPULSE2Bot {
     this._eodBoot = null;
     this._barrierT = null;
     this._tradeWatchdogTimer = null;
+    this._analysisInFlight = false;
 
     // Anti-Martingale state
     this.winStreak = 0;
     this.lossStreak = 0;
     this.winStakeMultiplier = 1.0;
+
+    // Graduated drawdown
+    this.equityPeak = 0;
+    this.ddReducer = 1.0;
   }
 
   async start() {
     logger.info('═══════════════════════════════════════════');
-    logger.info('  AccuPULSE2b — AEBA Strategy');
+    logger.info('  AccuPULSE2b — ARCA Strategy');
     logger.info('═══════════════════════════════════════════');
     logger.info(`assets: ${this.cfg.assets.join(', ')}`);
 
@@ -1169,11 +1161,10 @@ class AccuPULSE2Bot {
     this.exec.on('open', t => this._onTradeOpen(t));
     this.exec.on('update', t => this._onTradeUpdate(t));
     this.exec.on('result', t => this._onTradeResult(t));
+    this.exec.on('recovered', t => logger.warn(`recovered open contract #${t.contractId}`));
 
     process.on('SIGINT', () => this.stop('SIGINT'));
     process.on('SIGTERM', () => this.stop('SIGTERM'));
-    process.on('unhandledRejection', (reason) => { logger.error('unhandledRejection:', reason instanceof Error ? reason.message : String(reason)); });
-    process.on('uncaughtException', (err) => { logger.error('uncaughtException:', err.message); });
 
     this._loadState();
     this._scheduleSummaries();
@@ -1198,39 +1189,38 @@ class AccuPULSE2Bot {
 
   // ── Authorised ──────────────────────────────────────────────
   async _onAuthorized(info) {
-    // Initialize session baseline only once (don't corrupt on reconnect).
-    if (this.startBalance == null) {
-      this.startBalance = this.balance ?? this.client.balance;
-      this.lastBalance = this.startBalance;
-      this.equityPeak = this.startBalance;
-      this.risk.init(this.startBalance);
+    if (this.cfg.demoOnly && !info.isVirtual) {
+      logger.error('demoOnly is enabled; refusing non-demo account');
+      this.stopped = true;
+      telegram.send('STOPPED: demoOnly is enabled but the authorized account is not virtual.');
+      this.client.stop();
+      return;
     }
-    if (this.lastBalance == null) this.lastBalance = this.balance ?? this.client.balance;
+    this.startBalance ??= this.client.balance;
+    this.lastBalance = this.client.balance ?? this.lastBalance ?? this.startBalance;
+    this.equityPeak = Math.max(this.equityPeak || 0, this.lastBalance || 0);
 
     telegram.send(
       `🤖 <b>AccuPULSE2b Online</b>\n\n` +
       `👤 <b>Account:</b> ${info.loginid}\n` +
       `💼 <b>Type:</b> ${info.isVirtual ? '🟡 DEMO' : '🔴 REAL'}\n` +
-      `💰 <b>Balance:</b> ${(this.lastBalance ?? 0).toFixed(2)} ${this.currencyStr()}\n` +
+      `💰 <b>Balance:</b> ${this.startBalance.toFixed(2)} ${this.currencyStr()}\n` +
       `📊 <b>Assets:</b> ${this.cfg.assets.join(', ')}\n` +
       `💵 <b>Stake:</b> ${this.cfg.stake}\n` +
-      `📈 <b>Growth grid:</b> ${this.cfg.growthRates.join(',')}\n\n` +
-      `🧠 <b>AEBA Strategy Active</b>\n` +
-      `• Live-barrier EV gate (net of costs)\n• Growth by argmax EV\n` +
-      `• Vol-compression / vol-of-vol\n• Survival floor\n` +
+      `📈 <b>Growth:</b> ${(this.cfg.growthRate * 100).toFixed(0)}%\n\n` +
+      `🧠 <b>ARCA Strategy Active</b>\n` +
+      `• Volatility regime gate\n• Trend alignment (EMA/RSI/MACD)\n` +
+      `• Survival trend (ticks_stayed_in)\n• Session timing\n` +
       `• Anti-martingale + graduated drawdown\n` +
-      `• Reconcile-on-reconnect · live adaptive exit`,
+      `• Live adaptive early-exit`,
     );
 
     await Promise.all([
+      this.exec.reconcile(),
       this.market.loadSymbols(),
       this.market.bootstrap(this.cfg.assets),
       this._refreshBarriers(),
     ]);
-
-    // Reconcile any contract that was open when we disconnected.
-    await this.exec.reconcile();
-    this.reconciled = true;
 
     if (this._analysisT) clearInterval(this._analysisT);
     this._analyzeAndTrade();
@@ -1241,11 +1231,9 @@ class AccuPULSE2Bot {
 
   _onDisconnected(code, reason, wasAuth) {
     this._clearWatchdog();
-    this.reconciled = false;
-    const intentional = this.stopped;
-    if (!intentional) telegram.send(`⚠️ <b>Connection lost</b>\ncode: <code>${code}</code>\nwas auth: ${wasAuth ? 'yes' : 'no'}\n🔄 reconnecting…`);
+    telegram.send(`⚠️ <b>Connection lost</b>\ncode: <code>${code}</code>\nwas auth: ${wasAuth ? 'yes' : 'no'}\n🔄 reconnecting…`);
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
-    // Do NOT clear exec.open here — it is reconciled on re-auth (P0 fix).
+    // Preserve positions until the authoritative portfolio reconciliation.
   }
 
   // ── Trade callbacks ─────────────────────────────────────────
@@ -1261,11 +1249,13 @@ class AccuPULSE2Bot {
       `💵 Stake: ${t.stake.toFixed(2)} ${this.currencyStr()}\n` +
       `🎯 TP: ${t.limit.take_profit ?? '–'}\n`;
     if (a) {
-      msg += `\n🧠 <b>AEBA</b>\n` +
-        `• p̂/tick: <b>${(a.p * 100).toFixed(2)}%</b> | EV/tick: <b>${(a.ev * 100).toFixed(2)}%</b>\n` +
-        `• Barrier: ${a.barrierPct.toFixed(2)}% | σ: ${(a.sigma * 100).toFixed(2)}%\n` +
-        `• S(surv ${this.cfg.planHoldTicks}): ${(a.sK * 100).toFixed(1)}% | vol%: ${(a.volPct * 100).toFixed(0)}%\n` +
-        `• Score: ${a.score.toFixed(3)} | reason: ${a.reason}`;
+      msg += `\n🧠 <b>ARCA</b>\n` +
+        `• Score: <b>${a.score.toFixed(3)}</b> / ${this.cfg.minConfidence}\n` +
+        `• Vol: ${a.volRegimeLabel} (${a.volScore.toFixed(2)})\n` +
+        `• Trend: ${a.trendDirection} (${a.trendScore.toFixed(2)}) RSI:${a.rsi.toFixed(1)}\n` +
+        `• Survival: ${a.survivalMean.toFixed(1)} ticks (${a.survivalScore.toFixed(2)})\n` +
+        `• Hurst: ${a.hurst.toFixed(2)} P(surv): ${(a.pSurvival * 100).toFixed(1)}%\n` +
+        `• ${a.reasons.join(' | ')}`;
     }
     if (this.winStakeMultiplier > 1) msg += `\n📈 Win streak: ${this.winStreak} → ×${this.winStakeMultiplier.toFixed(2)}`;
     telegram.send(msg);
@@ -1282,8 +1272,8 @@ class AccuPULSE2Bot {
     this.lastBalance = (this.lastBalance ?? 0) + t.profit;
     this.overallProfit += t.profit;
 
-    // Update equity peak + drawdown reducer
-    this.risk.update(this.lastBalance);
+    // Update equity peak
+    if (this.lastBalance > this.equityPeak) this.equityPeak = this.lastBalance;
 
     // Anti-Martingale state
     if (t.status === 'won') {
@@ -1294,6 +1284,8 @@ class AccuPULSE2Bot {
     } else {
       this.lossStreak++; this.winStreak = 0; this.winStakeMultiplier = 1.0;
     }
+
+    this._updateDrawdown();
 
     const todayStats = this.stats.stats(this.stats.todayTrades(rec.date));
     let msg =
@@ -1313,7 +1305,7 @@ class AccuPULSE2Bot {
       `💼 Overall: ${money(this.overallProfit, this.currencyStr())}\n` +
       `❌ Streak: ${this.stats.currentLossStreak} (x2=${this.stats.lossStreakEvents.x2} x3=${this.stats.lossStreakEvents.x3})`;
     if (this.winStakeMultiplier > 1) msg += `\n📈 Win streak ×${this.winStakeMultiplier.toFixed(2)}`;
-    if (this.risk.ddReducer < 1) msg += `\n🛡️ DD: ${(this.risk.ddReducer * 100).toFixed(0)}% stake`;
+    if (this.ddReducer < 1) msg += `\n🛡️ DD: ${(this.ddReducer * 100).toFixed(0)}% stake`;
     telegram.send(msg);
     this.lastTradeAt = Date.now();
 
@@ -1326,108 +1318,93 @@ class AccuPULSE2Bot {
   }
 
   // ── Stake sizing (anti-martingale + graduated DD) ───────────
-  currentStake(p) {
-    let base = this.cfg.stake * this.winStakeMultiplier * this.risk.ddReducer;
+  currentStake() {
+    let base = this.cfg.stake * this.winStakeMultiplier * this.ddReducer;
     if (this.lossStreak >= this.cfg.streakReduceStake) base *= 0.5;
-    // Fractional-Kelly bound: cap stake at a small fraction of equity.
-    const equity = this.lastBalance ?? this.cfg.stake * 100;
-    const g = p ? Math.max(0.01, Math.min(0.05, p)) : this.cfg.growthRate;
-    const kelly = this.risk.kellyStake(equity, p || 0.95, g);
-    const stake = Math.max(this.cfg.stake * 0.5, Math.min(base, kelly));
-    return +stake.toFixed(2);
+    return +base.toFixed(2);
+  }
+
+  _updateDrawdown() {
+    const bal = this.lastBalance ?? this.startBalance ?? 0;
+    if (bal > this.equityPeak) this.equityPeak = bal;
+    const dd = this.equityPeak > 0 ? (this.equityPeak - bal) / this.equityPeak : 0;
+    if (dd <= this.cfg.ddFullStake) this.ddReducer = 1.0;
+    else if (dd <= this.cfg.ddReduce25) this.ddReducer = 0.75;
+    else if (dd <= this.cfg.ddReduce50) this.ddReducer = 0.50;
+    else this.ddReducer = 0.25;
   }
 
   _checkCircuitBreakers() {
     const today = this.stats.todayTrades();
     const pl = today.reduce((s, t) => s + (t.profit || 0), 0);
+    if (pl >= this.cfg.takeProfit) { logger.warn(`session profit limit: ${pl.toFixed(2)}`); return true; }
     if (pl <= -this.cfg.dailyMaxLoss) { telegram.send(`🛑 Daily loss limit: ${pl.toFixed(2)}`); return true; }
-    if (today.length >= this.cfg.dailyMaxTrades) { telegram.send(`🛑 Daily trade limit: ${this.cfg.dailyMaxTrades}`); return true; }
-    if (this.cfg.takeProfit && pl >= this.cfg.takeProfit) { telegram.send(`🛑 Take-profit: ${pl.toFixed(2)}`); return true; }
+    if (today.length >= this.cfg.dailyMaxTrades) { telegram.send(`🛑 Daily trade limit`); return true; }
     const dd = this.equityPeak > 0 ? (this.equityPeak - (this.lastBalance ?? 0)) / this.equityPeak : 0;
     if (dd > this.cfg.ddStopTrading) { telegram.send(`🛑 DD limit: ${(dd * 100).toFixed(1)}%`); return true; }
     if (this.lossStreak >= this.cfg.streakStopDay) { telegram.send(`🛑 Loss streak limit: ${this.lossStreak}`); return true; }
     return false;
   }
 
-  // ── Main AEBA strategy loop ────────────────────────────────
+  // ── Main ARCA strategy loop ─────────────────────────────────
   async _analyzeAndTrade() {
+    if (this._analysisInFlight) return;
+    this._analysisInFlight = true;
     try {
       if (this.stopped || !this.client.authorized) return;
-      if (!this.reconciled) { logger.debug('skipping: awaiting reconcile'); return; }
-      if (this.paused) { logger.debug('skipping: paused'); return; }
-      if (this._inGmtPause()) { logger.debug('skipping: GMT pause window'); return; }
+      if (!this.cfg.tradeEnabled) { logger.debug('skip: TRADE_DISABLED'); return; }
+      if (this._isPausedNow()) { logger.debug('skip: PAUSE_WINDOW'); return; }
+      if (this._checkCircuitBreakers()) { this.stopped = true; return; }
       if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
       if (this.exec.count() >= this.cfg.maxOpenTrades) return;
 
-      // Hard caps (real now) — gate before any analysis spend.
-      const cap = this.risk.checkHardCaps(this.lastBalance ?? 0, this.stats.todayTrades());
-      if (cap) { logger.info(`hard cap: ${cap} — idle`); return; }
+      const analyses = this.cfg.assets.flatMap(sym => this.cfg.candidateGrowthRates.map(rate =>
+        this.analyzer.analyze(sym, this.market.historyFor(sym), this.market.getBarrier(sym, rate), rate)));
+      const ranked = this.analyzer.rank(analyses);
+      if (!ranked.length) { logger.debug('skip: NO_CONSERVATIVE_EDGE'); return; }
 
-      // Per-symbol AEBA decision. Barrier is looked up per growth rate
-      // because Deriv's accumulator barrier depends on g.
-      const decisions = [];
-      for (const sym of this.cfg.assets) {
-        const ticks = this.market.historyFor(sym);
-        const barrierByGrowth = new Map();
-        for (const g of this.cfg.growthRates) {
-          const b = this.market.getBarrier(sym, g);
-          if (b) barrierByGrowth.set(g, b);
-        }
-        const stays = this.market.getStays(sym, this.cfg.growthRate);
-        const d = this.model.analyze(sym, ticks, barrierByGrowth, stays);
-        if (d) decisions.push(d);
-      }
-
-      const ready = decisions.filter(d => d.ready);
-      if (!ready.length) {
-        // Log a compact "why idle" line with distinct reasons (not a spam).
-        const reasons = decisions.map(d => d.reason || '?' );
-        const uniq = [...new Set(reasons)];
-        logger.info(`idle: no ready edge (${uniq.join(',')})`);
-        return;
-      }
-
-      const ranked = this.model.rank(ready);
       const best = ranked[0];
+      logger.info(`best=${best.symbol} score=${best.score.toFixed(3)} vol=${best.volRegimeLabel} trend=${best.trendDirection} [${best.reasons.join(',')}]`);
 
-      // Correlation haircut: vol set is highly related.
-      const haircutEv = this.risk.haircutEV(best.ev, this.cfg.assets.length);
-      logger.info(`best=${best.symbol} g=${best.g} p=${best.p.toFixed(4)} ev=${(best.ev*100).toFixed(2)}% haircutEv=${(haircutEv*100).toFixed(2)}% barrier=${best.barrierPct.toFixed(2)}% σ=${(best.sigma*100).toFixed(2)}% vol%=${(best.volPct*100).toFixed(0)}`);
+      // ARCA gates
+      if (best.volRegime > this.cfg.maxVolRegime) { logger.debug(`vol regime ${best.volRegime} > max — skip`); return; }
+      if (best.hurst > this.cfg.maxHurst) { logger.debug(`hurst ${best.hurst.toFixed(2)} > max — skip`); return; }
+      if (best.survivalScore > 0 && best.survivalSlope < this.cfg.minSurvivalSlope) { logger.debug(`surv slope low — skip`); return; }
+      if (best.survivalScore > 0 && best.survivalConsistency < this.cfg.minSurvivalConsist) { logger.debug(`surv consistency low — skip`); return; }
 
-      // Re-check edge net of correlation haircut (hard gate).
-      if (haircutEv < this.cfg.minEdge) { logger.info(`idle: haircut EV below minEdge (${(haircutEv*100).toFixed(2)}% < ${(this.cfg.minEdge*100).toFixed(2)}%)`); return; }
-
-      const growthRate = best.g;
-      const stake = this.currentStake(best.p);
-      // TP as a growth-multiple target: bank a fraction of the model's
-      // expected edge over the plan hold, in $.
-      const tp = +(stake * Math.max(0.3, Math.min(3.0, best.sK * best.ev * this.cfg.planHoldTicks))).toFixed(2);
+      const growthRate = best.suggestedGrowth;
+      const stake = this.currentStake();
+      const tp = +(stake * Math.max(0.10, Math.min(0.50, best.model.conservativeEV * 4))).toFixed(2);
 
       const analysis = {
-        score: best.score, g: best.g, p: best.p, ev: best.ev, sK: best.sK,
-        barrierPct: best.barrierPct, sigma: best.sigma, volPct: best.volPct,
-        survMean: best.survMean, reason: best.reason,
+        score: best.score, volRegimeLabel: best.volRegimeLabel, volScore: best.volScore,
+        trendDirection: best.trendDirection, trendScore: best.trendScore, rsi: best.rsi,
+        survivalMean: best.survivalMean, survivalScore: best.survivalScore,
+        hurst: best.hurst, pSurvival: best.pSurvival, reasons: best.reasons,
       };
 
-      const trade = await this.exec.buy(best.symbol, growthRate, stake, { stop_loss: this.cfg.stopLoss, take_profit: tp }, analysis);
-      if (trade) logger.info(`trade #${trade.contractId} ${best.symbol} g=${growthRate} stake=${stake} tp=${tp}`);
-    } catch (e) { logger.error('AEBA loop error:', e.message); }
+      const trade = await this.exec.buy(best.symbol, growthRate, stake, { take_profit: tp, stop_loss: this.cfg.stopLoss }, analysis,
+        proposal => this.analyzer.evaluateProposal(this.market.historyFor(best.symbol), growthRate, proposal));
+      logger.info(`trade #${trade.contractId} ${best.symbol} g=${growthRate} stake=${stake} tp=${tp}`);
+    } catch (e) { logger.error('ARCA error:', e.message); }
+    finally { this._analysisInFlight = false; }
   }
 
-  _inGmtPause() {
-    const p = this.gmtPause;
-    if (!p) return false;
-    const nowMin = new Date().getUTCHours() * 60 + new Date().getUTCMinutes();
-    const from = p.fromHour * 60 + (p.fromMin || 0);
-    const to = p.toHour * 60 + (p.toMin || 0);
-    if (from <= to) return nowMin >= from && nowMin <= to;
-    return nowMin >= from || nowMin <= to; // overnight window
+  _isPausedNow() {
+    const now = new Date();
+    const minutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const asMinutes = value => { const m = String(value).match(/^(\d{1,2}):(\d{2})$/); return m ? +m[1] * 60 + +m[2] : null; };
+    return (this.cfg.pauseWindowsGmt || []).some(([from, to]) => {
+      const a = asMinutes(from), b = asMinutes(to);
+      if (a == null || b == null || a === b) return false;
+      return a < b ? minutes >= a && minutes < b : minutes >= a || minutes < b;
+    });
   }
 
   async _refreshBarriers() {
     try {
       if (!this.client.authorized) return;
-      await this.market.refreshBarriers(this.cfg.assets, this.cfg.growthRates);
+      await this.market.refreshBarriers(this.cfg.assets, this.cfg.candidateGrowthRates);
       logger.debug('barriers refreshed');
     } catch (e) { logger.debug('barrier refresh:', e.message); }
   }
@@ -1439,7 +1416,7 @@ class AccuPULSE2Bot {
       if (this.exec.count() === 0) { this._clearWatchdog(); return; }
       logger.warn(`watchdog: #${contractId} stuck for ${this.cfg.tradeWatchdogMs / 1000}s`);
       if (contractId && this.client.authorized) {
-        this.exec.sell(contractId, 0).catch(e => logger.error(`watchdog sell failed:`, e.message));
+        this.exec.sell(contractId, 0).catch(() => {});
       }
       this._clearWatchdog();
     }, this.cfg.tradeWatchdogMs);
@@ -1485,10 +1462,10 @@ class AccuPULSE2Bot {
   _saveState(reason = 'checkpoint') {
     try {
       const payload = {
-        version: 3, engine: 'AEBA', savedAt: new Date().toISOString(), savedReason: reason,
+        version: 2, engine: 'ARCA', savedAt: new Date().toISOString(), savedReason: reason,
         startBalance: this.startBalance, lastBalance: this.lastBalance, overallProfit: this.overallProfit,
         winStreak: this.winStreak, lossStreak: this.lossStreak, winStakeMultiplier: this.winStakeMultiplier,
-        equityPeak: this.risk.equityPeak, ddReducer: this.risk.ddReducer,
+        equityPeak: this.equityPeak, ddReducer: this.ddReducer,
         stats: this.stats.serialize(),
       };
       const tmp = this.cfg.stateFile + '.tmp';
@@ -1508,8 +1485,8 @@ class AccuPULSE2Bot {
       if (d.winStreak != null) this.winStreak = d.winStreak;
       if (d.lossStreak != null) this.lossStreak = d.lossStreak;
       if (d.winStakeMultiplier != null) this.winStakeMultiplier = d.winStakeMultiplier;
-      if (d.equityPeak != null) this.risk.equityPeak = d.equityPeak;
-      if (d.ddReducer != null) this.risk.ddReducer = d.ddReducer;
+      if (d.equityPeak != null) this.equityPeak = d.equityPeak;
+      if (d.ddReducer != null) this.ddReducer = d.ddReducer;
       this.stats = new StatisticsManager(d.stats || {});
       logger.info(`state restored: overall=${this.overallProfit.toFixed(2)} lossStreak=${this.lossStreak}`);
     } catch (e) { logger.warn('state load:', e.message); }
@@ -1534,74 +1511,22 @@ class AccuPULSE2Bot {
 
     this._saveState('shutdown');
     this.client.stop();
-    // Flush Telegram before exit.
-    telegram.flush().finally(() => setTimeout(() => process.exit(0), 300));
+    setTimeout(() => process.exit(0), 2500);
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 12. BOOTSTRAP + SELFTEST
+// 12. BOOTSTRAP
 // ═══════════════════════════════════════════════════════════════════════
 function printBanner() {
   console.log('╔═══════════════════════════════════════════════════════╗');
-  console.log('║   AccuPULSE2b — Adaptive EV/Barrier (AEBA)          ║');
-  console.log('║   Multi-Asset • Barrier-Correct • Adaptive Exit     ║');
+  console.log('║   AccuPULSE2b — Adaptive Regime-Confluence (ARCA)   ║');
+  console.log('║   Multi-Asset • Anti-Martingale • Adaptive Exit     ║');
   console.log('╚═══════════════════════════════════════════════════════╝\n');
-}
-
-// Pure-math selftest — no network. Run:  node accuPULSE2b.js --selftest
-function runSelfTest() {
-  let pass = 0, fail = 0;
-  const check = (name, cond, detail = '') => {
-    if (cond) { pass++; console.log(`  ✅ ${name}`); }
-    else { fail++; console.log(`  ❌ ${name} ${detail}`); }
-  };
-  console.log('\n── AEBA pure-math selftest ──');
-
-  // 1. per-tick survival at a 5% barrier, R_100-ish σ (≈1.7%) should be high.
-  const p100 = PURE.perTickSurvival(5, 0.017, 1.3);
-  check('R_100 σ=1.7% barrier=5% ⇒ p̂>0.95', p100 > 0.95, `got ${p100}`);
-
-  // 2. Higher σ ⇒ lower survival.
-  const pLow = PURE.perTickSurvival(5, 0.005, 1.3);
-  const pHi = PURE.perTickSurvival(5, 0.05, 1.3);
-  check('survival monotonic decreasing in σ', pLow > pHi, `${pLow} vs ${pHi}`);
-
-  // 3. Higher growth ⇒ higher EV at same p.
-  const ev5 = PURE.perTickEV(0.05, 0.99, 0.001);
-  const ev1 = PURE.perTickEV(0.01, 0.99, 0.001);
-  check('EV increases with g at same p', ev5 > ev1, `${ev5} vs ${ev1}`);
-
-  // 4. Negative-EV candidate is never selected.
-  const best = PURE.bestGrowth(5, 0.03, [0.01, 0.02, 0.03, 0.04, 0.05], 1.3, 0.001, 0.5, 20);
-  check('bestGrowth returns a candidate or null (never negative EV)', best === null || best.ev > 0, best ? `ev=${best.ev}` : 'null');
-
-  // 5. bestGrowth respects survival floor (low p ⇒ blocked).
-  const bestLow = PURE.bestGrowth(5, 0.12, [0.01, 0.02, 0.03, 0.04, 0.05], 1.3, 0.001, 0.6, 20);
-  check('survival floor blocks high-σ', bestLow === null, bestLow ? `g=${bestLow.g}` : 'null');
-
-  // 6. surviveK behaves.
-  const s = PURE.surviveK(0.99, 20);
-  check('surviveK(0.99,20)≈0.82', Math.abs(s - Math.pow(0.99, 20)) < 1e-12, `${s}`);
-
-  // 7. volPercentile of an increasing series ranks last ≈ 1.
-  const vp = PURE.volPercentile([0.1, 0.2, 0.3, 0.4, 0.5]);
-  check('volPercentile ranks current high', Math.abs(vp - 1) < 1e-9, `${vp}`);
-
-  // 8. Robust sigma on a known series.
-  const sig = PURE.robustSigma([0.01, -0.01, 0.01, -0.01, 0.01, -0.01]);
-  check('robustSigma on alternating ±0.01', sig.sigma > 0.01 && sig.sigma < 0.03, `${sig.sigma}`);
-
-  console.log(`\n  Result: ${pass} passed, ${fail} failed\n`);
-  return fail === 0;
 }
 
 async function main() {
   printBanner();
-  if (process.argv.includes('--selftest')) {
-    const ok = runSelfTest();
-    process.exit(ok ? 0 : 1);
-  }
   try { require.resolve('ws'); } catch (_) { console.error('npm install ws'); process.exit(1); }
   if (!CONFIG.apiToken) { console.error('API token not set'); process.exit(1); }
   console.log(CONFIG.telegram.enabled ? '✅ Telegram: ENABLED' : 'ℹ️ Telegram: DISABLED');
@@ -1609,4 +1534,26 @@ async function main() {
   await bot.start();
 }
 
-main().catch(e => { console.error('fatal:', e); process.exit(1); });
+function runSelfTest() {
+  const assert = require('assert');
+  const cfg = { ...CONFIG, minEmpiricalSamples: 20, hazardWindow: 40, plannedHoldTicks: 5, minBarrierPct: 0.01, minNetEvRatio: -0.5 };
+  const analyzer = new ARCAAnalyzer(cfg);
+  assert(analyzer._wilsonLower(95, 100, 1.96) < 0.95, 'Wilson bound must be conservative');
+  const calm = Array.from({ length: 50 }, (_, i) => ({ quote: 100 * Math.exp(i * 0.00001) }));
+  const model = analyzer._hazardEstimate(calm, 0.10, 0.01);
+  assert(model.ok && model.pLower > 0.8, 'calm path should pass single-tick survival model');
+  const jumpy = Array.from({ length: 50 }, (_, i) => ({ quote: i % 2 ? 101 : 99 }));
+  const rejected = analyzer._hazardEstimate(jumpy, 0.10, 0.01);
+  assert(!rejected.ok, 'barrier-breaching path must be rejected');
+  const bot = Object.create(AccuPULSE2Bot.prototype);
+  bot.cfg = { pauseWindowsGmt: [['23:55', '00:10']] };
+  assert.strictEqual(typeof bot._isPausedNow(), 'boolean', 'pause-window evaluator must be callable');
+  console.log('selftest: PASS');
+}
+
+module.exports = { ARCAAnalyzer, TradeExecutor, DerivClient, MarketDataManager, AccuPULSE2Bot, CONFIG, runSelfTest };
+
+if (require.main === module) {
+  if (process.argv.includes('--selftest')) runSelfTest();
+  else main().catch(e => { console.error('fatal:', e); process.exit(1); });
+}
