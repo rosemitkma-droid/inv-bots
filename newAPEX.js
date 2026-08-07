@@ -152,13 +152,13 @@ const CONFIG = Object.freeze({
   tradeCooldownMs     : parseInt('4000',  10),
   maxOpenTrades       : parseInt('1',     10),
   skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
-  recentTradedSymbolsLen : parseInt('5', 10),
+  recentTradedSymbolsLen : parseInt('3', 10),
 
   // ── EV / survival gates (per-trade floors; NOT loosened by cadence) ──
   apexMinEV       : parseFloat('0.010'),   // ≥ +1% net EV to fire
   apexMinSurvival : parseFloat('0.900'),    // forward K-tick survival floor
   pulseSpreadCost : parseFloat('0.002'),   // flat spread model (low; see honesty note)
-  pulseGrowthRates: [0.05], //[0.05, 0.04, 0.03, 0.02, 0.01] grid searched by EV (lower rates = looser barrier)
+  pulseGrowthRates: [0.05, 0.04], //[0.05, 0.04, 0.03, 0.02, 0.01] grid searched by EV (lower rates = looser barrier)
 
   // ── APEX strategy tunables ──
   // History depth: spike cadence needs ≥2 spike intervals in view.
@@ -224,9 +224,9 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging / state ──
-  logFile           : 'accuAPEXnew_009.log',
+  logFile           : 'accuAPEXnewn_01.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnew_state_009.json',
+  stateFile         : 'accuAPEXnewn_state_01.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 
