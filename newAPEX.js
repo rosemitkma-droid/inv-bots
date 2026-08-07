@@ -153,7 +153,7 @@ const CONFIG = Object.freeze({
 
   // ── EV / survival gates (per-trade floors; NOT loosened by cadence) ──
   apexMinEV       : parseFloat('0.010'),   // ≥ +1% net EV to fire
-  apexMinSurvival : parseFloat('1.000'),    // forward K-tick survival floor
+  apexMinSurvival : parseFloat('0.900'),    // forward K-tick survival floor
   pulseSpreadCost : parseFloat('0.002'),   // flat spread model (low; see honesty note)
   pulseGrowthRates: [0.05], //[0.05, 0.04, 0.03, 0.02, 0.01] grid searched by EV (lower rates = looser barrier)
 
@@ -221,9 +221,9 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging / state ──
-  logFile           : 'accuAPEXnew_006.log',
+  logFile           : 'accuAPEXnew_007.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnew_state_006.json',
+  stateFile         : 'accuAPEXnew_state_007.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 
