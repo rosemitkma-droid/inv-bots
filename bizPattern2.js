@@ -1607,9 +1607,9 @@ class ConnectionManager {
         const expected = state.capital + locked;
         if (Math.abs(state.accountBalance - expected) > CONFIG.RECONCILE_DRIFT_TOLERANCE) {
             LOGGER.error(`Capital drift: ledger=$${state.capital.toFixed(2)} locked=$${locked.toFixed(2)} acct=$${state.accountBalance.toFixed(2)}`);
-            TelegramService.sendMessage(
-                `⚠️ <b>PATTERN2 CAPITAL DRIFT DETECTED</b>\nledger=$${state.capital.toFixed(2)} + locked=$${locked.toFixed(2)}\naccount=$${state.accountBalance.toFixed(2)}\nNew entries paused.`
-            );
+            // TelegramService.sendMessage(
+            //     `⚠️ <b>PATTERN2 CAPITAL DRIFT DETECTED</b>\nledger=$${state.capital.toFixed(2)} + locked=$${locked.toFixed(2)}\naccount=$${state.accountBalance.toFixed(2)}\nNew entries paused.`
+            // );
             CONFIG.ACTIVE_ASSETS.forEach(sym => { if (state.assets[sym]) state.assets[sym].canTrade = false; });
         }
     }
