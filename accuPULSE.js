@@ -121,7 +121,7 @@ const CONFIG = Object.freeze({
   demoOnly        : false,                  // refuse to trade a non-virtual account
   tradeEnabled    : true,                  // set false for observe-only market collection
   skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
-  recentTradedSymbolsLen : parseInt('3', 10),
+  recentTradedSymbolsLen : parseInt('1', 10),
 
   // ── Anti-Martingale (win-streak compounding) ──
   winsBeforeScaling     : parseInt('3000'), //
@@ -216,11 +216,11 @@ const CONFIG = Object.freeze({
   maxTelegramQueue: parseInt('100', 10),
 
   // ── Logging ──
-  logFile : 'accuPULSE2bnn_03.log',
+  logFile : 'accuPULSE2bnn_04.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuPULSE2bnn_state_03.json',
+  stateFile           : 'accuPULSE2bnn_state_043.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
