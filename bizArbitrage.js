@@ -124,8 +124,8 @@ const CONFIG = {
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
     GRANULARITY: 60,
     TIMEFRAME_LABEL: '1m',
-    CANDLES_TO_LOAD: 30,
-    MAX_CANDLES_STORED: 30,
+    CANDLES_TO_LOAD: 15,
+    MAX_CANDLES_STORED: 15,
     DURATION: 1,
     DURATION_UNIT: 'm',
     // MIN_CANDLES_REQUIRED: 82,
