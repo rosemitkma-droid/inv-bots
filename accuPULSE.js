@@ -120,8 +120,8 @@ const CONFIG = Object.freeze({
   takeProfit      : parseFloat('5000.0'),    // session take-profit in demo
   demoOnly        : false,                  // refuse to trade a non-virtual account
   tradeEnabled    : true,                  // set false for observe-only market collection
-  // skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
-  // recentTradedSymbolsLen : parseInt('3', 10),
+  skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
+  recentTradedSymbolsLen : parseInt('3', 10),
 
   // ── Anti-Martingale (win-streak compounding) ──
   winsBeforeScaling     : parseInt('3000'), //
@@ -1139,6 +1139,7 @@ class AccuPULSE2Bot {
     this._barrierT = null;
     this._tradeWatchdogTimer = null;
     this._analysisInFlight = false;
+    this.lastTradedSymbols = [];
 
     // Anti-Martingale state
     this.winStreak = 0;
@@ -1365,15 +1366,28 @@ class AccuPULSE2Bot {
       const ranked = this.analyzer.rank(analyses);
       if (!ranked.length) { logger.debug('skip: NO_CONSERVATIVE_EDGE'); return; }
 
-      const best = ranked[0];
+      // Walk candidates in rank order; skip recently traded symbols and any that
+      // fail the ARCA gates. First survivor gets the trade.
+      let best = null;
+      for (const cand of ranked) {
+        if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(cand.symbol)) {
+          logger.debug(`recently traded ${cand.symbol} — skipping`);
+          continue;
+        }
+        if (cand.volRegime > this.cfg.maxVolRegime) { logger.debug(`vol regime ${cand.volRegime} > max — skip`); continue; }
+        if (cand.score < this.cfg.minConfidence) { logger.debug(`confidence ${cand.score.toFixed(3)} < min — skip`); continue; }
+        if (cand.hurst > this.cfg.maxHurst) { logger.debug(`hurst ${cand.hurst.toFixed(2)} > max — skip`); continue; }
+        if (cand.survivalScore > 0 && cand.survivalSlope < this.cfg.minSurvivalSlope) { logger.debug(`surv slope low — skip`); continue; }
+        if (cand.survivalScore > 0 && cand.survivalConsistency < this.cfg.minSurvivalConsist) { logger.debug(`surv consistency low — skip`); continue; }
+        best = cand;
+        break;
+      }
+      if (!best) { logger.debug('skip: no candidate passed ARCA gates'); return; }
+
       logger.info(`best=${best.symbol} score=${best.score.toFixed(3)} vol=${best.volRegimeLabel} trend=${best.trendDirection} [${best.reasons.join(',')}]`);
 
-      // ARCA gates
-      if (best.volRegime > this.cfg.maxVolRegime) { logger.debug(`vol regime ${best.volRegime} > max — skip`); return; }
-      if (best.score < this.cfg.minConfidence) { logger.debug(`confidence ${best.score.toFixed(3)} < min — skip`); return; }
-      if (best.hurst > this.cfg.maxHurst) { logger.debug(`hurst ${best.hurst.toFixed(2)} > max — skip`); return; }
-      if (best.survivalScore > 0 && best.survivalSlope < this.cfg.minSurvivalSlope) { logger.debug(`surv slope low — skip`); return; }
-      if (best.survivalScore > 0 && best.survivalConsistency < this.cfg.minSurvivalConsist) { logger.debug(`surv consistency low — skip`); return; }
+      this.lastTradedSymbols.push(best.symbol);
+      if (this.lastTradedSymbols.length > this.cfg.recentTradedSymbolsLen) this.lastTradedSymbols.shift();
 
       const growthRate = best.suggestedGrowth;
       const stake = this.currentStake();
