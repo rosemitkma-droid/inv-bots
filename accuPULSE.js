@@ -166,7 +166,7 @@ const CONFIG = Object.freeze({
   maxAssetCorrelation  : parseFloat('0.85'),
 
   // ── ARCA gates ──
-  minConfidence       : parseFloat('0.60'), //0.072
+  minConfidence       : parseFloat('0.072'), //0.072
   maxVolRegime        : parseInt('1', 10),     // 0=low,1=normal OK
   maxHurst            : parseFloat('0.60'),
   minSurvivalSlope    : parseFloat('-0.01'),    // allow slight negative
@@ -216,11 +216,11 @@ const CONFIG = Object.freeze({
   maxTelegramQueue: parseInt('100', 10),
 
   // ── Logging ──
-  logFile : 'accuPULSE2bnn_02.log',
+  logFile : 'accuPULSE2bnn_03.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuPULSE2bnn_state_02.json',
+  stateFile           : 'accuPULSE2bnn_state_03.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
