@@ -120,9 +120,11 @@ const CONFIG = Object.freeze({
   takeProfit      : parseFloat('5000.0'),    // session take-profit in demo
   demoOnly        : false,                  // refuse to trade a non-virtual account
   tradeEnabled    : true,                  // set false for observe-only market collection
+  // skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
+  // recentTradedSymbolsLen : parseInt('3', 10),
 
   // ── Anti-Martingale (win-streak compounding) ──
-  winsBeforeScaling     : parseInt('3'),
+  winsBeforeScaling     : parseInt('3000'), //
   winStakeMultiplier    : parseFloat('1.2'),
   maxWinStakeMultiplier : parseFloat('4.0'),
 
@@ -214,11 +216,11 @@ const CONFIG = Object.freeze({
   maxTelegramQueue: parseInt('100', 10),
 
   // ── Logging ──
-  logFile : 'accuPULSE2bnn_01.log',
+  logFile : 'accuPULSE2bnn_02.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuPULSE2bnn_state_01.json',
+  stateFile           : 'accuPULSE2bnn_state_02.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -1368,6 +1370,7 @@ class AccuPULSE2Bot {
 
       // ARCA gates
       if (best.volRegime > this.cfg.maxVolRegime) { logger.debug(`vol regime ${best.volRegime} > max — skip`); return; }
+      if (best.score < this.cfg.minConfidence) { logger.debug(`confidence ${best.score.toFixed(3)} < min — skip`); return; }
       if (best.hurst > this.cfg.maxHurst) { logger.debug(`hurst ${best.hurst.toFixed(2)} > max — skip`); return; }
       if (best.survivalScore > 0 && best.survivalSlope < this.cfg.minSurvivalSlope) { logger.debug(`surv slope low — skip`); return; }
       if (best.survivalScore > 0 && best.survivalConsistency < this.cfg.minSurvivalConsist) { logger.debug(`surv consistency low — skip`); return; }
