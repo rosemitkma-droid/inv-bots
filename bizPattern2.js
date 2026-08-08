@@ -144,8 +144,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [kept — this bot's own artifacts]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizPattern2_02-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizPattern2_02-history.json');
+const STATE_FILE = path.join(__dirname, 'bizPattern2_03-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizPattern2_03-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -315,8 +315,7 @@ const CONFIG = {
 
     // ── Position management ───────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS: 1,
-    MAX_TRADES_PER_CYCLE: 1,           // enforced via cooldown arming
+    MAX_TOTAL_POSITIONS: 8,          // 8 assets * 1 open each = 8 max
 
     // ── Execution / reconciliation ────────────────────────────
     BUY_CONFIRM_TIMEOUT_MS: 6000,      // refund + unlock if no buy response
@@ -330,8 +329,11 @@ const CONFIG = {
         'R_75',
         'R_100',
         '1HZ10V',
-        '1HZ25V',
         'stpRNG',
+        'stpRNG2',
+        'stpRNG3',
+        'stpRNG4',
+        'stpRNG5',
     ],
 
     // ── Ops ───────────────────────────────────────────────────
