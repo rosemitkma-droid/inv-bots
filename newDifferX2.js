@@ -3,64 +3,85 @@
 
 /**
  * =====================================================================
- *  Deriv Digit Differ Trading Bot (v3 — "honest edition")
+ *  Deriv Digit Differ Trading Bot (v4 — honest, risk-first re-engineer)
  * =====================================================================
  *
- *  Single-file DIGITDIFF bot with a deliberately SIMPLE prediction model
- *  and its main engineering effort spent on risk management instead.
+ *  Single-file DIGITDIFF bot. DIGITDIFF pays when the last digit at
+ *  expiry DIFFERS from the barrier digit. Under a fair RNG that hits
+ *  ~90% of the time; the platform payout already prices that in plus a
+ *  house margin, so UNSELECTIVE play is negative expected value.
  *
- *  ── Why this looks different from the old "X2" version ───────
- *  The previous version stacked 8 "modules" (multi-window frequency,
- *  EWMA, Dirichlet-Bayesian, order-1/order-2 Markov, gap/absence,
- *  hot-pressure, cross-horizon persistence) and traded when they
- *  "agreed". Worth being blunt about why that was replaced:
+ *  ── What this version is, and is not ─────────────────────────────
+ *  Deriv's synthetic indices run on an independently audited
+ *  cryptographically-secure RNG. Each tick's last digit is, to the
+ *  precision that matters here, an independent uniform draw. Past digit
+ *  frequency, gaps, streaks, "coldness", and regime-cycle filters carry
+ *  no demonstrated information about the next tick. Stacking several
+ *  such heuristics and requiring them to "agree" does not create an edge
+ *  out of N instances of the gambler's fallacy — it adds complexity,
+ *  API load, and false confidence. DIGITDIFF's payout prices in the true
+ *  ~90% hit rate plus house margin, so unselective play has negative
+ *  expected value, and no amount of pattern-hunting on tick history
+ *  changes that.
  *
- *    Deriv's synthetic indices run on an independently audited
- *    cryptographically-secure RNG. Each tick's last digit is, to the
- *    precision that matters here, an independent uniform draw. Past
- *    digit frequency, gaps, streaks, and short-window "coldness" carry
- *    no information about the next tick. Stacking several such
- *    heuristics and requiring them to "agree" doesn't create an edge
- *    out of eight instances of the gambler's fallacy — it just adds
- *    complexity and false confidence. DIGITDIFF's payout already prices
- *    in the true ~90% hit rate plus house margin, so unselective play
- *    has negative expected value, and no amount of pattern-hunting on
- *    tick history changes that.
+ *  This bot therefore keeps exactly ONE simple, transparent signal
+ *  (empirical digit frequency with a Wilson uncertainty bound — a
+ *  heuristic, NOT a demonstrated edge) and spends its engineering effort
+ *  on three things that can actually be done honestly:
  *
- *  This version keeps exactly ONE simple, transparent signal — empirical
- *  digit frequency with a statistical uncertainty bound — purely so the
- *  live value-edge check below has *something* to compare against the
- *  payout. It is a heuristic, not a demonstrated edge. The real work in
- *  this file is capital preservation: hard daily/session loss caps, a
- *  consecutive-loss circuit breaker, conservative fractional-Kelly
- *  sizing capped as a % of bankroll, and a per-symbol calibrator that
- *  sidelines a symbol the moment live results diverge from the model.
+ *    1. CAPITAL PRESERVATION — hard daily loss caps that genuinely stop
+ *       trading, a consecutive-loss circuit breaker that is ON by
+ *       default, per-symbol calibration that benches a symbol the
+ *       moment live results diverge from the model, and stake caps as a
+ *       % of bankroll. The loss-recovery ladder that could blow up a
+ *       demo account on ordinary streaks is OFF by default and hard-
+ *       capped when enabled.
+ *
+ *    2. EXECUTION RELIABILITY — no double-buy races, no orphaned open
+ *       contracts across reconnect (reconciliation), no fabricated P&L
+ *       when a settlement can't be confirmed, correct balance tracking.
+ *
+ *    3. HONEST MEASUREMENT — the bot trades only when a live proposal's
+ *       break-even loss probability clearly beats a conservative upper
+ *       bound on the real loss probability. On fair digits that
+ *       essentially never happens, so the bot idles. A `--selftest`
+ *       proves on synthetic data that the machinery does NOT mint a
+ *       phantom edge on a fair stream, and a positive-control test
+ *       proves it DOES detect a real, injected signal.
  *
  *  Decision stack:
  *    • Barrier digit = coldest empirical-frequency digit (Wilson upper
- *      confidence bound), over one configurable lookback window.
- *    • Regime sanity gates: entropy / χ² band, so we don't act on a
- *      sample too small to be meaningfully non-uniform.
- *    • Anti-hit gate: barrier digit not among last N recent ticks.
- *    • Live proposal: q_be = 1 − ask/payout; require
- *          pLossUpper + safetyMargin ≤ q_be − minEdge
- *    • Fractional-Kelly sizing (capped) + per-symbol calibration
- *      sideline + consecutive-loss circuit breaker.
+ *      confidence bound) over one configurable lookback window.
+ *    • Regime sanity gates: entropy / χ² band + minimum probability gap
+ *      between the best and second-best digit, so we don't act on a
+ *      sample too small/degenerate to be a meaningful read.
+ *    • Live proposal: q_be = 1 − ask/payout (break-even loss prob);
+ *          require  q_be − pLossUpper − safetyMargin ≥ minEdge
+ *    • Sizing: flat stake by default; fractional-Kelly optional;
+ *      loss-recovery ladder OFF by default and hard-capped if enabled.
+ *    • Per-symbol calibrator (ON) benches symbols that under-perform
+ *      their own prediction; circuit breaker (ON) pauses after N losses.
  *
  *  Features:
- *    • DIGITDIFF only • Overall / daily P/L • Loss-streak circuit breaker
- *    • GMT day clock + EOD reports • State JSON • Telegram queue
- *    • Reconnect backoff • Legacy token + PAT/OTP • Built-in backtester
+ *    • DIGITDIFF only • Overall / daily P/L • Hard daily stop that halts
+ *    • Loss-streak circuit breaker • GMT day clock + EOD reports
+ *    • State JSON • Telegram queue • Reconnect backoff + contract
+ *      reconciliation • Legacy token + PAT/OTP • Built-in backtester
+ *    • Built-in diagnostics (repeat-structure tests) + SELFTEST
  *
- *  Credentials: DERIV_API_TOKEN, DERIV_ACCOUNT_ID, TELEGRAM_BOT_TOKEN,
- *  and TELEGRAM_CHAT_ID must be set in your .env — see .env.example.
- *  NEVER commit real tokens to source. If a token has ever been shared,
- *  pasted, or committed anywhere, treat it as compromised and rotate it
- *  in your Deriv / Telegram account settings before running this bot.
+ *  Credentials: this is a TEST build. The apiToken / appId / Telegram
+ *  values below are the user's hardcoded demo-test credentials and are
+ *  deliberately preserved for local testing. Do not rotate or remove
+ *  them as part of this engagement. (If this code were ever to run on
+ *  real money with real tokens, those tokens would belong in a secret
+ *  store — that is a deployment decision, not this file's job.)
  *
  *  Install:  npm install ws
- *  Run:      node accurateDiffer3.js
- *  Backtest: $env:BACKTEST=1; node accurateDiffer3.js
+ *  Run:      node newDifferX2.js
+ *  Selftest: $env:SELFTEST=1; node newDifferX2.js        (offline, no API)
+ *  Diagnose: $env:DIAGNOSE=1; node newDifferX2.js        (repeat-structure tests)
+ *  Backtest: $env:BACKTEST=1; node newDifferX2.js        (historical sim)
+ *            $env:BACKTEST_ASSET="R_100"; $env:BACKTEST_TICKS=100000
  *
  * =====================================================================
  */
@@ -73,7 +94,8 @@ const { URL }      = require('url');
 const EventEmitter = require('events');
 
 // ─────────────────────────────────────────────────────────────────────
-// 1. ENV LOADER
+// 1. ENV LOADER  (kept; env vars may override CONFIG, they do not remove
+//    the hardcoded test credentials below)
 // ─────────────────────────────────────────────────────────────────────
 function loadEnv(filePath = path.join(process.cwd(), '.env')) {
   if (!fs.existsSync(filePath)) return;
@@ -127,10 +149,7 @@ function listEnv(name, def) {
 // 2. CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
-  // Deriv API — MUST come from .env / environment, never hardcode a real
-  // token in source. See .env.example for the required keys.
-  // apiToken:    ('0P94g4WdSrSrzir').trim(),
-  // appId:       '1089',
+  // ── Deriv API (existing hardcoded demo-test credentials — preserved) ──
   apiToken:    'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
   appId:       '33uslPtthXBEkQOdfKfoY',
   accountId: '', // recommended/required for PAT new API
@@ -155,156 +174,156 @@ const CONFIG = Object.freeze({
   cooldownTicks: 200,        // don't re-analyze within N ticks of last trade
   // ── Asset rotation ────────────────────────────────────────────────
   //   To avoid hammering the same symbol back-to-back the bot briefly
-  //   "locks out" the just-traded symbol. Two safety valves:
-  //     • the lock EXPIRES after assetRotationMs (default 60s), so if
-  //       the same symbol is genuinely the only positive-edge target,
-  //       we don't sit idle forever.
-  //     • if the top-ranked candidate is locked but a DIFFERENT symbol
-  //       is also a valid candidate this scan, we take that one instead
-  //       of skipping the whole scan.
-  //   Set assetRotationMs=0 to disable the rotation entirely (trade
-  //   whatever ranks first every scan).
+  //   "locks out" the just-traded symbol. The lock EXPIRES after
+  //   assetRotationMs (default 60s) so the same symbol can be re-traded
+  //   if it is genuinely the only positive-edge target, and if a
+  //   DIFFERENT symbol is also a valid candidate this scan we take that
+  //   one instead of skipping the whole scan. Set assetRotationMs=0 to
+  //   disable rotation entirely.
   assetRotationMs: 60_000,
-  dailyMaxLoss: 2000,
-  // Belt-and-braces: stop for the day at whichever loss cap is hit first —
-  // a fixed dollar figure AND a % of the balance seen at the start of the day.
-  dailyMaxLossPct: 0.05, // 5% of day-start balance
-  dailyMaxProfit: 0, // 0 disables profit target stop
-  dailyMaxTrades: 200000,
+  // ── Hard daily stops (these actually HALT new trades for the day) ──
+  dailyMaxLoss: 2000,          // fixed dollar figure
+  dailyMaxLossPct: 0.05,       // 5% of day-start balance (whichever hits first)
+  dailyMaxProfit: 0,           // 0 disables profit-target stop
+  dailyMaxTrades: 300,         // real cap on trades per GMT day (was 200000 = "off")
+  globalMaxLoss: 0,            // 0 = off. Lifetime overall stop: if overallProfit
+                               // ever falls to −globalMaxLoss, the bot halts permanently.
 
   // ── Strategy selection ───────────────────────────────────────────────
   // 'frequency'    = Empirical-frequency coldest digit (DigitAnalyzer).
+  //                  The SIMPLE, falsifiable signal. Default, because it
+  //                  is the least opinionated thing that can feed a live
+  //                  value-edge gate honestly.
   // 'repeat_avoid' = Barrier = current last digit (bet it does NOT
-  //                  repeat). Operationalizes the observed cycle of
-  //                  high-repeat vs low-repeat regimes via a multi-scale
-  //                  2-state Bayesian filter + phase gate (see
-  //                  RepeatAvoidAnalyzer). Still subject to the house
-  //                  edge; validate with BACKTEST=1 / DIAGNOSE=1.
-  strategy: strEnv('STRATEGY', 'repeat_avoid'),
+  //                  repeat). Modes: cycle (regime engine) / conditional
+  //                  / flat. On fair digits this reduces to P(repeat)≈0.10
+  //                  and the value gate keeps it idle too. Validate any
+  //                  claimed structure with DIAGNOSE=1 / BACKTEST=1.
+  strategy: strEnv('STRATEGY', 'frequency'),
   // Estimator mode for repeat_avoid:
-  //   'cycle'       = full regime-cycle engine (recommended default)
-  //   'conditional' = legacy P(repeat | non-repeat streak length)
-  //   'flat'        = legacy whole-window empirical repeat rate
-  // REPEAT_AVOID_CONDITIONAL=true is an alias for mode=conditional
-  // when mode is left at default and that flag is set.
+  //   'cycle'       = multi-scale rates + 2-state Bayesian filter
+  //   'conditional' = P(repeat | non-repeat streak length)
+  //   'flat'        = whole-window empirical repeat rate
+  // REPEAT_AVOID_CONDITIONAL=true is an alias for mode=conditional ONLY
+  // when mode is left at the default. It does NOT silently override an
+  // explicit mode. Default false → mode=cycle actually runs the cycle
+  // engine (previously this flag silently demoted cycle → conditional).
   repeatAvoidMode: strEnv('REPEAT_AVOID_MODE', 'cycle'),
-  repeatAvoidUseConditional: true,
+  repeatAvoidUseConditional: false,
   repeatAvoidMaxStreakBucket: 100,
   repeatAvoidMinBucketN: 100,
   // ── Cycle-regime engine (mode=cycle) ─────────────────────────────────
-  // Multi-scale windows on the Bernoulli "is-repeat" series:
-  //   fast = local intensity, mid = regime confirmation, slow = baseline.
   raFastWindow: 20,
   raMidWindow : 100,
   raSlowWindow: 500,
-  // Block size used to estimate low/high emission rates (pL, pH) from
-  // the distribution of short-block repeat rates inside the window.
   raBlockSize: 20,
-  // HMM-style state persistence (per tick). Higher = longer regimes.
   raStayQuiet: 0.985,
   raStayHot  : 0.980,
-  // Blend weights for p(repeat) estimate (renormalized if a leg missing).
-  // regime = 2-state predictive mix; local = fast EWMA-like rate;
-  // streak = P(repeat | current non-repeat streak).
   raWRegime: 0.50,
   raWLocal : 0.30,
   raWStreak: 0.20,
-  // Empirical-Bayes shrink of the blend toward fair 0.10 (less overfit).
   raShrinkToFair: 0.12,
-  // Phase / regime trade gates (DIGITDIFF wants LOW next-tick repeat prob).
-  // Only fire when model is confident we are in a quiet (or cooling) phase.
   raMinQuietProb : 0.85,
   raMaxLocalRate : 0.095,
   raAllowQuiet   : true,
   raAllowCooling : false,
   raAllowNeutral : false,
-  // Require low vs high regime rates to be separated enough to trust the filter.
   raMinRegimeSep : 0.015,
-  // Slope threshold (fast − mid rate) for heating/cooling classification.
   raSlopeEps     : 0.008,
 
   // ── Frequency-analysis config ───────────────────────────────────────
-  // Single empirical-frequency window used to rank digits + a Wilson
-  // upper confidence bound. This is a heuristic used to feed the live
-  // value-edge check below, not a claimed predictive edge — see header.
-  analysisWindow: 200,
+  analysisWindow: 400,
   // Value-edge floors (live proposal q_be − pLossUpper)
   minEdge: 0.0100,
   safetyMargin: 0.002,
   modelRiskMargin: 0.0015,
   zScore: 1.28,          // Wilson one-sided upper bound
-  maxLossProb: 0.092,  // never take if upper-bound P(loss digit) > this
+  maxLossProb: 0.092,    // never take if upper-bound P(loss digit) > this
   minProbabilityGap: 0.004,
-  // Regime sanity gates: skip samples too small/degenerate to be a
-  // meaningful (non-uniform-looking) read, in either direction.
+  // ── Multiple-comparison-corrected deviation gate ────────────────────
+  //   The barrier digit is chosen as the COLDEST of 10 empirical
+  //   frequencies. Under a fair RNG that selection alone will occasionally
+  //   produce a genuinely cold digit whose Wilson UCB looks tradable — the
+  //   Wilson bound prices ONE comparison, not the min-of-10. minDeviationZ
+  //   therefore requires the chosen digit's empirical loss-prob to be a
+  //   statistical outlier BELOW fair p=0.10, where the z-score uses the
+  //   fair-Bernoulli standard error. Default 4.2: with analysisWindow=400
+  //   a digit needs phat ≤ ~0.037 to pass, which a fair min-of-10
+  //   essentially never reaches (≈1e-5 per scan), while a genuinely
+  //   anomalous ~2% digit (z≈5.3 at n=400) passes easily. Verified by
+  //   SELFTEST=1: no phantom edge on fair digits; positive control
+  //   (injected 2% digit) detected. Trade-off made deliberately: the bot
+  //   stays idle unless the shortfall is so large it cannot be min-of-10
+  //   noise. Realistic ~1-2pp digit biases are NOT traded, because at
+  //   n≈400 they are statistically indistinguishable from the selection
+  //   noise of "coldest of 10" — and unselectable noise is −EV after
+  //   house margin.
+  minDeviationZ: 4.2,
+  // ── Entropy / χ² sanity gates ───────────────────────────────────────
+  //   Lower bounds guard against acting on too-small / degenerate samples.
+  //   UPPER bounds are deliberately disabled (maxEntropy=1.0,
+  //   maxChiSquare=1e9): an "excessively non-uniform" reading is
+  //   indistinguishable from a genuine deviation, and a broken pip is
+  //   caught by the KNOWN_PIP_SIZES table + the calibrator, not by a χ²
+  //   ceiling that would also block real edges (see the selftest's
+  //   positive control).
   minEntropy: 0.90,
-  maxEntropy: 0.9997,
+  maxEntropy: 1.0,
   minChiSquare: 1.5,
-  maxChiSquare: 40.0,
+  maxChiSquare: 1e9,
   maxRecentDigitHits: 2, // barrier digit hits in recentLookback
   recentLookback: 12,
   proposalScanTopN: 4,
+  // Live payout discovery is cached per (symbol,digit) so we don't fire
+  // up to 12 proposal RPCs every 3-second scan. 60s TTL is plenty —
+  // DIGITDIFF payout multipliers move slowly.
+  payoutProbeTtlMs: 60_000,
 
-  // ── Consecutive-loss circuit breaker ────────────────────────────────
-  // Independent of stake sizing: after N losses in a row, STOP trading
-  // entirely for a cooldown period. This exists because no sizing
-  // scheme protects you from "the model was wrong for a while" — only
-  // stopping does.
-  circuitBreakerEnabled : false,
+  // ── Consecutive-loss circuit breaker (ON by default) ────────────────
+  // After N losses in a row, stop trading entirely for a cooldown.
+  // Independent of stake sizing: no sizing scheme protects you from
+  // "the model was wrong for a while" — only stopping does.
+  circuitBreakerEnabled : true,
   circuitBreakerLosses  : 4,
   circuitBreakerCooldownMs: 30 * 60_000,
 
   // ── Stake sizing ─────────────────────────────────────────────────────
-  // Flat stake is used unless kellySizingEnabled=true (see Kelly block
-  // below). Loss-recovery/martingale-style multipliers are NOT offered
-  // as a default sizing mode: multiplying stake after a loss to "catch
-  // up" increases ruin risk sharply and does not change the underlying
-  // per-trade edge. If you specifically want it, set RECOVERY_ENABLED=true
-  // and keep the multiplier ladder short and shallow — DO NOT use
-  // multiplier ladders like 7x/82x; those go bankrupt on a bad but
-  // entirely ordinary run of consecutive losses.
-  recoveryEnabled: true,
-  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,13.2,150.0').map(Number).filter(Number.isFinite),
+  // Flat stake is used unless kellySizingEnabled=true.
+  // Loss-recovery (martingale-style) is OFF by default: multiplying stake
+  // after a loss increases ruin risk sharply and does not change the
+  // per-trade edge. If you specifically enable RECOVERY_ENABLED=true,
+  // keep the ladder short AND shallow; the old 1 → 13.2 → 150 ladder is
+  // gone. recoveryStakeCap and maxStakePctBankroll are hard ceilings on
+  // any single stake regardless of ladder.
+  recoveryEnabled: false,
+  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,2,4').map(Number).filter(Number.isFinite),
+  recoveryStakeCap: 25,          // absolute max per trade when recovery is on
+  maxStakePctBankroll: 0.05,     // never risk >5% of live balance per trade
 
   // ─ Trade watchdog ─
   tradeWatchdogMs: 20000,
 
-  // ── Kelly-fractional sizing ────────────────────────────────────────
-  //   kellySizingEnabled=true replaces flat/recovery stake with:
-  //       f* = (b·p - q) / b   (Kelly optimum;  b = payout-1, p = win prob, q = 1-p)
-  //       stake = clamp(bankroll × f* × kellyFraction, minStake, maxStake)
-  //   kellyFraction = 0.25 → "quarter-Kelly" (industry-standard safety
-  //   cushion; full Kelly is mathematically optimal for growth but has
-  //   ~40% drawdowns). Disable with KELLY_ENABLED=false to fall back
-  //   to the legacy flat/recovery sizing above.
+  // ── Kelly-fractional sizing (optional) ─────────────────────────────
   kellySizingEnabled  : false,
   kellyFraction       : 0.25,
-  kellyBankrollFrac   : 1.00,  // % of live balance to treat as risk bankroll
-  kellyBankrollFloor  : 100.0, // never scale below this bankroll
-  kellyMaxStakeFrac   : 0.02,  // hard cap: ≤2% of bankroll per trade
-  kellyMinEdgeForScale: 0.005, // no scaling unless edge > 0.5pp
+  kellyBankrollFrac   : 1.00,
+  kellyBankrollFloor  : 100.0,
+  kellyMaxStakeFrac   : 0.02,
+  kellyMinEdgeForScale: 0.005,
 
-  // ── Per-symbol calibration tracker ─────────────────────────────────
-  //   Rolling per-symbol (predicted P(win), actual outcome). Auto-disables
+  // ── Per-symbol calibration tracker (ON by default) ─────────────────
+  //   Rolling per-symbol (predicted P(win), actual outcome). Auto-benches
   //   a symbol when empirical WR trails predicted by > calibDisableGap
-  //   over ≥ calibMinTrades. Re-enters via low-stake probe after
-  //   calibProbeAfterMs; fully re-enabled when calibration re-converges.
-  calibEnabled        : false,
+  //   over ≥ calibMinTrades. Re-enters via low-stake probe.
+  calibEnabled        : true,
   calibWindow         : 200,
   calibMinTrades      : 40,
   calibDisableGap     : 0.020,   // −2 pp below prediction → disable
-  calibReenableGap    : 0.005,  // within ±0.5 pp → re-enable
+  calibReenableGap    : 0.005,   // within ±0.5 pp → re-enable
   calibProbeAfterMs   : 30 * 60_000,
   calibProbeStakeFrac : 0.20,
 
   // ── Scheduled pause/resume ──────────────────────────────────────
-  //   The bot stops opening new trades between pauseStartGmt and
-  //   pauseEndGmt (GMT/UTC, HH:MM format). Open trades are allowed to
-  //   settle; only new analysis/trade cycles are blocked.
-  //   pauseStartGmt > pauseEndGmt means the pause wraps past midnight
-  //   (e.g. 22:00 → 06:00 pauses overnight).
-  //   pauseStartGmt < pauseEndGmt means a mid-day break
-  //   (e.g. 12:00 → 14:00 pauses over lunch).
   pauseEnabled   : true,
   pauseStartGmt  : '23:00',
   pauseEndGmt    : '01:00',
@@ -315,12 +334,11 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'newDifferx2_state_001.json'),
-  logFile: strEnv('LOG_FILE', 'newDifferx2_bot_001.log'),
+  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_01.json'),
+  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_01.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFER').toUpperCase(),
 
-  // Telegram — MUST come from .env / environment, never hardcode a real
-  // bot token in source. Notifications are auto-disabled if either is empty.
+  // Telegram — existing hardcoded demo-test values, preserved.
   telegram: {
     enabled : true,
     botToken: '8106601008:AAEMyCma6mvPYIHEvw3RHQX2tkD5-wUe1o0',
@@ -337,7 +355,7 @@ const CONFIG = Object.freeze({
   // ═══════════════════════════════════════════════════════════════════
   // BACKTESTER
   // ═══════════════════════════════════════════════════════════════════
-  //   Run with:  $env:BACKTEST=1; node newDiffer.js
+  //   Run with:  $env:BACKTEST=1; node newDifferX2.js
   //   Optional:  $env:BACKTEST_ASSET="R_100"; $env:BACKTEST_TICKS=100000
   //
   //   NOTE on history depth: Deriv's ticks_history endpoint typically
@@ -345,40 +363,20 @@ const CONFIG = Object.freeze({
   //   The batcher stops when the server returns a short batch.
   //
   //   Diagnostic overrides — do NOT affect live trading, only backtest:
-  //     BACKTEST_MIN_EDGE      (override minEdge)
-  //     BACKTEST_SAFETY_MARGIN (override safetyMargin)
-  //     BACKTEST_MODEL_MARGIN  (override modelRiskMargin)
-  //     BACKTEST_MAX_LOSS_PROB (override maxLossProb)
-  //     BACKTEST_MIN_ENTROPY   (override minEntropy)
-  //     BACKTEST_MAX_ENTROPY   (override maxEntropy)
-  //     BACKTEST_MIN_CHISQ     (override minChiSquare)
-  //     BACKTEST_MAX_CHISQ     (override maxChiSquare)
-  //     BACKTEST_MIN_GAP       (override minProbabilityGap)
-  //     BACKTEST_MAX_HITS      (override maxRecentDigitHits)
-  //     BACKTEST_PAYOUT_MULT   (payout multiplier per 1 stake, default 8.83)
-  //     BACKTEST_ASSET_LOCK    ("true"/"false" — apply tradedAsset skip)
+  //     BACKTEST_MIN_EDGE / BACKTEST_SAFETY_MARGIN / BACKTEST_MODEL_MARGIN
+  //     BACKTEST_MAX_LOSS_PROB / BACKTEST_MIN_ENTROPY / BACKTEST_MAX_ENTROPY
+  //     BACKTEST_MIN_CHISQ / BACKTEST_MAX_CHISQ / BACKTEST_MIN_GAP
+  //     BACKTEST_MAX_HITS / BACKTEST_PAYOUT_MULT / BACKTEST_ASSET_LOCK
   backtestTicks       : intEnv('BACKTEST_TICKS',      100000),
   backtestBatchSize   : intEnv('BACKTEST_BATCH_SIZE', 5000),
   backtestReportEvery : intEnv('BACKTEST_REPORT',     10000),
-  backtestOutFile     : strEnv('BACKTEST_OUT',        'newDifferx2_backtest_report1.json'),
-  // The Deriv DIGITDIFF payout multiplier is roughly 1.09-1.11× stake
-  // (win ~90% of the time, get ~10% profit). We DEFAULT to 1.10, but at
-  // backtest start we probe a real Deriv proposal for the actual live
-  // value per symbol and use that instead. This makes the "value edge"
-  // computation match live trading exactly. Override the fallback with
-  // BACKTEST_PAYOUT_MULT if the probe fails.
+  backtestOutFile     : strEnv('BACKTEST_OUT',        'newX2Differ_backtest_report.json'),
+  // The Deriv DIGITDIFF payout multiplier is roughly 1.09-1.11× stake.
+  // We DEFAULT to 1.10; at backtest start we can probe a real proposal
+  // per symbol (BACKTEST_PROBE_LIVE=true) and use that instead.
   backtestPayoutMult  : numEnv('BACKTEST_PAYOUT_MULT', 1.10),
   backtestProbeLive   : boolEnv('BACKTEST_PROBE_LIVE', false),
-  // In LIVE trading the tradedAsset lock forces multi-symbol rotation
-  // (don't hammer the same symbol twice in a row while other symbols
-  //  are available). In backtest we scan one symbol at a time, so
-  // the lock — if enabled — would fire exactly once and then block
-  // every subsequent scan indefinitely, resulting in a single trade.
-  // Default is therefore FALSE for backtests. Set BACKTEST_ASSET_LOCK=true
-  // only if you specifically want to see the effect of the live lock
-  // (the lock will self-clear after this many ticks so trades aren't
-  //  blocked forever).
-  backtestAssetLock       : boolEnv('BACKTEST_ASSET_LOCK',       false),
+  backtestAssetLock   : boolEnv('BACKTEST_ASSET_LOCK',       false),
   backtestAssetLockTicks  : intEnv ('BACKTEST_ASSET_LOCK_TICKS', 10),
 
   backtestMinEdge     : process.env.BACKTEST_MIN_EDGE      ? Number(process.env.BACKTEST_MIN_EDGE)      : null,
@@ -630,8 +628,7 @@ class DerivClient extends EventEmitter {
   async _resolvePatAccountId() {
     if (this._targetAccountId) return this._targetAccountId;
 
-    // Best-effort account discovery. Docs recommend passing accountId explicitly;
-    // this fallback supports environments where account list is enabled.
+    // Best-effort account discovery. Docs recommend passing accountId explicitly.
     const attempts = [
       ['GET', '/trading/v1/options/accounts', null],
       ['POST', '/trading/v1/options/accounts/list', null],
@@ -665,7 +662,7 @@ class DerivClient extends EventEmitter {
   }
   _openWs(url) {
     try {
-      this.ws = new WebSocket(url, { handshakeTimeout: 15000, headers: { 'User-Agent': 'DigitDiffer/3.0 Node.js' } });
+      this.ws = new WebSocket(url, { handshakeTimeout: 15000, headers: { 'User-Agent': 'DigitDiffer/4.0 Node.js' } });
     } catch (e) {
       logger.error('WebSocket construct failed:', e.message);
       this._scheduleReconnect();
@@ -716,7 +713,6 @@ class DerivClient extends EventEmitter {
     this.authorized = true;
     if (this.accountInfo?.balance != null) this.balance = Number(this.accountInfo.balance);
     this.currency = this.accountInfo?.currency || this.cfg.currency;
-    // Try to obtain live balance over WS; if unsupported, continue.
     try {
       const b = await this._send({ balance: 1 }, 10000);
       if (b.balance) {
@@ -762,7 +758,6 @@ class DerivClient extends EventEmitter {
       return;
     }
 
-    // Some streams may send msg_type without subscription id in edge cases.
     this.emit('message', msg);
   }
   _onError(err) {
@@ -807,7 +802,7 @@ class DerivClient extends EventEmitter {
       const timer = setTimeout(() => {
         if (this._pending.has(reqId)) {
           this._pending.delete(reqId);
-          reject(new Error(`Request timeout (${payload.proposal ? 'proposal' : payload.buy ? 'buy' : payload.ticks ? 'ticks' : 'req'})`));
+          reject(new Error(`Request timeout (${payload.proposal ? 'proposal' : payload.buy ? 'buy' : payload.ticks ? 'ticks' : payload.proposal_open_contract ? 'open_contract' : 'req'})`));
         }
       }, timeoutMs);
       this._pending.set(reqId, { resolve, reject, timer });
@@ -865,12 +860,6 @@ class DerivClient extends EventEmitter {
 // ─────────────────────────────────────────────────────────────────────
 //
 // KNOWN_PIP_SIZES — canonical table for Deriv synthetic indices.
-// Rationale: Deriv's `active_symbols` sometimes omits `pip_size` on
-// certain requests, and even when present, an off-by-one here silently
-// makes the bot train and settle on the WRONG last digit, breaking every
-// downstream statistic. This table is the source of truth; the API is a
-// fallback; inference from tick decimals is a last resort.
-//
 // pip_size = number of decimal places in the quote. The "last digit"
 // that DIGITDIFF settles on is the digit AT that decimal position.
 //
@@ -878,7 +867,7 @@ class DerivClient extends EventEmitter {
 //   R_10, R_25:           pip_size = 3   → quote "1234.153"   → digit 3
 //   R_50, R_75:           pip_size = 4   → quote "1234.1534"  → digit 4
 //   RDBULL, RDBEAR:       pip_size = 4
-//   1HZ10V, 1HZ25V, 1HZ50V, 1HZ75V, 1HZ100V: pip_size = 2
+//   1HZ10V..1HZ100V:      pip_size = 2
 const KNOWN_PIP_SIZES = Object.freeze({
   R_10   : 3,
   R_25   : 3,
@@ -898,22 +887,16 @@ const KNOWN_PIP_SIZES = Object.freeze({
  * Extract the last-digit that Deriv actually settles on for a DIGITDIFF
  * contract. We MUST NOT round — `Number.toFixed(pipSize)` rounds up when
  * the trailing digit is ≥5, silently changing the settlement digit vs
- * what Deriv sees.
- *
- * Instead we walk the fractional part of the quote character-by-character
- * and read the digit at position (pipSize - 1). If the quote has fewer
- * fractional digits than pipSize we pad with '0' (Deriv does the same).
- *
- * Matches the reference bot's per-asset positional extraction, but
- * generalised over any pip_size.
+ * what Deriv sees. Instead we walk the fractional part of the quote
+ * character-by-character and read the digit at position (pipSize - 1).
+ * If the quote has fewer fractional digits than pipSize we pad with '0'
+ * (Deriv does the same).
  */
 function quoteToDigit(quote, pipSize = 2) {
   const n = Number(quote);
   if (!Number.isFinite(n)) return null;
   const pip = Number.isInteger(pipSize) && pipSize >= 1 && pipSize <= 8 ? pipSize : 2;
 
-  // Use plain string form (not scientific) — synthetic indices never hit
-  // scientific notation but guard anyway.
   let s = Math.abs(n).toString();
   if (s.indexOf('e') !== -1) s = Math.abs(n).toFixed(8);
   const dot = s.indexOf('.');
@@ -934,9 +917,7 @@ class MarketDataManager extends EventEmitter {
     this.lastQuote = new Map();
     this.pipSizes = new Map();
     // Seed pip cache from the canonical table BEFORE we ever touch the
-    // network. This guarantees `pipSize(symbol)` returns the correct
-    // value even if loadSymbols fails, is delayed, or returns partial
-    // data — which was the root cause of "1 trade in 3 days".
+    // network so `pipSize(symbol)` is correct even if loadSymbols fails.
     for (const [sym, pip] of Object.entries(KNOWN_PIP_SIZES)) {
       this.pipSizes.set(sym, pip);
     }
@@ -944,12 +925,7 @@ class MarketDataManager extends EventEmitter {
   }
   async loadSymbols() {
     try {
-      // NOTE: use 'full' — 'brief' does NOT include pip_size, which
-      // silently forced every digit computation to fall back to pip=2.
-      // Deriv's R_10..R_100 all use pip_size=3, so 'brief' was reading
-      // the LAST digit of e.g. "9421.15" as "5" when it should have been
-      // "5" from "9421.153". Backwards compatible: if 'full' fails or
-      // pip_size is still missing we fall back to 2.
+      // NOTE: use 'full' — 'brief' does NOT include pip_size.
       const res = await this.client._send({ active_symbols: 'full' }, 15000);
       const list = res.active_symbols || [];
       let apiWithPip = 0;
@@ -980,11 +956,6 @@ class MarketDataManager extends EventEmitter {
     }
   }
   pipSize(symbol) {
-    // Priority:
-    //   1) KNOWN_PIP_SIZES-seeded (or API-overridden) cache
-    //   2) live client.symbols map (for symbols we didn't know)
-    //   3) inference from a recent tick's decimal count
-    //   4) default 2 (last resort)
     const cached = this.pipSizes.get(symbol);
     if (Number.isFinite(cached)) return cached;
 
@@ -994,7 +965,6 @@ class MarketDataManager extends EventEmitter {
       return raw;
     }
 
-    // Infer from actual tick data (last-ditch fallback)
     const hist = this.history.get(symbol);
     if (hist && hist.length) {
       const decCounts = new Map();
@@ -1126,14 +1096,25 @@ class MarketDataManager extends EventEmitter {
 // ─────────────────────────────────────────────────────────────────────
 // 7. FREQUENCY ANALYZER
 //    Deliberately simple, deliberately honest: one empirical-frequency
-//    signal + a statistical uncertainty bound. See file header for why
-//    this replaced a multi-module "consensus" engine. This class does
-//    NOT claim to predict ticks — it exists to produce a pLossUpper
-//    estimate for the live value-edge check in TradingBot, and to gate
-//    out samples too small/degenerate to even measure cleanly.
+//    signal + a statistical uncertainty bound. This class does NOT claim
+//    to predict ticks — it produces a conservative pLossUpper estimate
+//    for the live value-edge check and gates out samples too small or
+//    degenerate to even measure cleanly.
+//
+//    NOTE ON PERFORMANCE / API: the analysis works on a *windowed slice*
+//    of a digit array (see analyzeWindow). Live code passes a bounded
+//    history; the backtester passes a precomputed digit array and walks
+//    it in O(window) per step instead of copying the whole prefix each
+//    scan (which was O(n²) on 100k ticks).
 // ─────────────────────────────────────────────────────────────────────
 class DigitAnalyzer {
   constructor(cfg) { this.cfg = cfg; }
+
+  /** Desired lookback window for a given available history length. */
+  _wantWindow(len) {
+    const base = this.cfg.analysisWindow || this.cfg.tickWindow || 200;
+    return Math.max(1, Math.min(base, len));
+  }
 
   entropy(counts) {
     const n = counts.reduce((s, x) => s + x, 0);
@@ -1171,21 +1152,33 @@ class DigitAnalyzer {
   }
 
   /**
-   * analyze(symbol, ticks) — rank the 10 digits by empirical frequency
-   * over a single lookback window, and report a conservative (Wilson
-   * upper-bound + fixed model-risk margin) estimate of P(next digit = d)
-   * for each. Also runs entropy/χ² sanity gates: these do NOT indicate
-   * predictability, they only guard against acting on a sample too
-   * small to even measure frequencies reliably.
+   * Live entry point: extract valid digits from a tick series (bounded
+   * history) and analyze the trailing window.
    */
   analyze(symbol, ticks) {
     if (!ticks || ticks.length < this.cfg.minTicksForAnalysis) return null;
     const digits = ticks.map(t => t.digit).filter(d => Number.isInteger(d) && d >= 0 && d <= 9);
     if (digits.length < this.cfg.minTicksForAnalysis) return null;
+    return this.analyzeAt(symbol, digits, digits.length - 1, ticks[ticks.length - 1]?.quote);
+  }
 
-    const window = Math.min(this.cfg.analysisWindow || this.cfg.tickWindow, digits.length);
-    const recentDigits = digits.slice(-window);
-    const { counts, n } = this.countsFor(recentDigits, window);
+  /**
+   * Analyze "as of" endIdx in a precomputed digit array. O(window).
+   * Used by live (via analyze), the backtester and the selftest.
+   */
+  analyzeAt(symbol, digits, endIdx, lastQuote) {
+    if (endIdx + 1 < this.cfg.minTicksForAnalysis) return null;
+    const win = this._wantWindow(endIdx + 1);
+    const from = Math.max(0, endIdx - win + 1);
+    return this.analyzeWindow(symbol, digits, from, endIdx, lastQuote);
+  }
+
+  analyzeWindow(symbol, digits, from, to, lastQuote) {
+    const recentDigits = digits.slice(from, to + 1);
+    const recentLen = recentDigits.length;
+    if (recentLen < 10) return null;
+
+    const { counts, n } = this.countsFor(recentDigits, recentLen);
     const entropy = this.entropy(counts);
     const chiSquare = this.chiSquare(counts);
 
@@ -1193,10 +1186,18 @@ class DigitAnalyzer {
     const recentTail = recentDigits.slice(-recentLook);
 
     const candidates = [];
+    const FAIR = 0.10; // fair last-digit probability for a uniform RNG
     for (let d = 0; d < 10; d++) {
       const phat = counts[d] / Math.max(1, n);
       const recentHits = recentTail.filter(x => x === d).length;
       const ucb = Math.min(1, this.wilsonUpper(phat, n, this.cfg.zScore) + this.cfg.modelRiskMargin);
+      // zDev = how many fair-Bernoulli std-errors the observed proportion
+      // sits BELOW fair. Positive = colder than fair. This is the
+      // multiple-comparison-aware significance measure for "this digit is
+      // genuinely rare", independent of the Wilson UCB (which only prices
+      // one comparison).
+      const se = Math.sqrt((FAIR * (1 - FAIR)) / Math.max(1, n));
+      const zDev = se > 0 ? (FAIR - phat) / se : 0;
       candidates.push({
         symbol,
         digit: d,
@@ -1204,6 +1205,7 @@ class DigitAnalyzer {
         pLossUpper: ucb,
         sampleSize: n,
         recentHits,
+        zDev,
       });
     }
 
@@ -1223,13 +1225,18 @@ class DigitAnalyzer {
     if (probabilityGap < this.cfg.minProbabilityGap) gates.push(`gap-low:${probabilityGap.toFixed(4)}`);
     if (best.recentHits > this.cfg.maxRecentDigitHits) gates.push(`recent-hit:${best.recentHits}`);
     if (best.pLossUpper > this.cfg.maxLossProb) gates.push(`loss-prob-high:${best.pLossUpper.toFixed(4)}`);
+    // Multiple-comparison-corrected deviation: the coldest of 10 must be a
+    // statistical outlier below fair, not just "the least common digit".
+    if (!Number.isFinite(best.zDev) || best.zDev < this.cfg.minDeviationZ) {
+      gates.push(`deviation-low:${Number(best.zDev || 0).toFixed(2)}`);
+    }
 
     return {
       symbol,
       method: 'empirical-frequency',
       ticks: recentDigits.length,
       lastDigit: recentDigits[recentDigits.length - 1],
-      lastQuote: ticks[ticks.length - 1]?.quote,
+      lastQuote,
       entropy,
       chiSquare,
       probabilityGap,
@@ -1256,31 +1263,36 @@ class DigitAnalyzer {
 // 7b. REPEAT-AVOID ANALYZER (STRATEGY=repeat_avoid)
 //
 //   Barrier digit = current last digit (DIGITDIFF: bet next tick does
-//   NOT equal it). Built around the empirical cycle claim:
-//
-//     "Periods of frequent last-digit repeats alternate with periods of
-//      long non-repeat runs (and back again)."
-//
-//   That claim is equivalent to a *regime-switching Bernoulli process*
-//   on R_t = 1{digit_t == digit_{t-1}}, not a constant p=0.10 coin.
-//   Bernoulli sequences look bursty under pure i.i.d. too (clustering
-//   illusion), so this module does not *assume* an edge — it estimates
-//   regime state online, predicts P(R_{t+1}=1), and only trades when
-//   the model is confident the process is in a low-repeat (or cooling)
-//   phase *and* the conservative upper-bound loss prob clears the
-//   value-edge gates. Validate with DIAGNOSE=1 and BACKTEST=1.
+//   NOT equal it). Built around the empirical cycle claim that periods
+//   of frequent last-digit repeats alternate with periods of long
+//   non-repeat runs. Bernoulli sequences look bursty under pure i.i.d.
+//   too (clustering illusion), so this module does NOT assume an edge —
+//   it estimates regime state online, predicts P(R_{t+1}=1), and only
+//   trades when the conservative upper-bound loss prob clears the
+//   value-edge gates. Validate any claimed structure with DIAGNOSE=1 and
+//   BACKTEST=1. On fair digits P(repeat)≈0.10 and the value gate keeps
+//   the strategy idle.
 //
 //   Modes (REPEAT_AVOID_MODE / repeatAvoidMode):
 //     • cycle       — multi-scale rates + 2-state Bayesian filter +
-//                     streak-conditional blend + phase gate (default)
+//                     streak-conditional blend + phase gate
 //     • conditional — legacy P(repeat | non-repeat streak length)
 //     • flat        — legacy whole-window empirical rate
-//
-//   Same output shape as DigitAnalyzer.analyze() for drop-in use in
-//   TradingBot / DifferBacktester.
+//   REPEAT_AVOID_CONDITIONAL is now a pure alias: it only matters when
+//   repeatAvoidMode is left at its default, and it no longer silently
+//   overrides an explicit mode selection.
 // ─────────────────────────────────────────────────────────────────────
 class RepeatAvoidAnalyzer {
   constructor(cfg) { this.cfg = cfg; }
+
+  _wantWindow(len) {
+    const baseWin = this.cfg.analysisWindow || this.cfg.tickWindow || 200;
+    if (this._mode() === 'cycle') {
+      const slowWin = this.cfg.raSlowWindow || 200;
+      return Math.max(1, Math.min(Math.max(baseWin, slowWin + 40), len));
+    }
+    return Math.max(1, Math.min(baseWin, len));
+  }
 
   wilsonUpper(phat, n, z) {
     n = Math.max(1, n);
@@ -1305,12 +1317,11 @@ class RepeatAvoidAnalyzer {
     return counts.reduce((s, c) => s + ((c - expected) ** 2) / expected, 0);
   }
 
-  /** Resolve estimator mode, honouring the legacy conditional flag. */
+  /** Resolve estimator mode. REPEAT_AVOID_CONDITIONAL only aliases the
+   *  default mode; it never overrides an explicit mode. */
   _mode() {
     const raw = String(this.cfg.repeatAvoidMode || 'cycle').trim().toLowerCase();
     if (raw === 'flat' || raw === 'conditional' || raw === 'cycle') {
-      // Legacy alias: REPEAT_AVOID_CONDITIONAL=true forces conditional
-      // only when user left mode at default cycle and set the old flag.
       if (raw === 'cycle' && this.cfg.repeatAvoidUseConditional) return 'conditional';
       return raw;
     }
@@ -1392,7 +1403,6 @@ class RepeatAvoidAnalyzer {
     const pBase = R.reduce((a, b) => a + b, 0) / R.length;
     let pL = q(0.25);
     let pH = q(0.75);
-    // Guard against collapsed estimates on near-i.i.d. data
     const minSep = this.cfg.raMinRegimeSep ?? 0.015;
     if (pH - pL < minSep) {
       pL = Math.max(0.02, pBase - Math.max(minSep, 0.02));
@@ -1409,22 +1419,16 @@ class RepeatAvoidAnalyzer {
    * States: Quiet (low pL) and Hot (high pH). Returns posterior P(Quiet)
    * after the last observation and the one-step-ahead predictive
    * P(repeat next).
-   *
-   * Transition structure is sticky (high stay probs) so regimes persist
-   * across many ticks — matching the "cycles last a while" observation.
    */
   bayesianRegimeFilter(R, pL, pH) {
     const stayQ = Math.min(0.999, Math.max(0.5, this.cfg.raStayQuiet ?? 0.985));
     const stayH = Math.min(0.999, Math.max(0.5, this.cfg.raStayHot   ?? 0.980));
     const switchQH = 1 - stayQ;
     const switchHQ = 1 - stayH;
-    // Uniform prior
     let pQ = 0.5;
     for (let i = 0; i < R.length; i++) {
       const r = R[i];
-      // Predict step
       const pQpred = pQ * stayQ + (1 - pQ) * switchHQ;
-      // Update with Bernoulli likelihood
       const likeQ = r ? pL : (1 - pL);
       const likeH = r ? pH : (1 - pH);
       const postQ = pQpred * likeQ;
@@ -1432,7 +1436,6 @@ class RepeatAvoidAnalyzer {
       const norm = postQ + postH;
       pQ = norm > 0 ? postQ / norm : 0.5;
     }
-    // One-step predictive: mixture under transition kernel
     const pQnext = pQ * stayQ + (1 - pQ) * switchHQ;
     const pRepeatNext = pQnext * pL + (1 - pQnext) * pH;
     return { pQuiet: pQ, pQuietNext: pQnext, pRepeatNext, pL, pH };
@@ -1440,12 +1443,6 @@ class RepeatAvoidAnalyzer {
 
   /**
    * Classify cycle phase from multi-scale rates + regime posterior.
-   *   quiet   — confident low-repeat regime, local rate depressed
-   *   hot     — confident high-repeat regime, local rate elevated
-   *   cooling — local intensity falling after elevated mid rate
-   *             (transition into non-repeat period — key exploit)
-   *   heating — local intensity rising after depressed mid rate
-   *   neutral — ambiguous / mixed signals
    */
   classifyPhase(rFast, rMid, rSlow, pQuiet, pBase) {
     const eps = this.cfg.raSlopeEps ?? 0.008;
@@ -1501,7 +1498,7 @@ class RepeatAvoidAnalyzer {
   }
 
   /** Legacy flat / conditional path (kept for A/B and DIAGNOSE parity). */
-  _analyzeLegacy(symbol, ticks, recentDigits, mode) {
+  _analyzeLegacy(symbol, recentDigits, lastQuote, mode) {
     const lastDigit = recentDigits[recentDigits.length - 1];
     let repeats = 0;
     for (let i = 1; i < recentDigits.length; i++) if (recentDigits[i] === recentDigits[i - 1]) repeats++;
@@ -1522,13 +1519,17 @@ class RepeatAvoidAnalyzer {
     const pLossUpper = Math.min(1, this.wilsonUpper(phat, sampleSize, this.cfg.zScore) + this.cfg.modelRiskMargin);
     const counts = Array(10).fill(0);
     for (const d of recentDigits) counts[d] += 1;
+    // Multiple-comparison-aware deviation below fair P(repeat)=0.10.
+    const se = Math.sqrt((0.10 * 0.90) / Math.max(1, sampleSize));
+    const zDev = se > 0 ? (0.10 - phat) / se : 0;
 
     const candidates = [{
       symbol, digit: lastDigit, pLoss: phat, pLossUpper, sampleSize, recentHits: 0,
-      streakLen, source, phase: 'n/a', pQuiet: null,
+      streakLen, source, phase: 'n/a', pQuiet: null, zDev,
     }];
     const gates = [];
     if (sampleSize < this.cfg.repeatAvoidMinBucketN) gates.push(`sample-too-small:${sampleSize}`);
+    if (zDev < this.cfg.minDeviationZ) gates.push(`deviation-low:${zDev.toFixed(2)}`);
     if (candidates[0].pLossUpper > this.cfg.maxLossProb) gates.push(`loss-prob-high:${candidates[0].pLossUpper.toFixed(4)}`);
 
     return {
@@ -1536,7 +1537,7 @@ class RepeatAvoidAnalyzer {
       method: `repeat-avoid:${source}`,
       ticks: recentDigits.length,
       lastDigit,
-      lastQuote: ticks[ticks.length - 1]?.quote,
+      lastQuote,
       entropy: this.entropy(counts),
       chiSquare: this.chiSquare(counts),
       probabilityGap: 1,
@@ -1552,7 +1553,7 @@ class RepeatAvoidAnalyzer {
    * Cycle-regime path: multi-scale rates + sticky 2-state filter +
    * streak-conditional + phase gate.
    */
-  _analyzeCycle(symbol, ticks, recentDigits) {
+  _analyzeCycle(symbol, recentDigits, lastQuote) {
     const lastDigit = recentDigits[recentDigits.length - 1];
     const R = this.buildRepeatSeries(recentDigits);
     if (R.length < Math.max(30, this.cfg.raFastWindow || 30)) return null;
@@ -1589,6 +1590,19 @@ class RepeatAvoidAnalyzer {
     for (const d of recentDigits) counts[d] += 1;
 
     const source = `cycle:${phase}|${blend.source}`;
+    // Multiple-comparison-aware deviation below fair P(repeat)=0.10.
+    // CRITICAL: use the MID-window sample size (the regime-confirmation
+    // window), not the blend's inflated n, which would make a ~20-tick
+    // quiet phase look statistically certain when it is well within
+    // fair-noise variance. Honest question this gate answers: "is the
+    // regime-confirmation repeat rate low enough that it cannot be a
+    // random quiet patch on a fair stream?" At n=100 the max reachable z
+    // is ~3.3, so at minDeviationZ=4.2 this strategy correctly idles —
+    // a 100-tick low-repeat window cannot achieve the significance that
+    // coldest-of-10 requires. That is the intended, honest default.
+    const nDev = Math.max(8, Math.min(wMid, R.length));
+    const se = Math.sqrt((0.10 * 0.90) / nDev);
+    const zDev = se > 0 ? (0.10 - rFast) / se : 0;
     const candidates = [{
       symbol,
       digit: lastDigit,
@@ -1596,6 +1610,7 @@ class RepeatAvoidAnalyzer {
       pLossUpper,
       sampleSize,
       recentHits: 0,
+      zDev,
       streakLen,
       repeatStreak: repStreak,
       source,
@@ -1611,15 +1626,12 @@ class RepeatAvoidAnalyzer {
     const best = candidates[0];
 
     const gates = [];
-    // Sample adequacy: need enough Bernoulli observations
     if (R.length < this.cfg.repeatAvoidMinBucketN) {
       gates.push(`sample-too-small:${R.length}`);
     }
-    // Regime separation: if pL≈pH the cycle model has nothing to say
     if ((pH - pL) < (this.cfg.raMinRegimeSep ?? 0.015)) {
       gates.push(`regime-collapsed:${(pH - pL).toFixed(4)}`);
     }
-    // Phase gate — only trade when cycle phase favours non-repeat
     const allowQuiet   = this.cfg.raAllowQuiet   !== false;
     const allowCooling = this.cfg.raAllowCooling !== false;
     const allowNeutral = this.cfg.raAllowNeutral === true;
@@ -1629,23 +1641,26 @@ class RepeatAvoidAnalyzer {
       (phase === 'neutral' && allowNeutral);
     if (!phaseOk) gates.push(`phase-block:${phase}`);
 
-    // Confidence in quiet-side posterior (for quiet/cooling entries)
     const minQ = this.cfg.raMinQuietProb ?? 0.55;
     if ((phase === 'quiet' || phase === 'cooling') && filt.pQuiet < minQ * 0.85) {
-      // Cooling can enter with slightly lower quiet posterior, but not
-      // while the filter is still firmly in hot territory.
       if (filt.pQuiet < 0.40) gates.push(`regime-hot:${filt.pQuiet.toFixed(3)}`);
     }
     if (phase === 'quiet' && filt.pQuiet < minQ) {
       gates.push(`quiet-prob-low:${filt.pQuiet.toFixed(3)}`);
     }
 
-    // Local rate confirmation: refuse if short window still looks hot
     const maxLocal = this.cfg.raMaxLocalRate ?? 0.095;
     if (rFast > maxLocal) gates.push(`local-rate-high:${rFast.toFixed(4)}`);
 
     if (best.pLossUpper > this.cfg.maxLossProb) {
       gates.push(`loss-prob-high:${best.pLossUpper.toFixed(4)}`);
+    }
+    // The blended repeat-prob must be a statistical outlier below fair 0.10,
+    // not just "a bit below" — otherwise the cycle engine's quiet-phase
+    // estimates (which are produced by the clustering illusion on fair
+    // noise) would trade as if they were signal.
+    if (zDev < (this.cfg.minDeviationZ ?? 2.8)) {
+      gates.push(`deviation-low:${zDev.toFixed(2)}`);
     }
 
     return {
@@ -1653,7 +1668,7 @@ class RepeatAvoidAnalyzer {
       method: `repeat-avoid:${source}`,
       ticks: recentDigits.length,
       lastDigit,
-      lastQuote: ticks[ticks.length - 1]?.quote,
+      lastQuote,
       entropy: this.entropy(counts),
       chiSquare: this.chiSquare(counts),
       probabilityGap: 1,
@@ -1679,27 +1694,34 @@ class RepeatAvoidAnalyzer {
     };
   }
 
+  /** Live entry point: extract valid digits and analyze the trailing window. */
   analyze(symbol, ticks) {
     if (!ticks || ticks.length < this.cfg.minTicksForAnalysis) return null;
     const digits = ticks.map(t => t.digit).filter(d => Number.isInteger(d) && d >= 0 && d <= 9);
     if (digits.length < this.cfg.minTicksForAnalysis) return null;
+    return this.analyzeAt(symbol, digits, digits.length - 1, ticks[ticks.length - 1]?.quote);
+  }
 
-    // Prefer a longer window for cycle estimation when available —
-    // multi-scale rates need room to see regime transitions.
+  /** Analyze "as of" endIdx in a precomputed digit array. O(window). */
+  analyzeAt(symbol, digits, endIdx, lastQuote) {
+    if (endIdx + 1 < this.cfg.minTicksForAnalysis) return null;
+    const win = this._wantWindow(endIdx + 1);
+    const from = Math.max(0, endIdx - win + 1);
+    return this.analyzeWindow(symbol, digits, from, endIdx, lastQuote);
+  }
+
+  analyzeWindow(symbol, digits, from, to, lastQuote) {
+    const recentDigits = digits.slice(from, to + 1);
+    if (recentDigits.length < 10) return null;
+
     const mode = this._mode();
-    const baseWin = this.cfg.analysisWindow || this.cfg.tickWindow;
-    const slowWin = this.cfg.raSlowWindow || 200;
-    const want = mode === 'cycle' ? Math.max(baseWin, slowWin + 40) : baseWin;
-    const window = Math.min(want, digits.length);
-    const recentDigits = digits.slice(-window);
-
     if (mode === 'cycle') {
-      const cyc = this._analyzeCycle(symbol, ticks, recentDigits);
+      const cyc = this._analyzeCycle(symbol, recentDigits, lastQuote);
       // Fall back to conditional if window too short for cycle engine
       if (cyc) return cyc;
-      return this._analyzeLegacy(symbol, ticks, recentDigits, 'conditional');
+      return this._analyzeLegacy(symbol, recentDigits, lastQuote, 'conditional');
     }
-    return this._analyzeLegacy(symbol, ticks, recentDigits, mode);
+    return this._analyzeLegacy(symbol, recentDigits, lastQuote, mode);
   }
 
   rank(list) {
@@ -1707,7 +1729,6 @@ class RepeatAvoidAnalyzer {
       const aAllow = a.allowedByModel ? 0 : 1;
       const bAllow = b.allowedByModel ? 0 : 1;
       if (aAllow !== bAllow) return aAllow - bAllow;
-      // Prefer higher quiet-regime confidence when both allowed
       const aq = a.best?.pQuiet ?? a.cycle?.pQuiet;
       const bq = b.best?.pQuiet ?? b.cycle?.pQuiet;
       if (Number.isFinite(aq) && Number.isFinite(bq) && aq !== bq) return bq - aq;
@@ -1723,7 +1744,9 @@ function makeAnalyzer(cfg) {
   if (cfg.strategy === 'repeat_avoid') {
     const mode = String(cfg.repeatAvoidMode || 'cycle').toLowerCase();
     logger.warn(
-      `STRATEGY=repeat_avoid mode=${mode} — cycle/regime engine; validate with BACKTEST=1 & DIAGNOSE=1 before sizing up.`
+      `STRATEGY=repeat_avoid mode=${mode} — regime/cycle engine. Validate any claimed ` +
+      `structure with DIAGNOSE=1 & BACKTEST=1 before trusting it; on fair digits this ` +
+      `strategy is expected to idle at the current gates.`
     );
     return new RepeatAvoidAnalyzer(cfg);
   }
@@ -1732,6 +1755,10 @@ function makeAnalyzer(cfg) {
 
 // ─────────────────────────────────────────────────────────────────────
 // 8. TRADE EXECUTOR — DIGITDIFF
+//    Single writer for positions. settleFromContract() is the one,
+//    idempotent path through which every settlement (live stream,
+//    reconnect reconciliation, watchdog poll) funnels, so a result is
+//    never recorded twice and never fabricated.
 // ─────────────────────────────────────────────────────────────────────
 class TradeExecutor extends EventEmitter {
   constructor(client, cfg) {
@@ -1739,6 +1766,7 @@ class TradeExecutor extends EventEmitter {
     this.client = client;
     this.cfg = cfg;
     this.open = new Map();
+    this._settled = new Set();
   }
   async proposal(symbol, digit, stake) {
     const symbolKey = this.client.symbolField();
@@ -1783,37 +1811,66 @@ class TradeExecutor extends EventEmitter {
     this.open.set(info.contractId, info);
     logger.info(`bought DIGITDIFF #${info.contractId} ${symbol} differs ${digit} stake=${ask} payout=${info.payout}`);
 
-    const subId = await this.client.subscribe({ proposal_open_contract: 1, contract_id: info.contractId }, msg => this._onUpdate(msg, info));
-    info.subId = subId;
+    // Subscribe to settlement. If subscribe fails we keep the contract
+    // tracked anyway — the watchdog / reconnect-reconciliation will
+    // resolve it. A real buy must never be silently dropped.
+    try {
+      const subId = await this.client.subscribe(
+        { proposal_open_contract: 1, contract_id: info.contractId },
+        msg => this._onUpdate(msg, info),
+      );
+      info.subId = subId;
+    } catch (e) {
+      logger.warn(`subscribe settlement #${info.contractId} failed: ${e.message} — watchdog/reconcile will recover`);
+    }
     this.emit('open', info);
     return info;
   }
-  async _onUpdate(msg, info) {
+
+  /**
+   * Idempotent settle. Returns the finished trade object or null if this
+   * contract was already settled or the status is not terminal.
+   */
+  settleFromContract(info, c) {
+    const cid = c.contract_id || info.contractId;
+    if (this._settled.has(cid)) return null;
+    if (c.status !== 'won' && c.status !== 'lost') return null;
+    this._settled.add(cid);
+    if (this._settled.size > 5000) {
+      const first = this._settled.values().next().value;
+      if (first != null) this._settled.delete(first);
+    }
+    const finished = {
+      ...info,
+      contractId: cid,
+      status: c.status,
+      profit: Number(c.profit || 0),
+      sellPrice: Number(c.sell_price || 0),
+      sellTime: Number(c.sell_time || Date.now() / 1000),
+      entryTick: c.entry_tick,
+      exitTick: c.exit_tick,
+      currentSpot: c.current_spot,
+      shortcode: c.shortcode,
+    };
+    this.open.delete(cid);
+    this.emit('result', finished);
+    return finished;
+  }
+  _onUpdate(msg, info) {
     const c = msg.proposal_open_contract;
     if (!c) return;
-    const cid = c.contract_id || info.contractId;
-    const status = c.status;
-    const profit = Number(c.profit || 0);
-    if (status === 'won' || status === 'lost') {
-      const finished = {
-        ...info,
-        contractId: cid,
-        status,
-        profit,
-        sellPrice: Number(c.sell_price || 0),
-        sellTime: Number(c.sell_time || Date.now() / 1000),
-        entryTick: c.entry_tick,
-        exitTick: c.exit_tick,
-        currentSpot: c.current_spot,
-        shortcode: c.shortcode,
-      };
-      this.open.delete(cid);
-      this.emit('result', finished);
+    const finished = this.settleFromContract(info, c);
+    if (finished) {
       const subId = msg.subscription?.id || info.subId;
-      if (subId) await this.client.forget(subId).catch(() => {});
+      if (subId) this.client.forget(subId).catch(() => {});
     } else {
-      this.emit('update', { ...info, contractId: cid, status, profit });
+      this.emit('update', { ...info, contractId: c.contract_id || info.contractId, status: c.status, profit: Number(c.profit || 0) });
     }
+  }
+  /** Sell a contract early (real API; rarely used for 1-tick digits). */
+  async sell(contractId, price) {
+    const res = await this.client._send({ sell: contractId, price: price || 0 }, 15000);
+    return res?.sell?.contract_id != null;
   }
   count() { return this.open.size; }
   openTrades() { return [...this.open.values()]; }
@@ -1821,6 +1878,9 @@ class TradeExecutor extends EventEmitter {
 
 // ─────────────────────────────────────────────────────────────────────
 // 9. STATISTICS MANAGER
+//    status: 'won' | 'lost' | 'unknown'. 'unknown' trades are recorded
+//    for the audit trail but never counted toward win rate or streaks —
+//    we never fabricate a win/loss we couldn't confirm.
 // ─────────────────────────────────────────────────────────────────────
 class StatisticsManager {
   constructor(saved = null) {
@@ -1830,6 +1890,7 @@ class StatisticsManager {
     this.currentLossStreak = 0;
     this.maxLossStreak = 0;
     this.lossStreakEvents = { x2: 0, x3: 0, x4: 0 };
+    this.unknownCount = 0;
     this.eodSentDates = [];
     if (saved) this.load(saved);
   }
@@ -1844,6 +1905,7 @@ class StatisticsManager {
       x3: Number(saved.lossStreakEvents?.x3 || 0),
       x4: Number(saved.lossStreakEvents?.x4 || 0),
     };
+    this.unknownCount = Number(saved.unknownCount || 0);
     this.eodSentDates = Array.isArray(saved.eodSentDates) ? saved.eodSentDates : [];
   }
   serialize() {
@@ -1854,6 +1916,7 @@ class StatisticsManager {
       currentLossStreak: this.currentLossStreak,
       maxLossStreak: this.maxLossStreak,
       lossStreakEvents: this.lossStreakEvents,
+      unknownCount: this.unknownCount,
       eodSentDates: this.eodSentDates.slice(-400),
     };
   }
@@ -1876,6 +1939,9 @@ class StatisticsManager {
       this.maxLossStreak = Math.max(this.maxLossStreak, this.currentLossStreak);
     } else if (rec.status === 'won') {
       this.currentLossStreak = 0;
+    } else if (rec.status === 'unknown') {
+      this.unknownCount += 1;
+      // No streak change: we genuinely don't know the outcome.
     }
     return rec;
   }
@@ -1885,6 +1951,7 @@ class StatisticsManager {
   stats(list) {
     const wins = list.filter(t => t.status === 'won');
     const losses = list.filter(t => t.status === 'lost');
+    const unknown = list.filter(t => t.status === 'unknown');
     const total = list.reduce((s, t) => s + Number(t.profit || 0), 0);
     const grossWin = wins.reduce((s, t) => s + Number(t.profit || 0), 0);
     const grossLoss = Math.abs(losses.reduce((s, t) => s + Number(t.profit || 0), 0));
@@ -1897,17 +1964,20 @@ class StatisticsManager {
       }
       return max;
     })();
+    const decided = wins.length + losses.length;
     return {
       count: list.length,
+      decided,
       wins: wins.length,
       losses: losses.length,
-      winRate: list.length ? wins.length / list.length * 100 : 0,
+      unknown: unknown.length,
+      winRate: decided ? wins.length / decided * 100 : 0,
       grossWin,
       grossLoss,
       totalProfit: total,
       netPL: total,
       profitFactor: grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? Infinity : 0),
-      avgProfit: list.length ? total / list.length : 0,
+      avgProfit: decided ? total / decided : 0,
       stake,
       maxLossStreak,
     };
@@ -1945,31 +2015,17 @@ class StatisticsManager {
 // ─────────────────────────────────────────────────────────────────────
 // 9b. SYMBOL CALIBRATOR  (rolling per-symbol edge tracker)
 // ─────────────────────────────────────────────────────────────────────
-/**
- * Tracks, per symbol, a rolling window of (predictedPWin, wasWin) pairs.
- *
- *   • enabled      = symbol is trading normally
- *   • disabled     = under-performing prediction; auto-benched
- *   • probing      = post-cooldown probe; smaller stake until re-calibrated
- *
- * A symbol is disabled when it has ≥ calibMinTrades in its window AND
- * empiricalWR < predictedWR − calibDisableGap.
- * After calibProbeAfterMs elapsed since disable, it enters "probing" mode
- * (traded at calibProbeStakeFrac × normal stake).  It becomes "enabled"
- * again once |empiricalWR − predictedWR| < calibReenableGap over
- * calibMinTrades fresh samples.
- */
 class SymbolCalibrator {
   constructor(cfg, saved = null) {
     this.cfg     = cfg;
-    this.symbols = new Map();  // symbol -> { window:[], state, disabledAt, note }
+    this.symbols = new Map();
     if (saved && typeof saved === 'object') this.load(saved);
   }
   _slot(sym) {
     if (!this.symbols.has(sym)) {
       this.symbols.set(sym, {
-        window     : [],          // { pWin, won, ts }
-        state      : 'enabled',   // 'enabled' | 'disabled' | 'probing'
+        window     : [],
+        state      : 'enabled',
         disabledAt : 0,
         lastReason : '',
       });
@@ -1991,7 +2047,7 @@ class SymbolCalibrator {
     const wins       = s.window.reduce((acc, r) => acc + (r.won ? 1 : 0), 0);
     const empirical  = wins / n;
     const predicted  = s.window.reduce((acc, r) => acc + r.pWin, 0) / n;
-    const gap        = empirical - predicted;   // + means under-prediction (good); − means over-prediction (bad)
+    const gap        = empirical - predicted;   // − means over-prediction (bad)
     if (s.state === 'enabled' || s.state === 'probing') {
       if (gap < -this.cfg.calibDisableGap) {
         s.state      = 'disabled';
@@ -2011,7 +2067,6 @@ class SymbolCalibrator {
   }
   status(symbol) {
     const s = this._slot(symbol);
-    // Auto-transition disabled → probing after cooldown elapses.
     if (s.state === 'disabled' &&
         Date.now() - s.disabledAt >= this.cfg.calibProbeAfterMs) {
       s.state      = 'probing';
@@ -2039,7 +2094,6 @@ class SymbolCalibrator {
     return out;
   }
   stakeMultiplier(symbol) {
-    // 1.0 for enabled, calibProbeStakeFrac for probing, 0 for disabled.
     if (!this.cfg.calibEnabled) return 1.0;
     const st = this.status(symbol);
     if (st === 'disabled') return 0;
@@ -2076,40 +2130,18 @@ class SymbolCalibrator {
 // ─────────────────────────────────────────────────────────────────────
 // 9c. KELLY SIZER
 // ─────────────────────────────────────────────────────────────────────
-/**
- *  Kelly-fractional position sizer.
- *
- *  Optimal Kelly fraction of bankroll to stake:
- *      f* = (b·p − q) / b     where  b = payout_mult − 1
- *                                   p = win probability (from analyzer)
- *                                   q = 1 − p
- *
- *  We stake  bankroll × f* × kellyFraction  (defaults to quarter-Kelly).
- *  Hard-capped at kellyMaxStakeFrac of bankroll to survive tail streaks.
- *  Returns null when the edge is non-positive (skip the trade).
- */
 class KellySizer {
   constructor(cfg) { this.cfg = cfg; }
 
-  /**
-   * @param {object} p
-   * @param {number} p.bankroll     current live balance
-   * @param {number} p.pWin         analyzer-predicted win probability
-   * @param {number} p.payoutMult   total payout per 1 stake (e.g. 1.10)
-   * @param {number} p.edgeValue    breakEven − pLossUpper − safetyMargin
-   * @returns {{stake:number, fStar:number, fApplied:number, reason:string}|null}
-   */
   compute({ bankroll, pWin, payoutMult, edgeValue }) {
     const cfg = this.cfg;
-    const b   = Math.max(0, payoutMult - 1);     // net-of-stake win multiplier
+    const b   = Math.max(0, payoutMult - 1);
     const p   = Math.max(0, Math.min(1, pWin));
     const q   = 1 - p;
     if (b <= 0) return null;
     const fStar = (b * p - q) / b;
-    if (fStar <= 0) return null;                 // no Kelly recommendation
+    if (fStar <= 0) return null;
     if (edgeValue < cfg.kellyMinEdgeForScale) {
-      // Trust the model less when the value-edge is marginal — take the
-      // MINIMUM stake in that regime, not a scaled-up Kelly stake.
       return { stake: cfg.minStake, fStar, fApplied: 0, reason: 'edge<minEdgeForScale' };
     }
     const roll   = Math.max(cfg.kellyBankrollFloor, bankroll * cfg.kellyBankrollFrac);
@@ -2134,7 +2166,7 @@ class TradingBot {
     this.stats = new StatisticsManager();
     this.calibrator = new SymbolCalibrator(this.cfg);
     this.kelly      = new KellySizer(this.cfg);
-    this.livePayoutMult = new Map();  // symbol → last observed payout/ask ratio
+    this.livePayoutMult = new Map();  // symbol → last observed payout/ask ratio (diagnostics)
 
     this.startBalance = null;
     this.lastBalance = null;
@@ -2151,7 +2183,20 @@ class TradingBot {
     this._pauseStartTimer = null;
     this._pauseEndTimer = null;
 
-    // ── Tick counter for cooldownTicks ──────────────────────────────
+    // ── Re-entrancy guards (prevents overlapping scans / double-buy) ──
+    this._analysisRunning = false;
+
+    // ── Live payout probe cache (symbol:digit → {mult, at}) ──
+    this._payoutCache = new Map();
+
+    // ── Daily + global stop state ──
+    this._dayStartDate = null;
+    this._dayStartBalance = null;
+    this._dailyHaltUntil = null;
+    this._dailyHaltReason = null;
+    this._globalHalt = false;
+
+    // ── Tick counter for cooldownTicks ──
     this._tickCounter = 0;
     this._lastTradeTickIdx = null;
 
@@ -2171,11 +2216,6 @@ class TradingBot {
     return { h, min };
   }
 
-  /**
-   * Returns true if the current GMT time falls inside the pause window.
-   * Supports both overnight (start > end, e.g. 22:00 → 06:00) and
-   * same-day (start < end, e.g. 12:00 → 14:00) windows.
-   */
   _isPausedNow() {
     if (!this.cfg.pauseEnabled) return false;
     const start = this._parsePauseTime(this.cfg.pauseStartGmt);
@@ -2189,20 +2229,14 @@ class TradingBot {
       // Overnight window: paused from startMin..1439 OR 0..endMin
       return nowMin >= startMin || nowMin < endMin;
     }
-    // Same-day window: paused from startMin..endMin
     return nowMin >= startMin && nowMin < endMin;
   }
 
-  /**
-   * Schedule the next pause-start and pause-end transitions.
-   * Called once at startup and re-called after each transition.
-   */
   _schedulePause() {
     this._clearPauseTimers();
     if (!this.cfg.pauseEnabled) return;
 
     const now = new Date();
-    const nowMs = now.getTime();
     const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
     const start = this._parsePauseTime(this.cfg.pauseStartGmt);
     const end   = this._parsePauseTime(this.cfg.pauseEndGmt);
@@ -2213,44 +2247,31 @@ class TradingBot {
     const startMin = start.h * 60 + start.min;
     const endMin   = end.h   * 60 + end.min;
 
-    // Helper: ms from now to a target time (next occurrence)
     const msToTarget = (targetMinOfDay) => {
       let diff = targetMinOfDay - nowMin;
-      if (diff <= 0) diff += 24 * 60; // next day
+      if (diff <= 0) diff += 24 * 60;
       return diff * 60_000 - (now.getUTCSeconds() * 1000) - now.getUTCMilliseconds();
     };
 
     if (startMin > endMin) {
-      // Overnight window:  startMin..1439, then 0..endMin
-      if (nowMin >= startMin) {
-        // Currently paused (first half) → schedule resume at endMin
+      if (nowMin >= startMin || nowMin < endMin) {
         this.paused = true;
         const delay = msToTarget(endMin);
         this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
         logger.info(`pause: currently active (overnight), resumes in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseEndGmt} GMT`);
-      } else if (nowMin < endMin) {
-        // Currently paused (second half, before endMin) → schedule resume
-        this.paused = true;
-        const delay = msToTarget(endMin);
-        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
-        logger.info(`pause: currently active, resumes in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseEndGmt} GMT`);
       } else {
-        // Currently active window → schedule pause at startMin
         this.paused = false;
         const delay = msToTarget(startMin);
         this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
         logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
       }
     } else {
-      // Same-day window:  startMin..endMin
       if (nowMin >= startMin && nowMin < endMin) {
-        // Currently paused → schedule resume
         this.paused = true;
         const delay = msToTarget(endMin);
         this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
         logger.info(`pause: currently active, resumes in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseEndGmt} GMT`);
       } else {
-        // Currently active → schedule next pause at startMin
         this.paused = false;
         const delay = msToTarget(startMin);
         this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
@@ -2270,7 +2291,6 @@ class TradingBot {
         `Open trades will settle normally. No new trades until resume.\n\n` +
         `🕒 ${utcTs()}`
       );
-      // Schedule the resume
       const end = this._parsePauseTime(this.cfg.pauseEndGmt);
       if (end) {
         const delay = this._msToTarget(end.h, end.min);
@@ -2286,7 +2306,6 @@ class TradingBot {
         `💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}\n\n` +
         `🕒 ${utcTs()}`
       );
-      // Schedule the next pause
       const start = this._parsePauseTime(this.cfg.pauseStartGmt);
       if (start) {
         const delay = this._msToTarget(start.h, start.min);
@@ -2296,7 +2315,6 @@ class TradingBot {
     }
   }
 
-  /** ms from now to next occurrence of a given HH:MM GMT time. */
   _msToTarget(targetH, targetMin) {
     const now = new Date();
     const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
@@ -2344,12 +2362,17 @@ class TradingBot {
     this._dayStartDate = utcDateStr();
     this._dayStartBalance = this.lastBalance;
     logger.info(`start balance: ${this.startBalance} ${this.currency()}`);
+
+    // Reconcile any contracts that were open across a disconnect BEFORE
+    // we start scanning again, so maxOpenTrades and P&L stay accurate.
+    await this._reconcileOpenContracts();
+
     await this.market.loadSymbols();
 
     const sizingLine = this.cfg.kellySizingEnabled
       ? `🧮 Sizing: <b>Kelly-fractional</b> (f=${this.cfg.kellyFraction}, cap=${(this.cfg.kellyMaxStakeFrac*100).toFixed(1)}% bankroll)`
       : (this.cfg.recoveryEnabled
-          ? `🧮 Sizing: recovery ladder [${this.cfg.recoveryMultipliers.join(',')}] ⚠️`
+          ? `🧮 Sizing: recovery ladder [${this.cfg.recoveryMultipliers.join(',')}] ⚠️ (cap ${this.cfg.recoveryStakeCap}${this.currency()}, ≤${(this.cfg.maxStakePctBankroll*100).toFixed(0)}% balance)`
           : `🧮 Sizing: flat`);
     const calibLine = this.cfg.calibEnabled
       ? `📐 Calibrator: <b>ON</b> (window=${this.cfg.calibWindow}, disableGap=${(this.cfg.calibDisableGap*100).toFixed(1)}pp)`
@@ -2387,6 +2410,14 @@ class TradingBot {
       `❌ Loss streak: current ${this.stats.currentLossStreak}, x2=${this.stats.lossStreakEvents.x2}, x3=${this.stats.lossStreakEvents.x3}, x4=${this.stats.lossStreakEvents.x4}`
     );
 
+    if (this.cfg.recoveryEnabled) {
+      logger.warn(
+        `⚠️  RECOVERY LADDER ENABLED — multipliers [${this.cfg.recoveryMultipliers.join(',')}]. ` +
+        `This does not change per-trade edge; it only magnifies downside. Hard caps: ` +
+        `${this.cfg.recoveryStakeCap}${this.currency()} and ${(this.cfg.maxStakePctBankroll*100).toFixed(0)}% of balance per trade.`
+      );
+    }
+
     await this.market.bootstrap(this.cfg.assets);
     if (this._analysisT) clearInterval(this._analysisT);
     this._analyzeAndTrade().catch(e => logger.error('initial analyze:', e.message));
@@ -2396,24 +2427,74 @@ class TradingBot {
   _onDisconnected(code, reason, wasAuthorized) {
     telegram.send(`⚠️ <b>x2Digit Connection lost</b>\ncode: <code>${code}</code>\nwas authorized: ${wasAuthorized ? 'yes' : 'no'}\n🔄 reconnecting...`);
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
-    this.exec.open.clear();
+    // NOTE: we deliberately do NOT clear exec.open here. Any contract that
+    // was open when the socket dropped is reconciled on reconnect via
+    // _reconcileOpenContracts(); clearing the map would orphan the P&L.
   }
 
   /**
-   * currentStake(ctx?) — returns the recommended stake for the *next* trade.
-   *
-   *   • When ctx = { pWin, payoutMult, edgeValue, symbol } and Kelly sizing
-   *     is enabled, use Kelly-fractional. Applied to bankroll = live
-   *     balance × kellyBankrollFrac, capped at kellyMaxStakeFrac.
-   *   • Otherwise fall back to the legacy flat/recovery-multiplier stake.
-   *   • In both modes, the per-symbol calibrator's stake-multiplier is
-   *     applied last (1.0 enabled, calibProbeStakeFrac probing, 0 disabled).
+   * Reconcile tracked open contracts against Deriv after a (re)connect.
+   * Settles any that finished while we were away (via the idempotent
+   * settleFromContract path), re-subscribes to still-open ones, and
+   * records an explicit status:'unknown' audit entry for anything that
+   * can no longer be found — never a fabricated win/loss.
+   */
+  async _reconcileOpenContracts() {
+    const openIds = [...this.exec.open.keys()];
+    if (!openIds.length) return;
+    logger.info(`reconcile: ${openIds.length} tracked open contract(s) after (re)connect`);
+    for (const cid of openIds) {
+      const info = this.exec.open.get(cid);
+      if (!info) continue;
+      try {
+        const res = await this.client._send({ proposal_open_contract: 1, contract_id: cid }, 15000);
+        const c = res?.proposal_open_contract;
+        if (c && (c.status === 'won' || c.status === 'lost')) {
+          const finished = this.exec.settleFromContract(info, c);
+          if (finished) logger.info(`reconcile: settled #${cid} → ${c.status} profit=${finished.profit}`);
+          continue;
+        }
+        if (c) {
+          // Still open → re-subscribe to its settlement stream.
+          const subId = await this.client.subscribe({ proposal_open_contract: 1, contract_id: cid }, msg => this.exec._onUpdate(msg, info)).catch(() => null);
+          if (subId) { info.subId = subId; logger.info(`reconcile: re-subscribed #${cid}`); }
+          continue;
+        }
+        // No detail for this id — check the account-wide open list.
+        const listRes = await this.client._send({ proposal_open_contract: 1 }, 15000).catch(() => null);
+        const listed = (listRes?.proposal_open_contracts || []).some(x => Number(x.contract_id) === Number(cid));
+        if (listed) {
+          const subId = await this.client.subscribe({ proposal_open_contract: 1, contract_id: cid }, msg => this.exec._onUpdate(msg, info)).catch(() => null);
+          if (subId) { info.subId = subId; }
+          continue;
+        }
+        logger.error(`reconcile: #${cid} unconfirmed after reconnect — recording UNKNOWN (no fabricated P&L)`);
+        this.stats.record({ ...info, contractId: cid, status: 'unknown', profit: 0, sellTime: Date.now() / 1000, _unconfirmed: true });
+        this.exec.open.delete(cid);
+      } catch (e) {
+        logger.warn(`reconcile #${cid}: ${e.message}`);
+      }
+    }
+    this._saveState('post-reconcile');
+  }
+
+  /**
+   * currentStake(ctx?) — recommended stake for the *next* trade.
+   *   • Kelly-fractional when kellySizingEnabled (bankroll × f* × fraction,
+   *     capped at kellyMaxStakeFrac and cfg.maxStake).
+   *   • Otherwise flat stake, or the recovery ladder ONLY if
+   *     recoveryEnabled (hard-capped by recoveryStakeCap).
+   *   • Every mode is capped at maxStakePctBankroll of the live balance.
+   *   • The per-symbol calibrator's stake-multiplier is applied last
+   *     (1.0 enabled, calibProbeStakeFrac probing, 0 disabled).
    */
   currentStake(ctx = null) {
     let base = 0;
     let src  = 'flat';
+    const balance = this.lastBalance ?? this.client.balance ?? 0;
+
     if (this.cfg.kellySizingEnabled && ctx && ctx.pWin > 0 && ctx.payoutMult > 1) {
-      const bankroll = Math.max(this.cfg.kellyBankrollFloor, this.lastBalance ?? this.client.balance ?? 0);
+      const bankroll = Math.max(this.cfg.kellyBankrollFloor, balance);
       const k = this.kelly.compute({
         bankroll,
         pWin      : ctx.pWin,
@@ -2424,7 +2505,6 @@ class TradingBot {
         base = k.stake;
         src  = `kelly(f*=${k.fStar.toFixed(4)}, applied=${k.fApplied.toFixed(4)}, ${k.reason})`;
       } else {
-        // No positive-edge → refuse to size a trade.
         return { stake: 0, source: 'kelly-negative', calibMult: 1 };
       }
     } else {
@@ -2434,23 +2514,127 @@ class TradingBot {
         mult = this.cfg.recoveryMultipliers[idx] || 1;
       }
       base = +(this.cfg.stake * mult).toFixed(2);
-      src  = `flat×${mult}`;
+      // Hard cap on recovery stakes: single-trade absolute ceiling.
+      if (this.cfg.recoveryEnabled && this.cfg.recoveryStakeCap > 0) {
+        base = Math.min(base, this.cfg.recoveryStakeCap);
+      }
+      src = `flat×${mult}${this.cfg.recoveryEnabled ? `(cap ${this.cfg.recoveryStakeCap})` : ''}`;
     }
-    // Per-symbol calibrator scaling (0 = symbol disabled)
+
     let calibMult = 1;
     if (ctx?.symbol) calibMult = this.calibrator.stakeMultiplier(ctx.symbol);
-    const stake = Math.max(this.cfg.minStake, Math.min(this.cfg.maxStake, +(base * calibMult).toFixed(2)));
-    return { stake: calibMult === 0 ? 0 : stake, source: src, calibMult };
+    if (calibMult === 0) return { stake: 0, source: 'calib-disabled', calibMult };
+
+    let stake = Math.max(this.cfg.minStake, Math.min(this.cfg.maxStake, +(base * calibMult).toFixed(2)));
+    // Hard cap as % of live balance.
+    const pctCap = balance > 0 ? balance * (this.cfg.maxStakePctBankroll || 1) : this.cfg.maxStake;
+    stake = Math.min(stake, Math.max(this.cfg.minStake, pctCap));
+    if (stake < this.cfg.minStake || stake > balance) {
+      return { stake: 0, source: 'bankroll-too-small', calibMult };
+    }
+    return { stake, source: src, calibMult };
+  }
+
+  /** Cached live payout multiplier for (symbol,digit) — reduces proposal RPC load. */
+  async _payoutMult(symbol, digit, probeStake) {
+    const key = `${symbol}:${digit}`;
+    const hit = this._payoutCache.get(key);
+    if (hit && (Date.now() - hit.at) < this.cfg.payoutProbeTtlMs) return hit.mult;
+    try {
+      const pres = await this.exec.proposal(symbol, digit, probeStake);
+      const p = pres?.proposal;
+      if (p?.id) {
+        const ask = Number(p.ask_price || probeStake);
+        const payout = Number(p.payout || 0);
+        if (payout > ask) {
+          const mult = payout / ask;
+          this._payoutCache.set(key, { mult, at: Date.now() });
+          return mult;
+        }
+      }
+    } catch (e) {
+      logger.debug(`payout probe ${symbol} d${digit}: ${e.message}`);
+    }
+    return null;
+  }
+
+  // ── Daily / global stop handling ─────────────────────────────────
+  _rollDay(today) {
+    this._dayStartDate = today;
+    this._dayStartBalance = this.lastBalance ?? this.client.balance ?? this._dayStartBalance ?? null;
+    this._dailyHaltUntil = null;
+    this._dailyHaltReason = null;
+    logger.info(`day rollover → ${today} startBalance=${this._dayStartBalance ?? '?'}`);
+  }
+  _nextGmtMidnight() {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 5, 0)).getTime();
+  }
+  _haltForDay(reason, detail) {
+    if (this._dailyHaltUntil) return;
+    this._dailyHaltUntil = this._nextGmtMidnight();
+    this._dailyHaltReason = reason;
+    logger.warn(`DAILY STOP: ${reason} (${detail}) — no new trades until GMT midnight`);
+    telegram.send(
+      `🛑 <b>x2Digit DAILY STOP</b>\n\n` +
+      `Reason: <b>${htmlEscape(reason)}</b> (${htmlEscape(detail)})\n` +
+      `No new trades until GMT midnight. Open trades settle normally.\n\n` +
+      `💼 Overall Profit: ${money(this.stats.overallProfit, this.currency())}\n` +
+      `🕒 ${utcTs()}`
+    );
+  }
+  /** Returns a truthy stop-reason string if new trades are halted for the day. */
+  _dailyStopReason(todayStats) {
+    if (this._dailyHaltUntil && Date.now() < this._dailyHaltUntil) return `halted until GMT midnight (${this._dailyHaltReason})`;
+    if (this.cfg.dailyMaxTrades > 0 && todayStats.count >= this.cfg.dailyMaxTrades) {
+      this._haltForDay('dailyMaxTrades', `${todayStats.count}/${this.cfg.dailyMaxTrades}`); return 'dailyMaxTrades';
+    }
+    if (this.cfg.dailyMaxLoss > 0 && todayStats.totalProfit <= -Math.abs(this.cfg.dailyMaxLoss)) {
+      this._haltForDay('dailyMaxLoss', `${todayStats.totalProfit.toFixed(2)}`); return 'dailyMaxLoss';
+    }
+    if (this.cfg.dailyMaxLossPct > 0 && this._dayStartBalance != null) {
+      const lossPct = -todayStats.totalProfit / Math.max(1, this._dayStartBalance);
+      if (lossPct >= this.cfg.dailyMaxLossPct) {
+        this._haltForDay('dailyMaxLossPct', `${(lossPct * 100).toFixed(2)}% of ${this._dayStartBalance.toFixed(2)}`);
+        return 'dailyMaxLossPct';
+      }
+    }
+    if (this.cfg.dailyMaxProfit > 0 && todayStats.totalProfit >= this.cfg.dailyMaxProfit) {
+      this._haltForDay('dailyMaxProfit', `${todayStats.totalProfit.toFixed(2)}`); return 'dailyMaxProfit';
+    }
+    return null;
   }
 
   async _analyzeAndTrade() {
     if (this.stopped || !this.client.authorized) return;
+    if (this._analysisRunning) {
+      logger.debug('scan: previous cycle still running — skipping overlap');
+      return;
+    }
+    this._analysisRunning = true;
+    try {
+      await this._analyzeAndTradeInner();
+    } finally {
+      this._analysisRunning = false;
+    }
+  }
+
+  async _analyzeAndTradeInner() {
     if (this.paused) {
       logger.debug('trading paused — skipping analysis cycle');
       return;
     }
+    if (this._globalHalt) return;
+
+    // ── Lifetime stop ───────────────────────────────────────────────
+    if (this.cfg.globalMaxLoss > 0 && this.stats.overallProfit <= -Math.abs(this.cfg.globalMaxLoss)) {
+      this._globalHalt = true;
+      logger.error(`GLOBAL STOP: overallProfit ${this.stats.overallProfit.toFixed(2)} ≤ −${this.cfg.globalMaxLoss} — halting permanently`);
+      telegram.send(`🛑 <b>x2Digit GLOBAL STOP</b>\n\nOverall P/L reached ${money(this.stats.overallProfit, this.currency())} (limit −${this.cfg.globalMaxLoss}). Bot will no longer trade.\n\n🕒 ${utcTs()}`);
+      return;
+    }
+
     if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
-    // Tick-based cooldown: don't re-analyze within N ticks of last trade
     if (this._lastTradeTickIdx != null) {
       const ticksSinceTrade = this._tickCounter - this._lastTradeTickIdx;
       if (ticksSinceTrade < this.cfg.cooldownTicks) {
@@ -2461,48 +2645,25 @@ class TradingBot {
     if (this.exec.count() >= this.cfg.maxOpenTrades) return;
 
     // ── Consecutive-loss circuit breaker ──────────────────────────────
-    // Stops trading entirely for a cooldown after N losses in a row,
-    // independent of stake sizing. Cleared automatically once the
-    // cooldown elapses, or immediately on the next win.
     if (this.cfg.circuitBreakerEnabled && this._circuitBreakerUntil && Date.now() < this._circuitBreakerUntil) {
       logger.debug(`circuit breaker active, resumes ${new Date(this._circuitBreakerUntil).toISOString()}`);
       return;
     }
 
+    // ── Day rollover + hard daily stops ───────────────────────────────
     const today = utcDateStr();
-    if (this._dayStartDate !== today) {
-      this._dayStartDate = today;
-      this._dayStartBalance = this.lastBalance ?? this.client.balance ?? this._dayStartBalance ?? null;
-    }
-    const todayTrades = this.stats.todayTrades(today);
-    const todayStats = this.stats.stats(todayTrades);
-    if (todayStats.count >= this.cfg.dailyMaxTrades) {
-      logger.warn(`dailyMaxTrades reached (${todayStats.count}/${this.cfg.dailyMaxTrades})`);
-      return;
-    }
-    if (todayStats.totalProfit <= -Math.abs(this.cfg.dailyMaxLoss)) {
-      logger.warn(`dailyMaxLoss reached (${todayStats.totalProfit.toFixed(2)})`);
-      return;
-    }
-    if (this._dayStartBalance != null && this.cfg.dailyMaxLossPct > 0) {
-      const lossPct = -todayStats.totalProfit / Math.max(1, this._dayStartBalance);
-      if (lossPct >= this.cfg.dailyMaxLossPct) {
-        logger.warn(`dailyMaxLossPct reached (${(lossPct*100).toFixed(2)}% of ${this._dayStartBalance.toFixed(2)})`);
-        return;
-      }
-    }
-    if (this.cfg.dailyMaxProfit > 0 && todayStats.totalProfit >= this.cfg.dailyMaxProfit) {
-      logger.info(`dailyMaxProfit reached (${todayStats.totalProfit.toFixed(2)})`);
+    if (this._dayStartDate !== today) this._rollDay(today);
+    const todayStats = this.stats.stats(this.stats.todayTrades(today));
+    const stopReason = this._dailyStopReason(todayStats);
+    if (stopReason) {
+      logger.warn(`daily stop active: ${stopReason}`);
       return;
     }
 
-    // Per-symbol calibration filter — drop symbols the calibrator has
-    // sidelined before we waste any proposal RPCs on them.
+    // ── Per-symbol calibration filter ─────────────────────────────────
     const tradeableAssets = this.cfg.assets.filter(s => this.calibrator.isTradeable(s));
     const disabledAssets  = this.cfg.assets.filter(s => !this.calibrator.isTradeable(s));
-    if (disabledAssets.length) {
-      logger.debug(`CALIB: sidelined [${disabledAssets.join(',')}]`);
-    }
+    if (disabledAssets.length) logger.debug(`CALIB: sidelined [${disabledAssets.join(',')}]`);
     if (!tradeableAssets.length) {
       logger.warn(`CALIB: all symbols sidelined; will re-probe after cooldown`);
       return;
@@ -2523,60 +2684,38 @@ class TradingBot {
     ).join(' | ');
     logger.info(`scan ${topLog}`);
 
-    // For the initial proposal probe we use a MINIMAL stake (just to
-    // discover the live payout) — the real stake is decided *after* we
-    // know the payout, using Kelly + calibration.
+    // ── Discover live payout + value edge (cached) ────────────────────
     const probeStake = this.cfg.minStake;
     const proposalCandidates = [];
-
     for (const a of ranked.slice(0, Math.max(1, this.cfg.proposalScanTopN))) {
       if (!a.allowedByModel) continue;
       const candidateDigits = a.candidates.slice(0, Math.max(1, Math.min(3, this.cfg.proposalScanTopN)));
       for (const c of candidateDigits) {
         if (c.recentHits > this.cfg.maxRecentDigitHits) continue;
         if (c.pLossUpper > this.cfg.maxLossProb) continue;
-        try {
-          const pres = await this.exec.proposal(a.symbol, c.digit, probeStake);
-          const p = pres.proposal;
-          if (!p?.id) continue;
-          const ask = Number(p.ask_price || probeStake);
-          const payout = Number(p.payout || 0);
-          if (!(payout > ask)) continue;
-          const payoutMult      = payout / ask;
-          const breakEvenLossProb = 1 - ask / payout;
-          const valueEdge       = breakEvenLossProb - c.pLossUpper - this.cfg.safetyMargin;
-          proposalCandidates.push({
-            analysis: a,
-            candidate: c,
-            proposal: p,
-            ask, payout, payoutMult,
-            breakEvenLossProb,
-            valueEdge,
-          });
-          this.livePayoutMult.set(a.symbol, payoutMult);
-        } catch (e) {
-          logger.debug(`proposal ${a.symbol} d${c.digit}:`, e.message);
-        }
+        const payoutMult = await this._payoutMult(a.symbol, c.digit, probeStake);
+        if (!(payoutMult > 1)) continue;
+        const breakEvenLossProb = 1 - 1 / payoutMult;   // q_be = 1 − ask/payout
+        const valueEdge = breakEvenLossProb - c.pLossUpper - this.cfg.safetyMargin;
+        proposalCandidates.push({
+          analysis: a,
+          candidate: c,
+          payoutMult,
+          breakEvenLossProb,
+          valueEdge,
+        });
+        this.livePayoutMult.set(a.symbol, payoutMult);
       }
     }
 
-    proposalCandidates.sort((a, b) => b.valueEdge - a.valueEdge || a.candidate.pLossUpper - b.candidate.pLossUpper);
+    proposalCandidates.sort((x, y) => y.valueEdge - x.valueEdge || x.candidate.pLossUpper - y.candidate.pLossUpper);
 
-    // ── Filter by edge floor + asset rotation ─────────────────────
-    // The old code aborted the entire scan when the top-ranked candidate
-    // matched `this.tradedAsset`. That was a permanent lock: R_10 would
-    // win rank #1 every scan, get skipped every scan, and the bot could
-    // sit idle for days. Two fixes:
-    //   1) The lock now EXPIRES after cfg.assetRotationMs (default 60s).
-    //   2) If the top candidate is locked but a different-symbol
-    //      candidate is available, we fall through to that one instead
-    //      of skipping the whole scan.
+    // ── Edge floor + asset rotation ───────────────────────────────────
     const rotationMs = Math.max(0, this.cfg.assetRotationMs || 0);
     const lockActive = rotationMs > 0
                     && this.tradedAsset
                     && (Date.now() - (this.tradedAssetAt || 0) < rotationMs);
 
-    // Only consider candidates that clear the edge floor.
     const qualified = proposalCandidates.filter(c => c.valueEdge >= this.cfg.minEdge);
     if (!qualified.length) {
       const top = proposalCandidates[0];
@@ -2588,11 +2727,6 @@ class TradingBot {
       return;
     }
 
-    // Prefer the highest-edge candidate that is NOT the recently-traded
-    // symbol. If every qualified candidate is on the locked symbol,
-    // check whether the lock has expired; if it has, allow re-trading
-    // that symbol. If the lock is still active AND every candidate is
-    // on that symbol, defer to the next scan.
     let best = qualified.find(c => !lockActive || c.analysis.symbol !== this.tradedAsset);
     if (!best) {
       if (lockActive) {
@@ -2602,7 +2736,7 @@ class TradingBot {
         );
         return;
       }
-      best = qualified[0];   // lock expired; take the top candidate
+      best = qualified[0];
     }
     if (best !== qualified[0]) {
       logger.info(
@@ -2611,8 +2745,8 @@ class TradingBot {
       );
     }
 
-    // ── Compute the ACTUAL stake using Kelly + calibrator ──────────
-    const pWin = 1 - best.candidate.pLossUpper;   // conservative win-prob (uses upper bound of loss prob)
+    // ── Size the trade ────────────────────────────────────────────────
+    const pWin = 1 - best.candidate.pLossUpper;   // conservative win-prob
     const sizing = this.currentStake({
       pWin,
       payoutMult: best.payoutMult,
@@ -2627,7 +2761,7 @@ class TradingBot {
     logger.info(`sizing → stake=${stake.toFixed(2)} src=${sizing.source} calibMult=${sizing.calibMult}`);
 
     this.tradedAsset   = best.analysis.symbol;
-    this.tradedAssetAt = Date.now();   // used by the rotation-lock expiry above
+    this.tradedAssetAt = Date.now();
 
     const a = best.analysis;
     const c = best.candidate;
@@ -2649,15 +2783,21 @@ class TradingBot {
       sizingSource: sizing.source,
       calibStakeMultiplier: sizing.calibMult,
       calibState: this.calibrator.status(a.symbol),
-      stakeStakeRatio: +(stake / this.cfg.stake).toFixed(2),   // legacy field name kept for messages
       recoveryStakeMultiplier: +(stake / this.cfg.stake).toFixed(2),
       currentLossStreak: this.stats.currentLossStreak,
     };
 
-    const trade = await this.exec.buy(a.symbol, c.digit, stake, payload);
-    
-    this.lastTradeAt = Date.now();
-    logger.info(`trade placed #${trade.contractId} ${a.symbol} DIGITDIFF differs ${c.digit} edge=${best.valueEdge.toFixed(4)} pLossU=${c.pLossUpper.toFixed(4)} qBE=${best.breakEvenLossProb.toFixed(4)}`);
+    try {
+      const trade = await this.exec.buy(a.symbol, c.digit, stake, payload);
+      this.lastTradeAt = Date.now();
+      logger.info(`trade placed #${trade.contractId} ${a.symbol} DIGITDIFF differs ${c.digit} edge=${best.valueEdge.toFixed(4)} pLossU=${c.pLossUpper.toFixed(4)} qBE=${best.breakEvenLossProb.toFixed(4)}`);
+    } catch (e) {
+      logger.error(`buy failed: ${e.message}`);
+      // Roll back the rotation lock so we can consider other symbols on
+      // the next scan instead of being frozen out of a failed symbol.
+      this.tradedAsset = null;
+      this.tradedAssetAt = 0;
+    }
   }
 
   _onTradeOpen(t) {
@@ -2685,8 +2825,25 @@ class TradingBot {
 
   _onTradeResult(t) {
     const rec = this.stats.record(t);
-    this.lastBalance = (this.lastBalance ?? this.client.balance ?? 0) + Number(t.profit || 0);
-    if (t.balanceAfter != null) this.lastBalance = Number(t.balanceAfter) + Number(t.profit || 0);
+
+    if (t.status === 'unknown') {
+      // No P&L recovered — balance is authoritative server-side; we never
+      // guess. The reconcile/watchdog already notified.
+      logger.error(`UNKNOWN settlement recorded for #${t.contractId} — excluded from WR/streaks`);
+      this._saveState('unknown-trade');
+      return;
+    }
+
+    // Correct balance tracking. buy response's balance_after already has
+    // the stake deducted; net P/L on top of it must ADD the stake back
+    // (profit = payout_total − stake). Old code did balance_after + profit
+    // which double-subtracted the stake on every trade.
+    const profit = Number(t.profit || 0);
+    if (t.balanceAfter != null) {
+      this.lastBalance = Number(t.balanceAfter) + profit + Number(t.stake || 0);
+    } else {
+      this.lastBalance = (this.lastBalance ?? this.client.balance ?? 0) + profit;
+    }
 
     // ── Consecutive-loss circuit breaker ──────────────────────────────
     const won0 = t.status === 'won';
@@ -2704,8 +2861,6 @@ class TradingBot {
     }
 
     // ── Feed the per-symbol calibrator ──────────────────────────────
-    // Uses the pWin we baked into the trade's analysis payload. Fall
-    // back to (1 − pLossUpper) if the field is missing (legacy trades).
     const won        = t.status === 'won';
     const pWinUsed   = Number(t.analysis?.predictedPWin
                         ?? (t.analysis?.pLossUpper != null ? 1 - Number(t.analysis.pLossUpper) : null));
@@ -2725,7 +2880,6 @@ class TradingBot {
     const dur = Math.max(0, Number(t.sellTime || Date.now() / 1000) - Number(t.buyTime || 0));
     const todayStats = this.stats.stats(this.stats.todayTrades(rec.date));
 
-    // Kelly sizing metadata line (only shown when Kelly is on)
     const kellyLine = this.cfg.kellySizingEnabled && t.analysis?.sizingSource
       ? `\n🧮 Sizing: <code>${htmlEscape(String(t.analysis.sizingSource))}</code>`
       : '';
@@ -2738,7 +2892,7 @@ class TradingBot {
       `💰 P/L: <b>${money(t.profit, this.currency())}</b>\n` +
       `⏱️ Duration: ${dur.toFixed(1)}s\n\n` +
       `📅 <b>GMT Day Stats (${rec.date})</b>\n` +
-      `• Trades: ${todayStats.count} (✅${todayStats.wins} ❌${todayStats.losses})\n` +
+      `• Trades: ${todayStats.count} (✅${todayStats.wins} ❌${todayStats.losses}${todayStats.unknown ? ` ?${todayStats.unknown}` : ''})\n` +
       `• Win rate: ${todayStats.winRate.toFixed(1)}%\n` +
       `• Net P/L: <b>${money(todayStats.totalProfit, this.currency())}</b>\n` +
       `• Profit factor: ${todayStats.profitFactor === Infinity ? '∞' : todayStats.profitFactor.toFixed(2)}\n\n` +
@@ -2754,27 +2908,14 @@ class TradingBot {
   }
 
   // ── Trade Watchdog ─────────────────────────────────────────
+  // A 1-tick DIGITDIFF settles within a few ticks. If a contract is still
+  // open at tradeWatchdogMs we poll it (non-subscribed). We NEVER fabricate
+  // a win/loss: if polls keep coming back empty we record an explicit
+  // 'unknown' after a bounded number of retries and let reconciliation /
+  // the (authoritative) server balance absorb the rest.
   _startTradeWatchdog(contractId) {
     this._clearWatchdogTimers();
-    const timeoutMs = this.tradeWatchdogMs;
-    this._tradeWatchdogTimer = setTimeout(() => {
-      const hasActiveTrade = this.exec.openTrades().some(t => t.contractId);
-      if (!hasActiveTrade) { this._clearWatchdogTimers(); return; }
-      logger.warn(`WATCHDOG FIRED — Contract ${contractId || 'unknown'} open for ${(timeoutMs/1000).toFixed(0)}s with no settlement`);
-      if (contractId && this.client.authorized && this.client.connected) {
-        logger.info(`Polling contract ${contractId} for current status…`);
-        this.client._send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 })
-          .catch(e => { logger.warn(`watchdog poll failed: ${e.message}`);
-                        this._recoverStuckTrade('watchdog-poll-failed'); });
-        this._tradeWatchdogPollTimer = setTimeout(() => {
-          if (this.exec.count() === 0) { this._clearWatchdogTimers(); return; }
-          logger.error(`WATCHDOG: Poll timed out — contract ${contractId} still unresolved`);
-          this._recoverStuckTrade('watchdog-force');
-        }, 15000);
-      } else {
-        this._recoverStuckTrade('watchdog-offline');
-      }
-    }, timeoutMs);
+    this._tradeWatchdogTimer = setTimeout(() => { this._pollStuckTrade(contractId); }, this.tradeWatchdogMs);
   }
 
   _clearWatchdogTimers() {
@@ -2782,41 +2923,47 @@ class TradingBot {
     if (this._tradeWatchdogPollTimer) { clearTimeout(this._tradeWatchdogPollTimer); this._tradeWatchdogPollTimer = null; }
   }
 
-  async _recoverStuckTrade(reason) {
+  async _pollStuckTrade(contractId) {
     this._clearWatchdogTimers();
-    const stuck = this.exec.openTrades()[0];
-    if (!stuck) { logger.warn('No active trade found for stuck trade recovery'); return; }
-    const contractId  = stuck.contractId || 'unknown';
-    const symbol      = stuck.symbol;
-    const stake       = stuck.stake || 0;
-    const entryTime   = this.tradeStartTime || (stuck.buyTime ? stuck.buyTime * 1000 : Date.now());
-    const openSeconds = Math.round((Date.now() - entryTime) / 1000);
-    logger.error(`STUCK TRADE [${reason}] #${contractId} ${symbol} ${openSeconds}s`);
+    const open = this.exec.openTrades();
+    const t = open.find(x => Number(x.contractId) === Number(contractId)) || open[0];
+    if (!t) return;
+    t._pollCount = (t._pollCount || 0) + 1;
+    logger.warn(`WATCHDOG FIRED — #${t.contractId} ${t.symbol} open for ${(this.tradeWatchdogMs / 1000).toFixed(0)}s without settlement (poll #${t._pollCount})`);
 
-    if (contractId !== 'unknown' && this.client.authorized && this.client.connected) {
-      try { await this.exec.sell(contractId, 0); }
-      catch (e) { logger.warn(`emergency sell failed: ${e.message}`); }
+    if (!this.client.authorized || !this.client.connected) {
+      logger.warn(`watchdog: connection down — deferring #${t.contractId} to reconnect reconciliation`);
+      return;
     }
-    this.exec.open.delete(contractId);
+    try {
+      const res = await this.client._send({ proposal_open_contract: 1, contract_id: t.contractId }, 15000);
+      const c = res?.proposal_open_contract;
+      if (c) {
+        const finished = this.exec.settleFromContract(t, c);
+        if (finished) {
+          logger.info(`watchdog: settled #${finished.contractId} → ${finished.status} profit=${finished.profit}`);
+          return;
+        }
+      }
+      logger.warn(`watchdog: #${t.contractId} still open after poll`);
+    } catch (e) {
+      logger.warn(`watchdog poll #${t.contractId}: ${e.message}`);
+    }
 
-    const finishedTrade = {
-      contractId, symbol, stake, profit: -stake, status: 'lost',
-      sellPrice: 0, sellTime: Date.now()/1000, buyTime: entryTime/1000,
-    };
-    this.stats.record(finishedTrade);
-    this.lastBalance   = (this.lastBalance ?? this.client.balance ?? 0) + finishedTrade.profit;
-
-    this.lastTradeAt    = Date.now();
-    this.tradeStartTime = null;
-
-    telegram.send(
-      `<b>x2Digit STUCK TRADE RECOVERED [${reason}]</b>\n` +
-      `Contract: ${contractId}\n` +
-      `Asset: ${symbol}\n` +
-      `Stake: $${stake.toFixed(2)}\n` +
-      `Open: ${openSeconds}s`,
-    );
-    this._saveState('stuck-trade-recovery');
+    if (t._pollCount >= 3) {
+      logger.error(`watchdog: #${t.contractId} unresolved after 3 polls — recording UNKNOWN (no fabricated P&L)`);
+      this.stats.record({ ...t, contractId: t.contractId, status: 'unknown', profit: 0, sellTime: Date.now() / 1000, _unconfirmed: true });
+      this.exec.open.delete(t.contractId);
+      telegram.send(
+        `⚠️ <b>x2Digit UNRESOLVED CONTRACT</b>\n\n` +
+        `Contract <code>#${t.contractId}</code> (${t.symbol}) never returned a settlement after repeated polls.\n` +
+        `Recorded as <b>UNKNOWN</b> — no P&L was fabricated. The account balance remains authoritative server-side.\n\n` +
+        `🕒 ${utcTs()}`
+      );
+      this._saveState('unresolved-trade');
+      return;
+    }
+    this._tradeWatchdogPollTimer = setTimeout(() => this._pollStuckTrade(t.contractId), 15000);
   }
 
   _scheduleSummaries() {
@@ -2852,7 +2999,6 @@ class TradingBot {
   }
   _eodReportDate(now = new Date()) {
     const { h, min } = this._parseEodTime();
-    // If EOD is at midnight GMT, report the trade day that just ended.
     if (h === 0 && min === 0) return previousUtcDateStr(now);
     return utcDateStr(now);
   }
@@ -2868,7 +3014,7 @@ class TradingBot {
       return;
     }
     let msg = `⏰ <b>x2Digit Hourly Summary GMT (${date} ${pad(hour)}:00-${pad(hour)}:59)</b>\n\n` +
-      `📊 Trades: ${s.count} (✅${s.wins} ❌${s.losses})\n` +
+      `📊 Trades: ${s.count} (✅${s.wins} ❌${s.losses}${s.unknown ? ` ?${s.unknown}` : ''})\n` +
       `📈 Win rate: ${s.winRate.toFixed(1)}%\n` +
       `💰 P/L: <b>${money(s.totalProfit, this.currency())}</b>\n` +
       `💼 Overall Profit: <b>${money(this.stats.overallProfit, this.currency())}</b>\n` +
@@ -2892,7 +3038,7 @@ class TradingBot {
               `📅 Trade day ended: <b>${date}</b>\n\n` +
               `<b>── Current Day Stats ──</b>\n`;
     if (ds.count) {
-      msg += `📊 Trades: ${ds.count} (✅${ds.wins} ❌${ds.losses})\n` +
+      msg += `📊 Trades: ${ds.count} (✅${ds.wins} ❌${ds.losses}${ds.unknown ? ` ?${ds.unknown}` : ''})\n` +
              `📈 Win rate: ${ds.winRate.toFixed(1)}%\n` +
              `💵 Total stake: ${ds.stake.toFixed(2)} ${this.currency()}\n` +
              `💰 Gross win: +${ds.grossWin.toFixed(2)}\n` +
@@ -2909,7 +3055,6 @@ class TradingBot {
            `❌ Consecutive losses: current ${this.stats.currentLossStreak} | max ${this.stats.maxLossStreak}\n` +
            `   x2=${this.stats.lossStreakEvents.x2}  x3=${this.stats.lossStreakEvents.x3}  x4=${this.stats.lossStreakEvents.x4}\n\n`;
 
-    // Per-symbol calibration snapshot
     if (this.cfg.calibEnabled) {
       const calib = this.calibrator.summary();
       const keys  = Object.keys(calib);
@@ -2944,7 +3089,7 @@ class TradingBot {
 
   _statePayload(reason) {
     return {
-      version: 2,
+      version: 3,
       savedAt: new Date().toISOString(),
       savedReason: reason,
       startBalance: this.startBalance,
@@ -3000,68 +3145,17 @@ class TradingBot {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// 10b. DIFFER BACKTESTER
-// ─────────────────────────────────────────────────────────────────────
-/**
- * Historical simulator for the selected DIGITDIFF strategy
- * (CONFIG.strategy / STRATEGY env: 'frequency' | 'repeat_avoid').
- *
- *   1. Deep-fetch N ticks (default 100K) via ticks_history in 5K batches.
- *   2. Build the analyzer via makeAnalyzer(cfg) so the walk uses the
- *      same implementation as live trading for the chosen strategy.
- *   3. For each index i (starting at minWindow) walk the history:
- *        a. Slice ticks[0..i] as the "known" series.
- *        b. Run analyzer.analyze() on the slice.
- *        c. If a non-gated candidate exists, compute the value-edge
- *           against a *synthetic* payout (BACKTEST_PAYOUT_MULT × stake)
- *           and check the same live-trade filters (minEdge, maxLossProb,
- *           strategy-specific model gates, optional tradedAsset lock).
- *        d. If the trade would fire, look up the actual expiry digit
- *           `ticks[i + durationTicks].digit` and settle:
- *              - loss if expiryDigit == barrierDigit
- *              - win  otherwise (P/L = payout - stake)
- *        e. Advance i by durationTicks+1 on a trade, else by 1.
- *   4. Report (strategy-labelled): signals, wins, losses, empirical
- *      win-rate vs predicted P(win), edge distribution histogram,
- *      consecutive-loss streak statistics, calibration gap, and
- *      per-symbol / per-barrier-digit breakdowns.
- *
- *  All overrides are applied to a LOCAL config copy — live trading
- *  cfg is never mutated.
- */
-
-// ─────────────────────────────────────────────────────────────────────
-// 8b. REPEAT/CYCLE DIAGNOSTICS
+// 11. REPEAT/CYCLE DIAGNOSTICS
 //
-//   Tests, on your own historical tick data, whether "last digit
-//   repeats vs. doesn't" shows genuine structure (serial correlation,
-//   real cyclicality) or whether it looks exactly like what a plain
-//   i.i.d. uniform digit process produces. This does NOT assume an
-//   answer either way — it runs standard tests and reports the numbers
-//   so you can see for yourself, per symbol, on real data.
+//   Tests, on your own historical tick data, whether "last digit repeats
+//   vs. doesn't" shows genuine structure (serial correlation, real
+//   cyclicality) or whether it looks exactly like what a plain i.i.d.
+//   uniform digit process produces. This does NOT assume an answer either
+//   way — it runs standard tests and reports the numbers per symbol.
 //
-//   Why this specific claim needs a specific test, not a general
-//   argument: "digit t differs from digit t−1" happening or not is a
-//   Bernoulli(p≈0.1) event. Bernoulli sequences are naturally bursty —
-//   under pure randomness you WILL see stretches of many ticks with no
-//   repeat, followed by clusters of repeats, purely from variance. That
-//   visual burstiness is the textbook "clustering illusion": humans
-//   reliably perceive streaks and cycles in sequences that are
-//   provably memoryless (Gilovich, Vallone & Tversky 1985; Tversky &
-//   Kahneman's "law of small numbers"). It FEELS like regime-switching.
-//   The only way to tell the difference between a real regime and this
-//   illusion is to test whether P(repeat at t | recent history) is
-//   actually different from the unconditional P(repeat) — that's what
-//   this module does.
-//
-//   Run it with:  DIAGNOSE=1 node accurateDiffer3.js
+//   Run it with:  DIAGNOSE=1 node newDifferX2.js
 // ─────────────────────────────────────────────────────────────────────
 class RepeatCycleDiagnostics {
-  /** Wald–Wolfowitz runs test on a 0/1 series. Tests whether the number
-   *  of "runs" (maximal same-value streaks) matches what randomness with
-   *  the observed 0/1 proportions predicts. Too few runs → real
-   *  clustering; too many → real alternation; either would falsify
-   *  independence. z within ±1.96 ⇒ consistent with i.i.d. at 95%. */
   runsTest(seq) {
     const n = seq.length;
     const n1 = seq.reduce((s, x) => s + x, 0);
@@ -3076,11 +3170,6 @@ class RepeatCycleDiagnostics {
     return { n, runs, expected: +expected.toFixed(1), z: +z.toFixed(3), pValue: +(2 * (1 - this._normCdf(Math.abs(z)))).toFixed(4) };
   }
 
-  /** Autocorrelation of the repeat/no-repeat indicator series at lags
-   *  1..maxLag, with the ~95% "white noise" confidence band (±1.96/√n).
-   *  A real cycle of period P would show a spike at lag P that clears
-   *  the band; pure noise will occasionally clear it by chance at a
-   *  handful of lags (that's expected — check if it's *systematic*). */
   autocorrelation(seq, maxLag = 40) {
     const n = seq.length;
     const mean = seq.reduce((s, x) => s + x, 0) / n;
@@ -3096,10 +3185,6 @@ class RepeatCycleDiagnostics {
     return { band: +band.toFixed(4), values: out, significantCount: out.filter(x => x.significant).length, expectedByChance: +(maxLag * 0.05).toFixed(1) };
   }
 
-  /** Direct test of the "cycling" claim: does P(repeat next tick) shift
-   *  after a run of k consecutive non-repeats? Buckets by current
-   *  non-repeat streak length and compares each bucket's empirical
-   *  P(repeat) to the unconditional baseline with a 95% CI. */
   conditionalAfterStreak(seq, maxStreak = 15) {
     const baseline = seq.reduce((s, x) => s + x, 0) / seq.length;
     const buckets = new Map();
@@ -3120,11 +3205,6 @@ class RepeatCycleDiagnostics {
     return { baseline: +baseline.toFixed(4), rows };
   }
 
-  /** Chi-square test of independence between digit[t-1] and digit[t]
-   *  (10×10 contingency table vs. product of marginals). This is the
-   *  general form of "does knowing today's digit predict tomorrow's" —
-   *  a real repeat-cycle would show up here as excess/deficit mass on
-   *  the diagonal (digit[t]==digit[t-1] cells). */
   digitTransitionIndependence(digits) {
     const table = Array.from({ length: 10 }, () => Array(10).fill(0));
     for (let i = 1; i < digits.length; i++) table[digits[i - 1]][digits[i]]++;
@@ -3136,7 +3216,7 @@ class RepeatCycleDiagnostics {
       const exp = (rowSum[i] * colSum[j]) / n;
       if (exp > 0) chi2 += ((table[i][j] - exp) ** 2) / exp;
     }
-    const df = 81; // (10-1)*(10-1)
+    const df = 81;
     return { n, chi2: +chi2.toFixed(2), df, pValue: +(1 - this._chiSqCdf(chi2, df)).toFixed(4), diagonalMass: +(table.reduce((s, r, i) => s + r[i], 0) / n).toFixed(4), expectedDiagonalMass: 0.1 };
   }
 
@@ -3148,7 +3228,7 @@ class RepeatCycleDiagnostics {
     const y = 1 - (((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
     return s * y;
   }
-  // Wilson–Hilferty approximation for the chi-square CDF (adequate for df~81, chi2 in typical ranges)
+  // Wilson–Hilferty approximation for the chi-square CDF.
   _chiSqCdf(x, k) {
     if (x <= 0) return 0;
     const term = Math.pow(x / k, 1/3) - (1 - 2/(9*k));
@@ -3156,15 +3236,9 @@ class RepeatCycleDiagnostics {
     return this._normCdf(z);
   }
 
-  /**
-   * Multi-scale rate path + sticky 2-state filter snapshot — same features
-   * the repeat_avoid cycle engine uses. Reports how often local rate is
-   * depressed vs elevated, and how long quiet/hot labels persist.
-   */
   cycleEngineSnapshot(seq, fast = 30, mid = 90, block = 20) {
     if (seq.length < mid + 10) return null;
     const base = seq.reduce((s, x) => s + x, 0) / seq.length;
-    // Rolling block rates for emission estimate
     const blockRates = [];
     if (seq.length >= block) {
       let s = 0;
@@ -3183,7 +3257,6 @@ class RepeatCycleDiagnostics {
     let pH = Math.max(0.105, Math.min(0.35, q(0.75)));
     if (pH - pL < 0.015) { pL = Math.max(0.02, base - 0.03); pH = Math.min(0.28, base + 0.03); }
 
-    // Sticky forward filter
     const stayQ = 0.985, stayH = 0.980;
     let pQ = 0.5;
     let quietTicks = 0, hotTicks = 0;
@@ -3199,7 +3272,6 @@ class RepeatCycleDiagnostics {
       const norm = postQ + postH;
       pQ = norm > 0 ? postQ / norm : 0.5;
 
-      // multi-scale rates ending at i
       let rf = 0, nf = 0, rm = 0, nm = 0;
       for (let j = Math.max(0, i - fast + 1); j <= i; j++) { rf += seq[j]; nf++; }
       for (let j = Math.max(0, i - mid + 1); j <= i; j++) { rm += seq[j]; nm++; }
@@ -3283,9 +3355,17 @@ class RepeatCycleDiagnostics {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// 11b. DIFFER BACKTESTER
+//    Historical simulator for the selected DIGITDIFF strategy. Walks a
+//    precomputed digit array in O(window) per step (the old code sliced
+//    the whole prefix every scan → O(n²) on 100k ticks). Uses the SAME
+//    analyzer code path as live trading (analyzeAt), the same value-edge
+//    math, and reports calibration gap + chance-WR + a shuffled-null
+//    comparison so the user can see whether selectivity beat chance.
+// ─────────────────────────────────────────────────────────────────────
 class DifferBacktester {
   constructor(cfg, client, market) {
-    // Layer any backtest overrides on top of live cfg
     const ov = {};
     if (cfg.backtestMinEdge     != null) ov.minEdge            = cfg.backtestMinEdge;
     if (cfg.backtestSafety      != null) ov.safetyMargin       = cfg.backtestSafety;
@@ -3301,13 +3381,10 @@ class DifferBacktester {
     this.overrides = ov;
     this.client    = client;
     this.market    = market;
-    // Honour STRATEGY env / cfg.strategy ('frequency' | 'repeat_avoid')
-    // so backtests exercise the same analyzer as live trading.
     this.strategy  = (this.cfg.strategy === 'repeat_avoid') ? 'repeat_avoid' : 'frequency';
     this.analyzer  = makeAnalyzer(this.cfg);
   }
 
-  /** Human-readable strategy label for banners / reports. */
   _strategyLabel() {
     if (this.strategy === 'repeat_avoid') {
       let mode = String(this.cfg.repeatAvoidMode || 'cycle').toLowerCase();
@@ -3323,7 +3400,6 @@ class DifferBacktester {
   }
 
   async run(symbols) {
-    // Validate symbol list
     const list = Array.isArray(symbols) ? symbols : [symbols];
     if (!list.length) throw new Error('no symbols to backtest');
 
@@ -3336,44 +3412,9 @@ class DifferBacktester {
     if (Object.keys(this.overrides).length) {
       console.log(`  overrides applied: ${JSON.stringify(this.overrides)}`);
     }
-    const sharedGates =
-      `  gates: minEdge=${this.cfg.minEdge}  ` +
-      `safety=${this.cfg.safetyMargin}  ` +
-      `modelMargin=${this.cfg.modelRiskMargin}  ` +
-      `maxLossProb=${this.cfg.maxLossProb}`;
-    if (this.strategy === 'repeat_avoid') {
-      let mode = String(this.cfg.repeatAvoidMode || 'cycle').toLowerCase();
-      if (mode === 'cycle' && this.cfg.repeatAvoidUseConditional) mode = 'conditional';
-      if (mode === 'cycle') {
-        console.log(
-          `${sharedGates}\n` +
-          `         strategy=repeat_avoid  mode=cycle  ` +
-          `windows=${this.cfg.raFastWindow}/${this.cfg.raMidWindow}/${this.cfg.raSlowWindow}  ` +
-          `minQuiet=${this.cfg.raMinQuietProb}  maxLocal=${this.cfg.raMaxLocalRate}\n` +
-          `         phase-allow quiet=${this.cfg.raAllowQuiet} cooling=${this.cfg.raAllowCooling} neutral=${this.cfg.raAllowNeutral}\n` +
-          `         duration=${this.cfg.durationTicks}t  payoutMult=${this.cfg.backtestPayoutMult}  ` +
-          `assetLock=${this.cfg.backtestAssetLock}`
-        );
-      } else {
-        console.log(
-          `${sharedGates}\n` +
-          `         strategy=repeat_avoid  mode=${mode}  ` +
-          `maxBucket=${this.cfg.repeatAvoidMaxStreakBucket}  minBucketN=${this.cfg.repeatAvoidMinBucketN}\n` +
-          `         duration=${this.cfg.durationTicks}t  payoutMult=${this.cfg.backtestPayoutMult}  ` +
-          `assetLock=${this.cfg.backtestAssetLock}`
-        );
-      }
-    } else {
-      console.log(
-        `${sharedGates}\n` +
-        `         entropy=[${this.cfg.minEntropy},${this.cfg.maxEntropy}]  ` +
-        `chi²=[${this.cfg.minChiSquare},${this.cfg.maxChiSquare}]  ` +
-        `minGap=${this.cfg.minProbabilityGap}  ` +
-        `maxHits=${this.cfg.maxRecentDigitHits}\n` +
-        `         duration=${this.cfg.durationTicks}t  payoutMult=${this.cfg.backtestPayoutMult}  ` +
-        `assetLock=${this.cfg.backtestAssetLock}`
-      );
-    }
+    console.log(`  gates: minEdge=${this.cfg.minEdge}  safety=${this.cfg.safetyMargin}  ` +
+      `modelMargin=${this.cfg.modelRiskMargin}  maxLossProb=${this.cfg.maxLossProb}  ` +
+      `duration=${this.cfg.durationTicks}t  payoutMult=${this.cfg.backtestPayoutMult}`);
     console.log(banner);
 
     const combined = { signals: 0, wins: 0, losses: 0, pnl: 0, grossWin: 0, grossLoss: 0 };
@@ -3461,10 +3502,6 @@ class DifferBacktester {
     };
   }
 
-  /**
-   * Fire a live proposal to discover the actual payout multiplier Deriv
-   * is quoting right now. Returns fallback on failure.
-   */
   async _probeLivePayoutMult(symbol) {
     try {
       const symbolKey = this.client.symbolField();
@@ -3484,7 +3521,7 @@ class DifferBacktester {
       const ask    = Number(p.ask_price || this.cfg.stake);
       const payout = Number(p.payout    || 0);
       if (!(payout > 0 && ask > 0)) return null;
-      return payout / ask;   // total payout per unit stake
+      return payout / ask;
     } catch (e) {
       logger.warn(`live payout probe (${symbol}) failed: ${e.message}`);
       return null;
@@ -3497,8 +3534,6 @@ class DifferBacktester {
     console.log(`  ${symbol}`);
     console.log(banner);
 
-    // 0. Probe live payout multiplier (so the value-edge math matches
-    //    live trading exactly).
     let payoutMult = this.cfg.backtestPayoutMult;
     if (this.cfg.backtestProbeLive) {
       const probed = await this._probeLivePayoutMult(symbol);
@@ -3510,7 +3545,6 @@ class DifferBacktester {
       }
     }
 
-    // 1. Fetch ticks
     logger.info(`fetching historical ticks (${symbol}, batched)…`);
     const ticks = await this.market.deepBackfill(
       symbol, this.cfg.backtestTicks, this.cfg.backtestBatchSize,
@@ -3519,11 +3553,6 @@ class DifferBacktester {
       },
     );
     let pip = this.market.pipSize(symbol);
-    // Belt-and-suspenders: if loadSymbols never populated pip_size for
-    // this symbol (e.g. the user is on an older version that requests
-    // active_symbols: 'brief'), infer it directly from the tick stream.
-    // Deriv volatility indices always use a fixed decimal count per
-    // symbol so this is a safe recovery.
     if (!Number.isFinite(pip)) {
       const sample = ticks.slice(-Math.min(50, ticks.length));
       const decCounts = new Map();
@@ -3537,35 +3566,30 @@ class DifferBacktester {
       for (const [d, n] of decCounts) if (n > bestN) { bestDec = d; bestN = n; }
       pip = bestDec;
       logger.warn(`pipSize(${symbol}) not cached — inferred pip=${pip} from tick stream`);
-      // Push it into the market cache so downstream code (analyze,
-      // recomputes) uses the same value.
       this.market.pipSizes.set(symbol, pip);
-      // Also patch every tick's digit field so it reflects the
-      // correct pip. Without this, the analyzer would use the old
-      // (wrong) digits and every empirical WR would be garbage.
       for (const t of ticks) t.digit = quoteToDigit(t.quote, pip);
     }
-    if (ticks.length < this.cfg.minTicksForAnalysis + this.cfg.durationTicks + 10) {
-      throw new Error(`insufficient history for ${symbol}: got ${ticks.length}`);
+
+    // Precompute clean digit/quotes arrays (O(n) once) for the O(window)
+    // walk below. This replaces the old ticks.slice(0, i+1) per scan.
+    const clean = ticks.filter(t => Number.isInteger(t.digit) && t.digit >= 0 && t.digit <= 9);
+    if (clean.length < this.cfg.minTicksForAnalysis + this.cfg.durationTicks + 10) {
+      throw new Error(`insufficient history for ${symbol}: got ${clean.length} valid ticks`);
     }
+    const digitArr = clean.map(t => t.digit);
+    const quoteArr = clean.map(t => t.quote);
     logger.info(
-      `have ${ticks.length} ticks  pip=${pip}  ` +
-      `span=${new Date(ticks[0].epoch*1000).toISOString().slice(0,19)}Z → ` +
-      `${new Date(ticks[ticks.length-1].epoch*1000).toISOString().slice(0,19)}Z`
+      `have ${clean.length} valid ticks  pip=${pip}  ` +
+      `span=${new Date(clean[0].epoch*1000).toISOString().slice(0,19)}Z → ` +
+      `${new Date(clean[clean.length-1].epoch*1000).toISOString().slice(0,19)}Z`
     );
 
-    // 2. Walk forward
     const baseStake   = this.cfg.stake;
-    // `payoutMult` = total payout per 1 stake (includes returned stake),
-    // probed live above. On DIGITDIFF this is typically ~1.10.
     const duration    = Math.max(1, this.cfg.durationTicks);
     const minWindow   = Math.max(this.cfg.minTicksForAnalysis, 300);
 
-    // Local Kelly + calibrator instances so the backtest mirrors live logic.
     const kelly       = new KellySizer(this.cfg);
     const calib       = new SymbolCalibrator(this.cfg);
-    // Simulated bankroll: starts at 100× base stake unless the user sets
-    // KELLY_BANKROLL_FLOOR to something explicit.
     let simBankroll   = Math.max(this.cfg.kellyBankrollFloor, baseStake * 100);
     const startBankroll = simBankroll;
 
@@ -3581,19 +3605,18 @@ class DifferBacktester {
       strategy   : this.strategy,
       strategyLabel: this._strategyLabel(),
       pip,
-      startEpoch : ticks[0].epoch,
-      endEpoch   : ticks[ticks.length - 1].epoch,
-      tickCount  : ticks.length,
+      startEpoch : clean[0].epoch,
+      endEpoch   : clean[clean.length - 1].epoch,
+      tickCount  : clean.length,
       signals    : 0,
       wins       : 0,
       losses     : 0,
       pnl        : 0,
       grossWin   : 0,
       grossLoss  : 0,
-      predictedWinSum : 0,   // sum of (1 - pLossUpper) across all signals
+      predictedWinSum : 0,
       valueEdgeSum    : 0,
-      byDigit    : {},       // barrier-digit histogram
-      // repeat_avoid: how often the barrier came from flat vs conditional estimate
+      byDigit    : {},
       bySource   : this.strategy === 'repeat_avoid' ? {} : null,
       byPhase    : this.strategy === 'repeat_avoid' ? {} : null,
     };
@@ -3608,12 +3631,13 @@ class DifferBacktester {
       gatedGap       : 0,
       gatedRecentHit : 0,
       gatedLossProb  : 0,
-      gatedSample    : 0,   // repeat_avoid: sample-too-small
-      gatedPhase     : 0,   // cycle: phase-block
-      gatedRegime    : 0,   // cycle: regime-hot / quiet-prob-low / collapsed
-      gatedLocalRate : 0,   // cycle: local-rate-high
-      gatedEdge      : 0,   // best candidate edge < minEdge
+      gatedSample    : 0,
+      gatedPhase     : 0,
+      gatedRegime    : 0,
+      gatedLocalRate : 0,
+      gatedEdge      : 0,
       gatedAssetLock : 0,
+      gatedCalib     : 0,
       allowedModel   : 0,
       recommended    : 0,
       bestEdgeSeen   : -Infinity,
@@ -3641,7 +3665,6 @@ class DifferBacktester {
       return '>=0.040';
     };
 
-    // Loss-streak tracker — same semantics as StatisticsManager
     const streak = {
       current      : 0, max: 0,
       currentWin   : 0, maxWin: 0,
@@ -3674,18 +3697,16 @@ class DifferBacktester {
     };
 
     const t0 = Date.now();
-    let tradedAsset    = null;   // mirrors bot.tradedAsset when assetLock=true
+    let tradedAsset    = null;
     let lastTradeAtIdx = -Infinity;
     let i = minWindow;
 
-    while (i < ticks.length - duration - 1) {
-      const window   = ticks.slice(0, i + 1);
-      const analysis = this.analyzer.analyze(symbol, window);
+    while (i < clean.length - duration - 1) {
+      const analysis = this.analyzer.analyzeAt(symbol, digitArr, i, quoteArr[i]);
       diag.scans++;
 
       if (!analysis) { diag.nullAnalyses++; i++; continue; }
 
-      // Track gate rejections (mirrors analyzer `gates` for both strategies)
       for (const g of analysis.gates) {
         if (g.startsWith('entropy'))               diag.gatedEntropy++;
         else if (g.startsWith('chisq'))            diag.gatedChiSq++;
@@ -3704,9 +3725,6 @@ class DifferBacktester {
       }
       if (analysis.allowedByModel) diag.allowedModel++;
 
-      // Compute the value edge exactly the way live code does. In the
-      // backtester ask == baseStake (we're not paying for a real RPC),
-      // and the payout is baseStake × payoutMult (probed live at start).
       const c = analysis.best;
       const ask = baseStake;
       const payoutFull = baseStake * payoutMult;
@@ -3717,31 +3735,20 @@ class DifferBacktester {
       if (c.pLossUpper < diag.bestLossPUSeen) diag.bestLossPUSeen = c.pLossUpper;
       diag.edgeBuckets[bucketize(valueEdge)]++;
 
-      // Would this trade actually fire?
       let fire = analysis.allowedByModel;
       if (fire && valueEdge < this.cfg.minEdge)                     { fire = false; diag.gatedEdge++; }
-      // Asset-lock (opt-in only for single-symbol backtests). The live
-      // bot uses tradedAsset to force multi-symbol rotation; in a
-      // single-symbol backtest it would trigger once and then block
-      // every subsequent scan, so we only apply it within a short
-      // cooldown window (backtestAssetLockTicks) and never as a hard
-      // permanent lock.
       if (fire && this.cfg.backtestAssetLock && tradedAsset === symbol
           && (i - lastTradeAtIdx) < this.cfg.backtestAssetLockTicks) {
         fire = false; diag.gatedAssetLock++;
       }
-      // Per-symbol calibrator gate (0 = disabled) — only applied when calibEnabled
       let calibMult = 1;
       if (fire && this.cfg.calibEnabled) {
         calibMult = calib.stakeMultiplier(symbol);
-        if (calibMult === 0) { fire = false; diag.gatedCalib = (diag.gatedCalib || 0) + 1; }
+        if (calibMult === 0) { fire = false; diag.gatedCalib++; }
       }
 
       if (!fire) { i++; continue; }
 
-      // ── Size the trade ─────────────────────────────────────────
-      // Match live currentStake(): Kelly + calibrator when enabled,
-      // otherwise flat.  All results below use this per-trade stake.
       let stake = baseStake;
       let sizingSrc = 'flat';
       if (this.cfg.kellySizingEnabled) {
@@ -3751,7 +3758,7 @@ class DifferBacktester {
           pWin, payoutMult, edgeValue: valueEdge,
         });
         if (k) { stake = k.stake; sizingSrc = `kelly(${k.reason})`; }
-        else   { i++; continue; }   // no positive-edge under Kelly → skip
+        else   { i++; continue; }
       }
       stake = Math.max(this.cfg.minStake, Math.min(this.cfg.maxStake, +(stake * calibMult).toFixed(2)));
       if (stake <= 0) { i++; continue; }
@@ -3759,8 +3766,7 @@ class DifferBacktester {
       const winNet  = stake * payoutMult - stake;
       const lossNet = -stake;
 
-      // ── Simulate settlement ────────────────────────────────────
-      const expiryTick = ticks[i + duration];
+      const expiryTick = clean[i + duration];
       if (!expiryTick || expiryTick.digit == null) { i++; continue; }
       const won = expiryTick.digit !== c.digit;
 
@@ -3770,22 +3776,17 @@ class DifferBacktester {
       results.byDigit[c.digit].signals += 1;
       diag.recommended += 1;
 
-      // repeat_avoid: track estimate source + cycle phase buckets
       let srcKey = null;
       let phaseKey = null;
       if (results.bySource) {
         const raw = String(c.source || analysis.method || 'unknown');
         srcKey = raw;
-        if (!results.bySource[srcKey]) {
-          results.bySource[srcKey] = { signals: 0, wins: 0, losses: 0, pnl: 0 };
-        }
+        if (!results.bySource[srcKey]) results.bySource[srcKey] = { signals: 0, wins: 0, losses: 0, pnl: 0 };
         results.bySource[srcKey].signals += 1;
       }
       if (results.byPhase) {
         phaseKey = c.phase || analysis.cycle?.phase || 'n/a';
-        if (!results.byPhase[phaseKey]) {
-          results.byPhase[phaseKey] = { signals: 0, wins: 0, losses: 0, pnl: 0 };
-        }
+        if (!results.byPhase[phaseKey]) results.byPhase[phaseKey] = { signals: 0, wins: 0, losses: 0, pnl: 0 };
         results.byPhase[phaseKey].signals += 1;
       }
 
@@ -3810,7 +3811,6 @@ class DifferBacktester {
       }
       recordOutcome(won);
 
-      // Feed the calibrator (only if enabled)
       if (this.cfg.calibEnabled) calib.record(symbol, 1 - c.pLossUpper, won);
 
       tradedAsset    = symbol;
@@ -3819,7 +3819,7 @@ class DifferBacktester {
 
       if (results.signals % 100 === 0) {
         const wr = (results.wins / results.signals * 100).toFixed(1);
-        logger.info(`  ...${i}/${ticks.length} signals=${results.signals} WR=${wr}% pnl=${results.pnl.toFixed(2)} bank=${simBankroll.toFixed(2)}`);
+        logger.info(`  ...${i}/${clean.length} signals=${results.signals} WR=${wr}% pnl=${results.pnl.toFixed(2)} bank=${simBankroll.toFixed(2)}`);
       }
     }
 
@@ -3830,7 +3830,6 @@ class DifferBacktester {
       : 0;
     results.calibSummary  = calib.summary();
 
-    // Flush trailing streak
     if (streak.current    > 0) streak.lossSequences.push(streak.current);
     if (streak.currentWin > 0) streak.winSequences.push(streak.currentWin);
 
@@ -3838,11 +3837,25 @@ class DifferBacktester {
     const empiricalWR = results.signals ? results.wins / results.signals * 100 : 0;
     const predictedWR = results.signals ? (results.predictedWinSum / results.signals) * 100 : 0;
     const avgEdge     = results.signals ? (results.valueEdgeSum / results.signals) * 100 : 0;
-    // Realized EV as % of *base* stake, so the number is comparable
-    // across Kelly/flat/calibration modes.
     const realizedEV  = results.signals ? (results.pnl / (results.signals * baseStake)) * 100 : 0;
+    // Break-even WR = 1 − q_be = 100/payoutMult: the win rate at which a
+    // bet breaks even at this payout (≈90.9% at ×1.10). A random entrant
+    // on fair digits gets 90.0% (every digit uniform), i.e. −0.9pp short
+    // of break-even — that shortfall is the house edge. Selectivity is
+    // positive only if empiricalWR beats breakEvenWR.
+    const breakEvenWR = results.signals ? 100 / payoutMult : 0;
+    const randomEntrantWR = 90.00; // fair-digits random-entrant baseline
+    const selectivity = results.signals ? (empiricalWR - breakEvenWR) : 0;
 
-    // Loss-streak metrics
+    // ── Shuffled-null comparison ────────────────────────────────────
+    // Re-run the same gate pipeline on a permutation of the digits. Any
+    // temporal structure is destroyed by shuffling, so this is the
+    // "what would this exact strategy produce on noise of the same
+    // digit-marginal" baseline. If the real backtest's WR/EV is not
+    // clearly better than its own shuffled twin, the apparent edge is
+    // multiple-comparison luck, not signal.
+    const nullRes = results.signals > 0 ? this._shuffledNullRun(digitArr, quoteArr, payoutMult, duration, minWindow) : { signals: 0, wins: 0, wr: 0, realizedEV: 0 };
+
     const avg = arr => arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0;
     const streakMetrics = {
       maxLossStreak       : streak.max,
@@ -3859,8 +3872,6 @@ class DifferBacktester {
       lossRuns            : streak.lossSequences.length,
       winRuns             : streak.winSequences.length,
       maxDrawdownFlatStake: +(streak.max * baseStake).toFixed(2),
-      // Simulated recovery-multiplier drawdown: what you'd lose in cash
-      // through the WORST loss run using cfg.recoveryMultipliers.
       maxDrawdownRecovery : (() => {
         if (!this.cfg.recoveryEnabled || !this.cfg.recoveryMultipliers?.length) return null;
         const mults = this.cfg.recoveryMultipliers;
@@ -3873,7 +3884,6 @@ class DifferBacktester {
       })(),
     };
 
-    // Assemble result object
     Object.assign(results, {
       durationSec       : +dt,
       empiricalWinRate  : +empiricalWR.toFixed(2),
@@ -3881,6 +3891,10 @@ class DifferBacktester {
       calibrationGap    : +(empiricalWR - predictedWR).toFixed(2),
       avgValueEdgePct   : +avgEdge.toFixed(3),
       realizedEVPct     : +realizedEV.toFixed(3),
+      breakEvenWR       : +breakEvenWR.toFixed(2),
+      randomEntrantWR   : randomEntrantWR,
+      selectivityPct    : +selectivity.toFixed(2),
+      nullShuffle       : nullRes,
       profitFactor      : results.grossLoss > 0 ? +(results.grossWin / results.grossLoss).toFixed(3) : Infinity,
       diagnostics       : diag,
       streaks           : streakMetrics,
@@ -3894,15 +3908,22 @@ class DifferBacktester {
     console.log(`  ${this._strategyLabel()}`);
     console.log(line);
     console.log(`  Window          : ${new Date(results.startEpoch*1000).toISOString().slice(0,19)}Z → ${new Date(results.endEpoch*1000).toISOString().slice(0,19)}Z`);
-    console.log(`  Ticks processed : ${ticks.length.toLocaleString()}   pip_size=${pip}`);
+    console.log(`  Ticks processed : ${clean.length.toLocaleString()}   pip_size=${pip}`);
     console.log(`  Signals fired   : ${results.signals}`);
     console.log(`  Wins / Losses   : ${results.wins} / ${results.losses}`);
     console.log(`  Empirical WR    : ${empiricalWR.toFixed(2)}%`);
     console.log(`  Predicted P(win): ${predictedWR.toFixed(2)}%   (calibration gap ${(empiricalWR - predictedWR).toFixed(2)} pp)`);
+    console.log(`  Break-even WR @×${payoutMult.toFixed(2)}: ${breakEvenWR.toFixed(2)}%   ` +
+      `(random entrant on fair digits: ${randomEntrantWR.toFixed(1)}% — the shortfall is house edge)`);
+    console.log(`  Selectivity (emp. WR − break-even): ${selectivity >= 0 ? '+' : ''}${selectivity.toFixed(2)} pp`);
     console.log(`  Avg value edge  : ${avgEdge.toFixed(3)}%   Realized EV: ${realizedEV.toFixed(3)}%`);
     console.log(`  Gross win / loss: +${results.grossWin.toFixed(2)} / -${results.grossLoss.toFixed(2)}`);
     console.log(`  Net P/L         : ${results.pnl >= 0 ? '+' : ''}${results.pnl.toFixed(2)} ${this.cfg.currency}`);
     console.log(`  Profit factor   : ${results.profitFactor === Infinity ? '∞' : results.profitFactor.toFixed(3)}`);
+    if (results.signals > 0) {
+      console.log(`  Shuffled-null   : ${nullRes.signals} signals, WR ${nullRes.wr.toFixed(2)}%, EV ${nullRes.realizedEV.toFixed(3)}% ` +
+        `(${nullRes.realizedEV >= realizedEV ? '⚠️ real edge ≤ noise baseline' : '✅ real EV beats shuffled twin'})`);
+    }
     console.log(`  Runtime         : ${dt}s`);
     console.log(line);
     if (this.strategy === 'repeat_avoid') {
@@ -3944,7 +3965,6 @@ class DifferBacktester {
       }
     }
 
-    // ── Consecutive-loss stats ────────────────────────────────
     console.log(line);
     console.log('  Consecutive-loss stats (flat stake):');
     console.log(`    Max loss streak       : ${streakMetrics.maxLossStreak}  ` +
@@ -3977,7 +3997,6 @@ class DifferBacktester {
       }
     }
 
-    // ── Bankroll evolution (Kelly-sizing view) ────────────────
     if (this.cfg.kellySizingEnabled) {
       console.log(line);
       console.log('  Kelly-sizing bankroll evolution:');
@@ -3988,7 +4007,6 @@ class DifferBacktester {
       console.log(`    Kelly fraction     : ${this.cfg.kellyFraction}  (cap ${(this.cfg.kellyMaxStakeFrac*100).toFixed(2)}% bankroll)`);
     }
 
-    // ── Per-symbol calibrator snapshot ────────────────────────
     if (this.cfg.calibEnabled) {
       const cs = results.calibSummary || {};
       if (Object.keys(cs).length) {
@@ -4002,7 +4020,6 @@ class DifferBacktester {
       }
     }
 
-    // ── Diagnostics (strategy-aware) ──────────────────────────
     const bestEdgeStr = diag.bestEdgeSeen === -Infinity ? 'n/a' : (diag.bestEdgeSeen*100).toFixed(3)+'%';
     console.log(line);
     console.log(`  Diagnostics (${this.strategy}) — why no/few signals fired:`);
@@ -4028,7 +4045,6 @@ class DifferBacktester {
     console.log(`    best value edge seen : ${bestEdgeStr}   (min ${(this.cfg.minEdge*100).toFixed(3)}%)`);
     console.log(`    best pLossUpper seen : ${(diag.bestLossPUSeen*100).toFixed(3)}%   (max ${(this.cfg.maxLossProb*100).toFixed(1)}%)`);
 
-    // Edge histogram
     const total = Object.values(diag.edgeBuckets).reduce((a, b) => a + b, 0);
     if (total > 0) {
       console.log('');
@@ -4042,7 +4058,6 @@ class DifferBacktester {
       }
     }
 
-    // Suggestions
     if (diag.recommended === 0 && diag.scans > 0) {
       console.log('');
       console.log(`  💡 No signals fired under strategy=${this.strategy}. Suggestions:`);
@@ -4082,28 +4097,178 @@ class DifferBacktester {
           console.log(`       PowerShell: $env:BACKTEST_MIN_CHISQ=1.0`);
         }
       }
+      console.log(`     ⚠️  Loosening gates only makes the bot trade MORE, not better. ` +
+        `The correct response to "no signals" on live DIGITDIFF is usually to stay idle.`);
     }
     console.log(line + '\n');
 
     return results;
   }
+
+  /**
+   * Shuffled-null baseline: same gate pipeline on a permutation of the
+   * same digits. Reports signals/wins/WR/EV. Used to detect whether an
+   * apparent edge survives comparison with pure chance on the same
+   * digit marginal.
+   */
+  _shuffledNullRun(digitArr, quoteArr, payoutMult, duration, minWindow) {
+    const n = digitArr.length;
+    const shuffled = digitArr.slice();
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
+    }
+    const qBE = 1 - 1 / payoutMult;
+    let signals = 0, wins = 0, i = minWindow;
+    const cfg = this.cfg;
+    while (i < n - duration - 1) {
+      const a = this.analyzer.analyzeAt('NULL', shuffled, i, quoteArr[i] ?? 0);
+      if (a && a.allowedByModel) {
+        const c = a.best;
+        const valueEdge = qBE - c.pLossUpper - cfg.safetyMargin;
+        if (valueEdge >= cfg.minEdge) {
+          signals++;
+          if (shuffled[i + duration] !== c.digit) wins++;
+        }
+      }
+      i++;
+    }
+    const wr = signals ? wins / signals * 100 : 0;
+    const realizedEV = signals ? (wins * (payoutMult - 1) - (signals - wins)) / signals * 100 : 0;
+    return { signals, wins, wr: +wr.toFixed(2), realizedEV: +realizedEV.toFixed(3) };
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// 11. BOOTSTRAP
+// 12. SELFTEST (offline; no API needed)
+//    Proves the machinery on synthetic data:
+//      • digit extraction (quoteToDigit) is correct per pip_size
+//      • on fair uniform digits the value gate produces ~no phantom edge
+//      • on an injected bias (one digit genuinely rare) the gate DOES fire
+// ─────────────────────────────────────────────────────────────────────
+function runSelftest() {
+  const banner = '═'.repeat(72);
+  console.log(banner);
+  console.log('  SELFTEST — offline null-data + digit-extraction + positive-control');
+  console.log(banner);
+  let allOk = true;
+
+  // 1. quoteToDigit unit checks
+  console.log('\n── 1. digit extraction (quoteToDigit) ──────────────────────────');
+  const checks = [
+    ['R_100',  '1234.153',  2, 5],
+    ['R_10',   '1234.153',  3, 3],
+    ['R_50',   '1234.1534', 4, 4],
+    ['R_75',   '1234.1534', 4, 4],
+    ['RDBULL', '1234.1534', 4, 4],
+    ['1HZ10V', '1234.15',   2, 5],
+    ['integer','1000',      3, 0],
+    ['pad',    '1234.5',    4, 0],
+  ];
+  for (const [name, q, pip, exp] of checks) {
+    const got = quoteToDigit(q, pip);
+    const pass = got === exp;
+    if (!pass) allOk = false;
+    console.log(`  ${pass ? '✔' : '✘'} ${name}: quote=${q} pip=${pip} → ${got} (expected ${exp})`);
+  }
+
+  const payoutMult = CONFIG.backtestPayoutMult;
+  const qBE = 1 - 1 / payoutMult;
+
+  // 2. Null test: fair uniform digits
+  console.log('\n── 2. null test: fair uniform digits (no phantom edge) ──────────');
+  console.log(`     payout=×${payoutMult}  qBE=${qBE.toFixed(4)}  minEdge=${CONFIG.minEdge}`);
+  const N = 20000;
+  const fair = Array.from({ length: N }, () => Math.floor(Math.random() * 10));
+
+  const runNull = (strategy, digits, label) => {
+    const cfg = { ...CONFIG, strategy };
+    const analyzer = makeAnalyzer(cfg);
+    let signals = 0, wins = 0, edgeSum = 0;
+    const minWindow = Math.max(cfg.minTicksForAnalysis, 300);
+    for (let i = minWindow; i < digits.length - 2; i += 5) {
+      const a = analyzer.analyzeAt('SYNTH', digits, i, 0);
+      if (!a || !a.allowedByModel) continue;
+      const c = a.best;
+      if (c.pLossUpper > cfg.maxLossProb) continue;
+      const valueEdge = qBE - c.pLossUpper - cfg.safetyMargin;
+      if (valueEdge < cfg.minEdge) continue;
+      signals++;
+      if (digits[i + 1] !== c.digit) wins++;
+      edgeSum += valueEdge;
+    }
+    const wr = signals ? wins / signals * 100 : 0;
+    const realizedEV = signals ? (wins * (payoutMult - 1) - (signals - wins)) / signals * 100 : 0;
+    console.log(`  [${label}] signals=${signals}  WR=${wr.toFixed(2)}%  realizedEV=${realizedEV.toFixed(3)}%`);
+    return { signals, wr, realizedEV };
+  };
+
+  const nullFreq = runNull('frequency', fair, 'frequency on fair digits');
+  const nullRep  = runNull('repeat_avoid', fair, 'repeat_avoid on fair digits');
+  const nullOkFreq = nullFreq.signals <= 2 && nullFreq.realizedEV <= 0.0001;
+  const nullOkRep  = nullRep.signals === 0 && nullRep.realizedEV <= 0.0001;
+  console.log(`  → frequency: ${nullOkFreq ? '✔ no phantom edge' : '⚠ exceeds null threshold (review gates)'}`);
+  console.log(`  → repeat_avoid: ${nullOkRep ? '✔ idles on fair data' : '⚠ exceeds null threshold (review gates)'}`);
+  if (!nullOkFreq || !nullOkRep) allOk = false;
+
+  // 3. Positive control: inject one genuinely rare digit (3 → p≈0.02)
+  console.log('\n── 3. positive control: injected bias (digit 3 at p≈0.02) ──────');
+  const biased = Array.from({ length: N }, () => {
+    const d = Math.floor(Math.random() * 10);
+    if (Math.random() < 0.02) return 3;
+    return d === 3 ? 9 : d;
+  });
+  const freq = new DigitAnalyzer(CONFIG);
+  const a = freq.analyzeAt('SYNTH', biased, biased.length - 1, 0);
+  let ctlPass = false;
+  if (a && a.best) {
+    const valueEdge = qBE - a.best.pLossUpper - CONFIG.safetyMargin;
+    console.log(`  coldest digit=${a.best.digit}  pLossUpper=${a.best.pLossUpper.toFixed(4)}  valueEdge=${valueEdge.toFixed(4)}  gates=${a.gates.length}`);
+    // The injected digit (3) must be the identified coldest digit, and the
+    // multiple-comparison-corrected deviation must be recognized. The
+    // strict value-gate (minEdge) is NOT required here — the point of this
+    // control is that the machinery recognizes a genuine, statistically
+    // significant deviation, not that the strict trading gate would fire
+    // on a synthetic ~2% digit at current minEdge.
+    ctlPass = a.best.digit === 3 && valueEdge >= 0 && a.allowedByModel;
+    console.log(`  → ${ctlPass ? '✔ machinery detects the injected real signal' : '✘ positive control FAILED (review)'}`);
+  } else {
+    console.log('  → ✘ analyzeAt returned no result (positive control FAILED)');
+  }
+  if (!ctlPass) allOk = false;
+
+  // 4. Strategy / mode resolution sanity
+  console.log('\n── 4. mode resolution sanity ────────────────────────────────────');
+  const ra = new RepeatAvoidAnalyzer(CONFIG);
+  const raWithFlag = new RepeatAvoidAnalyzer({ ...CONFIG, repeatAvoidUseConditional: true });
+  console.log(`  repeat_avoid mode (flag off, mode=cycle) → ${ra._mode()}`);
+  console.log(`  repeat_avoid mode (alias flag on)      → ${raWithFlag._mode()}`);
+  const modeOk = ra._mode() === 'cycle';
+  if (!modeOk) allOk = false;
+
+  console.log('\n' + banner);
+  console.log(`  RESULT: ${allOk ? '✔ ALL SELFTEST CHECKS PASSED' : '✘ SELFTEST FAILURES — review before live/demo use'}`);
+  console.log(banner + '\n');
+  process.exit(allOk ? 0 : 1);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 13. BOOTSTRAP
 // ─────────────────────────────────────────────────────────────────────
 function printBanner() {
   console.log('╔══════════════════════════════════════════════════════════╗');
-  console.log('║   Deriv Digit Differ Bot v3.0 (honest edition)             ║');
-  console.log('║   DIGITDIFF • Empirical Frequency • Value-Edge Gate        ║');
-  console.log('║   GMT EOD • Kelly/Calib • Circuit Breaker • Stateful Stats ║');
+  console.log('║   Deriv Digit Differ Bot v4.0 (honest, risk-first)         ║');
+  console.log('║   DIGITDIFF • Value-Edge Gate • Hard Daily Stops           ║');
+  console.log('║   GMT EOD • Calibrator • Circuit Breaker • Reconcile       ║');
   console.log('╚══════════════════════════════════════════════════════════╝');
   console.log('');
   console.log('  No trading method guarantees consistent profit on a fair RNG.');
   console.log('  This bot is a risk-management framework around a heuristic signal,');
-  console.log('  not a demonstrated statistical edge. See file header for details.');
+  console.log('  not a demonstrated statistical edge. On fair digits it should idle.');
+  console.log('  Run $env:SELFTEST=1 first to confirm the machinery behaves.');
   console.log('');
 }
+
 async function main() {
   printBanner();
   if (!CONFIG.apiToken) {
@@ -4114,6 +4279,12 @@ async function main() {
     console.warn('⚠️  PAT token detected. DERIV_ACCOUNT_ID is strongly recommended and may be required by the new Deriv API.');
   }
   console.log(CONFIG.telegram.enabled ? '✅ Telegram notifications: ENABLED' : 'ℹ️  Telegram notifications: DISABLED');
+
+  // ── Selftest mode (offline) ──────────────────────────────────────
+  if (process.env.SELFTEST === '1' || process.argv.includes('--selftest')) {
+    runSelftest();
+    return;
+  }
 
   // ── Diagnostics mode: test the "repeat/no-repeat cycles" claim ────
   if (process.env.DIAGNOSE === '1' || process.argv.includes('--diagnose')) {
@@ -4128,9 +4299,6 @@ async function main() {
         await market.loadSymbols();
         const diag = new RepeatCycleDiagnostics();
         for (const s of list) {
-          // deepBackfill chains multiple ticks_history calls to get past
-          // Deriv's ~5000-tick single-request cap — same mechanism the
-          // backtester uses to reach 40k-100k+ ticks.
           const history = await market.deepBackfill(s, depth, CONFIG.backtestBatchSize,
             (got, total) => process.stdout.write(`\r  ${s}: fetched ${got}/${total} ticks...`));
           console.log('');
@@ -4200,8 +4368,6 @@ main().catch(e => {
 });
 
 
-
-// ═══════════════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════════════
 // RISK PRESETS (copy into .env) — these tune caution level, not "edge"
 // ═══════════════════════════════════════════════════════════════════════
@@ -4255,10 +4421,10 @@ main().catch(e => {
 // DAILY_MAX_LOSS_PCT=0.05
 //
 // 🚀 WIDER NET — more scans qualify; risk caps do more of the work.
-//    NOTE: "wider net" does not mean "better odds" — it just means
-//    fewer trades get filtered out before the sizing/circuit-breaker
-//    layer. Expected value per trade is still governed by the house
-//    edge on DIGITDIFF, not by this analysis window.
+//    NOTE: "wider net" does not mean "better odds" — it just means fewer
+//    trades get filtered out before the sizing/circuit-breaker layer.
+//    Expected value per trade is still governed by the house edge on
+//    DIGITDIFF, not by this analysis window.
 // ANALYSIS_WINDOW=150
 // MIN_EDGE=0.004
 // SAFETY_MARGIN=0.002
@@ -4283,3 +4449,17 @@ main().catch(e => {
 // CIRCUIT_BREAKER_LOSSES=4
 // CIRCUIT_BREAKER_COOLDOWN_MS=1800000
 // DAILY_MAX_LOSS_PCT=0.06
+//
+// 🧪 PIPELINE VALIDATION (demo only) — verify proposal→buy→settle works
+//    WITHOUT claiming an edge. This loosens the gates purely to let a few
+//    trades through so you can watch the mechanics. Expected value is
+//    still NEGATIVE (house edge); treat the P/L from such a run as a
+//    plumbing test, not a strategy result.
+// MIN_EDGE=0.0005
+// SAFETY_MARGIN=0.0005
+// MODEL_RISK_MARGIN=0.0005
+// MAX_LOSS_PROB=0.098
+// EDGE_ZSCORE=1.96
+// RECOVERY_ENABLED=false
+// STAKE=1.1
+// DAILY_MAX_TRADES=25
