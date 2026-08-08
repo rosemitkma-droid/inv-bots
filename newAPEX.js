@@ -152,7 +152,7 @@ const CONFIG = Object.freeze({
   tradeCooldownMs     : parseInt('4000',  10),
   maxOpenTrades       : parseInt('1',     10),
   skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
-  recentTradedSymbolsLen : parseInt('2', 10),
+  recentTradedSymbolsLen : parseInt('3', 10),
 
   // ── EV / survival gates (per-trade floors; NOT loosened by cadence) ──
   apexMinEV       : parseFloat('0.010'),   // ≥ +1% net EV to fire
@@ -224,9 +224,9 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging / state ──
-  logFile           : 'accuAPEXnewn_03.log',
+  logFile           : 'accuAPEXnewn_04.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnewn_state_03.json',
+  stateFile         : 'accuAPEXnewn_state_04.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 
