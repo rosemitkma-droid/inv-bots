@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitragee_03-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_03-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitragee_04-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_04-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -131,15 +131,15 @@ const CONFIG = {
     // MIN_CANDLES_REQUIRED: 82,
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
-    USE_TRADING_SESSIONS: false,
+    USE_TRADING_SESSIONS: true,
     SESSIONS: [
-        { name: 'LONDON_OPEN', start: 2, end: 17 },
-        { name: 'NY_OPEN', start: 12, end: 22 },
+        { name: 'LONDON_OPEN', start: 7, end: 17 },
+        { name: 'NY_OPEN', start: 12, end: 20 },
     ],
 
     // ── Position Management ───────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS: 7,
+    MAX_TOTAL_POSITIONS: 1,
     MAX_TRADES_PER_CYCLE: 1,
 
     // ── Active Index Assets ───────────────────────────────────
@@ -173,7 +173,7 @@ const DEFAULT_ASSET_CONFIG = {
     DURATION_UNIT: 'm',
 
     // Stake Settings
-    INITIAL_STAKE: 0.5,
+    INITIAL_STAKE: 0.35,
     INVESTMENT_AMOUNT: 152,
 
     // Martingale Settings
