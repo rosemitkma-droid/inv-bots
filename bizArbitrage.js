@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitragee_04-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_04-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitragee_05-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_05-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -124,8 +124,8 @@ const CONFIG = {
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
     GRANULARITY: 60,
     TIMEFRAME_LABEL: '1m',
-    CANDLES_TO_LOAD: 60,
-    MAX_CANDLES_STORED: 60,
+    CANDLES_TO_LOAD: 30,
+    MAX_CANDLES_STORED: 30,
     DURATION: 1,
     DURATION_UNIT: 'm',
     // MIN_CANDLES_REQUIRED: 82,
@@ -145,11 +145,11 @@ const CONFIG = {
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
         // 'R_75',
-        // 'R_100',
+        'R_100',
         // '1HZ10V',
         // '1HZ25V',
         // '1HZ100V',
-        'stpRNG',
+        // 'stpRNG',
         // 'stpRNG3',
     ],
 
@@ -191,9 +191,9 @@ const DEFAULT_ASSET_CONFIG = {
     STOP_LOSS: 152,
 
     // Pattern Analysis Settings
-    PATTERN_MIN_CONFIDENCE: 0.60,
-    MIN_PATTERN_CONFIDENCE: 0.60,
-    MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.60,
+    PATTERN_MIN_CONFIDENCE: 0.10,
+    MIN_PATTERN_CONFIDENCE: 0.10,
+    MIN_PATTERN_CONFIDENCE_STEP_RNG: 0.10,
     PATTERN_LENGTHS: [2], //[3, 4, 5, 6, 7, 8]
     PATTERN_MIN_OCCURRENCES: 1,
     PATTERN_RECENCY_DECAY: 0.9990,
