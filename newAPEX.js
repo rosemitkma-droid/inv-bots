@@ -123,7 +123,7 @@ const CONFIG = Object.freeze({
   //              clamped to [minStakeFraction, maxStakeFraction] × base.
   //   'kelly'   — fractional Kelly from the model EV (fraction of the
   //              gross multiple), clamped to the same bounds.
-  sizingModeV3        : 'adaptive',  // 'flat' | 'adaptive' | 'kelly'
+  sizingModeV3        : 'flat',  // 'flat' | 'adaptive' | 'kelly'
   lossStakeReduction  : parseFloat('0.70'),
   winStakeRecovery    : parseFloat('1.15'),
   minStakeFraction    : parseFloat('0.25'),
@@ -156,7 +156,7 @@ const CONFIG = Object.freeze({
 
   // ── EV / survival gates (per-trade floors; NOT loosened by cadence) ──
   apexMinEV       : parseFloat('0.010'),   // ≥ +1% net EV to fire
-  apexMinSurvival : parseFloat('0.900'),    // forward K-tick survival floor
+  apexMinSurvival : parseFloat('0.940'),    // forward K-tick survival floor
   pulseSpreadCost : parseFloat('0.002'),   // flat spread model (low; see honesty note)
   pulseGrowthRates: [0.05, 0.04], //[0.05, 0.04, 0.03, 0.02, 0.01] grid searched by EV (lower rates = looser barrier)
 
@@ -224,9 +224,9 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging / state ──
-  logFile           : 'accuAPEXnewn_01.log',
+  logFile           : 'accuAPEXnewn_02.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnewn_state_01.json',
+  stateFile         : 'accuAPEXnewn_state_02.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 
