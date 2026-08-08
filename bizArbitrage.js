@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitragee_06-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_06-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitragee_07-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_07-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -1908,7 +1908,9 @@ class IndexBot {
                 return;
             }
 
-            direction = analysis.direction;
+            const direction2 = analysis.direction;
+
+            direction = direction2 === 'CALLE' ? 'PUTE' : 'CALLE';
 
             if ((symbol === 'stpRNG' || symbol === 'stpRNG2' || symbol === 'stpRNG3' || symbol === 'stpRNG4' || symbol === 'stpRNG5')) {
                 if (bestPatternConfidence < DEFAULT_ASSET_CONFIG.MIN_PATTERN_CONFIDENCE_STEP_RNG) {
