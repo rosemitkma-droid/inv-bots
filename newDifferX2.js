@@ -238,7 +238,7 @@ const CONFIG = Object.freeze({
   safetyMargin: 0.002,
   modelRiskMargin: 0.0015,
   zScore: 1.28,          // Wilson one-sided upper bound
-  maxLossProb: 0.092,    // never take if upper-bound P(loss digit) > this
+  maxLossProb: 0.095,    //0.092 never take if upper-bound P(loss digit) > this
   minProbabilityGap: 0.004,
   // ── Multiple-comparison-corrected deviation gate ────────────────────
   //   The barrier digit is chosen as the COLDEST of 10 empirical
@@ -258,7 +258,7 @@ const CONFIG = Object.freeze({
   //   n≈400 they are statistically indistinguishable from the selection
   //   noise of "coldest of 10" — and unselectable noise is −EV after
   //   house margin.
-  minDeviationZ: 4.2,
+  minDeviationZ: 2.0, //4.2
   // ── Entropy / χ² sanity gates ───────────────────────────────────────
   //   Lower bounds guard against acting on too-small / degenerate samples.
   //   UPPER bounds are deliberately disabled (maxEntropy=1.0,
@@ -295,16 +295,16 @@ const CONFIG = Object.freeze({
   // keep the ladder short AND shallow; the old 1 → 13.2 → 150 ladder is
   // gone. recoveryStakeCap and maxStakePctBankroll are hard ceilings on
   // any single stake regardless of ladder.
-  recoveryEnabled: false,
-  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,2,4').map(Number).filter(Number.isFinite),
-  recoveryStakeCap: 25,          // absolute max per trade when recovery is on
-  maxStakePctBankroll: 0.05,     // never risk >5% of live balance per trade
+  recoveryEnabled: true,
+  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,14,150').map(Number).filter(Number.isFinite),
+  recoveryStakeCap: 250,          // absolute max per trade when recovery is on
+  maxStakePctBankroll: 0.5,     // never risk >5% of live balance per trade
 
   // ─ Trade watchdog ─
   tradeWatchdogMs: 20000,
 
   // ── Kelly-fractional sizing (optional) ─────────────────────────────
-  kellySizingEnabled  : true,
+  kellySizingEnabled  : false,
   kellyFraction       : 0.25,
   kellyBankrollFrac   : 1.00,
   kellyBankrollFloor  : 100.0,
@@ -315,7 +315,7 @@ const CONFIG = Object.freeze({
   //   Rolling per-symbol (predicted P(win), actual outcome). Auto-benches
   //   a symbol when empirical WR trails predicted by > calibDisableGap
   //   over ≥ calibMinTrades. Re-enters via low-stake probe.
-  calibEnabled        : true,
+  calibEnabled        : false,
   calibWindow         : 200,
   calibMinTrades      : 40,
   calibDisableGap     : 0.020,   // −2 pp below prediction → disable
@@ -334,8 +334,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_03.json'),
-  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_03.log'),
+  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_04.json'),
+  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_04.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFER').toUpperCase(),
 
   // Telegram — existing hardcoded demo-test values, preserved.
