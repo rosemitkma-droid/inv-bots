@@ -144,8 +144,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [kept — this bot's own artifacts]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizPatternn_03-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizPatternn_03-history.json');
+const STATE_FILE = path.join(__dirname, 'bizPatternn_04-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizPatternn_04-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -279,8 +279,8 @@ const CONFIG = {
     MARTINGALE_MULTIPLIER: 1.48,
     MAX_MARTINGALE_LEVEL: 1,
     AFTER_MAX_LOSS: 'continue',
-    CONTINUE_EXTRA_LEVELS: 4,
-    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.3],
+    CONTINUE_EXTRA_LEVELS: 8,
+    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2, 2, 2, 2.2], //[2.1, 2.2, 2, 2.3]
     AUTO_COMPOUNDING: true,
     COMPOUND_PERCENTAGE: 0.1,         // 0.24% of pool — only matters with martingale
     MAX_CONSECUTIVE_LOSSES: 15,         // asset halts for the day after this many
@@ -322,14 +322,21 @@ const CONFIG = {
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
+        'R_10',
+        'R_25',
+        'R_50',
         'R_75',
         'R_100',
         '1HZ10V',
-        'stpRNG',
-        'stpRNG2',
-        'stpRNG3',
-        'stpRNG4',
-        'stpRNG5',
+        '1HZ25V',
+        '1HZ50V',
+        '1HZ75V',
+        '1HZ100V',
+        // 'stpRNG',
+        // 'stpRNG2',
+        // 'stpRNG3',
+        // 'stpRNG4',
+        // 'stpRNG5',
     ],
 
     // ── Ops ───────────────────────────────────────────────────
