@@ -112,7 +112,7 @@ const CONFIG = Object.freeze({
   accountType: 'demo',    // 'demo' | 'real'  — keep demo for testing
 
   // ── Trade parameters ──
-  stake          : parseFloat('5.0'),
+  stake          : parseFloat('2.5'),
   stopLoss       : parseFloat('900.0'),   // catastrophic per-contract stop ($)
   dailyMaxLoss   : parseFloat('500'),     // hard daily loss → stop until next UTC day
   dailyMaxTrades : parseInt('6000', 10),    // hard daily trade cap → stop until next UTC day
@@ -123,7 +123,7 @@ const CONFIG = Object.freeze({
   //              clamped to [minStakeFraction, maxStakeFraction] × base.
   //   'kelly'   — fractional Kelly from the model EV (fraction of the
   //              gross multiple), clamped to the same bounds.
-  sizingModeV3        : 'flat',  // 'flat' | 'adaptive' | 'kelly'
+  sizingModeV3        : 'kelly',  // 'flat' | 'adaptive' | 'kelly'
   lossStakeReduction  : parseFloat('0.70'),
   winStakeRecovery    : parseFloat('1.15'),
   minStakeFraction    : parseFloat('0.25'),
@@ -224,9 +224,9 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging / state ──
-  logFile           : 'accuAPEXnewn_04.log',
+  logFile           : 'accuAPEXnewn_05.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnewn_state_04.json',
+  stateFile         : 'accuAPEXnewn_state_05.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 
