@@ -114,13 +114,13 @@ const CONFIG = Object.freeze({
   accountType: 'demo',    // 'demo' | 'real'
 
   // ── Trade parameters ──
-  stake           : parseFloat('5.0'),
+  stake           : parseFloat('1.0'),
   growthRate      : parseFloat('0.05'),    // 5% base growth rate
   stopLoss        : parseFloat('500.0'),     // hard $ stop per contract in demo
   takeProfit      : parseFloat('5000.0'),    // session take-profit in demo
   demoOnly        : false,                  // refuse to trade a non-virtual account
   tradeEnabled    : true,                  // set false for observe-only market collection
-  skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
+  skipRecentTradedSymbols: false,        // don't re-enter the same symbol back-to-back
   recentTradedSymbolsLen : parseInt('1', 10),
 
   // ── Anti-Martingale (win-streak compounding) ──
@@ -216,11 +216,11 @@ const CONFIG = Object.freeze({
   maxTelegramQueue: parseInt('100', 10),
 
   // ── Logging ──
-  logFile : 'accuPULSE2bnn_04.log',
+  logFile : 'accuPULSE2bnn_05.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuPULSE2bnn_state_043.json',
+  stateFile           : 'accuPULSE2bnn_state_05.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
