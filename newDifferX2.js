@@ -159,10 +159,10 @@ const CONFIG = Object.freeze({
   currency: 'USD',
 
   // Trade setup
-  stake: numEnv('STAKE', 1.1),
-  durationTicks: intEnv('DURATION_TICKS', 1), // Digit contracts normally 1-10 ticks
-  minStake: numEnv('MIN_STAKE', 1.1),
-  maxStake: numEnv('MAX_STAKE', 150.00),
+  stake: 1.1,
+  durationTicks: 1, // Digit contracts normally 1-10 ticks
+  minStake: 1.1,
+  maxStake: 150.00,
   assets: ['R_10','R_25','R_50','R_75','R_100','RDBEAR','RDBULL'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
@@ -304,7 +304,7 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: 20000,
 
   // ── Kelly-fractional sizing (optional) ─────────────────────────────
-  kellySizingEnabled  : false,
+  kellySizingEnabled  : true,
   kellyFraction       : 0.25,
   kellyBankrollFrac   : 1.00,
   kellyBankrollFloor  : 100.0,
@@ -334,8 +334,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_01.json'),
-  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_01.log'),
+  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_03.json'),
+  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_03.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFER').toUpperCase(),
 
   // Telegram — existing hardcoded demo-test values, preserved.
