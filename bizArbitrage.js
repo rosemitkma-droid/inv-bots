@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitragee_07-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_07-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitragee_08-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_08-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -180,8 +180,8 @@ const DEFAULT_ASSET_CONFIG = {
     MARTINGALE_MULTIPLIER: 1.48,
     MAX_MARTINGALE_LEVEL: 1,
     AFTER_MAX_LOSS: 'continue',
-    CONTINUE_EXTRA_LEVELS: 4,
-    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.3], //[2.0, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3]
+    CONTINUE_EXTRA_LEVELS: 8,
+    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2, 2, 2, 2.2], //[2.1, 2.2, 2, 2.3]
 
     // Auto-Compounding
     AUTO_COMPOUNDING: true,
