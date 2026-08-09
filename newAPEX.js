@@ -123,12 +123,18 @@ const CONFIG = Object.freeze({
   //              clamped to [minStakeFraction, maxStakeFraction] × base.
   //   'kelly'   — fractional Kelly from the model EV (fraction of the
   //              gross multiple), clamped to the same bounds.
-  sizingModeV3        : 'adaptive',  // 'flat' | 'adaptive' | 'kelly'
-  lossStakeReduction  : parseFloat('0.70'),
-  winStakeRecovery    : parseFloat('1.15'),
-  minStakeFraction    : parseFloat('0.25'),
-  maxStakeFraction    : parseFloat('1.50'),
-  kellyFraction       : parseFloat('0.20'),
+  //   'martingale' — classic martingale: stake ×martingaleMultiplier after
+  //              each consecutive loss (reset to base stake on a win); the
+  //              bot stops trading entirely once martingaleStep consecutive
+  //              losses (stake multiplications) are reached. Not clamped.
+  sizingModeV3         : 'martingale',  // 'flat' | 'adaptive' | 'kelly' | 'martingale'
+  lossStakeReduction   : parseFloat('0.70'),
+  winStakeRecovery     : parseFloat('1.15'),
+  minStakeFraction     : parseFloat('0.25'),
+  maxStakeFraction     : parseFloat('1.50'),
+  kellyFraction        : parseFloat('0.20'),
+  martingaleMultiplier : parseFloat('20.0'),  // martingale × on each consecutive loss
+  martingaleStep       : parseInt('2', 10),  // stop trading after this many stake multiplications (consecutive losses)
 
   // ── Assets (Deriv synthetic indices) ──
   // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
@@ -224,9 +230,9 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging / state ──
-  logFile           : 'accuAPEXnewn_04.log',
+  logFile           : 'accuAPEXnewn_08.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnewn_state_04.json',
+  stateFile         : 'accuAPEXnewn_state_08.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 
@@ -1822,6 +1828,12 @@ class AccuAPEXnewBot {
     this._pauseStartTimer = null;
     this._pauseEndTimer = null;
     this.lastTradedSymbols = [];
+
+// Martingale sizing state (only used when sizingModeV3 === 'martingale').
+    // stake = stake the NEXT trade will use; grows ×martingaleMultiplier
+    // after each consecutive loss and resets to base on a win. Once `streak`
+    // hits martingaleStep the bot halts trading (`stopped`).
+    this.martingale = { streak: 0, stake: this.cfg.stake, stopped: false };
   }
 
   async start() {
@@ -2049,7 +2061,9 @@ class AccuAPEXnewBot {
       ? `<b>Sizing:</b> Adaptive (${t.stake.toFixed(2)} ${this.currencyStr()}) | Base: ${(a.baseStake ?? this.cfg.stake).toFixed(2)}\n`
       : a.sizingMode === 'kelly'
         ? `<b>Sizing:</b> Kelly (${t.stake.toFixed(2)} ${this.currencyStr()}) | Base: ${(a.baseStake ?? this.cfg.stake).toFixed(2)}\n`
-        : '';
+        : a.sizingMode === 'martingale'
+          ? `<b>Sizing:</b> Martingale (${t.stake.toFixed(2)} ${this.currencyStr()}) | Base: ${(a.baseStake ?? this.cfg.stake).toFixed(2)}\n`
+          : '';
     const msg =
       `<b>APEX v4 TRADE OPENED</b>\n\n` +
       `<b>Contract:</b> #${t.contractId}\n` +
@@ -2081,6 +2095,9 @@ class AccuAPEXnewBot {
     this.assetTracker.onTradeResult(t.symbol, won, t.profit);
     if (this.cfg.sizingModeV3 === 'adaptive') {
       this.assetTracker.updateStakeAfterResult(t.symbol, won, this.assetTracker.getAdaptiveStake(t.symbol, this.cfg.stake), this.cfg.stake);
+    }
+    if (this.cfg.sizingModeV3 === 'martingale') {
+      this._updateMartingaleState(t.symbol, won);
     }
 
     const todayStats = this.stats.stats(this.stats.todayTrades(rec.date));
@@ -2115,8 +2132,42 @@ class AccuAPEXnewBot {
       const mult = kellyMultiplier((analysis.edge ?? 1) - 1, gross, this.cfg.kellyFraction);
       return +Math.max(lo, Math.min(hi, base * mult)).toFixed(2);
     }
+    if (this.cfg.sizingModeV3 === 'martingale') return +this.martingale.stake.toFixed(2);
     if (this.cfg.sizingModeV3 === 'flat') return +base.toFixed(2);
     return this.assetTracker.getAdaptiveStake(symbol, base);   // adaptive
+  }
+
+  // Martingale state transition on settle: a loss multiplies the next stake
+  // by martingaleMultiplier (bounded by martingaleStep consecutive losses
+  // before the bot halts); a win resets the progression back to base stake.
+  _updateMartingaleState(symbol, won) {
+    const m = this.martingale;
+    if (won) {
+      m.streak = 0;
+      m.stake = this.cfg.stake;
+      m.stopped = false;
+      logger.info(`martingale: WIN on ${symbol} — streak reset, next stake back to base ${this.cfg.stake.toFixed(2)}`);
+      return;
+    }
+    m.streak += 1;
+    m.stake = +(m.stake * this.cfg.martingaleMultiplier).toFixed(2);
+    logger.warn(
+      `martingale: LOSS #${m.streak} on ${symbol} — next stake ${m.stake.toFixed(2)} ` +
+      `(×${this.cfg.martingaleMultiplier}${m.streak > 1 ? ' again' : ''})`,
+    );
+    if (m.streak >= this.cfg.martingaleStep) {
+      m.stopped = true;
+      logger.error(
+        `martingale: reached step limit (${m.streak} ≥ ${this.cfg.martingaleStep} consecutive losses) ` +
+        `— BOT STOPPED trading until restart`,
+      );
+      telegram.send(
+        `⛔ <b>MARTINGALE STEP LIMIT REACHED</b>\n` +
+        `${m.streak} consecutive losses (step limit: ${this.cfg.martingaleStep}).\n` +
+        `Next stake would have been <b>${m.stake.toFixed(2)} ${this.currencyStr()}</b>.\n` +
+        `Trading halted — restart the bot to reset the sequence.`,
+      );
+    }
   }
 
   async _analyzeAndTrade() {
@@ -2128,6 +2179,10 @@ class AccuAPEXnewBot {
       if (this.paused) { logger.debug('trading paused — skipping analysis cycle'); return; }
       if (!this._isTradingAllowedToday()) return;
       this._checkDayChange();
+      if (this.cfg.sizingModeV3 === 'martingale' && this.martingale.stopped) {
+        logger.debug('martingale: step limit reached — trading stopped (restart the bot to reset)');
+        return;
+      }
 
       const now = Date.now();
       if (this._dailyStopUntil && now < this._dailyStopUntil) return;
@@ -2330,6 +2385,7 @@ class AccuAPEXnewBot {
         startBalance: this.startBalance, lastBalance: this.lastBalance, overallProfit: this.overallProfit,
         stats: this.stats.serialize(),
         assetTracker: this.assetTracker.serialize(),
+        martingale: this.martingale,
       };
       const tmp = this.cfg.stateFile + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify(payload, null, 2));
@@ -2347,6 +2403,13 @@ class AccuAPEXnewBot {
       if (d.overallProfit != null) this.overallProfit = d.overallProfit;
       this.stats = new StatisticsManager(d.stats || {});
       if (d.assetTracker) this.assetTracker.loadSaved(d.assetTracker);
+      if (d.martingale) {
+        this.martingale = {
+          streak: Number(d.martingale.streak || 0),
+          stake: Number(d.martingale.stake || this.cfg.stake),
+          stopped: !!d.martingale.stopped,
+        };
+      }
       logger.info(
         `state restored (APEX v4): overallProfit=${this.stats.overallProfit.toFixed(2)} ` +
         `lossStreak=${this.stats.currentLossStreak} sessionPnl=${this.assetTracker.sessionPnl.toFixed(2)}`,
