@@ -154,7 +154,7 @@ const CONFIG = Object.freeze({
 
   // Accumulator risk model. A barrier is evaluated against the prior tick;
   // these controls model that single-tick hazard, never a static entry barrier.
-  candidateGrowthRates : [0.04, 0.05], //[0.01, 0.02, 0.03, 0.04, 0.05],
+  candidateGrowthRates : [0.04], //[0.01, 0.02, 0.03, 0.04, 0.05],
   hazardWindow         : parseInt('250', 10),
   plannedHoldTicks     : parseInt('20', 10),
   minBarrierPct        : parseFloat('0.02'),
@@ -216,11 +216,11 @@ const CONFIG = Object.freeze({
   maxTelegramQueue: parseInt('100', 10),
 
   // ── Logging ──
-  logFile : 'accuPULSE2bnn_05.log',
+  logFile : 'accuPULSE2bnn_06.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuPULSE2bnn_state_05.json',
+  stateFile           : 'accuPULSE2bnn_state_06.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
