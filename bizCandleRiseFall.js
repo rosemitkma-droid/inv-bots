@@ -1628,31 +1628,32 @@ class IndexBot {
                     a.buyFlagActive = false; // consumed
                 }
                 return;
-            } else {
-                LOGGER.signal(`[${symbol}] SELL SIGNAL`);
-                const setupSuccess = 'PUTE';
+            } 
+            // else {
+            //     LOGGER.signal(`[${symbol}] SELL SIGNAL`);
+            //     const setupSuccess = 'PUTE';
 
-                if (setupSuccess) {
-                    // Execute first trade as PUTE
-                    const firstDir = 'PUTE';
-                    a.normalModeActive = true;
-                    a.tradesInNormalMode = 1;
-                    a.normalModeDirection = firstDir;
-                    a.lastTradeDirection = firstDir;
-                    a.currentDirection = firstDir;
+            //     if (setupSuccess) {
+            //         // Execute first trade as PUTE
+            //         const firstDir = 'PUTE';
+            //         a.normalModeActive = true;
+            //         a.tradesInNormalMode = 1;
+            //         a.normalModeDirection = firstDir;
+            //         a.lastTradeDirection = firstDir;
+            //         a.currentDirection = firstDir;
 
-                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+            //         LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
-                    this._executeBuy(symbol, firstDir, stake, {
-                        method: 'CANDLE_CLOSE_BEARISH',
-                        reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
-                        marketMode: mode,
-                    });
+            //         this._executeBuy(symbol, firstDir, stake, {
+            //             method: 'CANDLE_CLOSE_BEARISH',
+            //             reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
+            //             marketMode: mode,
+            //         });
 
-                    a.sellFlagActive = false; // consumed
-                }
-                return;
-            }
+            //         a.sellFlagActive = false; // consumed
+            //     }
+            //     return;
+            // }
         } 
         // else {
         //     if (dir === 'CALLE') {
