@@ -163,7 +163,7 @@ const CONFIG = Object.freeze({
   //   drop out of the window. Unlike assetRotationMs there is no time
   //   expiry — a symbol stays barred for N subsequent trades.
   skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
-  recentTradedSymbolsLen : parseInt('3', 10),
+  recentTradedSymbolsLen : parseInt('2', 10),
   dailyMaxLoss: 570,
   // Belt-and-braces: stop for the day at whichever loss cap is hit first —
   // a fixed dollar figure AND a % of the balance seen at the start of the day.
@@ -264,8 +264,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'simpleDiffern_state_006.json'),
-  logFile: strEnv('LOG_FILE', 'simpleDiffern_bot_006.log'),
+  stateFile: strEnv('STATE_FILE', 'simpleDiffern_state_007.json'),
+  logFile: strEnv('LOG_FILE', 'simpleDiffern_bot_007.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO SIMPLEDIFFER').toUpperCase(),
 
   // Telegram — MUST come from .env / environment, never hardcode a real
