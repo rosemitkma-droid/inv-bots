@@ -136,7 +136,7 @@ const CONFIG = Object.freeze({
   durationTicks: intEnv('DURATION_TICKS', 1), // Digit contracts normally 1-10 ticks
   minStake: numEnv('MIN_STAKE', 1.1),
   maxStake: numEnv('MAX_STAKE', 150.00),
-  assets: ['R_50'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
+  assets: ['R_10','R_25','R_50','R_75','R_100','RDBULL'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
   tickWindow: 1000,
@@ -157,6 +157,13 @@ const CONFIG = Object.freeze({
   //   Set assetRotationMs=0 to disable the rotation entirely (trade
   //   whatever ranks first every scan).
   assetRotationMs: 60_000,
+  // ── Recent-traded symbol skip (accuAPEX-style) ────────────────────
+  //   Keeps a rolling window of the last `recentTradedSymbolsLen` symbols
+  //   that were actually traded and refuses to re-enter them until they
+  //   drop out of the window. Unlike assetRotationMs there is no time
+  //   expiry — a symbol stays barred for N subsequent trades.
+  skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
+  recentTradedSymbolsLen : parseInt('3', 10),
   dailyMaxLoss: 570,
   // Belt-and-braces: stop for the day at whichever loss cap is hit first —
   // a fixed dollar figure AND a % of the balance seen at the start of the day.
@@ -257,8 +264,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'simpleDiffern_state_003.json'),
-  logFile: strEnv('LOG_FILE', 'simpleDiffern_bot_003.log'),
+  stateFile: strEnv('STATE_FILE', 'simpleDiffern_state_005.json'),
+  logFile: strEnv('LOG_FILE', 'simpleDiffern_bot_005.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO SIMPLEDIFFER').toUpperCase(),
 
   // Telegram — MUST come from .env / environment, never hardcode a real
@@ -1570,6 +1577,7 @@ class TradingBot {
     this.lastTradeAt = 0;
     this.tradedAsset   = null;   // symbol most recently traded (rotation lock)
     this.tradedAssetAt = 0;      // when that symbol was traded (ms epoch)
+    this.lastTradedSymbols = []; // rolling window of recently traded symbols (skipRecentTradedSymbols)
     this.stopped = false;
     this.paused = false;
     this._analysisT = null;
@@ -2049,12 +2057,22 @@ class TradingBot {
       return;
     }
 
-    let best = qualified.find(c => !lockActive || c.analysis.symbol !== this.tradedAsset);
+    let best = qualified.find(c =>
+      (!lockActive || c.analysis.symbol !== this.tradedAsset) &&
+      !(this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(c.analysis.symbol))
+    );
     if (!best) {
-      if (lockActive) {
+      const top = qualified[0];
+      if (lockActive && top.analysis.symbol === this.tradedAsset) {
         const ageSec = ((Date.now() - (this.tradedAssetAt || 0)) / 1000).toFixed(1);
         logger.info(
           `skip: only qualifying symbol is ${this.tradedAsset} — still in ${(rotationMs/1000).toFixed(0)}s rotation cooldown (age ${ageSec}s)`
+        );
+        return;
+      }
+      if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(top.analysis.symbol)) {
+        logger.info(
+          `skip: only qualifying symbol ${top.analysis.symbol} was recently traded (window=[${this.lastTradedSymbols.join(',')}]) — skipping scan`
         );
         return;
       }
@@ -2109,6 +2127,8 @@ class TradingBot {
     const trade = await this.exec.buy(a.symbol, a.digit, stake, payload);
 
     this.lastTradeAt = Date.now();
+    this.lastTradedSymbols.push(a.symbol);
+    if (this.lastTradedSymbols.length > this.cfg.recentTradedSymbolsLen) this.lastTradedSymbols.shift();
     logger.info(
       `trade placed #${trade.contractId} ${a.symbol} DIGITDIFF differs ${a.digit} ` +
       `pUpper=${(a.pUpper*100).toFixed(2)}% edge=${best.valueEdge.toFixed(4)}`
