@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_027-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_027-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_028-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_028-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -112,14 +112,14 @@ const CONFIG = {
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // ── Martingale / staking settings mirrored from candlePatternRFm.js ─
-    INITIAL_STAKE: 0.5,
+    INITIAL_STAKE: 0.35,
     INVESTMENT_AMOUNT: 152,
     MARTINGALE_MULTIPLIER: 1.48,
     MAX_MARTINGALE_LEVEL: 1,
     AFTER_MAX_LOSS: 'continue',
     CONTINUE_EXTRA_LEVELS: 8,
     EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.1, 2.2, 2.3, 2.3], //[2.1, 2.2, 2, 2.3]
-    AUTO_COMPOUNDING: true,
+    AUTO_COMPOUNDING: false,
     COMPOUND_PERCENTAGE: 0.1,
     STOP_LOSS: 152,
 
@@ -133,8 +133,8 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 30,
     MAX_CANDLES_STORED: 30,
-    DURATION: 73,
-    DURATION_UNIT: 's',
+    DURATION: 1,
+    DURATION_UNIT: 'm',
     MIN_CANDLES_REQUIRED: 30,    
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
