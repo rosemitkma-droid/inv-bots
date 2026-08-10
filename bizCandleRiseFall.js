@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_020-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_020-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_026-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_026-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -117,8 +117,8 @@ const CONFIG = {
     MARTINGALE_MULTIPLIER: 1.48,
     MAX_MARTINGALE_LEVEL: 1,
     AFTER_MAX_LOSS: 'continue',
-    CONTINUE_EXTRA_LEVELS: 4,
-    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.3], //[2.0, 2.1, 2.1, 2.2, 2.2, 2.2, 2.3]
+    CONTINUE_EXTRA_LEVELS: 8,
+    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.1, 2.2, 2.3, 2.3], //[2.1, 2.2, 2, 2.3]
     AUTO_COMPOUNDING: true,
     COMPOUND_PERCENTAGE: 0.1,
     STOP_LOSS: 152,
@@ -151,9 +151,9 @@ const CONFIG = {
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
-        'R_75',
+        // 'R_75',
         'R_100',
-        'stpRNG',
+        // 'stpRNG',
         // 'stpRNG2',
         // 'stpRNG3',
         // 'stpRNG4',
