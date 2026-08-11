@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitragee_08-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_08-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitragee_10-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_10-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -181,7 +181,7 @@ const DEFAULT_ASSET_CONFIG = {
     MAX_MARTINGALE_LEVEL: 1,
     AFTER_MAX_LOSS: 'continue',
     CONTINUE_EXTRA_LEVELS: 8,
-    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2, 2, 2, 2.2], //[2.1, 2.2, 2, 2.3]
+    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.1, 2.2, 2.3, 2.3], //[2.1, 2.2, 2, 2.3]
 
     // Auto-Compounding
     AUTO_COMPOUNDING: true,
@@ -1908,9 +1908,7 @@ class IndexBot {
                 return;
             }
 
-            const direction2 = analysis.direction;
-
-            direction = direction2 === 'CALLE' ? 'PUTE' : 'CALLE';
+            const direction = analysis.direction;
 
             if ((symbol === 'stpRNG' || symbol === 'stpRNG2' || symbol === 'stpRNG3' || symbol === 'stpRNG4' || symbol === 'stpRNG5')) {
                 if (bestPatternConfidence < DEFAULT_ASSET_CONFIG.MIN_PATTERN_CONFIDENCE_STEP_RNG) {
@@ -1928,7 +1926,9 @@ class IndexBot {
 
             LOGGER.trade(`🎯 [${symbol}] PATTERN TRADE - Direction: ${direction} | Confidence: ${((analysis?.confidence||0) * 100).toFixed(1)}% | Pattern Occurrence: ${analysis?.patternOccurrence || 0}`);
 
-            if (analysis.patternOccurrence >= 2) {
+            //Last Candle direction is same as Pattern direction, then skip trade
+            const lastCandleDirection = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
+            if (analysis.patternOccurrence >= 2 && lastCandleDirection === analysis.direction) {
                 direction = analysis.direction;
                 isRecovery = false;
             }
