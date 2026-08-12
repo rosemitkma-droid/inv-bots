@@ -34,15 +34,15 @@ class ConfigManager {
         enabled: true,
       },
       trading: {
-        symbol: 'R_75',
+        symbol: 'R_100',
         initialStake: 0.35,
         contractDuration: 1,
         contractDurationUnit: 'm',
-        riseType: 'CALL',
-        fallType: 'PUT',
-        maxDailyLoss: 20,
-        maxDailyTrades: 150,
-        takeProfitTarget: 30,
+        riseType: 'CALLE',
+        fallType: 'PUTE',
+        maxDailyLoss: 2000,
+        maxDailyTrades: 250,
+        takeProfitTarget: 3000,
         minTimeBetweenTrades: 15000,
       },
       // Daily window in local time. New entries stop at pauseTime; open
@@ -62,9 +62,9 @@ class ConfigManager {
         warmupTicks: 100,
       },
       risk: {
-        recoveryMultiplier: 2.1,
-        maxRecoverySteps: 3,
-        drawdownLimit: 20,
+        recoveryMultiplier: 2.2,
+        maxRecoverySteps: 9,
+        drawdownLimit: 200,
       },
       system: {
         tickHistoryCount: 500,
@@ -80,7 +80,7 @@ class ConfigManager {
         staleMessageMs: 45000,
         settlementGraceMs: 45000,
         scheduleCheckMs: 15000,
-        stateFile: path.join(__dirname, 'state.json'),
+        stateFile: path.join(__dirname, 'newRiseFallState_01.json'),
       },
     };
     this.validate();
@@ -108,7 +108,7 @@ class Logger {
       transports: [
         new winston.transports.Console(),
         new winston.transports.File({
-          filename: 'bot.log',
+          filename: 'newRiseFall_01.log',
           maxsize: 5 * 1024 * 1024,
           maxFiles: 3,
         }),
