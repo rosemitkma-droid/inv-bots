@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitragee_12-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_12-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitragee_15-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_15-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -1908,7 +1908,15 @@ class IndexBot {
                 return;
             }
 
-            const direction = analysis.direction;
+            direction = analysis.direction;
+
+            //Last Candle direction is same as Pattern direction, then skip trade
+            const lastCandleDirection = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
+            if (lastCandleDirection !== analysis.direction) {
+                LOGGER.info(`[${symbol}] Prediction and Last Candle directions don't match — skipping trade`);
+                assetState.canTrade = false;
+                return;
+            }
 
             if ((symbol === 'stpRNG' || symbol === 'stpRNG2' || symbol === 'stpRNG3' || symbol === 'stpRNG4' || symbol === 'stpRNG5')) {
                 if (bestPatternConfidence < DEFAULT_ASSET_CONFIG.MIN_PATTERN_CONFIDENCE_STEP_RNG) {
@@ -1924,9 +1932,7 @@ class IndexBot {
                 }
             }
 
-            //Last Candle direction is same as Pattern direction, then skip trade
-            const lastCandleDirection = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
-            if (analysis.patternOccurrence >= 2 || lastCandleDirection === analysis.direction) {
+            if (analysis.patternOccurrence >= 2) {
                 direction = analysis.direction;
                 isRecovery = false;
             }
