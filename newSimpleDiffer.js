@@ -255,7 +255,7 @@ const CONFIG = Object.freeze({
   //   pauseStartGmt < pauseEndGmt means a mid-day break
   //   (e.g. 12:00 → 14:00 pauses over lunch).
   pauseEnabled   : true,
-  pauseStartGmt  : '23:00',
+  pauseStartGmt  : '18:00',
   pauseEndGmt    : '01:00',
 
   // GMT/UTC reporting
@@ -264,8 +264,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'simpleDiffern_state_007.json'),
-  logFile: strEnv('LOG_FILE', 'simpleDiffern_bot_007.log'),
+  stateFile: strEnv('STATE_FILE', 'simpleDiffern_state_009.json'),
+  logFile: strEnv('LOG_FILE', 'simpleDiffern_bot_009.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO SIMPLEDIFFER').toUpperCase(),
 
   // Telegram — MUST come from .env / environment, never hardcode a real
