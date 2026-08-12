@@ -265,7 +265,7 @@ const CONFIG = Object.freeze({
   //   n≈400 they are statistically indistinguishable from the selection
   //   noise of "coldest of 10" — and unselectable noise is −EV after
   //   house margin.
-  minDeviationZ: 3.5, //4.2
+  minDeviationZ: 4.0, //4.2
   // ── Entropy / χ² sanity gates ───────────────────────────────────────
   //   Lower bounds guard against acting on too-small / degenerate samples.
   //   UPPER bounds are deliberately disabled (maxEntropy=1.0,
