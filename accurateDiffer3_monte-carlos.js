@@ -143,9 +143,9 @@ const CONFIG = Object.freeze({
   currency: 'USD',
 
   // Trade setup
-  stake: 1.1,
+  stake: 5.5,
   durationTicks: 1, // Digit contracts normally 1-10 ticks
-  minStake: 1.1,
+  minStake: 5.5,
   maxStake: 150.00,
   assets: ['R_10','R_25','R_50','R_75','RDBULL','RDBEAR'],//'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','RDBULL','RDBEAR'
 
@@ -210,8 +210,8 @@ const CONFIG = Object.freeze({
   // enforced in code, so a misconfig cannot silently reach 150×.
   recoveryEnabled: true, // If true, set kellySizingEnabled below to false
   dangerousRecovery: boolEnv('DANGEROUS_RECOVERY', true), // explicit flag to arm steps beyond index 1
-  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,13.2,150.0').map(Number).filter(Number.isFinite),
-  recoveryMaxStep: intEnv('RECOVERY_MAX_STEP', 3), // hard cap on ladder index actually used (0-based)
+  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,11.3,150.0').map(Number).filter(Number.isFinite),
+  recoveryMaxStep: intEnv('RECOVERY_MAX_STEP', 2), // hard cap on ladder index actually used (0-based)
 
   // ── Kelly-fractional sizing ────────────────────────────────────────
   //   kellySizingEnabled=true replaces flat/recovery stake with:
@@ -273,8 +273,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'monte-carlos_differn_01_state.json'),
-  logFile: strEnv('LOG_FILE', 'monte-carlos_differn_01_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'monte-carlos_differn_02_state.json'),
+  logFile: strEnv('LOG_FILE', 'monte-carlos_differn_02_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO').toUpperCase(),
 
   // Telegram
