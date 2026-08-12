@@ -159,9 +159,9 @@ const CONFIG = Object.freeze({
   currency: 'USD',
 
   // Trade setup
-  stake: 1.1,
+  stake: 5.5,
   durationTicks: 1, // Digit contracts normally 1-10 ticks
-  minStake: 1.1,
+  minStake: 5.5,
   maxStake: 150.00,
   assets: ['R_10','R_25','R_50','R_75','R_100','RDBULL'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
@@ -206,7 +206,7 @@ const CONFIG = Object.freeze({
   //                  / flat. On fair digits this reduces to P(repeat)≈0.10
   //                  and the value gate keeps it idle too. Validate any
   //                  claimed structure with DIAGNOSE=1 / BACKTEST=1.
-  strategy: strEnv('STRATEGY', 'frequency'),
+  strategy: strEnv('STRATEGY', 'repeat_avoid'),
   // Estimator mode for repeat_avoid:
   //   'cycle'       = multi-scale rates + 2-state Bayesian filter
   //   'conditional' = P(repeat | non-repeat streak length)
@@ -265,7 +265,7 @@ const CONFIG = Object.freeze({
   //   n≈400 they are statistically indistinguishable from the selection
   //   noise of "coldest of 10" — and unselectable noise is −EV after
   //   house margin.
-  minDeviationZ: 3.0, //4.2
+  minDeviationZ: 2.0, //4.2
   // ── Entropy / χ² sanity gates ───────────────────────────────────────
   //   Lower bounds guard against acting on too-small / degenerate samples.
   //   UPPER bounds are deliberately disabled (maxEntropy=1.0,
@@ -303,8 +303,8 @@ const CONFIG = Object.freeze({
   // gone. recoveryStakeCap and maxStakePctBankroll are hard ceilings on
   // any single stake regardless of ladder.
   recoveryEnabled: true,
-  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,13.2,150').map(Number).filter(Number.isFinite),
-  recoveryStakeCap: 250,          // absolute max per trade when recovery is on
+  recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,11.3').map(Number).filter(Number.isFinite),
+  recoveryStakeCap: 75,          // absolute max per trade when recovery is on
   maxStakePctBankroll: 0.5,     // never risk >5% of live balance per trade
 
   // ─ Trade watchdog ─
@@ -341,8 +341,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_06.json'),
-  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_06.log'),
+  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_09.json'),
+  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_09.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFER').toUpperCase(),
 
   // Telegram — existing hardcoded demo-test values, preserved.
