@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitragee_10-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_10-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitragee_12-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitragee_12-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -1924,14 +1924,15 @@ class IndexBot {
                 }
             }
 
-            LOGGER.trade(`🎯 [${symbol}] PATTERN TRADE - Direction: ${direction} | Confidence: ${((analysis?.confidence||0) * 100).toFixed(1)}% | Pattern Occurrence: ${analysis?.patternOccurrence || 0}`);
-
             //Last Candle direction is same as Pattern direction, then skip trade
             const lastCandleDirection = lastClosedCandle.close > lastClosedCandle.open ? 'CALLE' : 'PUTE';
-            if (analysis.patternOccurrence >= 2 && lastCandleDirection === analysis.direction) {
+            if (analysis.patternOccurrence >= 2 || lastCandleDirection === analysis.direction) {
                 direction = analysis.direction;
                 isRecovery = false;
             }
+
+            LOGGER.trade(`🎯 [${symbol}] PATTERN TRADE - Direction: ${direction} | Confidence: ${((analysis?.confidence||0) * 100).toFixed(1)}% | Pattern Occurrence: ${analysis?.patternOccurrence || 0}`);
+
         }
 
         if (!direction) return;
