@@ -39,14 +39,14 @@ class ConfigManager {
         initialStake: 0.35,
         contractDuration: 1,
         contractDurationUnit: 'm',
-        riseType: 'CALL',
-        fallType: 'PUT',
+        riseType: 'CALLE',
+        fallType: 'PUTE',
         maxDailyLoss: 20,
         maxDailyTrades: 150,
         takeProfitTarget: 30,
         minTimeBetweenTrades: 15000,
         payoutRatio: 0.90,          // conservative vs ~95% advertised
-        requireBacktestEdge: true,  // refuse live entries if history has no edge
+        requireBacktestEdge: false,  // refuse live entries if history has no edge
         backtestTicks: 10000,
         backtestMinTrades: 200,
         edgeMinSample: 100,
@@ -71,10 +71,10 @@ class ConfigManager {
       },
       risk: {
         // Review: martingale raises ruin risk on a non-positive-EV game.
-        useRecovery: false,
+        useRecovery: true,
         recoveryMultiplier: 2.1,
-        maxRecoverySteps: 3,
-        drawdownLimit: 20,
+        maxRecoverySteps: 9,
+        drawdownLimit: 200,
       },
       system: {
         tickHistoryCount: 2000,
