@@ -50,7 +50,7 @@ class ConfigManager {
       schedule: {
         enabled: true,
         timezone: 'Africa/Lagos',
-        resumeTime: '08:00',
+        resumeTime: '02:00',
         pauseTime: '22:00',
       },
       analysis: {
@@ -80,7 +80,7 @@ class ConfigManager {
         staleMessageMs: 45000,
         settlementGraceMs: 45000,
         scheduleCheckMs: 15000,
-        stateFile: path.join(__dirname, 'newRiseFallState_01.json'),
+        stateFile: path.join(__dirname, 'newRiseFallState_02.json'),
       },
     };
     this.validate();
@@ -108,7 +108,7 @@ class Logger {
       transports: [
         new winston.transports.Console(),
         new winston.transports.File({
-          filename: 'newRiseFall_01.log',
+          filename: 'newRiseFall_02.log',
           maxsize: 5 * 1024 * 1024,
           maxFiles: 3,
         }),
@@ -186,6 +186,13 @@ function tzNow(timeZone) {
     short: `${pad(hour)}:${get('minute')}:${get('second')}`,
     tzLabel: tz === 'Africa/Lagos' ? 'WAT' : tz,
   };
+}
+
+function gmtPlus1DateKey() {
+  // GMT+1 calendar date (YYYY-MM-DD), independent of the host timezone.
+  // Deriv synthetic indices close the trading day at 00:00 GMT+1 (23:00 UTC).
+  const d = new Date(Date.now() + 60 * 60 * 1000);
+  return d.toISOString().slice(0, 10);
 }
 
 function parseHHMM(s) {
@@ -549,13 +556,33 @@ class RiskAndTradeManager {
     this.dailyWins = 0;
     this.totalTrades = 0;
     this.wins = 0;
-    this.lastResetDate = new Date().toDateString();
+    // GMT+1 calendar date used for end-of-day logic (Deriv synthetic day).
+    this.lastResetDate = gmtPlus1DateKey();
+    // Archived stats for previous completed days, keyed by GMT+1 date (YYYY-MM-DD).
+    this.dailyHistory = {};
   }
 
   checkDailyReset() {
-    const today = new Date().toDateString();
+    const today = gmtPlus1DateKey();
     if (today !== this.lastResetDate) {
-      this.logger.info('📅 New trading day — resetting daily counters');
+      // Archive the just-finished day instead of discarding it.
+      const prev = this.lastResetDate;
+      const prevLosses = this.dailyTrades - this.dailyWins;
+      this.dailyHistory[prev] = {
+        date: prev,
+        trades: this.dailyTrades,
+        wins: this.dailyWins,
+        losses: prevLosses,
+        winRate: this.dailyTrades > 0 ? ((this.dailyWins / this.dailyTrades) * 100).toFixed(1) : '0.0',
+        dailyPnL: this.dailyPnL.toFixed(2),
+        dailyPnLNum: this.dailyPnL,
+      };
+      // Keep at most the most recent 30 days on record.
+      const keys = Object.keys(this.dailyHistory).sort();
+      while (keys.length > 30) {
+        delete this.dailyHistory[keys.shift()];
+      }
+      this.logger.info(`📅 New trading day (GMT+1) — archiving ${prev} and resetting daily counters`);
       this.dailyPnL = 0;
       this.dailyTrades = 0;
       this.dailyWins = 0;
@@ -619,6 +646,11 @@ class RiskAndTradeManager {
   }
 
   getStats() {
+    const today = this.lastResetDate;
+    const prevDays = Object.keys(this.dailyHistory)
+      .sort()
+      .slice(-5)
+      .map(d => ({ date: d, ...this.dailyHistory[d] }));
     return {
       trades: this.dailyTrades,
       wins: this.dailyWins,
@@ -628,6 +660,8 @@ class RiskAndTradeManager {
       dailyPnLNum: this.dailyPnL,
       currentStreak: this.consecutiveLosses > 0 ? `-${this.consecutiveLosses}L` : '0',
       consecutiveLosses: this.consecutiveLosses,
+      dayDate: today,
+      prevDays,
     };
   }
 
@@ -640,6 +674,7 @@ class RiskAndTradeManager {
       totalTrades: this.totalTrades,
       wins: this.wins,
       lastResetDate: this.lastResetDate,
+      dailyHistory: this.dailyHistory,
     };
   }
 
@@ -652,6 +687,12 @@ class RiskAndTradeManager {
     this.totalTrades = num(s.totalTrades, 0);
     this.wins = num(s.wins, 0);
     if (s.lastResetDate) this.lastResetDate = s.lastResetDate;
+    if (s.dailyHistory && typeof s.dailyHistory === 'object') {
+      this.dailyHistory = {};
+      for (const d of Object.keys(s.dailyHistory).sort()) {
+        this.dailyHistory[d] = s.dailyHistory[d];
+      }
+    }
     this.checkDailyReset();
   }
 }
@@ -759,13 +800,24 @@ function analysisBlock(a, title = 'Analysis') {
 }
 
 function statsBlock(stats, balance) {
-  return [
+  const lines = [
     `<b>💰 Account</b>`,
     `Balance: ${money(balance)}`,
     `Daily P/L: <b>${money(stats.dailyPnLNum, true)}</b>`,
-    `Today: ${stats.wins}W / ${stats.losses}L  WR ${stats.winRate}%  (${stats.trades} trades)`,
+    `Today (${stats.dayDate}): ${stats.wins}W / ${stats.losses}L  WR ${stats.winRate}%  (${stats.trades} trades)`,
     `Streak: ${escapeHtml(stats.currentStreak)}`,
-  ].join('\n');
+  ];
+  if (stats.prevDays && stats.prevDays.length) {
+    lines.push(``);
+    lines.push(`<b>📆 Previous Days</b>`);
+    for (const d of stats.prevDays) {
+      lines.push(
+        `${d.date}: ${d.wins}W/${d.losses}L  WR ${d.winRate}%  ` +
+        `P/L ${money(d.dailyPnLNum, true)}  (${d.trades}t)`
+      );
+    }
+  }
+  return lines.join('\n');
 }
 
 // ============================================================================
