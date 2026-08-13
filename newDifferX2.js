@@ -265,7 +265,7 @@ const CONFIG = Object.freeze({
   //   n≈400 they are statistically indistinguishable from the selection
   //   noise of "coldest of 10" — and unselectable noise is −EV after
   //   house margin.
-  minDeviationZ: 4.0, //4.2
+  minDeviationZ: 3.5, //4.2
   // ── Entropy / χ² sanity gates ───────────────────────────────────────
   //   Lower bounds guard against acting on too-small / degenerate samples.
   //   UPPER bounds are deliberately disabled (maxEntropy=1.0,
@@ -341,8 +341,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_11.json'),
-  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_11.log'),
+  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_12.json'),
+  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_12.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFER').toUpperCase(),
 
   // Telegram — existing hardcoded demo-test values, preserved.
