@@ -163,7 +163,7 @@ const CONFIG = Object.freeze({
   durationTicks: 1, // Digit contracts normally 1-10 ticks
   minStake: 5.5,
   maxStake: 150.00,
-  assets: ['R_50','RDBULL'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
+  assets: ['R_10','R_25','R_50','R_75','RDBULL','RDBEAR'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
   tickWindow: 1000,
@@ -332,8 +332,8 @@ const CONFIG = Object.freeze({
 
   // ── Scheduled pause/resume ──────────────────────────────────────
   pauseEnabled   : true,
-  pauseStartGmt  : '23:00',
-  pauseEndGmt    : '01:00',
+  pauseStartGmt  : '06:00',
+  pauseEndGmt    : '18:00',
 
   // GMT/UTC reporting
   eodTimeGmt: '00:00', // default midnight GMT; report date is previous UTC day
@@ -341,8 +341,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_16.json'),
-  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_16.log'),
+  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_17.json'),
+  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_17.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFER').toUpperCase(),
 
   // Telegram — existing hardcoded demo-test values, preserved.
