@@ -38,8 +38,8 @@ const CONFIG = Object.freeze({
   stopLoss: parseFloat('500.0'),
   demoOnly: false,
   tradeEnabled: true,
-  skipRecentTradedSymbols: false,
-  recentTradedSymbolsLen: parseInt('2', 10),
+  skipRecentTradedSymbols: true,
+  recentTradedSymbolsLen: parseInt('3', 10),
 
   // Anti-Martingale
   winsBeforeScaling: parseInt('500'),
@@ -64,7 +64,7 @@ const CONFIG = Object.freeze({
   maxOpenTrades: parseInt('3', 10),
 
   // Hazard Model (v4.0 fixes)
-  candidateGrowthRates: [0.04],
+  candidateGrowthRates: [0.05],
   hazardWindow: parseInt('600', 10),
   plannedHoldTicks: parseInt('20', 10),
   minBarrierPct: parseFloat('0.015'),
@@ -142,11 +142,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3_v5_01.log',
+  logFile: 'accuPULSE3_v5_02.log',
   logLevel: 'INFO3_v5',
-  stateFile: 'accuPULSE3_state_v5_01.json',
-  metricsFile: 'metrics_v5_01.json',
-  metricsFileV5: 'accuPULSE3_analysis_v5_01.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3_state_v5_02.json',
+  metricsFile: 'metrics_v5_02.json',
+  metricsFileV5: 'accuPULSE3_analysis_v5_02.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -184,7 +184,7 @@ const CONFIG = Object.freeze({
 
   // ── Feature 3: 6-Check Entry Confirmation ─────────────────────────────
   entryConfirmation: {
-    requiredChecks: 4,              // Need 4/6 to pass
+    requiredChecks: 5,              // Need 4/6 to pass
     minVolPercentile: 0.20,         // Vol check: at least 20th percentile
     minBarrierPct: 0.015,           // Barrier check: 1.5% minimum
     minEv: 0.005,                   // EV check: 0.5% net EV
