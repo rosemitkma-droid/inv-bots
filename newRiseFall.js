@@ -36,8 +36,8 @@ class ConfigManager {
       trading: {
         symbol: 'R_100',
         initialStake: 0.35,
-        contractDuration: 2,
-        contractDurationUnit: 'm',
+        contractDuration: 90,
+        contractDurationUnit: 's',
         riseType: 'CALLE',
         fallType: 'PUTE',
         maxDailyLoss: 2000,
@@ -80,7 +80,7 @@ class ConfigManager {
         staleMessageMs: 45000,
         settlementGraceMs: 45000,
         scheduleCheckMs: 15000,
-        stateFile: path.join(__dirname, 'newRiseFallState_03.json'),
+        stateFile: path.join(__dirname, 'newRiseFallState_04.json'),
       },
     };
     this.validate();
@@ -108,7 +108,7 @@ class Logger {
       transports: [
         new winston.transports.Console(),
         new winston.transports.File({
-          filename: 'newRiseFall_03.log',
+          filename: 'newRiseFall_04.log',
           maxsize: 5 * 1024 * 1024,
           maxFiles: 3,
         }),
@@ -415,6 +415,7 @@ class TelegramService {
 
   async sendHourlySummary(riskManager, balance, config) {
     if (!this.enabled) return;
+    if (riskManager.hourlyTrades === 0) return;
     const stats = riskManager.getStats();
     const hourlyLosses = riskManager.hourlyTrades - riskManager.hourlyWins;
     const hourlyWR = riskManager.hourlyTrades > 0
@@ -422,7 +423,7 @@ class TelegramService {
       : '0.0';
     const clock = tzNow(config.schedule.timezone);
 
-    await this.send([
+    const lines = [
       `⏰ <b>HOURLY SUMMARY</b>`,
       `Time: <code>${clock.stamp} ${clock.tzLabel}</code>`,
       ``,
@@ -435,21 +436,43 @@ class TelegramService {
       `Trades: ${stats.trades}  |  ${stats.wins}W / ${stats.losses}L`,
       `Win Rate: ${stats.winRate}%`,
       `P/L: <b>${money(stats.dailyPnLNum, true)}</b>`,
-      `Balance: ${money(balance)}`,
-    ].join('\n'));
+    ];
+    const streak = lossStreakBlock(stats);
+    if (streak) lines.push(streak);
+    lines.push(`Balance: ${money(balance)}`);
+    await this.send(lines.join('\n'));
   }
 
   async sendEndOfDaySummary(riskManager, balance, config) {
     if (!this.enabled) return;
-    const stats = riskManager.getStats();
+    const day = riskManager.pendingEodDay || riskManager.getStats();
     const clock = tzNow(config.schedule.timezone);
 
-    await this.send([
+    const lines = [
       `🌙 <b>END OF DAY SUMMARY</b>`,
       `Time: <code>${clock.stamp} ${clock.tzLabel}</code>`,
       ``,
-      statsBlockWithHistory(stats, balance),
-    ].join('\n'));
+    ];
+
+    if (riskManager.pendingEodDay) {
+      const recent = riskManager.getRecentDays(7);
+      lines.push(statsBlockWithHistory(riskManager.pendingEodDay, balance));
+      if (recent.length) {
+        lines.push(``, `<b>📆 History (recent 7 days)</b>`);
+        recent.forEach(d => {
+          const streak = lossStreakBlock(d);
+          lines.push(
+            `${d.date}: ${d.wins}W/${d.losses}L  WR ${d.winRate}%  ` +
+            `P/L ${money(d.dailyPnLNum, true)}  (${d.trades}t)`
+          );
+          if (streak) lines.push(`  ${streak}`);
+        });
+      }
+    } else {
+      lines.push(statsBlock(day, balance));
+    }
+
+    await this.send(lines.join('\n'));
   }
 }
 
@@ -604,6 +627,15 @@ class RiskAndTradeManager {
     this.hourlyWins = 0;
     this.hourlyPnL = 0;
     this.lastHour = new Date().getUTCHours();
+    // Multiple-loss (recovery-streak) counters for the current day.
+    // x2Losses = losses on the 2nd consecutive loss, x3 = 3rd consecutive, etc.
+    this.x2Losses = 0; this.x3Losses = 0; this.x4Losses = 0; this.x5Losses = 0;
+    this.x6Losses = 0; this.x7Losses = 0; this.x8Losses = 0; this.x9Losses = 0;
+    // End-of-day summary pending flag — set on day rollover, consumed once by the
+    // daily timer so the notification always fires exactly once (even if the reset
+    // was triggered by a trade/schedule check rather than the timer itself).
+    this.eodPending = false;
+    this.pendingEodDay = null;
   }
 
   checkDailyReset() {
@@ -612,29 +644,46 @@ class RiskAndTradeManager {
       // Archive the just-finished day instead of discarding it.
       const prev = this.lastResetDate;
       const prevLosses = this.dailyTrades - this.dailyWins;
-      this.dailyHistory[prev] = {
+      const prevDay = {
         date: prev,
+        dayDate: prev,
+        currentStreak: this.consecutiveLosses > 0 ? `-${this.consecutiveLosses}L` : '0',
         trades: this.dailyTrades,
         wins: this.dailyWins,
         losses: prevLosses,
         winRate: this.dailyTrades > 0 ? ((this.dailyWins / this.dailyTrades) * 100).toFixed(1) : '0.0',
         dailyPnL: this.dailyPnL.toFixed(2),
         dailyPnLNum: this.dailyPnL,
+        x2Losses: this.x2Losses, x3Losses: this.x3Losses, x4Losses: this.x4Losses,
+        x5Losses: this.x5Losses, x6Losses: this.x6Losses, x7Losses: this.x7Losses,
+        x8Losses: this.x8Losses, x9Losses: this.x9Losses,
       };
+      this.dailyHistory[prev] = prevDay;
       // Keep at most the most recent 30 days on record.
       const keys = Object.keys(this.dailyHistory).sort();
       while (keys.length > 30) {
         delete this.dailyHistory[keys.shift()];
       }
+      // Mark the end-of-day summary as pending (consumed once by the daily timer).
+      this.pendingEodDay = prevDay;
+      this.eodPending = true;
       this.logger.info(`📅 New trading day (GMT+1) — archiving ${prev} and resetting daily counters`);
       this.dailyPnL = 0;
       this.dailyTrades = 0;
       this.dailyWins = 0;
       this.consecutiveLosses = 0;
+      this.x2Losses = 0; this.x3Losses = 0; this.x4Losses = 0; this.x5Losses = 0;
+      this.x6Losses = 0; this.x7Losses = 0; this.x8Losses = 0; this.x9Losses = 0;
       this.lastResetDate = today;
       return true;
     }
     return false;
+  }
+
+  getRecentDays(n = 7) {
+    // Newest-first archived days (excluding the current in-progress day).
+    return Object.keys(this.dailyHistory).sort().slice(-n).reverse()
+      .map(d => this.dailyHistory[d]);
   }
 
   calculateStake() {
@@ -675,6 +724,7 @@ class RiskAndTradeManager {
   }
 
   recordTrade(profit) {
+    this.checkHourlyReset();
     this.checkDailyReset();
     const p = Number(profit);
     const safe = Number.isFinite(p) ? p : 0;
@@ -692,6 +742,9 @@ class RiskAndTradeManager {
       this.consecutiveLosses = 0;
     } else {
       this.consecutiveLosses++;
+      if (this.consecutiveLosses >= 2 && this.consecutiveLosses <= 9) {
+        this[`x${this.consecutiveLosses}Losses`]++;
+      }
     }
   }
 
@@ -721,6 +774,14 @@ class RiskAndTradeManager {
       consecutiveLosses: this.consecutiveLosses,
       dayDate: today,
       prevDays,
+      x2Losses: this.x2Losses,
+      x3Losses: this.x3Losses,
+      x4Losses: this.x4Losses,
+      x5Losses: this.x5Losses,
+      x6Losses: this.x6Losses,
+      x7Losses: this.x7Losses,
+      x8Losses: this.x8Losses,
+      x9Losses: this.x9Losses,
     };
   }
 
@@ -734,6 +795,14 @@ class RiskAndTradeManager {
       wins: this.wins,
       lastResetDate: this.lastResetDate,
       dailyHistory: this.dailyHistory,
+      x2Losses: this.x2Losses,
+      x3Losses: this.x3Losses,
+      x4Losses: this.x4Losses,
+      x5Losses: this.x5Losses,
+      x6Losses: this.x6Losses,
+      x7Losses: this.x7Losses,
+      x8Losses: this.x8Losses,
+      x9Losses: this.x9Losses,
     };
   }
 
@@ -752,6 +821,14 @@ class RiskAndTradeManager {
         this.dailyHistory[d] = s.dailyHistory[d];
       }
     }
+    this.x2Losses = num(s.x2Losses, 0);
+    this.x3Losses = num(s.x3Losses, 0);
+    this.x4Losses = num(s.x4Losses, 0);
+    this.x5Losses = num(s.x5Losses, 0);
+    this.x6Losses = num(s.x6Losses, 0);
+    this.x7Losses = num(s.x7Losses, 0);
+    this.x8Losses = num(s.x8Losses, 0);
+    this.x9Losses = num(s.x9Losses, 0);
     this.checkDailyReset();
   }
 }
@@ -858,17 +935,17 @@ function analysisBlock(a, title = 'Analysis') {
   ].join('\n');
 }
 
-function statsBlock(stats, balance) {
-  return [
-    `<b>💰 Account</b>`,
-    `Balance: ${money(balance)}`,
-    `Daily P/L: <b>${money(stats.dailyPnLNum, true)}</b>`,
-    `Today (${stats.dayDate}): ${stats.wins}W / ${stats.losses}L  WR ${stats.winRate}%  (${stats.trades} trades)`,
-    `Streak: ${escapeHtml(stats.currentStreak)}`,
-  ].join('\n');
+function lossStreakBlock(stats) {
+  const parts = [];
+  for (let n = 2; n <= 9; n++) {
+    if (stats[`x${n}Losses`] > 0) parts.push(`x${n}:${stats[`x${n}Losses`]}`);
+  }
+  return parts.length
+    ? `Loss streaks: ${parts.join('  ')}`
+    : '';
 }
 
-function statsBlockWithHistory(stats, balance) {
+function statsBlock(stats, balance) {
   const lines = [
     `<b>💰 Account</b>`,
     `Balance: ${money(balance)}`,
@@ -876,14 +953,30 @@ function statsBlockWithHistory(stats, balance) {
     `Today (${stats.dayDate}): ${stats.wins}W / ${stats.losses}L  WR ${stats.winRate}%  (${stats.trades} trades)`,
     `Streak: ${escapeHtml(stats.currentStreak)}`,
   ];
+  const streak = lossStreakBlock(stats);
+  if (streak) lines.push(streak);
+  return lines.join('\n');
+}
+
+function statsBlockWithHistory(stats, balance) {
+  const lines = [
+    `<b>💰 Account</b>`,
+    `Balance: ${money(balance)}`,
+    `Daily P/L: <b>${money(stats.dailyPnLNum, true)}</b>`,
+    `Closed Day (${stats.dayDate}): ${stats.wins}W / ${stats.losses}L  WR ${stats.winRate}%  (${stats.trades} trades)`,
+    `Streak: ${escapeHtml(stats.currentStreak)}`,
+  ];
+  const streak = lossStreakBlock(stats);
+  if (streak) lines.push(streak);
   if (stats.prevDays && stats.prevDays.length) {
-    lines.push(``);
-    lines.push(`<b>📆 Previous Days</b>`);
+    lines.push(``, `<b>📆 Previous Days</b>`);
     for (const d of stats.prevDays) {
+      const dStreak = lossStreakBlock(d);
       lines.push(
         `${d.date}: ${d.wins}W/${d.losses}L  WR ${d.winRate}%  ` +
         `P/L ${money(d.dailyPnLNum, true)}  (${d.trades}t)`
       );
+      if (dStreak) lines.push(`  ${dStreak}`);
     }
   }
   return lines.join('\n');
@@ -1738,28 +1831,39 @@ class DerivBot {
 
   _startHourlyTimer() {
     if (this.hourlyTimer) clearInterval(this.hourlyTimer);
-    this.hourlyTimer = setInterval(() => {
-      const prevHour = this.risk.lastHour;
-      const currentHour = new Date().getUTCHours();
-      if (currentHour !== prevHour) {
-        this.risk.checkHourlyReset();
-        this.tg.sendHourlySummary(this.risk, this.api.balance, this.config)
-          .catch(e => this.logger.error(`hourly summary: ${e.message}`));
-      }
-    }, 60000);
+    const now = new Date();
+    const nextHour = new Date(now);
+    nextHour.setUTCHours(nextHour.getUTCHours() + 1, 0, 0, 0);
+    setTimeout(() => {
+      this._fireHourlySummary();
+      this.hourlyTimer = setInterval(() => this._fireHourlySummary(), 3600000);
+    }, nextHour.getTime() - now.getTime());
   }
 
   _startDailyTimer() {
     if (this.dailyTimer) clearInterval(this.dailyTimer);
+    // The day rollover (checkDailyReset) may already have fired from other
+    // callers (recordTrade, canTrade, _applySchedule). So instead of trying to
+    // detect the change here, we simply poll and consume the eodPending flag
+    // that checkDailyReset sets when a day actually rolls over.
     this.dailyTimer = setInterval(() => {
-      const prevDay = this.risk.lastResetDate;
-      const currentDay = gmtPlus1DateKey();
-      if (currentDay !== prevDay) {
-        this.risk.checkDailyReset();
-        this.tg.sendEndOfDaySummary(this.risk, this.api.balance, this.config)
-          .catch(e => this.logger.error(`end of day summary: ${e.message}`));
-      }
+      this._fireEndOfDaySummary();
     }, 60000);
+  }
+
+  async _fireHourlySummary() {
+    // Send the hourly summary first (while counters still hold last hour's
+    // data), then reset the hourly counters. Per reference: skip if no trades.
+    await this.tg.sendHourlySummary(this.risk, this.api.balance, this.config)
+      .catch(e => this.logger.error(`hourly summary: ${e.message}`));
+    this.risk.checkHourlyReset();
+  }
+
+  async _fireEndOfDaySummary() {
+    if (!this.risk.eodPending) return;
+    this.risk.eodPending = false;
+    await this.tg.sendEndOfDaySummary(this.risk, this.api.balance, this.config)
+      .catch(e => this.logger.error(`end of day summary: ${e.message}`));
   }
 
   async _applySchedule(isStartup) {
