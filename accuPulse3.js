@@ -133,10 +133,10 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3_v3_01.log',
-  logLevel: 'INFO',
-  stateFile: 'accuPULSE3_state_v3_01.json',
-  metricsFile: 'metrics.json_01',
+  logFile: 'accuPULSE3_v3_02.log',
+  logLevel: 'INFO3',
+  stateFile: 'accuPULSE3_state_v3_02.json',
+  metricsFile: 'metrics.json_02',
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -1243,6 +1243,7 @@ class EnhancedTradeExecutor extends EventEmitter {
     this._scalingOut = new Set();
     this._buying = false;
     this._lastUpdateMap = new Map();
+    this._settledIds = new Set();
     this.positionHistory = [];
     this._lastVolRegime = 'normal';
     this._lastTrend = 'neutral';
@@ -1261,7 +1262,7 @@ class EnhancedTradeExecutor extends EventEmitter {
     if (volHurst > this.cfg.volAdjustThreshold) {
       volMult = 0.6;
       log('WARN', `Volatility spike detected: Hurst=${volHurst.toFixed(2)} → reducing stake 40%`);
-      telegram.send(`⚠️ <b>Volatility spike detected</b>\nHurst: ${volHurst.toFixed(2)}\nStake: -40%`);
+      telegram.send(`⚠️ <b>AccuPULSE3 Volatility spike detected</b>\nHurst: ${volHurst.toFixed(2)}\nStake: -40%`);
     }
 
     // Win-rate boost (but capped)
@@ -1492,7 +1493,13 @@ class EnhancedTradeExecutor extends EventEmitter {
       }
     }
     for (const id of [...this.open.keys()]) {
-      if (!liveIds.has(id)) this.open.delete(id);
+      if (!liveIds.has(id)) {
+        this.open.delete(id);
+        this._lastUpdateMap.delete(id);
+        // Server no longer lists it as open → it settled while we weren't
+        // subscribed. Mark settled so a stray echo can't re-settle it.
+        this._settledIds.add(id);
+      }
     }
     return true;
   }
@@ -1522,6 +1529,14 @@ class EnhancedTradeExecutor extends EventEmitter {
     }
 
     if (c.status !== 'open' || c.is_sold) {
+      // Idempotent settlement: ignore late/duplicate settlement echoes for a
+      // contract we already finalized (force-sold or previously settled).
+      if (this._settledIds.has(cid)) {
+        this.open.delete(cid);
+        this._lastUpdateMap.delete(cid);
+        return;
+      }
+      this._settledIds.add(cid);
       const status = profit >= 0 ? 'won' : 'lost';
       const finished = {
         ...info,
@@ -1564,10 +1579,43 @@ class EnhancedTradeExecutor extends EventEmitter {
     const now = Date.now();
     for (const [cid, lastTime] of this._lastUpdateMap.entries()) {
       if (now - lastTime > maxStaleMsec) {
-        log('WARN', `Contract #${cid} stuck for ${((now - lastTime) / 1000).toFixed(0)}s, force-selling`);
+        const staleSec = ((now - lastTime) / 1000).toFixed(0);
+        const info = this.open.get(cid);
+        log('WARN', `Contract #${cid} stuck for ${staleSec}s, force-selling`);
+        // Idempotency guard: never re-settle a contract we already finalized.
+        if (this._settledIds.has(cid)) {
+          this.open.delete(cid);
+          this._lastUpdateMap.delete(cid);
+          continue;
+        }
         this._selling.add(cid);
         this.sell(cid, 0)
-          .catch(e => log('ERROR', `Force-sell #${cid} failed:`, e.message))
+          .catch(e => {
+            const msg = String(e?.message || e);
+            // "not found among your open positions" = contract already closed
+            // server-side (subscription died before settlement echoed). The
+            // local entry is stale; drop it so the stuck-check loop ends.
+            const alreadyClosed = /not found among your open positions/i.test(msg);
+            if (alreadyClosed) {
+              log('WARN', `Force-sell #${cid} missed: contract already closed on server — dropping stale local entry`);
+              if (info) {
+                info.status = 'unknown';
+                info.profit = 0;
+                info.sellTime = Date.now() / 1000;
+                info.currentSpot = info.currentSpot || 0;
+                // Record as explicit 'unknown' so it is excluded from WR/streaks
+                // (never fabricate a win/loss for an unconfirmable contract).
+                this.positionHistory.push(info);
+                this.emit('result', info);
+              }
+            } else {
+              log('ERROR', `Force-sell #${cid} failed:`, msg);
+            }
+            // In both cases the local entry is gone; never retry forever.
+            this._settledIds.add(cid);
+            this.open.delete(cid);
+            this._lastUpdateMap.delete(cid);
+          })
           .finally(() => this._selling.delete(cid));
       }
     }
@@ -1649,7 +1697,8 @@ class EnhancedStatisticsManager {
     }
     const stats = this.assetStats.get(rec.symbol);
     if (rec.status === 'won') stats.wins++;
-    else stats.losses++;
+    else if (rec.status === 'lost') stats.losses++;
+    // 'unknown' (unconfirmable) settlements are excluded from win/loss tallies.
     stats.profit += Number(rec.profit || 0);
     stats.trades.push(rec);
     if (stats.trades.length > 500) stats.trades.shift();
@@ -1677,6 +1726,7 @@ class EnhancedStatisticsManager {
   stats(list) {
     const wins = list.filter(t => t.status === 'won');
     const losses = list.filter(t => t.status === 'lost');
+    const decided = list.filter(t => t.status === 'won' || t.status === 'lost');
     const total = list.reduce((s, t) => s + Number(t.profit || 0), 0);
     const gw = wins.reduce((s, t) => s + Number(t.profit || 0), 0);
     const gl = Math.abs(losses.reduce((s, t) => s + Number(t.profit || 0), 0));
@@ -1684,7 +1734,7 @@ class EnhancedStatisticsManager {
       count: list.length,
       wins: wins.length,
       losses: losses.length,
-      winRate: list.length ? wins.length / list.length * 100 : 0,
+      winRate: decided.length ? wins.length / decided.length * 100 : 0,
       grossWin: gw,
       grossLoss: gl,
       totalProfit: total,
@@ -1846,7 +1896,7 @@ class AccuPULSE3BotV3 {
     if (this.cfg.demoOnly && !info.isVirtual) {
       log('ERROR', 'demoOnly is enabled; refusing non-demo account');
       this.stopped = true;
-      telegram.send('STOPPED: demoOnly is enabled but the authorized account is not virtual.');
+      telegram.send('AccuPULSE3 STOPPED: demoOnly is enabled but the authorized account is not virtual.');
       this.client.stop();
       return;
     }
@@ -1900,7 +1950,7 @@ class AccuPULSE3BotV3 {
   _onDisconnected(code, reason, wasAuth) {
     if (this._stuckCheckTimer) clearInterval(this._stuckCheckTimer);
     if (this._metricsTimer) clearInterval(this._metricsTimer);
-    telegram.send(`⚠️ <b>Connection lost</b>\ncode: <code>${code}</code>\nwas auth: ${wasAuth ? 'yes' : 'no'}\n🔄 reconnecting…`);
+    telegram.send(`⚠️ <b>AccuPULSE3 Connection lost</b>\ncode: <code>${code}</code>\nwas auth: ${wasAuth ? 'yes' : 'no'}\n🔄 reconnecting…`);
     if (this._analysisT) {
       clearInterval(this._analysisT);
       this._analysisT = null;
@@ -1960,14 +2010,18 @@ class AccuPULSE3BotV3 {
     // Phase 4: Update asset Sharpe
     this.analyzer.updateAssetSharpe(t.symbol, this.stats.trades);
 
-    const emoji = t.status === 'won' ? '✅' : '❌';
+    const emoji = t.status === 'won' ? '✅' : (t.status === 'unknown' ? '❓' : '❌');
     const dur = Math.max(0, (t.sellTime || Date.now() / 1000) - (t.buyTime || 0));
     this.lastBalance = (this.lastBalance ?? 0) + t.profit;
     this.overallProfit += t.profit;
 
     if (this.lastBalance > this.equityPeak) this.equityPeak = this.lastBalance;
 
-    if (t.status === 'won') {
+    if (t.status === 'unknown') {
+      // Unconfirmable settlement (e.g. subscription died before server echoed
+      // close). Excluded from win/loss streaks — never fabricate a result.
+      log('WARN', `Trade #${t.contractId} settled as UNKNOWN — excluded from WR/streaks`);
+    } else if (t.status === 'won') {
       this.winStreak++;
       this.lossStreak = 0;
       if (this.winStreak >= this.cfg.winsBeforeScaling) {
@@ -1987,7 +2041,7 @@ class AccuPULSE3BotV3 {
 
     const todayStats = this.stats.stats(this.stats.todayTrades(rec.date));
     let msg =
-      `${emoji} <b>TRADE ${t.status === 'won' ? 'WON' : 'LOST'}</b>\n\n` +
+      `${emoji} <b>TRADE ${t.status === 'won' ? 'WON' : (t.status === 'unknown' ? 'UNKNOWN' : 'LOST')}</b>\n\n` +
       `🎫 #${t.contractId} | ${t.symbol}\n` +
       `💵 Stake: ${t.stake.toFixed(2)} | P/L: ${money(t.profit, this.currencyStr())}\n` +
       `⏱️ Duration: ${dur.toFixed(1)}s\n` +
@@ -2002,7 +2056,7 @@ class AccuPULSE3BotV3 {
 
     if (this._checkCircuitBreakers()) {
       this.stopped = true;
-      telegram.send(`🛑 <b>Bot stopped</b> — circuit breaker`);
+      telegram.send(`🛑 <b>AccuPULSE3 Bot stopped</b> — circuit breaker`);
     }
     this._saveState('after-trade');
   }
@@ -2013,7 +2067,7 @@ class AccuPULSE3BotV3 {
       const pauseMinutes = this.cfg.streakPauseMinutes;
       this.streakPauseUntil = Date.now() + (pauseMinutes * 60_000);
       log('WARN', `Loss streak ${this.lossStreak} → pausing for ${pauseMinutes} min`);
-      telegram.send(`⏸️ <b>Streak recovery</b>\nLoss streak: ${this.lossStreak}\nPausing ${pauseMinutes} min & reducing stake to 50%`);
+      telegram.send(`⏸️ <b>AccuPULSE3 Streak recovery</b>\nLoss streak: ${this.lossStreak}\nPausing ${pauseMinutes} min & reducing stake to 50%`);
     }
   }
 
@@ -2058,12 +2112,12 @@ class AccuPULSE3BotV3 {
   _checkCircuitBreakers() {
     const today = this.stats.todayTrades();
     const pl = today.reduce((s, t) => s + (t.profit || 0), 0);
-    if (pl >= 5000) { log('WARN', `Session profit limit`); return true; }
-    if (pl <= -this.cfg.dailyMaxLoss) { telegram.send(`🛑 Daily loss limit`); return true; }
-    if (today.length >= this.cfg.dailyMaxTrades) { telegram.send(`🛑 Daily trade limit`); return true; }
+    if (pl >= 5000) { log('WARN', `AccuPULSE3 Session profit limit`); return true; }
+    if (pl <= -this.cfg.dailyMaxLoss) { telegram.send(`🛑 AccuPULSE3 Daily loss limit`); return true; }
+    if (today.length >= this.cfg.dailyMaxTrades) { telegram.send(`🛑 AccuPULSE3 Daily trade limit`); return true; }
     const dd = this.equityPeak > 0 ? (this.equityPeak - (this.lastBalance ?? 0)) / this.equityPeak : 0;
-    if (dd > this.cfg.ddStopTrading) { telegram.send(`🛑 DD limit`); return true; }
-    if (this.lossStreak >= this.cfg.streakStopDay) { telegram.send(`🛑 Loss streak limit`); return true; }
+    if (dd > this.cfg.ddStopTrading) { telegram.send(`🛑 AccuPULSE3 DD limit`); return true; }
+    if (this.lossStreak >= this.cfg.streakStopDay) { telegram.send(`🛑 AccuPULSE3 Loss streak limit`); return true; }
     return false;
   }
 
@@ -2201,7 +2255,7 @@ class AccuPULSE3BotV3 {
       // Phase 4: Alert on asset rotation
       const newTopAsset = rankedAssets[0]?.symbol;
       if (this._prevTopAsset !== newTopAsset) {
-        telegram.send(`📊 <b>Asset Rotation</b>\n${this._prevTopAsset || '—'} → ${newTopAsset}`);
+        telegram.send(`📊 <b>AccuPULSE3 Asset Rotation</b>\n${this._prevTopAsset || '—'} → ${newTopAsset}`);
         this._prevTopAsset = newTopAsset;
       }
     } catch (e) {
@@ -2242,10 +2296,10 @@ class AccuPULSE3BotV3 {
     const list = this.stats.tradesForHour(date, hour);
     const s = this.stats.stats(list);
     if (!list.length) {
-      telegram.send(`⏰ <b>${date} ${pad(hour)}:00</b> — No trades`);
+      telegram.send(`⏰ <b>AccuPULSE3 ${date} ${pad(hour)}:00</b> — No trades`);
       return;
     }
-    let msg = `⏰ <b>${date} ${pad(hour)}:00</b>\n📊 ${s.count} trades | WR ${s.winRate.toFixed(1)}%\n💰 ${money(s.totalProfit, this.currencyStr())}\n`;
+    let msg = `⏰ <b>AccuPULSE3 ${date} ${pad(hour)}:00</b>\n📊 ${s.count} trades | WR ${s.winRate.toFixed(1)}%\n💰 ${money(s.totalProfit, this.currencyStr())}\n`;
     list.slice(-10).forEach((t, i) => {
       msg += `${i + 1}. ${t.status === 'won' ? '✅' : '❌'} ${t.symbol} ${money(t.profit, this.currencyStr())}\n`;
     });
@@ -2363,7 +2417,7 @@ class AccuPULSE3BotV3 {
     const today = this.stats.todayTrades();
     const s = this.stats.stats(today);
     telegram.send(
-      `🌙 <b>SESSION END</b>\n` +
+      `🌙 <b>AccuPULSE3 v3.1 SESSION END</b>\n` +
       `📊 ${s.count} trades | WR ${s.winRate.toFixed(1)}%\n` +
       `💰 ${money(s.totalProfit, this.currencyStr())}\n` +
       `💼 Overall: ${money(this.overallProfit, this.currencyStr())}`
