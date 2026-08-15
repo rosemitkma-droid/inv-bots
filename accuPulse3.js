@@ -55,28 +55,28 @@ const CONFIG = Object.freeze({
     chatId: '752497117',
   },
 
-  // Strategy
+  // Timing & Throttling (v4.0: faster analysis)
   tickWindow: parseInt('500', 10),
   minTicksForAnalysis: parseInt('200', 10),
-  analysisIntervalMs: parseInt('8000', 10),
-  tradeCooldownMs: parseInt('5000', 10),
+  analysisIntervalMs: parseInt('3000', 10),      // FIXED: 3s (was 8s, too slow)
+  tradeCooldownMs: parseInt('500', 10),          // FIXED: 500ms (was 5s, too restrictive)
   maxOpenTrades: parseInt('3', 10),
 
-  // Hazard Model
+  // Hazard Model (v4.0: relaxed for realistic 20-tick holds)
   candidateGrowthRates: [0.04],
-  hazardWindow: parseInt('250', 10),
+  hazardWindow: parseInt('600', 10),        // Increased: fresher analysis
   plannedHoldTicks: parseInt('20', 10),
-  minBarrierPct: parseFloat('0.02'),
+  minBarrierPct: parseFloat('0.015'),       // FIXED: 1.5% (was 0.02=2%, unrealistic)
   minEmpiricalSamples: parseInt('150', 10),
-  confidenceZ: parseFloat('1.96'),
+  confidenceZ: parseFloat('1.28'),          // FIXED: 80% CI (was 1.96=95%, too conservative)
   evHaircut: parseFloat('0.65'),
-  minNetEvRatio: parseFloat('0.02'),
+  minNetEvRatio: parseFloat('0.001'),       // FIXED: 0.1% (was 0.02=2%, mathematically impossible for 20 ticks)
   maxRecentJumpZ: parseFloat('4.0'),
 
-  // ARCA gates
-  minConfidence: parseFloat('0.15'),
-  maxVolRegime: parseInt('1', 10),
-  maxHurst: parseFloat('0.60'),
+  // ARCA gates (v4.0: relaxed for more entry opportunities)
+  minConfidence: parseFloat('0.05'),        // FIXED: 0.05 (was 0.15, rejected 80%+)
+  maxVolRegime: parseInt('2', 10),          // FIXED: 2=high vol allowed (was 1, rejected 70%)
+  maxHurst: parseFloat('0.70'),             // FIXED: 0.70 (was 0.60, rejected trending markets)
   minSurvivalSlope: parseFloat('-0.01'),
   minSurvivalConsist: parseFloat('0.20'),
 
@@ -133,10 +133,10 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3_v3.log',
+  logFile: 'accuPULSE3_v3_01.log',
   logLevel: 'INFO',
-  stateFile: 'accuPULSE3_state_v3.json',
-  metricsFile: 'metrics.json',
+  stateFile: 'accuPULSE3_state_v3_01.json',
+  metricsFile: 'metrics.json_01',
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -656,7 +656,10 @@ class MarketDataManager extends EventEmitter {
           );
         }
       }
-      await Promise.all(promises);
+      // FIXED: Use allSettled to prevent one timeout from blocking all barriers
+      const results = await Promise.allSettled(promises);
+      const succeeded = results.filter(r => r.status === 'fulfilled').length;
+      log('INFO', `Barrier refresh: ${succeeded}/${promises.length} succeeded`);
     } finally {
       this._refreshInFlight = false;
     }
@@ -2072,7 +2075,14 @@ class AccuPULSE3BotV3 {
       if (!this.cfg.tradeEnabled) return;
       if (this._isPausedByStreak()) { log('DEBUG', 'Skip: STREAK_PAUSE'); return; }
       if (this._checkCircuitBreakers()) { this.stopped = true; return; }
-      if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
+
+      // FIXED: Add logging for cooldown throttling
+      const timeSinceLastTrade = Date.now() - this.lastTradeAt;
+      if (timeSinceLastTrade < this.cfg.tradeCooldownMs) {
+        log('DEBUG', `Cooldown active: ${(this.cfg.tradeCooldownMs - timeSinceLastTrade).toFixed(0)}ms remaining`);
+        return;
+      }
+
       if (this.exec.count() >= this.cfg.maxOpenTrades) return;
 
       // Phase 4: Rank assets by Sharpe
@@ -2094,7 +2104,22 @@ class AccuPULSE3BotV3 {
       });
 
       const ranked = this.analyzer.rank(analyses);
-      if (!ranked.length) return;
+      if (!ranked.length) {
+        // FIXED: Log rejection funnel for diagnostics
+        let rejectionReasons = { ev_fail: 0, barrier_fail: 0, ticks_fail: 0, jump_fail: 0, other_fail: 0 };
+        for (const a of analyses) {
+          if (!a.eligible) {
+            const reason = a.reasons?.[0] || 'UNKNOWN';
+            if (reason.includes('EV_BELOW_HAIRCUT')) rejectionReasons.ev_fail++;
+            else if (reason.includes('NO_VERIFIED_BARRIER')) rejectionReasons.barrier_fail++;
+            else if (reason.includes('INSUFFICIENT_TICKS')) rejectionReasons.ticks_fail++;
+            else if (reason.includes('RECENT_JUMP')) rejectionReasons.jump_fail++;
+            else rejectionReasons.other_fail++;
+          }
+        }
+        log('WARN', `ZERO candidates passed. Funnel: analyzed=${analyses.length} ev=${rejectionReasons.ev_fail} barrier=${rejectionReasons.barrier_fail} ticks=${rejectionReasons.ticks_fail} jump=${rejectionReasons.jump_fail} other=${rejectionReasons.other_fail}`);
+        return;
+      }
 
       let best = null;
       for (const cand of ranked) {
@@ -2169,6 +2194,9 @@ class AccuPULSE3BotV3 {
         proposal => this.analyzer.evaluateProposal(this.market.historyFor(best.symbol), growthRate, proposal)
       );
       log('INFO', `Trade #${trade.contractId} ${best.symbol} stake=${stake} tp=${tp}`);
+
+      // FIXED: Log analysis funnel for diagnostics
+      log('INFO', `Analysis funnel: candidates=${analyses.length} → ranked=${ranked.length} → best=${best.symbol} score=${best.score.toFixed(3)}`);
 
       // Phase 4: Alert on asset rotation
       const newTopAsset = rankedAssets[0]?.symbol;
