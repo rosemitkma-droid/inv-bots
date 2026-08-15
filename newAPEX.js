@@ -3,66 +3,41 @@
 
 /**
  * =====================================================================
- *  AccuAPEXnew — APEX engine v4  (conditional-volatility survival)
+ *  AccuAPEXnew — APEX engine  (conditional-volatility bimodal survival)
  * =====================================================================
  *
- *  Single-file Deriv Accumulator (ACCU) trading bot — TEST/DEMO ONLY.
+ *  Multi-asset Deriv Accumulator trading bot.
  *
- *  ─ CORE MODEL ─────────────────────────────────────────────────────────
+ *  ─ CORE STRATEGY: APEX (Asymmetric Post-spike EXploit) ─
  *  A Deriv Accumulator's barrier is recomputed EVERY tick around the
  *  PREVIOUS spot, so a knockout happens when a *single* tick's move
- *  exceeds the ± barrier. It is NOT cumulative drift from entry.
+ *  exceeds the ± barrier — it is NOT cumulative drift from entry.
  *  Per-tick survival is P(|one-tick return| < barrier), and K-tick
- *  survival is that raised to the K-th power (approx. i.i.d.).
+ *  survival is that raised to the K-th power (approx. iid). APEX
+ *  exploits two observations:
  *
- *  Two regime classes:
- *    • BOOM/CRASH — bimodal. The only knockout is a spike; hazard is
- *      lowest just after a spike fires. Enter in the fresh post-spike
- *      window and hold a short, hazard-bounded number of ticks.
- *    • VOL (R_*, 1HZ*V) — near-i.i.d. Enter only during real volatility
- *      compression (current realized σ below the baseline σ the barrier
- *      was priced against), when conditional per-tick survival is
- *      genuinely higher than the price implies.
+ *    • BOOM / CRASH indices are bimodal: tiny orderly drift punctuated
+ *      by rare large spikes. The ONLY real knockout is a spike, and its
+ *      hazard is lowest immediately AFTER a spike fires. APEX enters in
+ *      that fresh post-spike low-hazard window and holds a short,
+ *      hazard-bounded number of ticks.
  *
- *  ─ v4 CHANGES (this file) ────────────────────────────────────────────
- *  Reliability:
- *    • Reconcile open contracts after re-connect (portfolio + detail
- *      reads) so reconnects never orphan a live contract.
- *    • Idempotent settlement (single `result` per contract id) so a
- *      watchdog + stream settling the same contract can't double-count.
- *    • Single-flight entry latch — analysis/buy can't re-enter and
- *      double-buy.
- *    • Hard daily caps (dailyMaxTrades, dailyMaxLoss) that STOP the bot
- *      until next UTC day instead of silently warning.
- *    • Permanent-vs-transient proposal errors: only hard-exclude assets
- *      the API rejects forever; rate-limit/transient errors retry.
- *    • Crash-fast on uncaughtException / unhandledRejection (save state,
- *      then exit so a supervisor can restart cleanly).
- *  Strategy honesty:
- *    • VOL entry gate fixed: compression = σfast/σslow must be ≤
- *      apexVolCompressRatio AND barrier ≥ apexBarrierMinSigma·σfast.
- *      (Old gate compared barrier (a log-price fraction) to σ (a log-
- *      return), a dimensionally dead ratio that left VOL untradeable.)
- *    • Spike hazard gets a conservative upper-confidence haircut; and the
- *      EV/survival floors are no longer loosened for fast-cadence assets
- *      (the noisiest estimates used to get the loosest gates).
- *    • ticksHeld is derived from server tick_count / time, not stream
- *      message count — exits no longer fire early.
- *    • Growth-rate grid now includes 0.01/0.02 (lower rates are the only
- *      credible positive-EV rates on the most volatile R_* indices).
- *    • Expected-vs-realized per-tick survival tally (edgeTally) so the
- *      model is measurable against outcomes in demo.
- *  Operations preserved: Telegram (bounded queue), GMT pause windows,
- *  day-of-week filter, EOD/hourly summaries, atomic state persistence,
- *  reconnect backoff, watchdog, adaptive/kelly sizing.
+ *    • VOLATILITY / JUMP indices (R_*, 1HZ*V) are near-i.i.d. Gaussian.
+ *      APEX enters only during transient volatility compression — when
+ *      current realised σ sits well below the σ the barrier was priced
+ *      against, so the barrier is temporarily loose.
  *
- *  ─ HONESTY ───────────────────────────────────────────────────────────
- *  Nothing here guarantees profit. The model can be wrong in three ways
- *  the demo run must check: (1) spike gaps may be memoryless (Poisson),
- *  killing the post-spike edge; (2) volatility compression may be priced
- *  correctly, killing the VOL edge; (3) sell-side spread may exceed
- *  pulseSpreadCost. The bot is designed to STAND ASIDE when no edge
- *  clears the gates. Losing is always possible.
+ *  Engine: robust MAD scale + EWMA fast/slow σ, explicit spike
+ *  detection, per-asset regime class (BOOM/CRASH/VOL), conditional
+ *  forward K-tick survival, EV-optimal compounding horizon net of
+ *  spread, and an adaptive exit (hazard / drift / profit-lock).
+ *  Stake sizing is adaptive + v3 per-asset risk management.
+ *
+ *  ─ INFRASTRUCTURE ─
+ *  Trading system (analysis + execution) ported from accuAPEX.js into
+ *  the AccuAPEXnew framework, which is kept verbatim: WS/REST client,
+ *  PAT/OAuth auth, Telegram, stats, state persistence, GMT summaries,
+ *  scheduled pause/resume and day-of-week filters.
  *
  *  Author: Cowork 3P  |  License: MIT
  * =====================================================================
@@ -79,7 +54,7 @@ const { URL }      = require('url');
 const EventEmitter = require('events');
 
 // ═══════════════════════════════════════════════════════════════════════
-// 1. .ENV LOADER  (optional; credentials below stay hardcoded per user)
+// 1. .ENV LOADER
 // ═══════════════════════════════════════════════════════════════════════
 function loadEnv(filePath = path.join(process.cwd(), '.env')) {
   if (!fs.existsSync(filePath)) return;
@@ -101,54 +76,49 @@ function loadEnv(filePath = path.join(process.cwd(), '.env')) {
 loadEnv();
 
 // ═══════════════════════════════════════════════════════════════════════
-// 2. CONFIGURATION  (hardcoded TEST credentials retained per user)
+// 2. CONFIGURATION  (credentials retained from reference bots)
 // ═══════════════════════════════════════════════════════════════════════
 const CONFIG = Object.freeze({
-  // ── Deriv API (existing hardcoded CONFIG values — kept in-file) ──
+  // ── Deriv API ──
+  // apiToken  : ('0P94g4WdSrSrzir').trim(),   // retained from reference
+  // appId     : '1089',
   apiToken:    'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
   appId:       '33uslPtthXBEkQOdfKfoY',
   wsUrl     : 'wss://ws.derivws.com/websockets/v3',
   currency  : 'USD',
-  accountType: 'demo',    // 'demo' | 'real'  — keep demo for testing
+  accountType: 'demo',    // 'demo' | 'real'
 
   // ── Trade parameters ──
-  stake          : parseFloat('2.5'),
-  stopLoss       : parseFloat('900.0'),   // catastrophic per-contract stop ($)
-  dailyMaxLoss   : parseFloat('500'),     // hard daily loss → stop until next UTC day
-  dailyMaxTrades : parseInt('6000', 10),    // hard daily trade cap → stop until next UTC day
+  stake          : parseFloat('5.0'),
+  multiplier     : parseFloat('0.04'), // legacy hint
+  multiplierStep : parseFloat('0.0'),
+  stopLoss       : parseFloat('900.0'),   // hard $ stop per contract
+  takeProfit     : parseFloat('10000.0'), // session take-profit
 
-  // ── Sizing ──
-  //   'flat'    — always base stake
-  //   'adaptive'— anti-martingale: stake ×0.70 after a loss, ×1.15 after a win,
-  //              clamped to [minStakeFraction, maxStakeFraction] × base.
-  //   'kelly'   — fractional Kelly from the model EV (fraction of the
-  //              gross multiple), clamped to the same bounds.
-  //   'martingale' — classic martingale: stake ×martingaleMultiplier after
-  //              each consecutive loss (reset to base stake on a win); the
-  //              bot stops trading entirely once martingaleStep consecutive
-  //              losses (stake multiplications) are reached. Not clamped.
-  sizingModeV3         : 'martingale',  // 'flat' | 'adaptive' | 'kelly' | 'martingale'
-  lossStakeReduction   : parseFloat('0.70'),
-  winStakeRecovery     : parseFloat('1.15'),
-  minStakeFraction     : parseFloat('0.25'),
-  maxStakeFraction     : parseFloat('1.50'),
-  kellyFraction        : parseFloat('0.20'),
-  martingaleMultiplier : parseFloat('20.0'),  // martingale × on each consecutive loss
-  martingaleStep       : parseInt('2', 10),  // stop trading after this many stake multiplications (consecutive losses)
+  // ── Martingale (off by default — APEX uses adaptive sizing instead) ──
+  martingale:            parseFloat('0'),   // 0 = off
+  martingaleStep:        parseFloat('9'),
+  lossesBeforeMartingale:parseInt  ('0'),
+  maxMartingaleStep:     parseFloat('900'),
+
+  // ── Sizing (legacy 'edge' mode) ──
+  sizingMode:        'flat',            // 'flat' | 'edge'
+  edgeScaleMax:      parseFloat('2.0'),
+  edgeScaleEdgeRef:  parseFloat('0.05'),
+  downscaleAfterLoss:false,
 
   // ── Assets (Deriv synthetic indices) ──
-  // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
+  // assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
-  
-  assets: ('R_10,R_25,R_50,R_75,R_100')
+
+  assets: ('BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
-  // ── Telegram (existing hardcoded CONFIG values — kept in-file) ──
+  // ── Telegram (retained) ──
   telegram: {
     enabled : true,
     botToken: '8356265372:AAF00emJPbomDw8JnmMEdVW5b7ISX9_WQjQ',
     chatId  : '752497117',
-    maxQueue: parseInt('200', 10),      // drop-oldest bound so a Telegram outage can't OOM
   },
 
   // ── Strategy timing ──
@@ -157,101 +127,163 @@ const CONFIG = Object.freeze({
   analysisIntervalMs  : parseInt('15000', 10),
   tradeCooldownMs     : parseInt('4000',  10),
   maxOpenTrades       : parseInt('1',     10),
-  skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
-  recentTradedSymbolsLen : parseInt('3', 10),
 
-  // ── EV / survival gates (per-trade floors; NOT loosened by cadence) ──
-  apexMinEV       : parseFloat('0.010'),   // ≥ +1% net EV to fire
-  apexMinSurvival : parseFloat('0.940'),    // forward K-tick survival floor
-  pulseSpreadCost : parseFloat('0.002'),   // flat spread model (low; see honesty note)
-  pulseGrowthRates: [0.05], //[0.05, 0.04, 0.03, 0.02, 0.01] grid searched by EV (lower rates = looser barrier)
+  // ── PULSE-COMPAT TUNABLES (shared helpers) ──
+  pulseReturnWindow   : parseInt('120',   10),
+  pulseHorizon        : parseInt('20',    10),
+  pulseTrials         : parseInt('10000', 10),
+  pulseMinTrials      : parseInt('4000',  10),
 
-  // ── APEX strategy tunables ──
-  // History depth: spike cadence needs ≥2 spike intervals in view.
-  apexHistoryWindow    : parseInt('6000', 10),
-  apexScaleWindow      : parseInt('150',  10),   // recent window for breach-rate estimate
-  apexEwmaFast         : parseFloat('0.30'),
-  apexEwmaSlow         : parseFloat('0.03'),
-  apexSpikeK           : parseFloat('5.0'),
-  apexMinSpikesSeen    : parseInt('2', 10),
-  hazardCiZ            : parseFloat('1.28'),    // 80% upper CI on hazard (conservative)
+  // ── EV gates ──
+  pulseEdgeThreshold  : parseFloat('0.985'), //1.005 //1.015
+  pulseMinEV          : parseFloat('0.005'),   //0.015
+  pulseMinSurvival    : parseFloat('0.93'),   //0.985
+  pulseMaxHorizon     : parseInt  ('6', 10),
 
-  // ── Post-spike entry (BOOM/CRASH) ──
+  // ── Growth-rate candidates (Deriv supports 0.01-0.05) ──
+  pulseGrowthRates    : [0.05, 0.04, 0.03, 0.02, 0.01], //0.05, 0.04, 0.03, 0.02, 0.01 eval multiple rates, let EV pick best
+
+  // ── Volatility regime ──
+  pulseCalmMaxRatio   : parseFloat('1.05'),
+  pulseStormyMinRatio : parseFloat('1.20'),
+
+  // ── Spread model ──
+  pulseSpreadCost     : parseFloat('0.002'),
+
+  // ═══════════════════════════════════════════════════════════════════
+  // APEX STRATEGY TUNABLES  (engine ported from accuAPEX.js)
+  // ═══════════════════════════════════════════════════════════════════
+  //   History depth. Spike cadence can only be measured if the analysis
+  //   window spans SEVERAL spike intervals. Boom/Crash 1000 spikes every
+  //   ~1000 ticks, so we keep ≥6000 ticks so ≥2 spikes are almost always
+  //   in view. This is the single most important APEX tunable.
+  apexHistoryWindow   : parseInt('6000', 10),
+
+  //   Robust scale + spike model.
+  apexScaleWindow     : parseInt('150', 10),   // ticks for MAD robust scale
+  apexEwmaFast        : parseFloat('0.30'),     // fast EWMA-σ weight (recent)
+  apexEwmaSlow        : parseFloat('0.03'),     // slow EWMA-σ weight (baseline)
+
+  // ── Spike detection ──
+  apexSpikeK          : parseFloat('5.0'),
+  apexMinSpikesSeen   : parseInt('2', 10),      // need ≥2 spikes to trust cadence
+
+  // ── Post-spike entry window (Boom/Crash) ──
   apexPostSpikeMin        : parseInt('1', 10),
-  apexPostSpikeWindowFrac : parseFloat('0.35'),
-  apexMinSpikeSurvival    : parseFloat('1.000'), // (1-hazard)^maxHold floor
-  apexMaxHoldBoom         : parseInt('7', 10),
+  apexPostSpikeWindowFrac : parseFloat('0.35'), // fraction of mean cadence
+  apexMaxHazard           : parseFloat('0.010'), // legacy (superseded by apexMinSpikeSurvival)
+  // v3: Hold-period-aware spike survival.
+  apexMinSpikeSurvival    : parseFloat('0.80'), //0.50
 
-  // ── Vol-compression entry (VOL) ──
-  // compression = σfast/σslow must be ≤ apexVolCompressRatio (real compression),
-  // AND the barrier must be ≥ apexBarrierMinSigma × σfast (wide enough to matter).
+  // ── Vol-compression entry (Volatility / Jump indices) ──
   apexVolCompressRatio : parseFloat('0.90'),
-  apexBarrierMinSigma  : parseFloat('2.0'),
-  apexCompressionWindow: parseInt('150', 10),   // recent returns used for the breach-rate estimate
-  apexMaxHoldVol       : parseInt('10', 10),
+  apexBarrierSafety    : parseFloat('3.2'),
+  //   Minimum barrier width, in units of current σ, before a VOL asset is
+  //   considered "loose enough" to enter. Used by the barrier-clears gate
+  //   (barrierFrac >= apexBarrierSafety * sigmaFast). The old entry gate also
+  //   required a *ratio* signal (fast/slow σ ≤ 0.90), but that ratio is ~1.0
+  //   in steady-state quiet conditions, so the gate was effectively closed
+  //   most of the time — that was the "stops trading until restart" bug.
 
-  // ── Adaptive exit ──
-  apexExitHazard        : parseFloat('0.050'),
-  apexExitDriftFrac     : parseFloat('0.75'),
-  apexProfitLockFrac    : parseFloat('0.90'),
-  apexMinProfitLockFrac : parseFloat('0.025'),
+  // ── Survival / EV requirements (per-class overrides of pulse* gates) ──
+  apexMinSurvival     : parseFloat('0.80'),  // forward K-tick survival floor
+  apexMinEV           : parseFloat('0.010'), // ≥ +1% net EV to fire
+  apexMaxHoldBoom     : parseInt('7',  10),  // Boom/Crash hold cap (ticks)
+  apexMaxHoldVol      : parseInt('10',  10),  // Vol/Jump hold cap (ticks)
 
-  // ── Per-asset risk (v3) ──
+  // ── Adaptive-exit (APEX) ──
+  apexExitHazard      : parseFloat('0.050'), // exit if hazard ≥ 5%
+  apexExitDriftFrac   : parseFloat('0.75'), // fraction of expected remaining drift to exit
+  apexProfitLockFrac  : parseFloat('0.90'),  // lock ≥90% of expected remaining
+  apexMinProfitLockFrac: parseFloat('0.025'), // lock ≥2.5% of expected remaining
+
+  // ── Legacy adaptive early-exit tuning (kept from accuAPEX.js) ──
+  pulseExitProfitLockFrac : parseFloat('0.55'),
+  pulseExitDriftFrac      : parseFloat('0.50'),
+  pulseExitNextTickEdge   : parseFloat('1.00'),
+  pulseMinProfitLockFrac  : parseFloat('0.003'),
+
+  // ═══════════════════════════════════════════════════════════════════
+  // v3: PER-ASSET RISK MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════════
   maxEntriesPerSpikeWindow : parseInt('1', 10),
-  assetLossCooldownMs      : parseInt('120000', 10),
+  assetLossCooldownMs      : parseInt('120000', 10),  // 2 minutes
   assetMaxConsecutiveLosses: parseInt('3', 10),
-  assetPauseDurationMs     : parseInt('600000', 10),
-  minWinRateToTrade        : parseFloat('0.38'),
+  assetPauseDurationMs     : parseInt('600000', 10),  // 10 minutes
+  minWinRateToTrade        : parseFloat('0.38'),  // 38%
   rollingWindowSize        : parseInt('15', 10),
   sessionMaxDrawdown       : parseFloat('300'),
   maxAssetsTrading         : parseInt('2', 10),
-  edgeAfterLossBoost       : parseFloat('0.008'), // EV penalty per consecutive loss
+  edgeAfterLossBoost       : parseFloat('0.008'),  // +0.8% edge per loss in streak
 
-  // ── Correlation haircut ──
-  // VOL assets (R_*, 1HZ*V) are near-perfectly correlated; never run two at once.
-  volFamilyGroup   : true,
-  correlatedGroups : [
+  // ═══════════════════════════════════════════════════════════════════
+  // v3: DYNAMIC ASSET DISCOVERY
+  // ═══════════════════════════════════════════════════════════════════
+  autoDiscoverAssets       : false,
+  discoveryIntervalMs      : parseInt('3600000', 10),  // re-discover every hour
+  assetFamilyFilter        : ['BOOM', 'CRASH'],
+
+  //   Correlated assets to avoid trading simultaneously.
+  correlatedGroups         : [
     ['BOOM1000', 'BOOM900', 'BOOM600', 'BOOM500', 'BOOM300N', 'BOOM150N', 'BOOM50'],
     ['CRASH1000', 'CRASH900', 'CRASH600', 'CRASH500', 'CRASH1300N', 'CRASH150N', 'CRASH50'],
   ],
 
-  // ── Dynamic asset discovery (off; behind flag) ──
-  autoDiscoverAssets  : false,
-  discoveryIntervalMs : parseInt('3600000', 10),
-  assetFamilyFilter   : ['BOOM', 'CRASH'],
+  // ═══════════════════════════════════════════════════════════════════
+  // v3: SMART POSITION SIZING (replaces raw martingale)
+  // ═══════════════════════════════════════════════════════════════════
+  sizingModeV3             : 'adaptive',  // 'flat'|'adaptive'|'kelly'
+  lossStakeReduction       : parseFloat('0.70'),  // stake × 0.70 after each loss
+  winStakeRecovery         : parseFloat('1.15'),  // stake × 1.15 after each win
+  minStakeFraction         : parseFloat('0.25'),  // never go below 25% of base
+  maxStakeFraction         : parseFloat('1.50'),  // never exceed 250% of base
+  kellyFraction            : parseFloat('0.20'),
+
+  // ── Daily limits ──
+  dailyMaxLoss   : parseFloat('500'),
+  dailyMaxTrades : parseInt('2000000000'),
 
   // ── Reconnect ──
-  reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
+  reconnect: {
+    initialDelayMs: 1000,
+    maxDelayMs    : 60000,
+    backoffFactor : 2,
+    jitterMs      : 750,
+  },
 
   // ── Barrier refresh ──
   barrierRefreshMs: parseInt('45000', 10),
 
-  // ── Trade watchdog (sweeps ALL stale open contracts) ──
+  // ── Trade watchdog ──
   tradeWatchdogMs: parseInt('90000', 10),
 
-  // ── Logging / state ──
-  logFile           : 'accuAPEXnewn_08.log',
-  logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnewn_state_08.json',
-  stateSaveOnTrade  : true,
-  stateSaveOnShutdown: true,
+  // ── Logging ──
+  logFile : 'accuAPEXnew_001.log',
+  logLevel: 'INFO',
 
-  // ── Edge measurement (expected vs realized survival) ──
-  edgeTallyEnabled : true,
+  // ── State persistence ──
+  stateFile           : 'accuAPEXnew_state_001.json',
+  stateSaveOnTrade    : true,
+  stateSaveOnShutdown : true,
 
-  // ── Scheduled pause/resume (GMT) ──
-  pauseEnabled : true,
-  pauseStartGmt: '23:00',
-  pauseEndGmt  : '01:00',
+  // ── Scheduled pause/resume ──
+  pauseEnabled   : true,
+  pauseStartGmt  : '23:00',
+  pauseEndGmt    : '01:00',
 
-  // ── Day-of-week filter ──
-  tradeSunday: true, tradeMonday: true, tradeTuesday: true,
-  tradeWednesday: true, tradeThursday: true, tradeFriday: true, tradeSaturday: true,
+  // ── Day-of-week trading filter ──
+  tradeSunday    : true,
+  tradeMonday    : true,
+  tradeTuesday   : true,
+  tradeWednesday : true,
+  tradeThursday  : true,
+  tradeFriday    : true,
+  tradeSaturday  : true,
 
-  // ── EOD / hourly summaries (GMT) ──
-  eodTimeGmt         : '00:00',
-  eodSendDelaySeconds: parseInt('10', 10),
-  hourlySummary      : true,
+  // ── EOD scheduling (GMT) ──
+  eodTimeGmt          : '00:00',
+  eodSendDelaySeconds : parseInt('10', 10),
+  hourlySummary       : true,
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -285,7 +317,7 @@ const logger = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════
-// 4. TELEGRAM NOTIFIER  (bounded queue, serial drain)
+// 4. TELEGRAM NOTIFIER
 // ═══════════════════════════════════════════════════════════════════════
 class TelegramNotifier extends EventEmitter {
   constructor(cfg) {
@@ -293,9 +325,7 @@ class TelegramNotifier extends EventEmitter {
     this.enabled = cfg.enabled;
     this.botToken = cfg.botToken;
     this.chatId = cfg.chatId;
-    this.maxQueue = cfg.maxQueue || 200;
     this.queue = [];
-    this.dropped = 0;
     this.sending = false;
   }
   _post(text) {
@@ -318,17 +348,11 @@ class TelegramNotifier extends EventEmitter {
   async _drain() {
     if (this.sending || !this.queue.length) return;
     this.sending = true;
-    try {
-      while (this.queue.length) {
-        await this._post(this.queue.shift());
-        await new Promise(r => setTimeout(r, 1100));
-      }
-      if (this.dropped > 0) { logger.warn(`telegram: dropped ${this.dropped} queued messages (overflow)`); this.dropped = 0; }
-    } finally { this.sending = false; }
+    try { while (this.queue.length) { await this._post(this.queue.shift()); await new Promise(r => setTimeout(r, 1100)); } }
+    finally { this.sending = false; }
   }
   send(text) {
     if (!this.enabled) { logger.debug('tg(dry):', text.slice(0, 100)); return; }
-    if (this.queue.length >= this.maxQueue) { this.queue.shift(); this.dropped++; }
     this.queue.push(text);
     this._drain();
   }
@@ -378,7 +402,7 @@ class RestClient {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 6. DERIV WEBSOCKET CLIENT  (reconnect, PAT/OAuth, subs, portfolio)
+// 6. DERIV WEBSOCKET CLIENT
 // ═══════════════════════════════════════════════════════════════════════
 class DerivClient extends EventEmitter {
   constructor(cfg) {
@@ -414,7 +438,7 @@ class DerivClient extends EventEmitter {
 
   _openWs(url) {
     try {
-      this.ws = new WebSocket(url, { headers: { 'User-Agent': 'AccuAPEXnew/4.0 (+Node.js)' }, handshakeTimeout: 15000 });
+      this.ws = new WebSocket(url, { headers: { 'User-Agent': 'AccuAPEXnew/2.0 (+Node.js)' }, handshakeTimeout: 15000 });
     } catch (e) { logger.error('ws construct failed:', e.message); this._scheduleReconnect(); return false; }
     this.ws.on('open', () => this._onOpen());
     this.ws.on('message', d => this._onMessage(d));
@@ -574,16 +598,11 @@ class DerivClient extends EventEmitter {
     return this._send({ forget: subId }, 8000).catch(() => {});
   }
 
-  async portfolio() {
-    const res = await this._send({ portfolio: 1 }, 15000);
-    return Array.isArray(res.portfolio?.contracts) ? res.portfolio.contracts : [];
-  }
-
   stop() { this._stopped = true; try { this.ws?.close(); } catch (_) {} }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 7. MARKET DATA MANAGER  (ticks, history, barriers, stays)
+// 7. MARKET DATA MANAGER
 // ═══════════════════════════════════════════════════════════════════════
 class MarketDataManager extends EventEmitter {
   constructor(client, cfg) {
@@ -597,7 +616,7 @@ class MarketDataManager extends EventEmitter {
     this._barrierCache = new Map();
     this._refreshInFlight = false;
     this._bootstrapping = false;
-    this._unsupportedSymbols = new Set();
+    this._unsupportedSymbols = new Set(); // ACCU rejected by the API on this account
     client.on('close', () => this.subs.clear());
   }
 
@@ -619,7 +638,8 @@ class MarketDataManager extends EventEmitter {
     if (!cd) return;
     const key = `${symbol}:${growthRate}`;
     const spotNum = parseFloat(spot ?? 0);
-    // Prefer the exact per-tick barrier % from Deriv; fall back to deriving
+    // Prefer the exact per-tick barrier % from Deriv. On the new API the
+    // field can be 0/missing for some synthetics — fall back to deriving
     // the ±% from the spot distance, then from the high/low barrier band.
     let halfBarrierPct = parseFloat(cd.tick_size_barrier_percentage || 0);
     if (!halfBarrierPct && spotNum > 0) {
@@ -639,12 +659,6 @@ class MarketDataManager extends EventEmitter {
 
   getBarrier(symbol, growthRate) { return this._barrierCache.get(`${symbol}:${growthRate}`); }
 
-  // Errors that will never resolve on this account — exclude the asset permanently.
-  static PERMANENT_ERRORS = new Set([
-    'TradingDurationNotAllowed', 'InvalidContractType', 'InvalidSymbol',
-    'UnsupportedContract', 'InvalidContract', 'BlockedCurrency',
-  ]);
-
   async refreshBarriers(assets, growthRates) {
     if (this._refreshInFlight || !this.client.authorized) return;
     this._refreshInFlight = true;
@@ -661,15 +675,11 @@ class MarketDataManager extends EventEmitter {
         return true;
       }
       if (res?.error) {
-        const code = res.error.code || '';
-        const msg = res.error.message || '';
-        if (MarketDataManager.PERMANENT_ERRORS.has(code) || /not offered|does not offer|not available|not supported/i.test(msg)) {
-          this._unsupportedSymbols.add(sym);
-          logger.info(`refreshBarriers: ${sym} ACCU rejected (${code || msg}) — excluded from this account`);
-        } else {
-          // transient (rate limit / server hiccup) — will retry on next refresh
-          logger.debug(`refreshBarriers(${sym},${gr}) transient: ${code || msg}`);
-        }
+        // Hard API rejections (e.g. "Trading is not offered for this duration."
+        // for assets that don't support ACCU on this account) will NEVER
+        // resolve — stop asking for them so we stop wasting cycles + rate limit.
+        this._unsupportedSymbols.add(sym);
+        logger.info(`refreshBarriers: ${sym} ACCU rejected (${res.error.code || res.error.message}) — excluded from this account`);
       }
       return false;
     };
@@ -680,9 +690,11 @@ class MarketDataManager extends EventEmitter {
         for (const gr of growthRates) {
           try { await fetchOne(sym, gr); }
           catch (e) { logger.debug(`refreshBarriers(${sym},${gr}):`, e.message); }
-          await sleep(50);
+          await sleep(50); // throttle the burst so late assets aren't rate-limited
         }
       }
+      // Retry once for any asset still lacking a barrier (transient failures
+      // / rate limits hit earlier in the burst).
       const hasBarrier = sym => growthRates.some(gr =>
         this._barrierCache.get(`${sym}:${gr}`)?.halfBarrierPct > 0);
       const missing = eligible.filter(sym => !hasBarrier(sym));
@@ -694,6 +706,8 @@ class MarketDataManager extends EventEmitter {
           await sleep(150);
         }
       }
+      // Visibility: if some assets STILL have no usable barrier, the analyzer
+      // will refuse them with 'no-barrier' — surface that here at WARN.
       const stillMissing = eligible.filter(sym => !hasBarrier(sym));
       if (stillMissing.length) {
         logger.warn(`refreshBarriers: NO usable barrier for ${stillMissing.join(', ')} — those assets will not trade`);
@@ -709,21 +723,46 @@ class MarketDataManager extends EventEmitter {
     } catch (e) { logger.error('loadSymbols:', e.message); }
   }
 
-  async deepBackfill(symbol, totalCount, batchSize = 5000) {
-    const out = [];
+  async backfill(symbol, count = 1000) {
+    try {
+      const res = await this.client._send({ ticks_history: symbol, count, end: 'latest', style: 'ticks' }, 20000);
+      const prices = res.history?.prices || [];
+      const times = res.history?.times || [];
+      const arr = times.map((t, i) => ({ epoch: +t, quote: parseFloat(prices[i]) }));
+      this.history.set(symbol, arr);
+      if (arr.length) this.lastQuote.set(symbol, arr[arr.length - 1].quote);
+      logger.debug(`backfilled ${symbol}: ${arr.length} ticks`);
+      return arr;
+    } catch (e) { logger.error(`backfill(${symbol}):`, e.message); return []; }
+  }
+
+  /**
+   * Deep historical backfill for the APEX engine (ported from accuAPEX.js).
+   * Deriv `ticks_history` returns up to 5000 ticks per call; chain calls
+   * backwards using `end` = earliest epoch − 1. Returns oldest → newest.
+   */
+  async deepBackfill(symbol, totalCount, batchSize = 5000, onProgress = null) {
+    const out  = [];
     let remain = totalCount;
-    let end = 'latest';
+    let end    = 'latest';
     let lastEpoch = null;
     while (remain > 0) {
       const count = Math.min(batchSize, remain);
       let res;
       try {
-        res = await this.client._send({ ticks_history: symbol, count, end, style: 'ticks' }, 30000);
-      } catch (e) { logger.warn(`deepBackfill(${symbol}) batch failed: ${e.message} — stopping`); break; }
+        res = await this.client._send({
+          ticks_history: symbol,
+          count, end, style: 'ticks',
+        }, 30000);
+      } catch (e) {
+        logger.warn(`deepBackfill(${symbol}) batch failed: ${e.message} — stopping`);
+        break;
+      }
       const prices = res.history?.prices || [];
-      const times = res.history?.times || [];
+      const times  = res.history?.times  || [];
       if (!times.length) { logger.info(`  (server returned 0 more ticks — Deriv history exhausted)`); break; }
       const batch = times.map((t, i) => ({ epoch: +t, quote: parseFloat(prices[i]) }));
+      // Guard against server ignoring `end=` and re-serving the same window
       if (lastEpoch !== null && batch[batch.length - 1].epoch >= lastEpoch) {
         logger.info(`  (server did not honor pagination — history exhausted at ${out.length} ticks)`);
         break;
@@ -731,8 +770,9 @@ class MarketDataManager extends EventEmitter {
       lastEpoch = batch[0].epoch;
       out.unshift(...batch);
       remain -= batch.length;
+      if (onProgress) onProgress(out.length, totalCount);
       end = String(batch[0].epoch - 1);
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 200)); // rate-limit courtesy
       if (batch.length < count) {
         logger.info(`  (last batch short: ${batch.length}/${count} — Deriv history exhausted at ${out.length} ticks)`);
         break;
@@ -741,6 +781,11 @@ class MarketDataManager extends EventEmitter {
     return out;
   }
 
+  /**
+   * v3: Dynamic asset discovery (ported from accuAPEX.js) — queries Deriv
+   * for all ACCU-capable synthetic indices, filters by configured families,
+   * and returns the discovered list.
+   */
   async discoverAccuAssets() {
     const discovered = [];
     try {
@@ -784,8 +829,13 @@ class MarketDataManager extends EventEmitter {
       const arr = this.history.get(symbol);
       if (arr) {
         arr.push(tick);
+        // APEX needs a deep buffer so spike cadence stays measurable.
         const cap = Math.max(this.cfg.apexHistoryWindow + 500, this.cfg.tickWindow * 8, 2000);
-        if (arr.length > cap) this.history.set(symbol, arr.slice(-cap));
+        // Use array replacement instead of splice to avoid O(n) operation every tick
+        if (arr.length > cap) {
+          const newArr = arr.slice(-cap);
+          this.history.set(symbol, newArr);
+        }
       } else this.history.set(symbol, [tick]);
     });
     this.subs.set(symbol, subId);
@@ -799,10 +849,12 @@ class MarketDataManager extends EventEmitter {
       await Promise.all(symbols.map(s => this.subscribe(s).catch(e => logger.warn(`sub(${s}):`, e.message))));
       await Promise.all(symbols.map(async s => {
         const hist = this.history.get(s) || [];
+        // APEX needs a deep history so spike cadence is measurable from the first analysis.
         const want = Math.max(this.cfg.apexHistoryWindow || 6000, this.cfg.tickWindow * 5, 1000);
         if (hist.length < want) {
           const fetched = await this.deepBackfill(s, want, 5000);
           if (fetched && fetched.length) {
+            // Merge deep history in front of any live ticks already buffered.
             const live = this.history.get(s) || [];
             const lastEpoch = fetched[fetched.length - 1].epoch;
             const tail = live.filter(t => t.epoch > lastEpoch);
@@ -818,119 +870,28 @@ class MarketDataManager extends EventEmitter {
   historyFor(symbol) { return this.history.get(symbol) || []; }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// 8. SHARED SMALL HELPERS  (pure, testable)
-// ═══════════════════════════════════════════════════════════════════════
-function regimeClassOf(symbol) {
-  const u = String(symbol).toUpperCase();
-  if (u.includes('BOOM'))  return 'BOOM';
-  if (u.includes('CRASH')) return 'CRASH';
-  return 'VOL';
-}
-
-// Fractional Kelly stake multiplier for an accumulator entry.
-//   netReturnPerStake = expected net return per $1 staked (edge − 1)
-//   grossMultiple     = (1+g)^N, the multiple you collect if you survive to N
-//   full Kelly = netReturn / (grossMultiple − 1); we take `fraction` of it.
-function kellyMultiplier(netReturnPerStake, grossMultiple, fraction) {
-  const profitOnWin = grossMultiple - 1;
-  if (profitOnWin <= 0 || netReturnPerStake <= 0) return 0;
-  return Math.max(0, Math.min(fraction, netReturnPerStake / profitOnWin));
-}
-
-// VOL entry gate (pure): real compression AND a barrier wide enough to matter.
-function isVolEntryAllowed(compression, barrierSigma, estimated, cfg) {
-  if (estimated) return { ok: false, reason: 'no-barrier' };   // never trade a fabricated barrier
-  if (!(compression <= cfg.apexVolCompressRatio)) return { ok: false, reason: 'compression-not-low' };
-  if (!(barrierSigma >= cfg.apexBarrierMinSigma)) return { ok: false, reason: 'barrier-thin' };
-  return { ok: true, reason: 'vol-compressed' };
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// 9. APEX ANALYZER  (conditional-volatility survival engine)
-// ═══════════════════════════════════════════════════════════════════════
+// 8. APEX ANALYZER  (Conditional-volatility bimodal survival engine)
+// ─────────────────────────────────────────────────────────────────────
+//
+// KEY MODELLING CORRECTION vs the scaffold:
+//   A Deriv Accumulator's barrier is recomputed EVERY tick around the
+//   PREVIOUS spot. A knockout therefore happens when a *single* tick's
+//   move exceeds the ± barrier — it is NOT a cumulative drift from the
+//   entry price. So per-tick survival is  P(|one-tick return| < barrier)
+//   and K-tick survival is that raised to the K-th power (approx. iid).
+//
+//   For Boom/Crash indices the calm inter-spike drift is far smaller
+//   than the barrier, so a calm tick essentially never breaches — the
+//   only knockout is a SPIKE. APEX models spike risk explicitly as a
+//   per-tick hazard = 1 / (mean spike cadence), and only enters in the
+//   fresh post-spike window where that hazard clock has just reset.
+//
+//   For Volatility/Jump indices there are no spikes; the barrier is
+//   priced from aggregate σ, so APEX only enters when current σ is
+//   compressed below baseline (barrier temporarily loose).
+//
 class ApexAnalyzer {
   constructor(cfg) { this.cfg = cfg; }
-
-  // ── pure math helpers (called directly by --selftest) ────────────────
-  _logReturns(q) {
-    const out = [];
-    for (let i = 1; i < q.length; i++) out.push(Math.log(q[i] / q[i - 1]));
-    return out;
-  }
-  _median(arr) {
-    if (!arr.length) return 0;
-    const s = arr.slice().sort((a, b) => a - b);
-    const m = s.length >> 1;
-    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-  }
-  _madScale(returns) {
-    const absR = returns.map(Math.abs);
-    return Math.max(1.4826 * this._median(absR), 1e-12);
-  }
-  _ewmaVars(returns, af, as) {
-    let fastVar = returns[0] * returns[0];
-    let slowVar = fastVar;
-    for (let i = 1; i < returns.length; i++) {
-      const r2 = returns[i] * returns[i];
-      fastVar = af * r2 + (1 - af) * fastVar;
-      slowVar = as * r2 + (1 - as) * slowVar;
-    }
-    return { fastVar, slowVar };
-  }
-  _spikeStats(returns, spikeThresh, regime) {
-    const spikeIdx = [];
-    for (let i = 0; i < returns.length; i++) {
-      const r = returns[i];
-      if (Math.abs(r) < spikeThresh) continue;
-      if (regime === 'BOOM'  && r > 0) spikeIdx.push(i);
-      else if (regime === 'CRASH' && r < 0) spikeIdx.push(i);
-      else if (regime === 'VOL') spikeIdx.push(i);
-    }
-    let cadence = 0;
-    if (spikeIdx.length >= 2) {
-      let s = 0;
-      for (let k = 1; k < spikeIdx.length; k++) s += spikeIdx[k] - spikeIdx[k - 1];
-      cadence = s / (spikeIdx.length - 1);
-    }
-    const ticksSinceSpike = spikeIdx.length ? (returns.length - 1) - spikeIdx[spikeIdx.length - 1] : Infinity;
-    const calmReturns = returns.filter(r => Math.abs(r) <= spikeThresh);
-    return { spikesSeen: spikeIdx.length, cadence, ticksSinceSpike, calmReturns };
-  }
-  // Conservative upper 80% CI on the per-tick spike rate (Poisson-ish).
-  _hazardUpperBound(spikesSeen, cadence, nTicks, z = 1.28) {
-    if (spikesSeen < this.cfg.apexMinSpikesSeen || cadence <= 0 || nTicks <= 0) return 1;
-    const lambda = 1 / cadence;
-    const se = Math.sqrt(lambda / nTicks);
-    return Math.min(1, lambda + z * se);
-  }
-  // Choose the compounding horizon K maximizing EV subject to floors.
-  _chooseHorizon(growthRate, perTickSurv, spread, maxHold, minSurvival, minEV) {
-    let best = { K: 0, ev: -Infinity, edge: -Infinity, surv: 0 };
-    let raw = { K: 1, ev: -Infinity, edge: -Infinity, surv: perTickSurv };
-    for (let K = 1; K <= maxHold; K++) {
-      const surv = Math.pow(perTickSurv, K);
-      const edge = Math.pow(1 + growthRate, K) * surv - spread;
-      const ev = edge - 1;
-      if (edge > raw.edge) raw = { K, ev, edge, surv };
-      if (surv >= minSurvival && ev >= minEV && ev > best.ev) best = { K, ev, edge, surv };
-    }
-    return { best, raw };
-  }
-
-  // Barrier per rate: prefer exact; else scale from the reference rate and
-  // mark ESTIMATED (never traded on). If neither exists → null (never fabricate).
-  _barrierFor(symbol, growthRate, market, refGr) {
-    const grBarrier = market ? market.getBarrier(symbol, growthRate) : null;
-    if (grBarrier && grBarrier.halfBarrierPct > 0) {
-      return { barrierFrac: grBarrier.halfBarrierPct / 100, estimated: false };
-    }
-    const ref = market ? market.getBarrier(symbol, refGr) : null;
-    if (ref && ref.halfBarrierPct > 0) {
-      return { barrierFrac: (ref.halfBarrierPct / 100) * (refGr / growthRate), estimated: true };
-    }
-    return null;
-  }
 
   analyze(symbol, ticks, market, currentSpot = null) {
     return this._analyzeWithRates(symbol, ticks, market, currentSpot, this.cfg.pulseGrowthRates);
@@ -941,121 +902,273 @@ class ApexAnalyzer {
     return this._analyzeWithRates(symbol, ticks, market, currentSpot, [growthRate]);
   }
 
+  // ── small numeric helpers ──────────────────────────────────────────
+  _median(arr) {
+    if (!arr.length) return 0;
+    const s = arr.slice().sort((a, b) => a - b);
+    const m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+  _regimeClass(symbol) {
+    const u = String(symbol).toUpperCase();
+    if (u.includes('BOOM'))  return 'BOOM';
+    if (u.includes('CRASH')) return 'CRASH';
+    return 'VOL';
+  }
+
   _analyzeWithRates(symbol, ticks, market, currentSpot, growthRates) {
-    const cfg = this.cfg;
-    if (!ticks || ticks.length < cfg.minTicksForAnalysis) return null;
+    if (!ticks || ticks.length < this.cfg.minTicksForAnalysis) return null;
     const q = ticks.map(t => t.quote).filter(v => v > 0);
     if (q.length < 20) return null;
-    const returns = this._logReturns(q);
+
+    // ── 1. Log returns (full history, so rare spikes are captured) ────
+    const returns = [];
+    for (let i = 1; i < q.length; i++) returns.push(Math.log(q[i] / q[i - 1]));
     if (returns.length < 15) return null;
 
     const price = currentSpot != null && currentSpot > 0 ? currentSpot : q[q.length - 1];
-    const regime = regimeClassOf(symbol);
+    const regimeClass = this._regimeClass(symbol);
 
-    const scale = this._madScale(returns);
-    const spikeThresh = cfg.apexSpikeK * scale;
-    const { fastVar, slowVar } = this._ewmaVars(returns, cfg.apexEwmaFast, cfg.apexEwmaSlow);
+    // ── 2. Robust scale (MAD) — spike-resistant unlike stdev ──────────
+    const absR  = returns.map(Math.abs);
+    const scale = Math.max(1.4826 * this._median(absR), 1e-12);
+    const spikeThresh = this.cfg.apexSpikeK * scale;
+
+    // ── 3. EWMA fast/slow σ ─────────────────────────────────────────────
+    //   fast reacts to the recent regime; slow is the baseline the barrier
+    //   was effectively priced against. The VOL entry gate uses these to
+    //   measure how loose the barrier is relative to CURRENT σ (see gate 7)
+    //   rather than a fast/slow ratio, which is ~1.0 in steady state and
+    //   therefore kept the gate effectively closed most of the time.
+    let fastVar = returns[0] * returns[0];
+    let slowVar = fastVar;
+    const af = this.cfg.apexEwmaFast, as = this.cfg.apexEwmaSlow;
+    for (let i = 1; i < returns.length; i++) {
+      const r2 = returns[i] * returns[i];
+      fastVar = af * r2 + (1 - af) * fastVar;
+      slowVar = as * r2 + (1 - as) * slowVar;
+    }
     const sigmaFast = Math.sqrt(Math.max(fastVar, 1e-24));
     const sigmaSlow = Math.sqrt(Math.max(slowVar, 1e-24));
-    const mu = returns.reduce((s, v) => s + v, 0) / returns.length;
+    const volRatio  = sigmaFast / Math.max(sigmaSlow, 1e-12);
+    const mu        = returns.reduce((s, v) => s + v, 0) / returns.length;
 
-    // Volatility compression for the VOL gate: recent realized σ vs the
-    // long-horizon baseline σ. Both are robust MAD scales (spike-resistant).
-    // An EWMA pair would decay to the CURRENT regime within ~1/α ticks (both
-    // fast and slow), making the ratio ~1.0 in steady state and never firing —
-    // the old "stops trading" bug. A long-window baseline stays storm-dominated
-    // while recent σ drops, so compression < 1 is a genuine signal.
-    const sigmaRecent = this._madScale(returns.slice(-cfg.apexCompressionWindow));
-    const compression = sigmaRecent / Math.max(scale, 1e-12);
+    // ── 4. Spike detection + cadence (directional for Boom/Crash) ─────
+    //   Boom spikes UP, Crash spikes DOWN. We only count spikes in the
+    //   index's spike direction — those are the knockout events.
+    const spikeIdx = [];
+    for (let i = 0; i < returns.length; i++) {
+      const r = returns[i];
+      if (Math.abs(r) < spikeThresh) continue;
+      if (regimeClass === 'BOOM'  && r > 0) spikeIdx.push(i);
+      else if (regimeClass === 'CRASH' && r < 0) spikeIdx.push(i);
+      else if (regimeClass === 'VOL') spikeIdx.push(i); // any large move
+    }
+    const spikesSeen = spikeIdx.length;
+    let spikeCadence = 0;
+    if (spikesSeen >= 2) {
+      let gapSum = 0;
+      for (let k = 1; k < spikeIdx.length; k++) gapSum += (spikeIdx[k] - spikeIdx[k - 1]);
+      spikeCadence = gapSum / (spikeIdx.length - 1);
+    }
+    const ticksSinceSpike = spikesSeen
+      ? (returns.length - 1) - spikeIdx[spikeIdx.length - 1]
+      : Infinity;
 
-    const sp = this._spikeStats(returns, spikeThresh, regime);
-    const hazardRaw = (sp.spikesSeen >= cfg.apexMinSpikesSeen && sp.cadence > 0) ? 1 / sp.cadence : 1;
-    const hazardUpper = this._hazardUpperBound(sp.spikesSeen, sp.cadence, returns.length, cfg.hazardCiZ);
+    // Calm (non-spike) returns — the drift-only distribution.
+    const calmReturns = returns.filter(r => Math.abs(r) <= spikeThresh);
 
-    const refGr = cfg.pulseGrowthRates[0] || 0.03;
-    const spread = cfg.pulseSpreadCost;
-    const minSurvival = cfg.apexMinSurvival;   // fixed floors — not loosened by cadence
-    const minEV = cfg.apexMinEV;
+    // ── 5. Barrier reference (fractional per-tick barrier) ────────────
+    const refGr          = this.cfg.pulseGrowthRates[0] || 0.03;
+    const barrierInfoRef = market ? market.getBarrier(symbol, refGr) : null;
+    const spread         = this.cfg.pulseSpreadCost;
+
+    // v3: ADAPTIVE EV THRESHOLD based on asset cadence.
+    // Fast-cadence assets (BOOM50, cadence~50) have tighter barriers and
+    // thinner per-trade EV, but compensate with 10x more opportunities.
+    // BOOM1000: cadence~1000 → EV threshold stays at apexMinEV (0.5%)
+    // BOOM50:   cadence~50   → EV threshold drops to ~0.125%
+    // The threshold scales linearly from apexMinEV at cadence≥200 down
+    // to 25% of apexMinEV at cadence≤50.
+    const adaptiveMinEV = regimeClass === 'VOL'
+      ? this.cfg.apexMinEV
+      : Math.max(
+          this.cfg.apexMinEV * 0.25,  // floor: 25% of base
+          this.cfg.apexMinEV * Math.min(1, spikeCadence / 200),
+        );
+
+    // v3: ADAPTIVE SURVIVAL THRESHOLD based on asset cadence.
+    // Fast-cadence assets (BOOM50, perTickSurv=94.56%) drop below 93%
+    // at K=2 (0.9456²=89.4%). But 89% survival over 2 ticks is fine for
+    // a fast-cadence asset with many daily opportunities. Scale the
+    // survival floor down for fast assets.
+    const adaptiveMinSurvival = regimeClass === 'VOL'
+      ? this.cfg.apexMinSurvival
+      : Math.max(
+          0.70,  // floor: 70% absolute minimum
+          this.cfg.apexMinSurvival * Math.min(1, spikeCadence / 200),
+        );
 
     let best = null;
+
     for (const growthRate of growthRates) {
-      const b = this._barrierFor(symbol, growthRate, market, refGr);
-      if (!b) continue;                              // no known barrier → skip (never fabricate)
-      const { barrierFrac, estimated } = b;
+      const grBarrier = market ? market.getBarrier(symbol, growthRate) : null;
+
+      // Prefer the exact per-tick barrier % (tick_size_barrier_percentage).
+      let barrierFrac, barrierEstimated = false;
+      if (grBarrier && grBarrier.halfBarrierPct > 0) {
+        barrierFrac = grBarrier.halfBarrierPct / 100;
+      } else if (barrierInfoRef && barrierInfoRef.halfBarrierPct > 0) {
+        // scale ref barrier roughly with growth rate (narrower = higher g)
+        barrierFrac = (barrierInfoRef.halfBarrierPct / 100) * (refGr / growthRate);
+        barrierEstimated = true;
+      } else {
+        // No known barrier for this asset. Historically this fell back to a
+        // `6 * scale` guess, which produced inflated, phantom "edge≈1.39 /
+        // ev≈39%" candidates for assets the API does NOT offer ACCU on at all
+        // (e.g. BOOM/CRASH on this account → "Trading is not offered for this
+        // duration"). We must never fabricate a barrier to trade on — skip
+        // this growth rate entirely.
+        continue;
+      }
       const logBarrierHalf = Math.log(1 + barrierFrac);
       if (logBarrierHalf <= 0) continue;
 
-      // Per-tick survival = (1 − hazard)·(1 − P(calm breach)).
-      // The calm-breach probability is measured over the RECENT window so the
-      // survival estimate is conditional on the current regime (compression),
-      // which is the whole VOL thesis.
-      const recentWindow = Math.max(cfg.apexCompressionWindow, 30);
-      const recentReturns = returns.slice(-recentWindow);
-      const recentCalm = recentReturns.filter(r => Math.abs(r) <= spikeThresh);
-      const breaches = recentCalm.reduce((c, r) => c + (Math.abs(r) >= logBarrierHalf ? 1 : 0), 0);
-      const pBreachCalm = recentCalm.length ? breaches / recentCalm.length : 1;
+      // ── 6. Per-tick survival = (1-hazard)·(1-P(calm breach)) ────────
+      //   Calm-breach probability: fraction of calm ticks whose single
+      //   move would exceed the barrier (≈0 for Boom/Crash, meaningful
+      //   for Vol indices where the barrier is only a few σ wide).
+      const calmBreaches = calmReturns.reduce(
+        (c, r) => c + (Math.abs(r) >= logBarrierHalf ? 1 : 0), 0);
+      const pBreachCalm = calmReturns.length ? calmBreaches / calmReturns.length : 1;
 
-      const hazard = regime === 'VOL' ? 0 : hazardUpper;
+      let hazard;
+      if (regimeClass === 'VOL') {
+        hazard = 0;                                   // no spike process
+      } else {
+        hazard = (spikesSeen >= this.cfg.apexMinSpikesSeen && spikeCadence > 0)
+          ? 1 / spikeCadence
+          : 1;                                        // unknown cadence → reject
+      }
       const perTickSurv = Math.max(0, (1 - hazard) * (1 - pBreachCalm));
       if (perTickSurv <= 0) continue;
 
-      // Entry-window + class parameters.
-      let maxHold, windowFrac, entryOK = false, entryReason = '';
-      if (regime === 'VOL') {
-        maxHold = cfg.apexMaxHoldVol;
-        windowFrac = 1.0;
-        const barrierSigma = barrierFrac / Math.max(sigmaRecent, 1e-12);
-        const gate = isVolEntryAllowed(compression, barrierSigma, estimated, cfg);
-        if (estimated) { entryOK = false; entryReason = 'no-barrier'; }
-        else if (!gate.ok) { entryOK = false; entryReason = gate.reason; }
-        else { entryOK = true; entryReason = 'vol-compressed'; }
+      // ── 7. Class-specific entry window (the exploitable moment) ─────
+      // v3: ASSET-ADAPTIVE parameters based on detected cadence.
+      // Fast-cadence assets (BOOM50, cadence~50) get shorter holds and
+      // wider windows; slow-cadence assets (BOOM1000, cadence~1000) keep
+      // the standard settings.
+      let maxHold, windowFrac;
+      if (regimeClass === 'VOL') {
+        maxHold    = this.cfg.apexMaxHoldVol;
+        windowFrac = 1.0;  // vol compression has no spike window concept
+      } else if (spikeCadence > 0) {
+        // Adaptive max hold: scale with cadence (12% of cadence, min 3, max configured)
+        // BOOM50:  min(8, max(3, floor(50*0.12)))  = min(8, 6)  = 6 ticks
+        // BOOM150: min(8, max(3, floor(150*0.12))) = min(8, 18) = 8 ticks
+        // BOOM1000: min(8, max(3, floor(1000*0.12))) = min(8, 120) = 8 ticks
+        maxHold = Math.min(
+          this.cfg.apexMaxHoldBoom,
+          Math.max(3, Math.floor(spikeCadence * 0.12)),
+        );
+        // Adaptive window: faster assets get a wider fraction (more opportunities)
+        // BOOM50:  min(0.50, 0.35 + 10*0.05) = min(0.50, 0.85) = 0.50 → 25 ticks
+        // BOOM150: min(0.50, 0.35 + 3.3*0.05) = min(0.50, 0.52) = 0.50 → 75 ticks
+        // BOOM1000: min(0.50, 0.35 + 0.5*0.05) = min(0.50, 0.375) = 0.375 → 375 ticks
+        windowFrac = Math.min(
+          0.50,
+          this.cfg.apexPostSpikeWindowFrac + (500 / Math.max(spikeCadence, 50)) * 0.05,
+        );
       } else {
-        if (sp.cadence > 0) {
-          maxHold = Math.min(cfg.apexMaxHoldBoom, Math.max(3, Math.floor(sp.cadence * 0.12)));
-          windowFrac = Math.min(0.50, cfg.apexPostSpikeWindowFrac + (500 / Math.max(sp.cadence, 50)) * 0.05);
-        } else {
-          maxHold = cfg.apexMaxHoldBoom;
-          windowFrac = cfg.apexPostSpikeWindowFrac;
-        }
-        const cadenceKnown = sp.spikesSeen >= cfg.apexMinSpikesSeen && sp.cadence > 0;
-        const freshWindow = sp.ticksSinceSpike >= cfg.apexPostSpikeMin &&
-                            sp.ticksSinceSpike <= windowFrac * sp.cadence;
+        maxHold    = this.cfg.apexMaxHoldBoom;
+        windowFrac = this.cfg.apexPostSpikeWindowFrac;
+      }
+
+      let entryOK = false, entryReason = '';
+      if (regimeClass === 'VOL') {
+        // Loose-barrier gate: the barrier must be at least
+        // `apexBarrierSafety` × current σ wide. This is a stable measure
+        // (constant in steady state) that directly captures "the barrier is
+        // temporarily loose", unlike a fast/slow σ ratio which is ~1.0 in
+        // steady state and kept the gate effectively closed most of the time
+        // — the cause of the "stops trading until restart" behaviour.
+        const barrierClears = barrierFrac >= this.cfg.apexBarrierSafety * sigmaFast;
+        entryOK = barrierClears && !barrierEstimated;
+        entryReason = barrierEstimated ? 'no-barrier'
+                    : !barrierClears   ? 'barrier-too-tight'
+                    : 'vol-compressed';
+      } else {
+        const cadenceKnown = spikesSeen >= this.cfg.apexMinSpikesSeen && spikeCadence > 0;
+        const freshWindow  = ticksSinceSpike >= this.cfg.apexPostSpikeMin &&
+                             ticksSinceSpike <= windowFrac * spikeCadence;
+
+        // v3: HOLD-PERIOD-AWARE hazard check (replaces fixed per-tick threshold).
+        // Instead of rejecting assets where hazard > 1% (which blocks BOOM50 at
+        // 2% even though its 8-tick hold only has ~15% spike risk), we check
+        // whether the spike survival over the actual hold duration is acceptable.
+        // spikeSurvival = (1 - hazard)^maxHold
+        // e.g. BOOM50: (1-0.02)^8 = 0.85 → 85% survival → OK
+        //      BOOM1000: (1-0.001)^8 = 0.992 → 99.2% survival → OK
+        //      Extreme: hazard=10%, hold=8: (0.9)^8 = 0.43 → REJECTED
         const spikeSurvivalHold = Math.pow(Math.max(0, 1 - hazard), maxHold);
-        const hazardOK = spikeSurvivalHold >= cfg.apexMinSpikeSurvival;
-        entryOK = cadenceKnown && freshWindow && hazardOK && !estimated;
-        entryReason = estimated       ? 'no-barrier'
-                    : !cadenceKnown   ? 'cadence-unknown'
-                    : !freshWindow    ? 'not-post-spike'
-                    : !hazardOK       ? `hazard-low-surv:${(spikeSurvivalHold*100).toFixed(0)}%`
+        const hazardOK = spikeSurvivalHold >= this.cfg.apexMinSpikeSurvival;
+        entryOK = cadenceKnown && freshWindow && hazardOK && !barrierEstimated;
+        entryReason = barrierEstimated    ? 'no-barrier'
+                    : !cadenceKnown       ? 'cadence-unknown'
+                    : !freshWindow        ? 'not-post-spike'
+                    : !hazardOK           ? `hazard-low-surv:${(spikeSurvivalHold*100).toFixed(0)}%`
                     : 'post-spike';
       }
 
-      // EV-optimal horizon.
-      const { best: hBest, raw: hRaw } = this._chooseHorizon(growthRate, perTickSurv, spread, maxHold, minSurvival, minEV);
-      const chosen = hBest.K > 0;
-      const N    = chosen ? hBest.K     : hRaw.K;
-      const ev   = chosen ? hBest.ev    : hRaw.ev;
-      const edge = chosen ? hBest.edge  : (hRaw.edge === -Infinity ? 0 : hRaw.edge);
-      const pN   = chosen ? hBest.surv  : hRaw.surv;
+      // ── 8. EV-optimal compounding horizon (closed form) ─────────────
+      //   value(K) = ((1+g)·perTickSurv)^K ; edge = value − spread.
+      let bestN = 0, bestEv = -Infinity, bestEdge = 0, bestSurv = 0;
+      let rawEdge = -Infinity, rawEv = -Infinity, rawN = 1, rawSurv = perTickSurv;
+      for (let K = 1; K <= maxHold; K++) {
+        const survK = Math.pow(perTickSurv, K);
+        const edge  = Math.pow(1 + growthRate, K) * survK - spread;
+        const ev    = edge - 1;
+        if (edge > rawEdge) { rawEdge = edge; rawEv = ev; rawN = K; rawSurv = survK; }
+        // v3: use adaptive thresholds (cadence-scaled) instead of fixed values
+        if (survK >= adaptiveMinSurvival && ev >= adaptiveMinEV && ev > bestEv) {
+          bestEv = ev; bestN = K; bestEdge = edge; bestSurv = survK;
+        }
+      }
 
-      const evOK   = ev >= minEV;
-      const survOK = pN >= minSurvival;
+      const chosen = bestN > 0;
+      const N       = chosen ? bestN    : rawN;
+      const ev      = chosen ? bestEv   : rawEv;
+      const edge    = chosen ? bestEdge : (rawEdge === -Infinity ? 0 : rawEdge);
+      const pN      = chosen ? bestSurv : rawSurv;
+
+      const edgeOK = edge >= this.cfg.pulseEdgeThreshold;
+      const evOK   = ev   >= adaptiveMinEV;  // v3: cadence-adaptive (not fixed)
+      const survOK = pN   >= adaptiveMinSurvival;  // v3: cadence-adaptive (not fixed)
+      const calmOK = entryOK;   // "entry window open" — reuses the scaffold gate name
+
       const candidate = {
-        symbol, growthRate, regime: regime.toLowerCase(), regimeClass: regime,
-        edge, ev, bestN: N, pN, p1: perTickSurv, perTickSurv,
-        hazard: hazardUpper, hazardRaw, pBreachCalm, barrierEstimated: estimated,
-        ticksSinceSpike: Number.isFinite(sp.ticksSinceSpike) ? sp.ticksSinceSpike : -1,
-        spikeCadence: +sp.cadence.toFixed(1), spikesSeen: sp.spikesSeen,
-        sigma: sigmaFast, sigmaFast, sigmaSlow, volRatio: compression, vrRatio: compression, compression,
-        barrierSigma: regime === 'VOL' ? barrierFrac / Math.max(sigmaRecent, 1e-12) : 0,
-        scale, mu, barrierFrac, logBarrierHalf, price,
+        symbol, growthRate,
+        regime: regimeClass.toLowerCase(), regimeClass,
+        edge, ev, bestN: N,
+        pN, p1: perTickSurv,
+        perTickSurv, hazard, pBreachCalm, barrierEstimated,
+        ticksSinceSpike: Number.isFinite(ticksSinceSpike) ? ticksSinceSpike : -1,
+        spikeCadence: +spikeCadence.toFixed(1), spikesSeen,
+        sigma: sigmaFast, sigmaFast, sigmaSlow, volRatio, vrRatio: volRatio,
+        scale, mu,
+        barrierFrac, halfBarrierFrac: logBarrierHalf, logBarrierHalf, price,
         suggestedTakeProfit: Math.max(Math.pow(1 + growthRate, N) - 1, 0.005),
         spreadCost: spread,
-        adaptiveMaxHold: maxHold, adaptiveWindowFrac: +windowFrac.toFixed(4),
-        spikeSurvivalHold: regime !== 'VOL' ? +Math.pow(Math.max(0, 1 - hazard), maxHold).toFixed(4) : 1,
-        entryReason, evOK, survOK, entryOK,
-        recommend: chosen && evOK && survOK && entryOK,
+        // v3: asset-adaptive parameters
+        adaptiveMaxHold: maxHold,
+        adaptiveWindowFrac: +windowFrac.toFixed(4),
+        adaptiveMinEV: +adaptiveMinEV.toFixed(6),
+        spikeSurvivalHold: regimeClass !== 'VOL' ? +Math.pow(Math.max(0, 1 - hazard), maxHold).toFixed(4) : 1,
+        entryReason,
+        edgeOK, evOK, survOK, calmOK,
+        recommend: chosen && edgeOK && evOK && survOK && calmOK,
       };
+      // Rank preference: recommendable candidates first, then by edge.
       if (!best ||
           (candidate.recommend && !best.recommend) ||
           (candidate.recommend === best.recommend && candidate.edge > best.edge)) {
@@ -1073,78 +1186,98 @@ class ApexAnalyzer {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// 10. TRADE EXECUTOR  (single writer, idempotent settle, reconciliation)
-// ═══════════════════════════════════════════════════════════════════════
-const TERMINAL_STATUSES = new Set(['won', 'lost', 'sold', 'cancelled', 'expired', 'refunded']);
+// ─────────────────────────────────────────────────────────────────────
 
+// 9. TRADE EXECUTOR (Accumulator) — APEX adaptive early-exit
+// ─────────────────────────────────────────────────────────────────────
 class TradeExecutor extends EventEmitter {
   constructor(client, cfg) {
     super();
-    this.client = client;
-    this.cfg = cfg;
-    this.open = new Map();            // contractId -> info  (survives reconnects)
+    this.client   = client;
+    this.cfg      = cfg;
+    this.open     = new Map();
     this.analyzer = null;
     this._selling = new Set();
-    this._subscriptions = new Map();  // contractId -> subId
-    this._settledIds = new Set();     // ids already finalized (idempotency)
+    this._subscriptions = new Map(); // Track subscription IDs for cleanup
   }
 
-  // ── Entry ──────────────────────────────────────────────────────────
   async buy(symbol, growthRate, stake, limit, analysis = null) {
     growthRate = Math.max(0.01, Math.min(0.05, +growthRate.toFixed(4)));
     try {
       const symbolKey = this.client._isPat ? 'underlying_symbol' : 'symbol';
       const pres = await this.client._send({
-        proposal: 1, amount: stake, basis: 'stake', contract_type: 'ACCU',
-        currency: this.cfg.currency, [symbolKey]: symbol, growth_rate: growthRate,
+        proposal      : 1,
+        amount        : stake,
+        basis         : 'stake',
+        contract_type : 'ACCU',
+        currency      : this.cfg.currency,
+        [symbolKey]   : symbol,
+        growth_rate   : growthRate,
         ...((limit.take_profit != null && limit.take_profit > 0)
           ? { limit_order: { take_profit: limit.take_profit } } : {}),
       }, 20000);
       const p = pres.proposal;
       if (!p?.id) throw new Error('No proposal id returned');
       logger.info(`proposal id=${p.id} ask=${p.ask_price} payout=${p.payout} spot=${p.spot}`);
+      if (pres.error) throw new Error(pres.error.message);
 
       const bres = await this.client._send({ buy: p.id, price: p.ask_price }, 20000);
       const b = bres.buy;
       if (!b?.contract_id) throw new Error('Buy did not return contract_id');
       logger.info(`bought ACCU #${b.contract_id} for ${b.buy_price}`);
 
-      const cd = p.contract_details || {};
-      const entrySpot = parseFloat(p.spot ?? cd.current_spot ?? 0);
+      const cd            = p.contract_details || {};
+      const entrySpot     = parseFloat(p.spot ?? cd.current_spot ?? 0);
       const halfBarrierPct = entrySpot
         ? (parseFloat(cd.barrier_spot_distance ?? 0) / entrySpot) * 100
         : 0;
+      const highBarrier = parseFloat(cd.high_barrier    ?? 0);
+      const lowBarrier  = parseFloat(cd.low_barrier     ?? 0);
+      const maxPayout   = parseFloat(cd.maximum_payout  ?? 0);
 
       const info = {
-        contractId: b.contract_id, symbol, growthRate, stake,
-        buyPrice: parseFloat(b.buy_price), payout: parseFloat(b.payout),
-        buyTime: b.purchase_time || (Date.now() / 1000),
-        limit: { stop_loss: limit.stop_loss ?? null, take_profit: limit.take_profit ?? null },
+        contractId: b.contract_id,
+        symbol, growthRate, stake,
+        buyPrice: parseFloat(b.buy_price),
+        payout  : parseFloat(b.payout),
+        buyTime : b.purchase_time || (Date.now() / 1000),
+        limit   : {
+          stop_loss  : limit.stop_loss   ?? null,
+          take_profit: limit.take_profit ?? null,
+        },
         contractDetails: cd,
-        entrySpot, halfBarrierPct,
-        highBarrier: parseFloat(cd.high_barrier ?? 0), lowBarrier: parseFloat(cd.low_barrier ?? 0),
-        maxPayout: parseFloat(cd.maximum_payout ?? 0),
-        proposalId: p.id,
+        entrySpot, halfBarrierPct, highBarrier, lowBarrier, maxPayout,
+        proposalId  : p.id,
         balanceAfter: parseFloat(b.balance_after ?? this.client.balance),
-        ticksHeld: 0, peakProfit: 0, lastBid: null,
-        lastUpdateAt: Date.now(), _exitReason: null,
-        _ticksPerSec: this._measureTicksPerSec(symbol),
+        ticksHeld   : 0,
+        peakProfit  : 0,
+        lastBid     : null,   // Bug 6 — track live bid_price for sells
+        lastUpdateAt: Date.now(),   // for stale-slot detection / force-settle
       };
       if (analysis && typeof analysis === 'object') info._analysis = analysis;
 
       this.open.set(b.contract_id, info);
       logger.info(
         `barrier: ±${halfBarrierPct.toFixed(4)}% spot=${entrySpot.toFixed(2)} ` +
-        `[${(info.lowBarrier).toFixed(2)} … ${(info.highBarrier).toFixed(2)}] maxPayout=${info.maxPayout}`,
+        `[${lowBarrier.toFixed(2)} … ${highBarrier.toFixed(2)}] maxPayout=${maxPayout}`,
       );
 
       if (this.bot?.market?.cacheStays) {
         this.bot.market.cacheStays(symbol, growthRate, cd);
-        if (this.bot.market.cacheBarrier) this.bot.market.cacheBarrier(symbol, growthRate, cd, p.spot);
+        // Cache the exact-rate barrier too, so a successful trade on this
+        // asset keeps its barrier known even if the periodic refresh misses.
+        if (this.bot.market.cacheBarrier) {
+          this.bot.market.cacheBarrier(symbol, growthRate, cd, p.spot);
+        }
       }
 
-      await this._attachContractStream(info);
+      const subId = await this.client.subscribe(
+        { proposal_open_contract: 1, contract_id: b.contract_id },
+        msg => this._onUpdate(msg, info),
+      );
+      this._subscriptions.set(b.contract_id, subId);
+      info._subscriptionId = subId;
+
       this.emit('open', info);
       return info;
     } catch (e) {
@@ -1153,267 +1286,223 @@ class TradeExecutor extends EventEmitter {
     }
   }
 
-  _measureTicksPerSec(symbol) {
-    const hist = this.bot?.market?.historyFor(symbol) || [];
-    if (hist.length < 10) return null;
-    const window = hist.slice(-50);
-    const diffs = [];
-    for (let i = 1; i < window.length; i++) {
-      const d = window[i].epoch - window[i - 1].epoch;
-      if (d > 0 && d < 5000) diffs.push(d);
-    }
-    if (!diffs.length) return null;
-    diffs.sort((a, b) => a - b);
-    const med = diffs[diffs.length >> 1];
-    return med > 0 ? 1 / med : null;
-  }
-
-  async _attachContractStream(info) {
-    if (this._subscriptions.has(info.contractId)) return;
-    try {
-      const subId = await this.client.subscribe(
-        { proposal_open_contract: 1, contract_id: info.contractId },
-        msg => this._onUpdate(msg, info),
-      );
-      this._subscriptions.set(info.contractId, subId);
-      info._subscriptionId = subId;
-    } catch (e) {
-      logger.warn(`attach stream #${info.contractId}:`, e.message);
-    }
-  }
-
-  // ── Reconciliation after reconnect ────────────────────────────────
-  // Keeps every live contract tracked so a reconnect never orphans one.
-  async reconcileOpenContracts() {
-    const tracked = Array.from(this.open.values());
-    if (!tracked.length) return;
-    let list = [];
-    try { list = await this.client.portfolio(); }
-    catch (e) { logger.warn('reconcile portfolio:', e.message); return; }
-    const serverIds = new Set(list.map(c => String(c.contract_id)));
-
-    // 1) adopt server-side contracts we don't track (e.g. bought by a prior run)
-    for (const c of list) {
-      if (String(c.contract_type).toUpperCase() === 'ACCU' && !this.open.has(c.contract_id)) {
-        this._adoptServerContract(c);
-      }
-    }
-    // 2) hydrate details + re-attach streams for contracts still open
-    for (const c of list) {
-      const info = this.open.get(c.contract_id);
-      if (!info) continue;
-      try {
-        const res = await this.client._send({ proposal_open_contract: 1, contract_id: c.contract_id }, 12000);
-        const oc = res.proposal_open_contract;
-        if (!oc) { this.forceSettle(c.contract_id, 'reconcile-missing'); continue; }
-        if (oc.status === 'open') {
-          this._hydrateInfo(info, oc);
-          info.lastUpdateAt = Date.now();
-          await this._attachContractStream(info);
-        } else {
-          this._onUpdate({ proposal_open_contract: oc }, info);
-        }
-      } catch (e) { logger.warn(`reconcile #${c.contract_id}:`, e.message); }
-    }
-    // 3) tracked but no longer on server → settled while offline; read once then book conservatively
-    for (const info of tracked) {
-      if (serverIds.has(String(info.contractId))) continue;
-      if (!this.open.has(info.contractId)) continue;
-      try {
-        const res = await this.client._send({ proposal_open_contract: 1, contract_id: info.contractId }, 12000);
-        const oc = res.proposal_open_contract;
-        if (oc && oc.status !== 'open') this._onUpdate({ proposal_open_contract: oc }, info);
-        else this.forceSettle(info.contractId, 'reconcile-gone');
-      } catch { this.forceSettle(info.contractId, 'reconcile-gone'); }
-    }
-    logger.info(`reconcile: ${this.count()} open contract(s) tracked after reconnect`);
-  }
-
-  _adoptServerContract(c) {
-    const cid = c.contract_id;
-    const buyPrice = parseFloat(c.buy_price ?? 0);
-    const info = {
-      contractId: cid,
-      symbol: c.symbol || c.underlying || '',
-      growthRate: c.growth_rate != null ? parseFloat(c.growth_rate) : 0.03,
-      growthRateEstimated: c.growth_rate == null,
-      stake: buyPrice > 0 ? buyPrice : this.cfg.stake,
-      buyPrice,
-      payout: parseFloat(c.payout ?? 0),
-      buyTime: c.purchase_time || c.date_start || (Date.now() / 1000),
-      limit: { stop_loss: this.cfg.stopLoss, take_profit: null },
-      contractDetails: {},
-      entrySpot: parseFloat(c.entry_spot ?? 0), halfBarrierPct: 0,
-      highBarrier: 0, lowBarrier: 0, maxPayout: 0,
-      ticksHeld: 0, peakProfit: 0, lastBid: null,
-      lastUpdateAt: Date.now(), _exitReason: 'reconciled', _analysis: null, _adopted: true,
-    };
-    this.open.set(cid, info);
-    logger.info(`reconcile: adopted open contract #${cid} ${info.symbol}`);
-    return info;
-  }
-
-  _hydrateInfo(info, oc) {
-    if (oc.growth_rate != null) { info.growthRate = parseFloat(oc.growth_rate); info.growthRateEstimated = false; }
-    if (oc.symbol || oc.underlying) info.symbol = oc.symbol || oc.underlying;
-    if (oc.purchase_time) info.buyTime = oc.purchase_time;
-    if (oc.buy_price != null) info.buyPrice = parseFloat(oc.buy_price);
-    const cd = oc.contract_details || {};
-    const spot = parseFloat(oc.entry_spot ?? cd.current_spot ?? info.entrySpot ?? 0);
-    if (spot > 0) info.entrySpot = spot;
-    if (oc.tick_size_barrier_percentage != null) info.halfBarrierPct = parseFloat(oc.tick_size_barrier_percentage);
-    if (oc.barrier_spot_distance != null && spot > 0) info.halfBarrierPct = (parseFloat(oc.barrier_spot_distance) / spot) * 100;
-    if (cd.high_barrier != null) info.highBarrier = parseFloat(cd.high_barrier);
-    if (cd.low_barrier != null) info.lowBarrier = parseFloat(cd.low_barrier);
-  }
-
-  // ── Adaptive early-exit ────────────────────────────────────────────
+  // ── Adaptive early-exit ────────────────────────────────────
   _adaptiveExitDecision(info, currentProfit, currentSpot) {
-    const cfg = this.cfg;
+    const cfg      = this.cfg;
     const analysis = info._analysis;
     if (!analysis) return { exit: false, reason: 'no-analysis', urgency: 0 };
 
+    const growthRate = info.growthRate;
+    const stake      = info.stake;
+
     const analyzer = this.bot?.analyzer ?? this.analyzer;
-    const market = this.bot?.market ?? null;
-    const ticks = market?.historyFor(info.symbol) ?? [];
+    const market   = this.bot?.market   ?? null;
+    const ticks    = market?.historyFor(info.symbol) ?? [];
 
+    // Baselines from the entry analysis; refreshed live below.
     let perTickSurv = analysis.perTickSurv ?? analysis.p1 ?? 0.99;
-    let hazardLive = analysis.hazard ?? 0;
-    let bestEVLive = analysis.ev ?? 0;
-    let bestNLive = analysis.bestN ?? 1;
+    let hazardLive  = analysis.hazard      ?? 0;
+    let bestEVLive  = analysis.ev          ?? 0;
+    let bestNLive   = analysis.bestN       ?? 1;
 
-    // Throttle live re-analysis: full 6000-tick MAD/EWMA on every stream
-    // update is wasteful; once per second is plenty for an exit decision.
-    if (analyzer && ticks.length >= cfg.minTicksForAnalysis && currentSpot > 0 &&
-        (Date.now() - (info._lastReanalyzeAt || 0)) >= 1000) {
-      info._lastReanalyzeAt = Date.now();
+    if (analyzer && ticks.length >= cfg.minTicksForAnalysis && currentSpot > 0) {
       try {
-        const live = analyzer.reanalyze(info.symbol, ticks, market, currentSpot, info.growthRate);
+        const live = analyzer.reanalyze(info.symbol, ticks, market, currentSpot, growthRate);
         if (live) {
           perTickSurv = live.perTickSurv ?? perTickSurv;
-          hazardLive = live.hazard ?? hazardLive;
-          bestEVLive = live.ev ?? bestEVLive;
-          bestNLive = live.bestN ?? bestNLive;
+          hazardLive  = live.hazard      ?? hazardLive;
+          bestEVLive  = live.ev          ?? bestEVLive;
+          bestNLive   = live.bestN       ?? bestNLive;
         }
-      } catch (e) { logger.debug(`reanalyze error #${info.contractId}: ${e.message}`); }
+      } catch (e) {
+        logger.debug(`reanalyze error #${info.contractId}: ${e.message}`);
+      }
     }
 
     const ticksHeld = info.ticksHeld ?? 0;
-    const stake = info.stake;
 
-    // A: EV-optimal horizon reached.
+    // ── Signal A: EV-optimal horizon reached ─────────────────
+    //   We entered planning to compound bestN ticks; once we've held
+    //   that many, banking is the whole thesis — don't get greedy.
     const targetReached = ticksHeld >= (analysis.bestN ?? bestNLive);
 
-    // B: profit-lock — absolute floor AND a fraction of expected remaining.
-    const lockFrac = cfg.apexProfitLockFrac;
-    const expectedRemaining = stake * Math.max(bestEVLive, 0);
+    // ── Signal B: Profit-lock ────────────────────────────────
+    //   Require BOTH an absolute floor and a fraction of the still-
+    //   expected remaining upside, so we don't lock at ~$0.
+    const lockFrac            = cfg.apexProfitLockFrac;
+    const expectedRemaining   = stake * Math.max(bestEVLive, 0);
     const profitLockThreshold = lockFrac * expectedRemaining;
-    const minProfitToLock = stake * cfg.apexMinProfitLockFrac;
-    const profitLock = currentProfit >= minProfitToLock && currentProfit >= profitLockThreshold;
+    const minProfitToLock     = stake * cfg.apexMinProfitLockFrac;
+    const profitLock = currentProfit >= minProfitToLock
+                    && currentProfit >= profitLockThreshold;
 
-    // C: rising spike hazard (Boom/Crash core exit).
+    // ── Signal C: Rising spike hazard (Boom/Crash core exit) ──
+    //   As ticks-since-spike grows the hazard clock re-arms; bail once
+    //   the live per-tick spike hazard exceeds the exit threshold.
     const hazardExit = hazardLive >= cfg.apexExitHazard;
 
-    // D: holding is now EV-negative.
-    const nextTickEdge = (1 + info.growthRate) * perTickSurv - cfg.pulseSpreadCost;
+    // ── Signal D: Holding is now EV-negative ─────────────────
+    const nextTickEdge = (1 + growthRate) * perTickSurv - cfg.pulseSpreadCost;
     const nextTickExit = nextTickEdge < 1.0;
 
-    // E: near-miss big tick (drift danger).
+    // ── Signal E: A near-miss big tick (drift danger) ─────────
+    //   Per-tick model: look at the most recent single-tick move vs the
+    //   barrier. A tick that used a large fraction of the barrier warns
+    //   volatility is expanding — exit before the next one breaches.
     let driftExit = false, driftFrac = 0;
-    if (ticks.length >= 2) {
-      const a = ticks[ticks.length - 2].quote, b = ticks[ticks.length - 1].quote;
+    const hist = ticks;
+    if (hist.length >= 2) {
+      const a = hist[hist.length - 2].quote, b = hist[hist.length - 1].quote;
       if (a > 0 && b > 0) {
         const step = Math.abs(Math.log(b / a));
-        const logBarrierHalf = analysis.logBarrierHalf ?? Math.log(1 + (info.halfBarrierPct ?? 0.05) / 100);
+        const logBarrierHalf = analysis.logBarrierHalf
+          ?? Math.log(1 + (info.halfBarrierPct ?? 0.05) / 100);
         driftFrac = step / Math.max(logBarrierHalf, 1e-12);
         driftExit = driftFrac >= cfg.apexExitDriftFrac;
       }
     }
 
     const urgency = Math.max(
-      targetReached ? 1 : 0,
-      profitLock ? lockFrac : 0,
-      hazardExit ? hazardLive * 50 : 0,
-      nextTickExit ? 1 - nextTickEdge : 0,
-      driftExit ? driftFrac : 0,
+      targetReached ? 1            : 0,
+      profitLock    ? lockFrac     : 0,
+      hazardExit    ? hazardLive*50: 0,
+      nextTickExit  ? 1-nextTickEdge : 0,
+      driftExit     ? driftFrac    : 0,
     );
 
-    if (targetReached) return { exit: true, reason: `target-reached: held ${ticksHeld} ≥ N*=${analysis.bestN ?? bestNLive}`, urgency };
-    if (driftExit) return { exit: true, reason: `drift-danger: last tick used ${(driftFrac*100).toFixed(1)}% of barrier`, urgency };
-    if (hazardExit) return { exit: true, reason: `spike-hazard: live hazard ${(hazardLive*100).toFixed(2)}% ≥ ${(cfg.apexExitHazard*100).toFixed(2)}%`, urgency };
-    if (profitLock) return { exit: true, reason: `profit-lock: realised ${currentProfit.toFixed(3)} ≥ max(${minProfitToLock.toFixed(3)}, ${lockFrac}×${expectedRemaining.toFixed(3)})`, urgency };
-    if (nextTickExit) return { exit: true, reason: `next-tick-edge: (1+g)·surv−spread=${nextTickEdge.toFixed(4)} < 1.0`, urgency };
+    if (targetReached) {
+      return { exit: true, reason: `target-reached: held ${ticksHeld} ≥ N*=${analysis.bestN ?? bestNLive}`, urgency };
+    }
+    if (driftExit) {
+      return { exit: true, reason: `drift-danger: last tick used ${(driftFrac*100).toFixed(1)}% of barrier`, urgency };
+    }
+    if (hazardExit) {
+      return { exit: true, reason: `spike-hazard: live hazard ${(hazardLive*100).toFixed(2)}% ≥ ${(cfg.apexExitHazard*100).toFixed(2)}%`, urgency };
+    }
+    if (profitLock) {
+      return {
+        exit: true,
+        reason: `profit-lock: realised ${currentProfit.toFixed(3)} ≥ ` +
+                `max(${minProfitToLock.toFixed(3)}, ${lockFrac}×${expectedRemaining.toFixed(3)})` +
+                ` (live-EV=${(bestEVLive*100).toFixed(2)}% N*=${bestNLive})`,
+        urgency,
+      };
+    }
+    if (nextTickExit) {
+      return {
+        exit: true,
+        reason: `next-tick-edge: (1+g)·surv−spread=${nextTickEdge.toFixed(4)} < 1.0`,
+        urgency,
+      };
+    }
     return { exit: false, reason: 'hold', urgency };
   }
 
-  // ── Stream updates ────────────────────────────────────────────────
-  _onUpdate(msg, info) {
+  async _onUpdate(msg, info) {
     const c = msg.proposal_open_contract;
     if (!c) return;
-    const cid = c.contract_id ?? info.contractId;
-    const profit = parseFloat(c.profit ?? 0);
+    const cid         = c.contract_id ?? info.contractId;
+    const profit      = parseFloat(c.profit ?? 0);
     const currentSpot = parseFloat(c.current_spot ?? 0);
-    const status = c.status;
+    const status      = c.status;
 
+    // Track ticks, peak, and any live bid price we can use as a floor
+    // for sell() (Bug 6 mitigation).
     if (status === 'open') {
-      // ticksHeld: derive from server tick count / time, NOT stream message count
-      // (message frequency ≠ tick frequency, and duplicates would over-count).
-      const fromServer = (c.tick_count != null && c.tick_count > 0) ? c.tick_count
-        : (Array.isArray(c.ticks_stayed_in) ? c.ticks_stayed_in.length : 0);
-      const fromTime = (info._ticksPerSec && info.buyTime) ? Math.round((Date.now() / 1000 - info.buyTime) * info._ticksPerSec) : 0;
-      info.ticksHeld = Math.max(info.ticksHeld ?? 0, fromServer, fromTime);
-      info.peakProfit = Math.max(info.peakProfit ?? 0, profit);
+      info.ticksHeld   = (info.ticksHeld ?? 0) + 1;
+      info.peakProfit  = Math.max(info.peakProfit ?? 0, profit);
       info.lastUpdateAt = Date.now();
     }
     if (c.bid_price != null) info.lastBid = parseFloat(c.bid_price);
 
-    // Hard stop-loss.
+    logger.debug(
+      `contract #${cid} status=${status} profit=${profit.toFixed(3)} ` +
+      `spot=${currentSpot} ticksHeld=${info.ticksHeld ?? 0}`,
+    );
+
+    // ── Hard stop-loss ───────────────────────────────────────
     const stopLossAbs = Math.abs(info.limit?.stop_loss || 0);
     if (status === 'open' && stopLossAbs > 0 && profit <= -stopLossAbs && !this._selling.has(cid)) {
-      info._exitReason = 'stop-loss';
       logger.warn(`contract #${cid} hit stop-loss @ profit=${profit.toFixed(2)} ≤ -${stopLossAbs} — selling`);
       this._selling.add(cid);
-      this.sell(cid, 0, info).catch(e => logger.error(`emergency sell #${cid} failed:`, e.message))
-        .finally(() => this._selling.delete(cid));
+      try { await this.sell(cid, 0, info); }
+      catch (e) { logger.error(`emergency sell #${cid} failed:`, e.message); }
+      finally  { this._selling.delete(cid); }
       return;
     }
 
-    // Adaptive early-exit.
+    // ── Adaptive early-exit ─────────────────────────────────
     if (status === 'open' && !this._selling.has(cid)) {
       const dec = this._adaptiveExitDecision(info, profit, currentSpot);
       if (dec.exit) {
-        info._exitReason = dec.reason;
         logger.info(`APEX adaptive exit #${cid}: ${dec.reason} urgency=${dec.urgency.toFixed(3)}`);
         this.emit('driftWarning', { ...info, contractId: cid, profit, currentSpot, dec });
         this._selling.add(cid);
-        this.sell(cid, 0, info).catch(e => logger.error(`adaptive sell #${cid} failed:`, e.message))
-          .finally(() => this._selling.delete(cid));
+        try { await this.sell(cid, 0, info); }
+        catch (e) { logger.error(`adaptive sell #${cid} failed:`, e.message); }
+        finally  { this._selling.delete(cid); }
         return;
       }
       this.emit('update', { ...info, contractId: cid, profit, currentSpot, status, dec });
       return;
     }
 
-    // Terminal.
-    if (TERMINAL_STATUSES.has(status)) {
+    // ── Contract settled (won / lost / sold / cancelled / expired) ──
+    //   CRITICAL: when the bot sells early, Deriv reports status 'sold'
+    //   (NOT 'won'/'lost'). If we don't settle here, the entry stays in
+    //   this.open forever and maxOpenTrades blocks every future trade.
+    const TERMINAL = new Set(['won', 'lost', 'sold', 'cancelled', 'expired', 'refunded']);
+    if (TERMINAL.has(status)) {
+      // Already settled by sell()/forceSettle() — just drop the sub.
+      if (!this.open.has(cid)) {
+        const leftover = this._subscriptions.get(cid);
+        if (leftover) {
+          this._subscriptions.delete(cid);
+          this.client.forget(leftover).catch(() => {});
+        }
+        return;
+      }
       const soldFor = parseFloat(c.sell_price ?? 0);
-      const terminalProfit = (status === 'sold' && soldFor > 0 && info.buyPrice > 0)
-        ? soldFor - parseFloat(info.buyPrice)
-        : profit;
-      const finalStatus = status === 'sold' ? (terminalProfit >= 0 ? 'won' : 'lost') : status;
-      this._finalizeContract(cid, {
-        profit: terminalProfit, status: finalStatus, sellPrice: soldFor,
-        sellTime: c.sell_time ?? (Date.now() / 1000), currentSpot,
-        exitReason: info._exitReason ?? (status === 'lost' ? 'knockout' : status),
-      });
+      // For a sold contract the stream gives realized profit directly;
+      // prefer sell_price − buy_price when both are present.
+      const terminalProfit =
+        (status === 'sold' && soldFor > 0 && info.buyPrice > 0)
+          ? soldFor - parseFloat(info.buyPrice)
+          : profit;
+      const finished = {
+        ...info,
+        contractId: cid,
+        profit: terminalProfit,
+        status: status === 'sold' ? (terminalProfit >= 0 ? 'won' : 'lost') : status,
+        sellPrice: soldFor,
+        sellTime : c.sell_time ?? (Date.now() / 1000),
+        currentSpot,
+      };
+      this.open.delete(cid);
+      const subId = this._subscriptions.get(cid) || msg.subscription?.id;
+      if (subId) {
+        this._subscriptions.delete(cid);
+        await this.client.forget(subId).catch(() => {});
+      }
+      logger.info(`settled #${cid} status=${finished.status} profit=${finished.profit.toFixed(2)} — open slot freed`);
+      this.emit('result', finished);
     }
   }
 
+  /**
+   * Sell.
+   *
+   * Bug 6 mitigation — when we have a recent bid_price from the
+   * proposal_open_contract stream we pass a small floor (95% of that
+   * bid) so Deriv doesn't fill an order at an unexpectedly bad price.
+   * Passing `price: 0` alone means "accept anything", which on 1-2
+   * tick holds can leak significant sell-side spread.
+   */
   async sell(contractId, minPrice = 0, info = null) {
     try {
       let floor = Number(minPrice) || 0;
       if (info && info.lastBid && info.lastBid > 0 && floor === 0) {
-        floor = +(info.lastBid * 0.95).toFixed(2);   // floor = 95% of last live bid
+        floor = +(info.lastBid * 0.95).toFixed(2);
       }
       let sold;
       try {
@@ -1428,14 +1517,10 @@ class TradeExecutor extends EventEmitter {
       }
       const soldFor = parseFloat(sold.sold_for ?? sold.sell_price ?? 0);
       logger.info(`sold #${contractId} for ${soldFor} (floor=${floor})`);
-      // Free the slot immediately (do not wait for the 'sold' stream message).
-      this._finalizeContract(contractId, {
-        profit: soldFor > 0 && info?.buyPrice > 0 ? soldFor - info.buyPrice : 0,
-        status: soldFor > 0 && info?.buyPrice > 0 && soldFor >= info.buyPrice ? 'won' : 'lost',
-        sellPrice: soldFor, sellTime: Date.now() / 1000,
-        currentSpot: info?.entrySpot ?? 0,
-        exitReason: info?._exitReason ?? 'manual-sell',
-      });
+      // Free the open slot immediately — do NOT wait for the contract
+      // stream. A sold accumulator reports status 'sold', which the old
+      // code ignored, leaking the slot and permanently blocking new trades.
+      this._settleSold(contractId, soldFor);
       return sold;
     } catch (e) {
       logger.error(`sell(${contractId}) failed:`, e.message);
@@ -1443,55 +1528,109 @@ class TradeExecutor extends EventEmitter {
     }
   }
 
-  // ── Idempotent settlement (single `result` per contract id) ─────────
-  _finalizeContract(cid, fields) {
-    if (this._settledIds.has(cid)) return null;
-    const info = this.open.get(cid);
+  // Settle a contract that was just sold. Idempotent: if the slot was
+  // already settled by a duplicate path, this is a no-op.
+  _settleSold(contractId, soldFor) {
+    const info = this.open.get(contractId);
     if (!info) return null;
-    this._settledIds.add(cid);
-    const finished = { ...info, contractId: cid, ...fields };
-    this.open.delete(cid);
-    const subId = this._subscriptions.get(cid);
-    if (subId) { this._subscriptions.delete(cid); this.client.forget(subId).catch(() => {}); }
-    logger.info(`settled #${cid} status=${finished.status} profit=${finished.profit.toFixed(2)} [${finished.exitReason || 'unknown'}]`);
+    const profit = soldFor > 0 && info.buyPrice > 0
+      ? soldFor - parseFloat(info.buyPrice)
+      : 0;
+    const finished = {
+      ...info,
+      contractId,
+      profit,
+      status: profit >= 0 ? 'won' : 'lost',
+      sellPrice: soldFor,
+      sellTime: Date.now() / 1000,
+      currentSpot: info.entrySpot ?? info._entrySpot ?? 0,
+    };
+    this.open.delete(contractId);
+    const subId = this._subscriptions.get(contractId);
+    if (subId) {
+      this._subscriptions.delete(contractId);
+      this.client.forget(subId).catch(() => {});
+    }
+    logger.info(`sell-settled #${contractId} profit=${profit.toFixed(2)} — open slot freed`);
     this.emit('result', finished);
     return finished;
   }
 
+  // Last-resort cleanup for a slot that never settles (stream silent,
+  // connection lost, or a terminal status we didn't recognise). Books it
+  // as a LOSS so the maxOpenTrades gate can never block trading forever.
   forceSettle(contractId, reason = 'force') {
     const info = this.open.get(contractId);
     if (!info) return null;
     const stake = parseFloat(info.stake ?? 0);
-    return this._finalizeContract(contractId, {
-      profit: -stake, status: 'lost', sellPrice: 0,
-      sellTime: Date.now() / 1000, currentSpot: info.entrySpot ?? 0, exitReason: reason,
-    });
+    const finished = {
+      ...info,
+      contractId,
+      profit: -stake,
+      status: 'lost',
+      sellPrice: 0,
+      sellTime: Date.now() / 1000,
+      currentSpot: info.entrySpot ?? info._entrySpot ?? 0,
+    };
+    this.open.delete(contractId);
+    const subId = this._subscriptions.get(contractId);
+    if (subId) {
+      this._subscriptions.delete(contractId);
+      this.client.forget(subId).catch(() => {});
+    }
+    logger.warn(`forceSettle #${contractId} [${reason}] — booked as LOSS (-${stake.toFixed(2)})`);
+    this.emit('result', finished);
+    return finished;
   }
 
+  // Cleanup all open subscriptions
   async cleanupAllSubscriptions() {
-    const promises = [];
+    const cleanupPromises = [];
     for (const [contractId, subId] of this._subscriptions) {
-      promises.push(this.client.forget(subId).catch(e => logger.debug(`cleanup sub ${contractId}:`, e.message)));
+      cleanupPromises.push(
+        this.client.forget(subId).catch(e => logger.debug(`cleanup sub ${contractId}:`, e.message)),
+      );
     }
-    await Promise.all(promises);
+    await Promise.all(cleanupPromises);
     this._subscriptions.clear();
   }
 
   openTrades() { return Array.from(this.open.values()); }
-  count() { return this.open.size; }
+  count()      { return this.open.size; }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// 11. PER-ASSET RISK TRACKER
-// ═══════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
+
+// 9b. PER-ASSET RISK TRACKER (v3 — the "don't over-trade" brain)
+// ─────────────────────────────────────────────────────────────────────
+//
+// WHY THIS EXISTS:
+//   The original APEX engine had no memory of per-asset trading history
+//   within a session. When a post-spike window opened on BOOM1000, the
+//   analyzer would keep recommending re-entries because the edge still
+//   looked positive — but each successive entry in the same window has
+//   diminishing edge and increasing exposure to the next spike. This
+//   tracker enforces hard limits on:
+//     1. Entries per spike window per asset
+//     2. Consecutive losses → cooldown
+//     3. Rolling win rate → don't trade consistently losing assets
+//     4. Session drawdown → circuit breaker
+//     5. Correlated asset exposure → don't double up on same regime
+//
 class PerAssetTracker {
   constructor(cfg) {
     this.cfg = cfg;
+
+    // Per-asset state: keyed by symbol
     this.assets = new Map();
-    this.sessionPnl = 0;
-    this.sessionPeakPnl = 0;
-    this.sessionHalted = false;
+
+    // Session-level state
+    this.sessionPnl       = 0;
+    this.sessionPeakPnl   = 0;
+    this.sessionHalted    = false;
     this.sessionHaltReason = '';
+
+    // Active assets (assets with an open trade right now)
     this.activeAssets = new Set();
   }
 
@@ -1499,65 +1638,101 @@ class PerAssetTracker {
     if (!this.assets.has(symbol)) {
       this.assets.set(symbol, {
         symbol,
-        lastSpikeEpoch: 0, entriesInWindow: 0,
-        consecutiveLosses: 0, cooldownUntil: 0, pausedUntil: 0,
-        recentResults: [], rollingWins: 0, rollingLosses: 0, rollingWinRate: 0.5,
-        totalTrades: 0, totalPnl: 0, adaptiveStake: null,
+        // Spike window tracking
+        lastSpikeEpoch      : 0,      // epoch of last detected spike
+        entriesInWindow     : 0,      // trades entered since last spike
+        // Loss tracking
+        consecutiveLosses   : 0,
+        cooldownUntil       : 0,      // timestamp (ms) when cooldown expires
+        pausedUntil         : 0,      // timestamp (ms) when asset pause expires
+        // Rolling performance
+        recentResults       : [],     // last N results: {won: bool, pnl: number, ts: number}
+        rollingWins         : 0,
+        rollingLosses       : 0,
+        rollingWinRate      : 0.5,    // default to neutral
+        // Per-asset P/L
+        totalTrades         : 0,
+        totalPnl            : 0,
+        // Current stake for this asset
+        adaptiveStake       : null,   // null = use global
       });
     }
     return this.assets.get(symbol);
   }
 
-  // Called every analysis cycle. Returns { allowed, reason, adjustedEv }.
-  checkEntry(symbol, rawEv, currentSpikeEpoch) {
+  // ── Called every analysis cycle ──
+  // Returns { allowed: bool, reason: string, adjustedEdge: number }
+  checkEntry(symbol, rawEdge, currentSpikeEpoch) {
     const a = this._getAsset(symbol);
     const now = Date.now();
 
+    // 1. Session halt
     if (this.sessionHalted) {
-      return { allowed: false, reason: `session-halted: ${this.sessionHaltReason}`, adjustedEv: rawEv };
-    }
-    if (a.pausedUntil > now) {
-      const s = ((a.pausedUntil - now) / 1000).toFixed(0);
-      return { allowed: false, reason: `asset-paused: ${s}s left (${a.consecutiveLosses} consecutive losses)`, adjustedEv: rawEv };
-    }
-    if (a.cooldownUntil > now) {
-      const s = ((a.cooldownUntil - now) / 1000).toFixed(0);
-      return { allowed: false, reason: `loss-cooldown: ${s}s left`, adjustedEv: rawEv };
+      return { allowed: false, reason: `session-halted: ${this.sessionHaltReason}`, adjustedEdge: rawEdge };
     }
 
-    // Spike-window entry limit (spike-driven assets only; VOL passes -1 and is exempt).
+    // 2. Asset paused (too many consecutive losses)
+    if (a.pausedUntil > now) {
+      const remainSec = ((a.pausedUntil - now) / 1000).toFixed(0);
+      return { allowed: false, reason: `asset-paused: ${remainSec}s left (${a.consecutiveLosses} consecutive losses)`, adjustedEdge: rawEdge };
+    }
+
+    // 3. Loss cooldown
+    if (a.cooldownUntil > now) {
+      const remainSec = ((a.cooldownUntil - now) / 1000).toFixed(0);
+      return { allowed: false, reason: `loss-cooldown: ${remainSec}s left`, adjustedEdge: rawEdge };
+    }
+
+    // 4. Spike window entry limit
+    //    The analyzer passes ticksSinceSpike as currentSpikeEpoch. For
+    //    BOOM/CRASH that is a positive tick count since the last spike, so
+    //    the window counter legitimately resets as the hazard clock advances
+    //    past a previously-seen epoch. VOL assets pass -1 (no spike process)
+    //    and would NEVER reset, permanently blocking them after
+    //    maxEntriesPerSpikeWindow trades — so the spike-window limit only
+    //    applies to spike-driven assets.
     if (currentSpikeEpoch > 0) {
+      // Only treat an epoch INCREASE as a new window once we've already
+      // established a baseline epoch (lastSpikeEpoch > 0). The first-ever
+      // positive epoch must NOT clear a trade that was just counted by
+      // onTradeOpen(), or the limit would never bind on the first window.
       if (a.lastSpikeEpoch > 0 && currentSpikeEpoch > a.lastSpikeEpoch) {
         a.lastSpikeEpoch = currentSpikeEpoch;
         a.entriesInWindow = 0;
       }
       if (a.lastSpikeEpoch === 0) a.lastSpikeEpoch = currentSpikeEpoch;
       if (a.entriesInWindow >= this.cfg.maxEntriesPerSpikeWindow) {
-        return { allowed: false, reason: `window-limit: ${a.entriesInWindow}/${this.cfg.maxEntriesPerSpikeWindow} entries in current window`, adjustedEv: rawEv };
+        return { allowed: false, reason: `window-limit: ${a.entriesInWindow}/${this.cfg.maxEntriesPerSpikeWindow} entries in current window`, adjustedEdge: rawEdge };
       }
     }
 
-    if (a.totalTrades >= this.cfg.rollingWindowSize && a.rollingWinRate < this.cfg.minWinRateToTrade) {
-      return { allowed: false, reason: `low-winrate: ${(a.rollingWinRate*100).toFixed(1)}% < ${(this.cfg.minWinRateToTrade*100).toFixed(0)}%`, adjustedEv: rawEv };
+    // 5. Rolling win rate filter
+    if (a.totalTrades >= this.cfg.rollingWindowSize) {
+      if (a.rollingWinRate < this.cfg.minWinRateToTrade) {
+        return { allowed: false, reason: `low-winrate: ${(a.rollingWinRate*100).toFixed(1)}% < ${(this.cfg.minWinRateToTrade*100).toFixed(0)}%`, adjustedEdge: rawEdge };
+      }
     }
 
-    // EV penalty after consecutive losses (require higher EV to re-enter).
-    let adjustedEv = rawEv;
+    // 6. Edge boost after losses: require higher edge to justify re-entry
+    let adjustedEdge = rawEdge;
     if (a.consecutiveLosses > 0) {
-      const penalty = a.consecutiveLosses * this.cfg.edgeAfterLossBoost;
-      adjustedEv = rawEv - penalty;
-      if (adjustedEv < this.cfg.apexMinEV) {
-        return { allowed: false, reason: `edge-reduced: ${(rawEv*100).toFixed(2)}% - ${(penalty*100).toFixed(2)}% = ${(adjustedEv*100).toFixed(2)}% < ${(this.cfg.apexMinEV*100).toFixed(2)}%`, adjustedEv };
+      const edgePenalty = a.consecutiveLosses * this.cfg.edgeAfterLossBoost;
+      adjustedEdge = rawEdge - edgePenalty;
+      if (adjustedEdge < this.cfg.pulseEdgeThreshold) {
+        return { allowed: false, reason: `edge-reduced: ${(rawEdge*100).toFixed(2)}% - ${(edgePenalty*100).toFixed(2)}% penalty = ${(adjustedEdge*100).toFixed(2)}% < threshold`, adjustedEdge };
       }
     }
 
+    // 7. Session drawdown check
     this._updateSessionDrawdown();
     if (this.sessionHalted) {
-      return { allowed: false, reason: `session-halt: drawdown ${(this.sessionPnl - this.sessionPeakPnl).toFixed(2)} exceeded limit`, adjustedEv: rawEv };
+      return { allowed: false, reason: `session-halt: drawdown ${(this.sessionPnl - this.sessionPeakPnl).toFixed(2)} exceeded limit`, adjustedEdge: rawEdge };
     }
-    return { allowed: true, reason: 'ok', adjustedEv };
+
+    return { allowed: true, reason: 'ok', adjustedEdge };
   }
 
+  // ── Called when a trade opens ──
   onTradeOpen(symbol) {
     const a = this._getAsset(symbol);
     a.entriesInWindow++;
@@ -1565,25 +1740,42 @@ class PerAssetTracker {
     this.activeAssets.add(symbol);
   }
 
+  // ── Called when a trade closes ──
   onTradeResult(symbol, won, pnl) {
     const a = this._getAsset(symbol);
     const now = Date.now();
+
     this.activeAssets.delete(symbol);
+
+    // Update session P/L
     this.sessionPnl += pnl;
     if (this.sessionPnl > this.sessionPeakPnl) this.sessionPeakPnl = this.sessionPnl;
-    a.totalPnl += pnl;
-    a.recentResults.push({ won, pnl, ts: now });
-    if (a.recentResults.length > this.cfg.rollingWindowSize) a.recentResults.shift();
-    a.rollingWins = a.recentResults.filter(r => r.won).length;
-    a.rollingLosses = a.recentResults.length - a.rollingWins;
-    a.rollingWinRate = a.recentResults.length > 0 ? a.rollingWins / a.recentResults.length : 0.5;
 
+    // Per-asset P/L
+    a.totalPnl += pnl;
+
+    // Rolling window
+    a.recentResults.push({ won, pnl, ts: now });
+    if (a.recentResults.length > this.cfg.rollingWindowSize) {
+      a.recentResults.shift();
+    }
+    a.rollingWins   = a.recentResults.filter(r => r.won).length;
+    a.rollingLosses = a.recentResults.length - a.rollingWins;
+    a.rollingWinRate = a.recentResults.length > 0
+      ? a.rollingWins / a.recentResults.length
+      : 0.5;
+
+    // Consecutive loss tracking
     if (won) {
       a.consecutiveLosses = 0;
       a.cooldownUntil = 0;
     } else {
       a.consecutiveLosses++;
+
+      // Apply cooldown after each loss
       a.cooldownUntil = now + this.cfg.assetLossCooldownMs;
+
+      // If consecutive losses hit the limit, PAUSE the asset
       if (a.consecutiveLosses >= this.cfg.assetMaxConsecutiveLosses) {
         a.pausedUntil = now + this.cfg.assetPauseDurationMs;
         logger.warn(
@@ -1594,26 +1786,43 @@ class PerAssetTracker {
     }
   }
 
+  // ── Adaptive stake sizing (replaces raw martingale) ──
   getAdaptiveStake(symbol, baseStake) {
+    if (this.cfg.sizingModeV3 === 'flat') return baseStake;
+
     const a = this._getAsset(symbol);
+    let stake = a.adaptiveStake ?? baseStake;
+
+    // Floor and ceiling
     const floor = baseStake * this.cfg.minStakeFraction;
     const ceiling = baseStake * this.cfg.maxStakeFraction;
-    let stake = a.adaptiveStake ?? baseStake;
-    return +Math.max(floor, Math.min(ceiling, stake)).toFixed(2);
+    stake = Math.max(floor, Math.min(ceiling, stake));
+
+    return +stake.toFixed(2);
   }
 
+  // ── Update stake after trade result ──
   updateStakeAfterResult(symbol, won, currentStake, baseStake) {
     const a = this._getAsset(symbol);
-    const newStake = won
-      ? currentStake * this.cfg.winStakeRecovery
-      : currentStake * this.cfg.lossStakeReduction;
+    let newStake;
+
+    if (won) {
+      // After a win: partially recover toward base
+      newStake = currentStake * this.cfg.winStakeRecovery;
+    } else {
+      // After a loss: reduce stake (anti-martingale)
+      newStake = currentStake * this.cfg.lossStakeReduction;
+    }
+
+    // Apply floor/ceiling
     const floor = baseStake * this.cfg.minStakeFraction;
     const ceiling = baseStake * this.cfg.maxStakeFraction;
     a.adaptiveStake = Math.max(floor, Math.min(ceiling, newStake));
   }
 
+  // ── Session drawdown tracking ──
   _updateSessionDrawdown() {
-    const dd = this.sessionPeakPnl - this.sessionPnl;
+    const dd = this.sessionPeakPnl - this.sessionPnl; // positive = drawdown
     if (dd >= this.cfg.sessionMaxDrawdown && !this.sessionHalted) {
       this.sessionHalted = true;
       this.sessionHaltReason = `drawdown ${dd.toFixed(2)} >= ${this.cfg.sessionMaxDrawdown}`;
@@ -1621,30 +1830,47 @@ class PerAssetTracker {
     }
   }
 
+  // ── Check if an asset is in the same correlated group as an active asset ──
   isCorrelated(symbol) {
     const groups = this.cfg.correlatedGroups || [];
-    const actives = Array.from(this.activeAssets);
-    const upper = symbol.toUpperCase();
     for (const group of groups) {
-      const g = group.map(s => s.toUpperCase());
-      if (!g.includes(upper)) continue;
-      if (actives.some(a => a !== symbol && g.includes(a.toUpperCase()))) return true;
-    }
-    // The whole VOL family (R_*, 1HZ*V) is near-perfectly correlated — at most one open.
-    if (this.cfg.volFamilyGroup && regimeClassOf(symbol) === 'VOL') {
-      if (actives.some(a => a !== symbol && regimeClassOf(a) === 'VOL')) return true;
+      const symUpper = symbol.toUpperCase();
+      const groupUpper = group.map(s => s.toUpperCase());
+      if (groupUpper.includes(symUpper)) {
+        // Check if any OTHER asset in this group is currently active
+        for (const active of this.activeAssets) {
+          if (active !== symbol && groupUpper.includes(active.toUpperCase())) {
+            return true;
+          }
+        }
+      }
     }
     return false;
   }
 
+  // ── Get active asset count ──
   activeCount() { return this.activeAssets.size; }
 
+  // ── Reset session (new trade day) ──
   resetSession() {
-    this.sessionPnl = 0;
+    this.sessionPnl     = 0;
     this.sessionPeakPnl = 0;
-    this.sessionHalted = false;
+    this.sessionHalted  = false;
     this.sessionHaltReason = '';
     this.activeAssets.clear();
+  }
+
+  // ── Summary for Telegram ──
+  summary() {
+    const lines = [];
+    for (const [sym, a] of this.assets) {
+      if (a.totalTrades === 0) continue;
+      const wr = a.totalTrades > 0 ? (a.rollingWins / Math.max(a.recentResults.length, 1) * 100).toFixed(0) : '-';
+      const cool = a.cooldownUntil > Date.now() ? ' ❄️' : '';
+      const pause = a.pausedUntil > Date.now() ? ' ⛔' : '';
+      lines.push(`  ${sym}: ${a.totalTrades} trades, WR=${wr}%, P/L=${a.totalPnl >= 0 ? '+' : ''}${a.totalPnl.toFixed(2)}${cool}${pause}`);
+    }
+    return lines.join('\n');
   }
 
   serialize() {
@@ -1679,8 +1905,9 @@ class PerAssetTracker {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════
-// 12. STATISTICS MANAGER  (+ expected-vs-realized edge tally)
+// 11. STATISTICS MANAGER
 // ═══════════════════════════════════════════════════════════════════════
 const utcDateStr = (d = new Date()) => d.toISOString().slice(0, 10);
 const utcHour = (d = new Date()) => d.getUTCHours();
@@ -1688,17 +1915,12 @@ const money = (n, c = CONFIG.currency) => `${n >= 0 ? '+' : ''}${Number(n || 0).
 
 class StatisticsManager {
   constructor(saved = null) {
-    this.trades = [];
-    this.dailySummaries = {};
-    this.overallProfit = 0;
-    this.currentLossStreak = 0;
-    this.maxLossStreak = 0;
+    this.trades = []; this.dailySummaries = {}; this.overallProfit = 0;
+    this.currentLossStreak = 0; this.maxLossStreak = 0;
     this.lossStreakEvents = { x2: 0, x3: 0, x4: 0 };
     this.eodSentDates = [];
-    this.edgeTally = { entries: 0, modelP1Sum: 0, heldSum: 0, survivedSum: 0, losses: 0, knockouts: 0, earlyExits: 0 };
     if (saved) this.load(saved);
   }
-
   load(s) {
     if (Array.isArray(s.trades)) this.trades = s.trades;
     if (s.dailySummaries) this.dailySummaries = s.dailySummaries;
@@ -1707,18 +1929,10 @@ class StatisticsManager {
     this.maxLossStreak = Number(s.maxLossStreak || 0);
     if (s.lossStreakEvents) this.lossStreakEvents = { x2: Number(s.lossStreakEvents.x2 || 0), x3: Number(s.lossStreakEvents.x3 || 0), x4: Number(s.lossStreakEvents.x4 || 0) };
     this.eodSentDates = Array.isArray(s.eodSentDates) ? s.eodSentDates : [];
-    if (s.edgeTally) this.edgeTally = { ...this.edgeTally, ...s.edgeTally };
   }
-
   serialize() {
-    return {
-      trades: this.trades.slice(-5000), dailySummaries: this.dailySummaries,
-      overallProfit: this.overallProfit, currentLossStreak: this.currentLossStreak,
-      maxLossStreak: this.maxLossStreak, lossStreakEvents: this.lossStreakEvents,
-      eodSentDates: this.eodSentDates.slice(-400), edgeTally: this.edgeTally,
-    };
+    return { trades: this.trades.slice(-5000), dailySummaries: this.dailySummaries, overallProfit: this.overallProfit, currentLossStreak: this.currentLossStreak, maxLossStreak: this.maxLossStreak, lossStreakEvents: this.lossStreakEvents, eodSentDates: this.eodSentDates.slice(-400) };
   }
-
   record(trade) {
     const tsMs = Number(trade.sellTime || trade.buyTime || Date.now() / 1000) * 1000;
     const d = new Date(tsMs);
@@ -1731,68 +1945,43 @@ class StatisticsManager {
       if (this.currentLossStreak === 3) this.lossStreakEvents.x3 += 1;
       if (this.currentLossStreak === 4) this.lossStreakEvents.x4 += 1;
       this.maxLossStreak = Math.max(this.maxLossStreak, this.currentLossStreak);
-    } else if (rec.status === 'won') {
-      this.currentLossStreak = 0;
-    }
+    } else if (rec.status === 'won') { this.currentLossStreak = 0; }
     return rec;
   }
-
-  // Expected-vs-realized per-tick survival. If realized < model p1 on a
-  // meaningful sample, the model is overstating survival → edge is illusory.
-  recordEdge(trade) {
-    const a = trade._analysis;
-    if (!a || !CONFIG.edgeTallyEnabled) return;
-    this.edgeTally.entries++;
-    this.edgeTally.modelP1Sum += (a.perTickSurv ?? a.p1 ?? 0);
-    const held = trade.ticksHeld ?? 0;
-    this.edgeTally.heldSum += held;
-    this.edgeTally.survivedSum += held - (trade.status === 'lost' ? 1 : 0);
-    if (trade.status === 'lost') this.edgeTally.losses++;
-    const r = (trade.exitReason || '').toLowerCase();
-    if (r.startsWith('knockout')) this.edgeTally.knockouts++;
-    else if (r && r !== 'unknown' && r !== 'manual-sell') this.edgeTally.earlyExits++;
-  }
-
-  edgeTallyLine() {
-    const t = this.edgeTally;
-    if (!t.entries) return null;
-    const modelP1 = t.entries ? (t.modelP1Sum / t.entries) : 0;
-    const realized = t.heldSum ? (t.survivedSum / t.heldSum) : 0;
-    return `Model p1 avg ${(modelP1*100).toFixed(2)}% vs realized per-tick survival ${(realized*100).toFixed(2)}% ` +
-           `over ${t.entries} trades (${t.heldSum} ticks held; ${t.knockouts} knockouts, ${t.earlyExits} early exits)`;
-  }
-
   todayTrades(date = utcDateStr()) { return this.trades.filter(t => t.date === date); }
   tradesForHour(date, hour) { return this.trades.filter(t => t.date === date && t.hour === hour); }
-
   stats(list) {
     const wins = list.filter(t => t.status === 'won');
     const losses = list.filter(t => t.status === 'lost');
     const total = list.reduce((s, t) => s + Number(t.profit || 0), 0);
     const gw = wins.reduce((s, t) => s + Number(t.profit || 0), 0);
     const gl = Math.abs(losses.reduce((s, t) => s + Number(t.profit || 0), 0));
-    return {
-      count: list.length, wins: wins.length, losses: losses.length,
-      winRate: list.length ? wins.length / list.length * 100 : 0,
-      grossWin: gw, grossLoss: gl, totalProfit: total,
-      profitFactor: gl > 0 ? gw / gl : (gw > 0 ? Infinity : 0),
-      stake: list.reduce((s, t) => s + Number(t.stake || 0), 0),
-    };
+    return { count: list.length, wins: wins.length, losses: losses.length, winRate: list.length ? wins.length / list.length * 100 : 0, grossWin: gw, grossLoss: gl, totalProfit: total, profitFactor: gl > 0 ? gw / gl : (gw > 0 ? Infinity : 0), stake: list.reduce((s, t) => s + Number(t.stake || 0), 0) };
   }
-
   archiveDate(date) {
     const list = this.trades.filter(t => t.date === date);
     const s = this.stats(list);
     this.dailySummaries[date] = s;
     return { date, trades: list, stats: s };
   }
-
   markEodSent(date) { if (!this.eodSentDates.includes(date)) this.eodSentDates.push(date); this.eodSentDates = this.eodSentDates.slice(-400); }
   isEodSent(date) { return this.eodSentDates.includes(date); }
+  allDailyRows(includeDate = null) {
+    const rows = []; const dates = new Set(Object.keys(this.dailySummaries));
+    for (const t of this.trades) dates.add(t.date);
+    if (includeDate) dates.add(includeDate);
+    [...dates].sort().forEach(date => {
+      let s = this.dailySummaries[date];
+      const live = this.trades.filter(t => t.date === date);
+      if (live.length) s = this.stats(live);
+      if (s && s.count > 0) rows.push({ date, stats: s });
+    });
+    return rows;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 13. TRADING BOT  (orchestrator)
+// 12. TRADING BOT  (Main Orchestrator)
 // ═══════════════════════════════════════════════════════════════════════
 class AccuAPEXnewBot {
   constructor(cfg) {
@@ -1811,59 +2000,47 @@ class AccuAPEXnewBot {
     this.lastBalance = null;
     this.lastTradeAt = 0;
     this.overallProfit = 0;
-    this.dryRun = false;
-    this._bootedOnce = false;
-    this._tradeInFlight = false;
-    this._dailyStopUntil = 0;
-    this._dailyStopNotified = false;
-    this._lastDayISODate = null;
+    this.tradeStartTime = null;
 
     this._analysisT = null;
     this._hourlyT = null;
+    this._eodT = null;
+    this._hourlyBoot = null;
     this._eodBoot = null;
     this._barrierT = null;
-    this._watchdogT = null;
+    this._tradeWatchdogTimer = null;
     this._discoveryT = null;
     this.paused = false;
     this._pauseStartTimer = null;
-    this._pauseEndTimer = null;
-    this.lastTradedSymbols = [];
+    this._pauseEndTimer   = null;
+    this._lastDayISODate  = null;
 
-// Martingale sizing state (only used when sizingModeV3 === 'martingale').
-    // stake = stake the NEXT trade will use; grows ×martingaleMultiplier
-    // after each consecutive loss and resets to base on a win. Once `streak`
-    // hits martingaleStep the bot halts trading (`stopped`).
-    this.martingale = { streak: 0, stake: this.cfg.stake, stopped: false };
+    // ── Legacy martingale state (martingale off by default; kept for
+    //    the APEX v3Note / currentStake() fallback paths) ──
+    this.lossesStreak = 0;
+    this.martingaleMultiplier = 1.0;
+    this.currentStake2 = this.cfg.stake;
   }
 
   async start() {
     logger.info('═══════════════════════════════════════════');
-    logger.info('  AccuAPEXnew v4 — APEX Strategy (TEST/DEMO)');
+    logger.info('  AccuAPEXnew — APEX Strategy');
     logger.info('═══════════════════════════════════════════');
     logger.info(`assets: ${this.cfg.assets.join(', ')}`);
 
     if (!this.cfg.apiToken) { logger.error('API token missing'); process.exit(1); }
 
     this.client.on('authorized', info => this._onAuthorized(info));
-    this.client.on('close', () => this._onDisconnected());
+    this.client.on('close', (c, r, was) => this._onDisconnected(c, r, was));
     this.exec.on('open', t => this._onTradeOpen(t));
+    this.exec.on('update', t => this._onTradeUpdate(t));
     this.exec.on('result', t => this._onTradeResult(t));
+    this.exec.on('driftWarning', t => this._onDriftWarning(t));
 
     process.on('SIGINT', () => this.stop('SIGINT'));
     process.on('SIGTERM', () => this.stop('SIGTERM'));
-    // Crash-fast: save state, then exit so a supervisor can restart cleanly.
-    process.on('uncaughtException', e => {
-      logger.error('uncaughtException:', e);
-      this._saveState('fatal');
-      try { this.client.stop(); } catch (_) {}
-      process.exit(1);
-    });
-    process.on('unhandledRejection', e => {
-      logger.error('unhandledRejection:', e);
-      this._saveState('fatal');
-      try { this.client.stop(); } catch (_) {}
-      process.exit(1);
-    });
+    process.on('uncaughtException', e => { logger.error('uncaughtException:', e); this._saveState('uncaughtException'); });
+    process.on('unhandledRejection', e => { logger.error('unhandledRejection:', e); this._saveState('unhandledRejection'); });
 
     this._loadState();
     this._scheduleSummaries();
@@ -1886,12 +2063,7 @@ class AccuAPEXnewBot {
     scheduleNextEod();
   }
 
-  _nextUtcMidnight() {
-    const d = new Date();
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1)).getTime();
-  }
-
-  // ── Pause helpers ───────────────────────────────────────────────
+  // ── Scheduled pause helpers ─────────────────────────────────
   _parsePauseTime(str) {
     const m = String(str || '').match(/^(\d{1,2}):(\d{2})$/);
     if (!m) return null;
@@ -1907,7 +2079,7 @@ class AccuAPEXnewBot {
   }
   _clearPauseTimers() {
     if (this._pauseStartTimer) { clearTimeout(this._pauseStartTimer); this._pauseStartTimer = null; }
-    if (this._pauseEndTimer) { clearTimeout(this._pauseEndTimer); this._pauseEndTimer = null; }
+    if (this._pauseEndTimer)   { clearTimeout(this._pauseEndTimer);   this._pauseEndTimer = null; }
   }
   _schedulePause() {
     this._clearPauseTimers();
@@ -1915,24 +2087,35 @@ class AccuAPEXnewBot {
     const now = new Date();
     const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
     const start = this._parsePauseTime(this.cfg.pauseStartGmt);
-    const end = this._parsePauseTime(this.cfg.pauseEndGmt);
+    const end   = this._parsePauseTime(this.cfg.pauseEndGmt);
     if (!start || !end) { logger.warn('pause schedule: invalid pauseStartGmt or pauseEndGmt format'); return; }
     const startMin = start.h * 60 + start.min;
-    const endMin = end.h * 60 + end.min;
+    const endMin   = end.h   * 60 + end.min;
 
-    const currentlyPaused = startMin > endMin
-      ? (nowMin >= startMin || nowMin < endMin)
-      : (nowMin >= startMin && nowMin < endMin);
-    if (currentlyPaused) {
-      this.paused = true;
-      const delay = this._msToTarget(end.h, end.min);
-      this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
-      logger.info(`pause: currently active, resumes in ${(delay/60000).toFixed(1)}m`);
+    if (startMin > endMin) {
+      if (nowMin >= startMin || nowMin < endMin) {
+        this.paused = true;
+        const delay = this._msToTarget(end.h, end.min);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+        logger.info(`pause: currently active (overnight), resumes in ${(delay/60000).toFixed(1)}m`);
+      } else {
+        this.paused = false;
+        const delay = this._msToTarget(start.h, start.min);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+        logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
+      }
     } else {
-      this.paused = false;
-      const delay = this._msToTarget(start.h, start.min);
-      this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
-      logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
+      if (nowMin >= startMin && nowMin < endMin) {
+        this.paused = true;
+        const delay = this._msToTarget(end.h, end.min);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+        logger.info(`pause: currently active, resumes in ${(delay/60000).toFixed(1)}m`);
+      } else {
+        this.paused = false;
+        const delay = this._msToTarget(start.h, start.min);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+        logger.info(`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${this.cfg.pauseStartGmt} GMT`);
+      }
     }
   }
   _onPauseResume(action) {
@@ -1940,370 +2123,433 @@ class AccuAPEXnewBot {
     if (action === 'pause') {
       this.paused = true;
       logger.info(`TRADING PAUSED at ${this.cfg.pauseStartGmt} GMT until ${this.cfg.pauseEndGmt} GMT`);
-      telegram.send(`⏸️ <b>TRADING PAUSED</b>\nPaused from <b>${this.cfg.pauseStartGmt}</b> to <b>${this.cfg.pauseEndGmt}</b> GMT.`);
+      telegram.send(`⏸️ <b>TRADING PAUSED</b>\nPaused from <b>${this.cfg.pauseStartGmt}</b> to <b>${this.cfg.pauseEndGmt}</b> GMT.\nNo new trades until resume.`);
       const end = this._parsePauseTime(this.cfg.pauseEndGmt);
-      if (end) this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), this._msToTarget(end.h, end.min));
+      if (end) {
+        const delay = this._msToTarget(end.h, end.min);
+        this._pauseEndTimer = setTimeout(() => this._onPauseResume('resume'), delay);
+      }
     } else {
       this.paused = false;
       logger.info(`TRADING RESUMED at ${this.cfg.pauseEndGmt} GMT`);
-      telegram.send(`▶️ <b>TRADING RESUMED</b>\nOverall Profit: ${money(this.overallProfit, this.currencyStr())}`);
+      telegram.send(`▶️ <b>TRADING RESUMED</b>\nScanning for trades again.\nOverall Profit: ${money(this.overallProfit, this.currencyStr())}`);
       const start = this._parsePauseTime(this.cfg.pauseStartGmt);
-      if (start) this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), this._msToTarget(start.h, start.min));
+      if (start) {
+        const delay = this._msToTarget(start.h, start.min);
+        this._pauseStartTimer = setTimeout(() => this._onPauseResume('pause'), delay);
+      }
     }
   }
   _isTradingAllowedToday() {
     const dayOfWeek = new Date().getUTCDay();
+    const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const daySettings = [this.cfg.tradeSunday, this.cfg.tradeMonday, this.cfg.tradeTuesday, this.cfg.tradeWednesday, this.cfg.tradeThursday, this.cfg.tradeFriday, this.cfg.tradeSaturday];
-    if (!daySettings[dayOfWeek]) return false;
+    if (!daySettings[dayOfWeek]) {
+      logger.debug(`trading disabled for ${dayNames[dayOfWeek]} (GMT)`);
+      return false;
+    }
     return true;
   }
   _checkDayChange() {
     const today = utcDateStr();
     if (this._lastDayISODate && this._lastDayISODate !== today) {
       logger.info(`new day detected: ${this._lastDayISODate} → ${today}`);
-      this.assetTracker.resetSession();
-      this._dailyStopUntil = 0;
-      this._dailyStopNotified = false;
+      if (this.assetTracker) this.assetTracker.resetSession();
       telegram.send(`📅 <b>New trade day: ${today}</b>\nOverall Profit: ${money(this.overallProfit, this.currencyStr())}`);
+      // Reset circuit breakers for the new day
+      this.stopped = false;
+      this._lastDayISODate = today;
+    } else if (!this._lastDayISODate) {
+      this._lastDayISODate = today;
     }
-    this._lastDayISODate = today;
   }
 
-  // ── Authorised ──────────────────────────────────────────────────
+  // ── Authorised ──────────────────────────────────────────────
   async _onAuthorized(info) {
-    // Only set startBalance once (a reconnect must not reset the EOD delta).
-    if (this.startBalance == null) this.startBalance = this.balance ?? this.client.balance;
+    this.startBalance = this.balance ?? this.client.balance;
     this.lastBalance = this.startBalance;
 
-    if (!this._bootedOnce) {
-      this._bootedOnce = true;
-      telegram.send(
-        `<b>APEX v4 Bot Online</b>${this.dryRun ? ' <b>🔒 DRY-RUN</b>' : ''}\n\n` +
-        `<b>Account:</b> ${info.loginid}\n` +
-        `<b>Type:</b> ${info.isVirtual ? '🟡 DEMO' : '🔴 REAL'}\n` +
-        `<b>Balance:</b> ${(this.startBalance ?? 0).toFixed(2)} ${this.currencyStr()}\n` +
-        `<b>Assets:</b> ${this.cfg.assets.length}\n` +
-        `<b>Stake:</b> ${this.cfg.stake} · Sizing: ${this.cfg.sizingModeV3}\n` +
-        `<b>Growth rates:</b> ${this.cfg.pulseGrowthRates.map(g => (g*100).toFixed(0)+'%').join(', ')}\n` +
-        `<b>Min EV:</b> ${(this.cfg.apexMinEV*100).toFixed(1)}% · Min survival: ${(this.cfg.apexMinSurvival*100).toFixed(1)}%\n` +
-        `<b>Daily caps:</b> ${this.cfg.dailyMaxTrades} trades / ${this.cfg.dailyMaxLoss} ${this.currencyStr()}\n` +
-        `<b>Overall Profit:</b> ${money(this.overallProfit, this.currencyStr())}`,
-      );
-    } else {
-      telegram.send(`🔄 <b>Reconnected</b> (${info.loginid}, ${info.isVirtual ? 'DEMO' : 'REAL'})`);
-    }
+    telegram.send(
+      `<b>APEX v3 Bot Online</b>\n\n` +
+      `<b>Account:</b> ${info.loginid}\n` +
+      `<b>Type:</b> ${info.isVirtual ? '🟡 DEMO' : '🔴 REAL'}\n` +
+      `<b>Balance:</b> ${this.startBalance.toFixed(2)} ${this.currencyStr()}\n` +
+      `<b>Assets:</b> ${this.cfg.assets.length} ${this.cfg.autoDiscoverAssets ? '(auto-discover ON)' : ''}\n` +
+      `<b>Stake:</b> ${this.cfg.stake}\n` +
+      `<b>Growth rates:</b> ${this.cfg.pulseGrowthRates.map(g => (g*100).toFixed(0)+'%').join(', ')}\n` +
+      `<b>Sizing:</b> ${this.cfg.sizingModeV3} ` +
+        `(loss×${this.cfg.lossStakeReduction}, win×${this.cfg.winStakeRecovery})\n` +
+      `<b>Min EV:</b> ${(this.cfg.apexMinEV*100).toFixed(1)}%\n` +
+      `<b>Min survival:</b> ${(this.cfg.apexMinSurvival*100).toFixed(1)}%\n` +
+      `<b>Spread cost:</b> ${(this.cfg.pulseSpreadCost*100).toFixed(2)}%\n\n` +
+      `<b>v3 Risk Gates</b>\n` +
+      `• Max entries/window: ${this.cfg.maxEntriesPerSpikeWindow}\n` +
+      `• Loss cooldown: ${this.cfg.assetLossCooldownMs/1000}s\n` +
+      `• Pause after ${this.cfg.assetMaxConsecutiveLosses} losses: ${this.cfg.assetPauseDurationMs/1000}s\n` +
+      `• Min win rate: ${(this.cfg.minWinRateToTrade*100).toFixed(0)}% (over ${this.cfg.rollingWindowSize} trades)\n` +
+      `• Session max DD: ${this.cfg.sessionMaxDrawdown}\n` +
+      `• Correlated filter: ${this.cfg.correlatedGroups.length} groups\n\n` +
+      `<b>APEX engine active</b>\n` +
+      `Post-spike (Boom/Crash) + vol-compression (Vol) · holds ≤${this.cfg.apexMaxHoldBoom} ticks\n\n` +
+      `<b>Overall Profit:</b> ${money(this.overallProfit, this.currencyStr())}\n` +
+      `Loss streak: current ${this.stats.currentLossStreak}, x2=${this.stats.lossStreakEvents.x2}, x3=${this.stats.lossStreakEvents.x3}, x4=${this.stats.lossStreakEvents.x4}`,
+    );
 
-    try {
-      await Promise.all([
-        this.market.loadSymbols(),
-        this.market.bootstrap(this.cfg.assets),
-        this._refreshBarriers(),
-      ]);
-    } catch (e) {
-      logger.warn('post-auth init:', e.message);
-    }
-
-    if (this.cfg.autoDiscoverAssets) {
-      try {
-        const discovered = await this.market.discoverAccuAssets();
-        const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
-        if (newAssets.length) {
-          for (const a of newAssets) this.cfg.assets.push(a);
-          await this.market.bootstrap(newAssets);
-          await this._refreshBarriers();
-          telegram.send(`<b>v3: New Assets Discovered</b>\nAdded: ${newAssets.join(', ')}`);
-        }
-      } catch (e) { logger.warn(`v3: asset discovery error: ${e.message}`); }
-      if (this._discoveryT) clearInterval(this._discoveryT);
-      this._discoveryT = setInterval(async () => {
+    await Promise.all([
+      this.market.loadSymbols(),
+      this.market.bootstrap(this.cfg.assets),
+      this._refreshBarriers(),
+    ]).then(async () => {
+      // v3: Dynamic asset discovery (if enabled)
+      if (this.cfg.autoDiscoverAssets) {
         try {
           const discovered = await this.market.discoverAccuAssets();
-          const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
-          if (newAssets.length) {
-            for (const a of newAssets) this.cfg.assets.push(a);
-            await this.market.bootstrap(newAssets);
-            await this._refreshBarriers();
+          if (discovered.length > this.cfg.assets.length) {
+            const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
+            if (newAssets.length) {
+              logger.info(`v3: discovered ${newAssets.length} new assets: ${newAssets.join(', ')}`);
+              for (const a of newAssets) {
+                if (!this.cfg.assets.includes(a)) this.cfg.assets.push(a);
+              }
+              await this.market.bootstrap(newAssets);
+              await this._refreshBarriers();
+              telegram.send(
+                `<b>v3: New Assets Discovered</b>\n` +
+                `Added: ${newAssets.join(', ')}\n` +
+                `Total: ${this.cfg.assets.length} assets`,
+              );
+            }
           }
-        } catch (e) { logger.debug(`v3: periodic discovery error: ${e.message}`); }
-      }, this.cfg.discoveryIntervalMs);
-    }
+        } catch (e) {
+          logger.warn(`v3: asset discovery error: ${e.message}`);
+        }
+        // Schedule periodic re-discovery
+        if (this._discoveryT) clearInterval(this._discoveryT);
+        this._discoveryT = setInterval(async () => {
+          try {
+            const discovered = await this.market.discoverAccuAssets();
+            const newAssets = discovered.filter(a => !this.cfg.assets.includes(a));
+            if (newAssets.length) {
+              for (const a of newAssets) this.cfg.assets.push(a);
+              await this.market.bootstrap(newAssets);
+              await this._refreshBarriers();
+              logger.info(`v3: periodic discovery found ${newAssets.length} new assets: ${newAssets.join(', ')}`);
+            }
+          } catch (e) {
+            logger.debug(`v3: periodic discovery error: ${e.message}`);
+          }
+        }, this.cfg.discoveryIntervalMs);
+      }
 
-    // Reconcile any contracts that were open across the disconnect, then
-    // start the timers. Idempotent: safe to run on every re-auth.
-    try { await this.exec.reconcileOpenContracts(); }
-    catch (e) { logger.warn('reconcile:', e.message); }
-
+      if (this._analysisT) clearInterval(this._analysisT);
+      this._analyzeAndTrade();
+      this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
+      if (this._barrierT) clearInterval(this._barrierT);
+      this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
+    });
     this._schedulePause();
-    if (this._analysisT) clearInterval(this._analysisT);
-    this._analysisT = setInterval(() => this._analyzeAndTrade(), this.cfg.analysisIntervalMs);
-    if (this._barrierT) clearInterval(this._barrierT);
-    this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
-    this._startWatchdog();
-    this._analyzeAndTrade();
   }
 
-  async _onDisconnected() {
+  async _onDisconnected(code, reason, wasAuth) {
     this._clearWatchdog();
     this._clearPauseTimers();
-    telegram.send(`⚠️ <b>Connection lost</b> — reconnecting…`);
+    telegram.send(`⚠️ <b>Connection lost</b>\ncode: <code>${code}</code>\nwas auth: ${wasAuth ? 'yes' : 'no'}\n🔄 reconnecting…`);
     if (this._analysisT) { clearInterval(this._analysisT); this._analysisT = null; }
-    // NOTE: this.exec.open is intentionally KEPT — contracts are still live
-    // server-side. reconcileOpenContracts() re-attaches them after re-auth.
-    // Sub bookkeeping dies with the socket; clear it so no stale forgets.
-    this.exec._subscriptions.clear();
+    if (this.exec) {
+      this.exec.open.clear();
+      // Cleanup all subscriptions on disconnect
+      await this.exec.cleanupAllSubscriptions().catch(() => {});
+    }
+    // Clear market data subscriptions
     this.market.subs.clear();
   }
 
-  // ── Trade callbacks ─────────────────────────────────────────────
+  // ── Trade callbacks ─────────────────────────────────────────
   _onTradeOpen(t) {
+    this.tradeStartTime = Date.now();
+    this._startWatchdog(t.contractId);
+
     const a = t._analysis || {};
-    const sizingLine = a.sizingMode === 'adaptive'
-      ? `<b>Sizing:</b> Adaptive (${t.stake.toFixed(2)} ${this.currencyStr()}) | Base: ${(a.baseStake ?? this.cfg.stake).toFixed(2)}\n`
-      : a.sizingMode === 'kelly'
-        ? `<b>Sizing:</b> Kelly (${t.stake.toFixed(2)} ${this.currencyStr()}) | Base: ${(a.baseStake ?? this.cfg.stake).toFixed(2)}\n`
-        : a.sizingMode === 'martingale'
-          ? `<b>Sizing:</b> Martingale (${t.stake.toFixed(2)} ${this.currencyStr()}) | Base: ${(a.baseStake ?? this.cfg.stake).toFixed(2)}\n`
-          : '';
+    const sizingMode = a.sizingMode || 'legacy';
+    let sizingLine;
+    if (sizingMode === 'adaptive') {
+      const assetState = this.assetTracker._getAsset(t.symbol);
+      sizingLine = `<b>Sizing:</b> Adaptive (${t.stake.toFixed(2)} ${this.currencyStr()})\n` +
+        `• Base: ${(a.baseStake ?? this.cfg.stake).toFixed(2)} | WR: ${(assetState.rollingWinRate*100).toFixed(0)}% | Asset losses: ${assetState.consecutiveLosses}\n`;
+    } else {
+      sizingLine = '';
+    }
+
     const msg =
-      `<b>APEX v4 TRADE OPENED</b>\n\n` +
+      `<b>APEX v3 TRADE OPENED</b>\n\n` +
       `<b>Contract:</b> #${t.contractId}\n` +
       `<b>Symbol:</b> <code>${t.symbol}</code>\n` +
       `<b>Growth Rate:</b> ${(t.growthRate*100).toFixed(2)}%\n` +
       `<b>Stake:</b> ${t.stake.toFixed(2)} ${this.currencyStr()}\n` +
       sizingLine +
       `<b>Take Profit:</b> ${t.limit?.take_profit ?? '–'}\n` +
-      `<b>Overall Profit:</b> ${money(this.overallProfit, this.currencyStr())}\n\n` +
+      `<b>Overall Profit:</b> ${this.overallProfit >= 0 ? '+' : ''}${this.overallProfit.toFixed(2)} ${this.currencyStr()}\n` +
+      `<b>Session P/L:</b> ${this.assetTracker.sessionPnl >= 0 ? '+' : ''}${this.assetTracker.sessionPnl.toFixed(2)}\n` +
+      `\n` +
       `<b>APEX Analysis</b>\n` +
       `• Regime: ${a.regimeClass ?? '?'} (${a.entryReason ?? '?'})\n` +
-      `• EV: ${((a.ev ?? 0)*100).toFixed(2)}% · N*: ${a.bestN ?? '?'} ticks\n` +
+      `• Edge (net spread): ${((a.edge ?? 0)*100).toFixed(2)}%\n` +
+      `• EV: ${((a.ev ?? 0)*100).toFixed(2)}%\n` +
       `• Survival pN: ${((a.pN ?? 0)*100).toFixed(2)}%  (per-tick ${((a.perTickSurv ?? 0)*100).toFixed(2)}%)\n` +
+      `• N*: ${a.bestN ?? '?'} ticks\n` +
       `• Spike hazard: ${((a.hazard ?? 0)*100).toFixed(2)}%  cadence≈${a.spikeCadence ?? '?'}  since=${a.ticksSinceSpike ?? '?'}\n` +
-      `• Compression σf/σs: ${(a.volRatio ?? 0).toFixed(2)}  barrier=±${((a.barrierFrac ?? 0)*100).toFixed(4)}%`;
+      `• σfast/σslow: ${(a.volRatio ?? 0).toFixed(2)}  barrier=±${((a.barrierFrac ?? 0)*100).toFixed(4)}%`;
     telegram.send(msg);
   }
 
+  _onTradeUpdate(t) { logger.debug(`update #${t.contractId}: profit=${t.profit.toFixed(3)} spot=${t.currentSpot}`); }
+
+  _onDriftWarning(t) {
+    logger.debug(`apex-exit #${t.contractId} urg=${t.dec.urgency.toFixed(2)} ${t.dec.reason}`);
+  }
+
   _onTradeResult(t) {
+    this._clearWatchdog();
     this.tradeStartTime = null;
     const rec = this.stats.record(t);
-    if (CONFIG.edgeTallyEnabled) this.stats.recordEdge(t);
     const emoji = t.status === 'won' ? '✅' : '❌';
     const label = t.status === 'won' ? 'WIN' : 'LOSS';
+    const dur = Math.max(0, (t.sellTime || Date.now() / 1000) - (t.buyTime || 0));
     this.lastBalance = (this.lastBalance ?? this.balance ?? 0) + t.profit;
     this.overallProfit += t.profit;
 
+    // v3: Update per-asset tracker
     const won = t.status === 'won';
     this.assetTracker.onTradeResult(t.symbol, won, t.profit);
+
+    // v3: Update adaptive stake for this asset
     if (this.cfg.sizingModeV3 === 'adaptive') {
-      this.assetTracker.updateStakeAfterResult(t.symbol, won, this.assetTracker.getAdaptiveStake(t.symbol, this.cfg.stake), this.cfg.stake);
-    }
-    if (this.cfg.sizingModeV3 === 'martingale') {
-      this._updateMartingaleState(t.symbol, won);
+      const currentStake = this.assetTracker.getAdaptiveStake(t.symbol, this.cfg.stake);
+      this.assetTracker.updateStakeAfterResult(t.symbol, won, currentStake, this.cfg.stake);
     }
 
     const todayStats = this.stats.stats(this.stats.todayTrades(rec.date));
+
+    // v3: Per-asset stats
     const assetState = this.assetTracker._getAsset(t.symbol);
-    const msg =
+    const v3AssetLine =
+      `<b>Asset (${t.symbol}):</b> WR=${(assetState.rollingWinRate*100).toFixed(0)}% ` +
+      `(last ${assetState.recentResults.length}) | ` +
+      `Losses: ${assetState.consecutiveLosses} | P/L: ${assetState.totalPnl >= 0 ? '+' : ''}${assetState.totalPnl.toFixed(2)}\n`;
+    const v3SessionLine =
+      `<b>Session P/L:</b> ${this.assetTracker.sessionPnl >= 0 ? '+' : ''}${this.assetTracker.sessionPnl.toFixed(2)} ${this.currencyStr()}\n`;
+
+    let msg =
       `${emoji} <b>APEX TRADE ${label}</b>\n\n` +
-      `<b>Contract:</b> #${t.contractId} · <b>Symbol:</b> <code>${t.symbol}</code>\n` +
-      `<b>Growth:</b> ${(t.growthRate*100).toFixed(0)}% · <b>Stake:</b> ${Number(t.stake).toFixed(2)} ${this.currencyStr()}\n` +
-      `<b>Sell:</b> ${Number(t.sellPrice ?? 0).toFixed(2)} ${this.currencyStr()}\n` +
+      `<b>Contract:</b> #${t.contractId}\n` +
+      `<b>Symbol:</b> <code>${t.symbol}</code>\n` +
+      `<b>Growth:</b> ${(t.growthRate*100).toFixed(0)}%\n` +
+      `<b>Stake:</b> ${Number(t.stake).toFixed(2)} ${this.currencyStr()}\n` +
+      `<b>Sell:</b> ${Number(t.sellPrice).toFixed(2)}\n` +
       `${t.profit >= 0 ? '💚' : '💔'} <b>Profit:</b> ${t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)} ${this.currencyStr()}\n` +
-      `<b>Exit:</b> ${t.exitReason || 'n/a'}\n` +
-      `<b>Balance:</b> ${(this.lastBalance ?? 0).toFixed(2)} ${this.currencyStr()}\n\n` +
-      `<b>Asset (${t.symbol}):</b> WR=${(assetState.rollingWinRate*100).toFixed(0)}% (${assetState.recentResults.length}) | Losses: ${assetState.consecutiveLosses}\n` +
-      `<b>Session P/L:</b> ${money(this.assetTracker.sessionPnl, this.currencyStr())}\n\n` +
+      `<b>Duration:</b> ${dur.toFixed(1)}s\n` +
+      `<b>Balance:</b> ${this.lastBalance.toFixed(2)} ${this.currencyStr()}\n\n` +
+      v3AssetLine +
+      v3SessionLine +
       `<b>GMT Day Stats (${rec.date})</b>\n` +
-      `• Trades: ${todayStats.count} (✅${todayStats.wins} ❌${todayStats.losses}) | WR ${todayStats.winRate.toFixed(1)}%\n` +
-      `• Net P/L: ${money(todayStats.totalProfit, this.currencyStr())} | PF ${todayStats.profitFactor === Infinity ? '∞' : todayStats.profitFactor.toFixed(2)}\n\n` +
-      `<b>Overall:</b> ${money(this.overallProfit, this.currencyStr())}\n` +
-      `<b>Consecutive Losses:</b> ${this.stats.currentLossStreak} | max ${this.stats.maxLossStreak}`;
+      `• Trades: ${todayStats.count} (✅${todayStats.wins} ❌${todayStats.losses})\n` +
+      `• Win rate: ${todayStats.winRate.toFixed(1)}%\n` +
+      `• Net P/L: ${todayStats.totalProfit >= 0 ? '+' : ''}${todayStats.totalProfit.toFixed(2)} ${this.currencyStr()}\n` +
+      `• Profit factor: ${todayStats.profitFactor === Infinity ? '∞' : todayStats.profitFactor.toFixed(2)}\n\n` +
+      `<b>Overall:</b> ${this.overallProfit >= 0 ? '+' : ''}${this.overallProfit.toFixed(2)} ${this.currencyStr()}\n` +
+      `<b>Consecutive Losses:</b> current ${this.stats.currentLossStreak} | max ${this.stats.maxLossStreak}\n` +
+      ` x2=${this.stats.lossStreakEvents.x2} x3=${this.stats.lossStreakEvents.x3} x4=${this.stats.lossStreakEvents.x4}`;
     telegram.send(msg);
     this.lastTradeAt = Date.now();
     this._saveState('after-trade');
   }
 
-  // ── Main strategy loop ──────────────────────────────────────────
-  _computeStake(symbol, analysis) {
-    const base = this.cfg.stake;
-    const lo = base * this.cfg.minStakeFraction;
-    const hi = base * this.cfg.maxStakeFraction;
-    if (this.cfg.sizingModeV3 === 'kelly') {
-      const gross = Math.pow(1 + analysis.growthRate, analysis.bestN);
-      const mult = kellyMultiplier((analysis.edge ?? 1) - 1, gross, this.cfg.kellyFraction);
-      return +Math.max(lo, Math.min(hi, base * mult)).toFixed(2);
-    }
-    if (this.cfg.sizingModeV3 === 'martingale') return +this.martingale.stake.toFixed(2);
-    if (this.cfg.sizingModeV3 === 'flat') return +base.toFixed(2);
-    return this.assetTracker.getAdaptiveStake(symbol, base);   // adaptive
-  }
-
-  // Martingale state transition on settle: a loss multiplies the next stake
-  // by martingaleMultiplier (bounded by martingaleStep consecutive losses
-  // before the bot halts); a win resets the progression back to base stake.
-  _updateMartingaleState(symbol, won) {
-    const m = this.martingale;
-    if (won) {
-      m.streak = 0;
-      m.stake = this.cfg.stake;
-      m.stopped = false;
-      logger.info(`martingale: WIN on ${symbol} — streak reset, next stake back to base ${this.cfg.stake.toFixed(2)}`);
-      return;
-    }
-    m.streak += 1;
-    m.stake = +(m.stake * this.cfg.martingaleMultiplier).toFixed(2);
-    logger.warn(
-      `martingale: LOSS #${m.streak} on ${symbol} — next stake ${m.stake.toFixed(2)} ` +
-      `(×${this.cfg.martingaleMultiplier}${m.streak > 1 ? ' again' : ''})`,
-    );
-    if (m.streak >= this.cfg.martingaleStep) {
-      m.stopped = true;
-      logger.error(
-        `martingale: reached step limit (${m.streak} ≥ ${this.cfg.martingaleStep} consecutive losses) ` +
-        `— BOT STOPPED trading until restart`,
-      );
-      telegram.send(
-        `⛔ <b>MARTINGALE STEP LIMIT REACHED</b>\n` +
-        `${m.streak} consecutive losses (step limit: ${this.cfg.martingaleStep}).\n` +
-        `Next stake would have been <b>${m.stake.toFixed(2)} ${this.currencyStr()}</b>.\n` +
-        `Trading halted — restart the bot to reset the sequence.`,
-      );
-    }
-  }
-
+  // ── Main APEX strategy loop ────────────────────────────────
   async _analyzeAndTrade() {
-    if (this._tradeInFlight) return;                 // single-flight: never double-buy
-    this._tradeInFlight = true;
     try {
       if (this.stopped) return;
       if (!this.client.authorized) return;
-      if (this.paused) { logger.debug('trading paused — skipping analysis cycle'); return; }
+      if (this.paused) {
+        logger.debug('trading paused — skipping analysis cycle');
+        return;
+      }
       if (!this._isTradingAllowedToday()) return;
       this._checkDayChange();
-      if (this.cfg.sizingModeV3 === 'martingale' && this.martingale.stopped) {
-        logger.debug('martingale: step limit reached — trading stopped (restart the bot to reset)');
-        return;
-      }
 
-      const now = Date.now();
-      if (this._dailyStopUntil && now < this._dailyStopUntil) return;
+      // Daily limits
       const today = this.stats.todayTrades();
-      if (today.length >= this.cfg.dailyMaxTrades || today.reduce((s, t) => s + (t.profit || 0), 0) <= -this.cfg.dailyMaxLoss) {
-        if (!this._dailyStopNotified) {
-          this._dailyStopNotified = true;
-          this._dailyStopUntil = this._nextUtcMidnight();
-          const pl = today.reduce((s, t) => s + (t.profit || 0), 0);
-          logger.warn(`daily hard stop: ${today.length} trades / P/L ${pl.toFixed(2)} — paused until next UTC day`);
-          telegram.send(`⛔ <b>Daily hard stop</b>\n${today.length} trades, net ${money(pl, this.currencyStr())}.\nPaused until next UTC day.`);
-        }
+      if (today.length >= this.cfg.dailyMaxTrades) {
+        logger.warn(`dailyMaxTrades reached — pausing`); return;
+      }
+      const pl = today.reduce((s, t) => s + (t.profit || 0), 0);
+      if (pl <= -this.cfg.dailyMaxLoss) {
+        logger.warn(`dailyMaxLoss reached — pausing`);
+        telegram.send(`<b>Daily loss limit</b>\nNet P/L: ${pl.toFixed(2)} ${this.currencyStr()}`);
         return;
       }
-
       if (Date.now() - this.lastTradeAt < this.cfg.tradeCooldownMs) return;
       if (this.exec.count() >= this.cfg.maxOpenTrades) return;
-      if (this.assetTracker.sessionHalted) return;
-      if (this.assetTracker.activeCount() >= this.cfg.maxAssetsTrading) return;
 
+      // v3: Session drawdown circuit breaker
+      if (this.assetTracker.sessionHalted) {
+        logger.warn(`session halted: ${this.assetTracker.sessionHaltReason}`);
+        return;
+      }
+
+      // v3: Don't exceed max simultaneously active assets
+      if (this.assetTracker.activeCount() >= this.cfg.maxAssetsTrading) {
+        logger.debug(`max assets trading reached (${this.assetTracker.activeCount()}/${this.cfg.maxAssetsTrading})`);
+        return;
+      }
+
+      // Analyse every asset with APEX. Skip assets the API permanently
+      // rejects (no ACCU on this account) — they'd otherwise waste cycles and
+      // spam "no-barrier" scans every interval.
       const tradeable = this.cfg.assets.filter(
         s => !(this.market._unsupportedSymbols && this.market._unsupportedSymbols.has(s)),
       );
-      const analyses = tradeable.map(s => this.analyzer.analyze(s, this.market.historyFor(s), this.market));
+      const analyses = tradeable.map(s =>
+        this.analyzer.analyze(s, this.market.historyFor(s), this.market));
       const ranked = this.analyzer.rank(analyses);
       const candidates = ranked.filter(a => a.recommend);
 
       if (!candidates.length) {
         if (ranked.length) {
           const b = ranked[0];
-          const fails = [
-            b.evOK ? '' : `ev<${(this.cfg.apexMinEV*100).toFixed(1)}%`,
-            b.survOK ? '' : `surv<${(this.cfg.apexMinSurvival*100).toFixed(1)}%`,
-            b.entryOK ? '' : `window:${b.entryReason}`,
-          ].filter(Boolean).join(',');
           logger.info(
-            `scan: best=${b.symbol} [${b.regimeClass}] g=${(b.growthRate*100).toFixed(0)}% ` +
-            `ev=${(b.ev*100).toFixed(2)}% N*=${b.bestN} pN=${(b.pN*100).toFixed(1)}% — [${fails}] no trade`,
+            `scan: best=${b.symbol} [${b.regimeClass}] g=${(b.growthRate*100).toFixed(0)}% edge=${b.edge.toFixed(4)} ` +
+            `ev=${(b.ev*100).toFixed(2)}% N*=${b.bestN} pN=${(b.pN*100).toFixed(1)}% hazard=${(b.hazard*100).toFixed(2)}% — ` +
+            `[${[
+              b.edgeOK ? '' : `edge<${this.cfg.pulseEdgeThreshold}`,
+              b.evOK   ? '' : `ev<${this.cfg.apexMinEV}`,
+              b.survOK ? '' : `surv<${this.cfg.apexMinSurvival} (${(b.perTickSurv*100).toFixed(2)}%)`,
+              b.calmOK ? '' : `window:${b.entryReason}`,
+            ].filter(Boolean).join(',')}] no trade`,
           );
         }
         return;
       }
 
-      // Try each recommendable candidate in rank order through the risk gates.
+      // v3: Filter candidates through per-asset risk checks
+      //     Try each candidate in ranked order; the first one that passes
+      //     all risk gates is the one we trade.
       let chosen = null;
+      let chosenCheck = null;
       for (const cand of candidates) {
-        if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(cand.symbol)) {
-          logger.debug(`recently traded ${cand.symbol} — skipping`);
-          continue;
-        }
+        // v3: Check correlated assets — don't double up on same regime
         if (this.assetTracker.isCorrelated(cand.symbol)) {
           logger.debug(`v3: skipping ${cand.symbol} — correlated with active asset`);
           continue;
         }
-        const check = this.assetTracker.checkEntry(cand.symbol, cand.ev, cand.ticksSinceSpike);
+
+        // v3: Per-asset risk check (cooldown, window limit, win rate, edge penalty)
+        const check = this.assetTracker.checkEntry(cand.symbol, cand.edge, cand.ticksSinceSpike);
         if (!check.allowed) {
           logger.info(`v3: ${cand.symbol} BLOCKED — ${check.reason}`);
           continue;
         }
+
         chosen = cand;
+        chosenCheck = check;
         break;
       }
-      if (!chosen) { logger.debug('v3: no candidate passed per-asset risk gates'); return; }
 
-      this.lastTradedSymbols.push(chosen.symbol);
-      if (this.lastTradedSymbols.length > this.cfg.recentTradedSymbolsLen) this.lastTradedSymbols.shift();
-
-      logger.info(
-        `APEX ENTER ${chosen.symbol} [${chosen.regimeClass}:${chosen.entryReason}] g=${(chosen.growthRate*100).toFixed(0)}% ` +
-        `ev=${(chosen.ev*100).toFixed(2)}% N*=${chosen.bestN} pN=${(chosen.pN*100).toFixed(1)}% ` +
-        `hazard=${(chosen.hazard*100).toFixed(2)}% sinceSpike=${chosen.ticksSinceSpike} cadence=${chosen.spikeCadence} ` +
-        `compression=${chosen.compression.toFixed(3)}`,
-      );
-
-      const baseStake = this.cfg.stake;
-      const stake = this._computeStake(chosen.symbol, chosen);
-      const takeProfit = +(stake * chosen.suggestedTakeProfit).toFixed(2);
-      const stopLoss = this.cfg.stopLoss;
-
-      const analysis = {
-        edge: chosen.edge, ev: chosen.ev, bestN: chosen.bestN,
-        pN: chosen.pN, p1: chosen.p1, regime: chosen.regime, regimeClass: chosen.regimeClass,
-        entryReason: chosen.entryReason, perTickSurv: chosen.perTickSurv,
-        hazard: chosen.hazard, ticksSinceSpike: chosen.ticksSinceSpike,
-        spikeCadence: chosen.spikeCadence, volRatio: chosen.compression,
-        barrierFrac: chosen.barrierFrac, logBarrierHalf: chosen.logBarrierHalf,
-        growthRate: chosen.growthRate,
-        sizingMode: this.cfg.sizingModeV3,
-        adaptiveStake: stake, baseStake,
-        rollingWinRate: this.assetTracker._getAsset(chosen.symbol).rollingWinRate,
-        assetLosses: this.assetTracker._getAsset(chosen.symbol).consecutiveLosses,
-        sessionPnl: this.assetTracker.sessionPnl,
-      };
-
-      // DRY-RUN: log the would-be entry and stand aside. Validates the full
-      // live pipeline (auth, backfill, barriers, analyzer, risk gates) with
-      // zero market exposure — the recommended first test.
-      if (this.dryRun) {
-        logger.info(
-          `DRY-RUN WOULD ENTER ${chosen.symbol} [${chosen.regimeClass}:${chosen.entryReason}] ` +
-          `g=${chosen.growthRate} stake=${stake} tp=${takeProfit} ev=${(analysis.ev*100).toFixed(2)}% N*=${analysis.bestN}`,
-        );
+      if (!chosen) {
+        logger.debug('v3: no candidate passed per-asset risk gates');
         return;
       }
 
-      const trade = await this.exec.buy(
-        chosen.symbol, chosen.growthRate, stake,
-        { stop_loss: stopLoss, take_profit: takeProfit }, analysis,
+      const best = chosen;
+
+      //Return if the best symbol is already being traded
+      //Make an array of the last 2 traded symbols and check if the best symbol is in that array
+      if(this.lastTradedSymbols && this.lastTradedSymbols.includes(best.symbol)) {
+        logger.debug(`recently traded ${best.symbol} — skipping`);
+        return;
+      }
+
+      //Add the best symbol to the lastTradedSymbols array, keeping only the last 2 symbols
+      if(!this.lastTradedSymbols) this.lastTradedSymbols = [];
+      this.lastTradedSymbols.push(best.symbol);
+      if(this.lastTradedSymbols.length > 2) this.lastTradedSymbols.shift();
+
+      logger.info(
+        `APEX ENTER ${best.symbol} [${best.regimeClass}:${best.entryReason}] g=${(best.growthRate*100).toFixed(0)}% ` +
+        `edge=${best.edge.toFixed(4)} ev=${(best.ev*100).toFixed(2)}% ` +
+        `N*=${best.bestN} pN=${(best.pN*100).toFixed(1)}% hazard=${(best.hazard*100).toFixed(2)}% ` +
+        `sinceSpike=${best.ticksSinceSpike} cadence=${best.spikeCadence} ` +
+        `hold=${best.adaptiveMaxHold} winFrac=${best.adaptiveWindowFrac} ` +
+        `spikeSurv=${(best.spikeSurvivalHold*100).toFixed(1)}%`,
       );
 
-      // Only count the entry AFTER the buy succeeds (bookkeeping matches reality).
-      this.assetTracker.onTradeOpen(chosen.symbol);
+      // v3: Use adaptive stake sizing instead of raw martingale
+      const baseStake = this.cfg.stake;
+      const stake = (this.cfg.sizingModeV3 === 'adaptive')
+        ? this.assetTracker.getAdaptiveStake(best.symbol, baseStake)
+        : this.currentStake(best.edge);
+
+      const tpFraction  = best.suggestedTakeProfit;
+      const takeProfit  = +(stake * tpFraction).toFixed(2);
+      const stopLoss    = this.cfg.stopLoss;
+
+      const analysis = {
+        edge: best.edge, ev: best.ev, bestN: best.bestN,
+        pN: best.pN, p1: best.p1, regime: best.regime,
+        regimeClass: best.regimeClass, entryReason: best.entryReason,
+        perTickSurv: best.perTickSurv, hazard: best.hazard,
+        ticksSinceSpike: best.ticksSinceSpike, spikeCadence: best.spikeCadence,
+        volRatio: best.volRatio, barrierFrac: best.barrierFrac,
+        vrRatio: best.vrRatio, sigma: best.sigma,
+        growthRate: best.growthRate, halfBarrierFrac: best.halfBarrierFrac,
+        logBarrierHalf: best.logBarrierHalf,
+        // v3: Use adaptive sizing info instead of martingale
+        sizingMode: this.cfg.sizingModeV3,
+        adaptiveStake: stake,
+        baseStake: baseStake,
+        rollingWinRate: this.assetTracker._getAsset(best.symbol).rollingWinRate,
+        assetLosses: this.assetTracker._getAsset(best.symbol).consecutiveLosses,
+        sessionPnl: this.assetTracker.sessionPnl,
+      };
+
+      // v3: Notify tracker of trade open
+      this.assetTracker.onTradeOpen(best.symbol);
+
+      const trade = await this.exec.buy(
+        best.symbol, best.growthRate, stake,
+        { stop_loss: stopLoss, take_profit: takeProfit },
+        analysis,
+      );
+
+      const v3Note = this.cfg.sizingModeV3 === 'adaptive'
+        ? ` adaptive-stake=${stake} (WR=${(analysis.rollingWinRate*100).toFixed(0)}%)`
+        : ` martingale × ${this.martingaleMultiplier.toFixed(2)} (${this.lossesStreak} losses)`;
       logger.info(
-        `trade placed #${trade.contractId} ${chosen.symbol} g=${chosen.growthRate} ` +
-        `stake=${stake} (${this.cfg.sizingModeV3}) tp=${takeProfit} barrier=±${trade.halfBarrierPct.toFixed(4)}%`,
+        `trade placed #${trade.contractId} ${best.symbol} g=${best.growthRate} ` +
+        `stake=${stake}${v3Note} tp=${takeProfit} ` +
+        `barrier=±${trade.halfBarrierPct.toFixed(4)}%`,
       );
     } catch (e) {
       logger.error('APEX analyse/trade error:', e.message);
-    } finally {
-      this._tradeInFlight = false;
     }
+  }
+
+  // ── Stake sizing (v3 adaptive / legacy edge) ───────────────
+  currentStake(edge) {
+    const base = this.stats.currentLossStreak > 0 ? Number(this.currentStake2) : this.cfg.stake;
+    let mult = 1.0;
+    if (this.cfg.sizingMode === 'edge' && edge && edge > 1) {
+      const evFrac = Math.max(0, edge - 1);
+      const scaled = 1 + (evFrac / this.cfg.edgeScaleEdgeRef) * (this.cfg.edgeScaleMax - 1);
+      mult = Math.max(1, Math.min(this.cfg.edgeScaleMax, scaled));
+    }
+    if (this.cfg.downscaleAfterLoss && this.stats.currentLossStreak > 0) {
+      mult *= Math.max(0.5, Math.pow(0.85, this.stats.currentLossStreak));
+    }
+    const m = this.cfg.martingale || 0;
+    if (m > 0 && this.lossesStreak > (this.cfg.lossesBeforeMartingale || 0)) {
+      mult *= this.martingaleMultiplier;
+    }
+    return +(base * mult).toFixed(2);
   }
 
   async _refreshBarriers() {
@@ -2316,38 +2562,38 @@ class AccuAPEXnewBot {
     }
   }
 
-  // ── Watchdog (sweeps ALL stale open contracts) ──────────────────
-  _startWatchdog() {
+  // ── Watchdog ────────────────────────────────────────────────
+  // A stuck contract must never hold the single open slot forever. We
+  // sell it if we can, and ALWAYS free the slot (forceSettle) so the
+  // maxOpenTrades gate can't silently stop trading.
+  _startWatchdog(contractId) {
     this._clearWatchdog();
-    this._watchdogT = setInterval(() => {
-      const now = Date.now();
-      for (const info of this.exec.openTrades()) {
-        if (now - info.lastUpdateAt > this.cfg.tradeWatchdogMs) {
-          logger.warn(`watchdog: #${info.contractId} stale ${((now - info.lastUpdateAt)/1000).toFixed(0)}s`);
-          // Sell if we can; ALWAYS free the slot via forceSettle if not.
-          this.exec.sell(info.contractId, 0, info).catch(
-            () => this.exec.forceSettle(info.contractId, 'watchdog-sell-failed'),
-          );
-        }
+    this._tradeWatchdogTimer = setTimeout(() => {
+      const open = this.exec.openTrades();
+      if (!open.length) { this._clearWatchdog(); return; }
+      const stuck = open.find(t => t.contractId === contractId) || open[0];
+      const cid = stuck ? stuck.contractId : contractId;
+      logger.warn(`watchdog: #${cid} stuck for ${this.cfg.tradeWatchdogMs / 1000}s`);
+      if (cid && this.client.authorized) {
+        this.exec.sell(cid, 0, stuck).catch(() => {});
       }
-    }, this.cfg.tradeWatchdogMs / 2);
+      // Free the slot regardless of whether the sell succeeded.
+      this.exec.forceSettle(cid, 'watchdog');
+      this._clearWatchdog();
+    }, this.cfg.tradeWatchdogMs);
   }
-  _clearWatchdog() { if (this._watchdogT) { clearInterval(this._watchdogT); this._watchdogT = null; } }
 
-  // ── Summaries ───────────────────────────────────────────────────
+  _clearWatchdog() { if (this._tradeWatchdogTimer) { clearTimeout(this._tradeWatchdogTimer); this._tradeWatchdogTimer = null; } }
+
+  // ── Summaries ───────────────────────────────────────────────
   _sendHourly() {
     const now = new Date();
     const prev = new Date(now.getTime() - 3600_000);
     const date = utcDateStr(prev), hour = utcHour(prev);
     const list = this.stats.tradesForHour(date, hour);
     const s = this.stats.stats(list);
-    const tally = this.stats.edgeTallyLine();
-    if (!list.length) {
-      telegram.send(`⏰ <b>${date} ${pad(hour)}:00</b> — No trades\n💼 Overall: ${money(this.stats.overallProfit, this.currencyStr())}`);
-      return;
-    }
+    if (!list.length) { telegram.send(`⏰ <b>${date} ${pad(hour)}:00</b> — No trades\n💼 Overall: ${money(this.stats.overallProfit, this.currencyStr())}`); return; }
     let msg = `⏰ <b>${date} ${pad(hour)}:00</b>\n\n📊 ${s.count} trades (✅${s.wins} ❌${s.losses})\n📈 WR: ${s.winRate.toFixed(1)}%\n💰 P/L: <b>${money(s.totalProfit, this.currencyStr())}</b>\n💼 Overall: <b>${money(this.stats.overallProfit, this.currencyStr())}</b>\n`;
-    if (tally) msg += `\n🧪 ${tally}\n`;
     list.slice(-15).forEach((t, i) => { msg += `${i + 1}. ${t.status === 'won' ? '✅' : '❌'} #${t.contractId} ${t.symbol} ${money(t.profit, this.currencyStr())}\n`; });
     telegram.send(msg);
   }
@@ -2359,11 +2605,9 @@ class AccuAPEXnewBot {
     const ds = summary.stats;
     const balStart = this.startBalance ?? 0, balNow = this.lastBalance ?? balStart;
     const balDelta = balNow - balStart;
-    const tally = this.stats.edgeTallyLine();
     let msg = `🌙 <b>DAILY REPORT — ${date}</b>\n\n`;
     if (ds.count) msg += `📊 ${ds.count} trades (✅${ds.wins} ❌${ds.losses}) | WR ${ds.winRate.toFixed(1)}%\n💰 Net: <b>${money(ds.totalProfit, this.currencyStr())}</b> | PF ${ds.profitFactor === Infinity ? '∞' : ds.profitFactor.toFixed(2)}\n`;
     else msg += `No trades.\n`;
-    if (tally) msg += `\n🧪 ${tally}\n`;
     msg += `\n💼 ${balStart.toFixed(2)} → ${balNow.toFixed(2)} (${balDelta >= 0 ? '+' : ''}${balDelta.toFixed(2)})\n`;
     msg += `💼 Overall: <b>${money(this.stats.overallProfit, this.currencyStr())}</b>\n`;
     msg += `❌ Loss streak: ${this.stats.currentLossStreak} | max ${this.stats.maxLossStreak}`;
@@ -2375,17 +2619,17 @@ class AccuAPEXnewBot {
 
   currencyStr() { return this.client.currency || this.cfg.currency; }
 
-  // ── State persistence (atomic write) ────────────────────────────
+  // ── State persistence ──────────────────────────────────────
   _saveState(reason = 'checkpoint') {
-    if (!this.cfg.stateSaveOnTrade && reason === 'after-trade') return;
-    if (!this.cfg.stateSaveOnShutdown && reason === 'shutdown') return;
+    if (!this.cfg.stateSaveOnTrade    && reason === 'after-trade') return;
+    if (!this.cfg.stateSaveOnShutdown && reason === 'shutdown')    return;
     try {
       const payload = {
-        version: 5, engine: 'APEX v4', savedAt: new Date().toISOString(), savedReason: reason,
+        version: 4, engine: 'APEX v3', savedAt: new Date().toISOString(), savedReason: reason,
         startBalance: this.startBalance, lastBalance: this.lastBalance, overallProfit: this.overallProfit,
         stats: this.stats.serialize(),
+        // v3: per-asset tracker state
         assetTracker: this.assetTracker.serialize(),
-        martingale: this.martingale,
       };
       const tmp = this.cfg.stateFile + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify(payload, null, 2));
@@ -2402,17 +2646,13 @@ class AccuAPEXnewBot {
       if (d.lastBalance != null) this.lastBalance = d.lastBalance;
       if (d.overallProfit != null) this.overallProfit = d.overallProfit;
       this.stats = new StatisticsManager(d.stats || {});
+      // v3: restore per-asset tracker state
       if (d.assetTracker) this.assetTracker.loadSaved(d.assetTracker);
-      if (d.martingale) {
-        this.martingale = {
-          streak: Number(d.martingale.streak || 0),
-          stake: Number(d.martingale.stake || this.cfg.stake),
-          stopped: !!d.martingale.stopped,
-        };
-      }
       logger.info(
-        `state restored (APEX v4): overallProfit=${this.stats.overallProfit.toFixed(2)} ` +
-        `lossStreak=${this.stats.currentLossStreak} sessionPnl=${this.assetTracker.sessionPnl.toFixed(2)}`,
+        `state restored (APEX v3): overallProfit=${this.stats.overallProfit.toFixed(2)} ` +
+        `lossStreak=${this.stats.currentLossStreak} ` +
+        `sessionPnl=${this.assetTracker.sessionPnl.toFixed(2)} ` +
+        `trackedAssets=${this.assetTracker.assets.size}`,
       );
     } catch (e) { logger.warn('state load:', e.message); }
   }
@@ -2426,18 +2666,17 @@ class AccuAPEXnewBot {
     telegram.send(`<b>APEX Bot stopped</b>\nSignal: ${signal}`);
     if (this._analysisT) clearInterval(this._analysisT);
     if (this._hourlyT) clearInterval(this._hourlyT);
-    if (this._hourlyBoot) clearTimeout(this._hourlyBoot);
     if (this._eodBoot) clearTimeout(this._eodBoot);
     if (this._barrierT) clearInterval(this._barrierT);
     if (this._discoveryT) clearInterval(this._discoveryT);
 
+    // Cleanup subscriptions
     this.exec.cleanupAllSubscriptions().catch(e => logger.warn('cleanup failed:', e.message)).finally(() => {
+      // Final summary
       const today = this.stats.todayTrades();
       const s = this.stats.stats(today);
-      const tally = this.stats.edgeTallyLine();
-      let msg = `🌙 <b>SESSION END</b>\n📊 ${s.count} trades (✅${s.wins} ❌${s.losses}) | WR ${s.winRate.toFixed(1)}%\n💰 Net: ${money(s.totalProfit, this.currencyStr())}\n💼 Overall: ${money(this.overallProfit, this.currencyStr())}`;
-      if (tally) msg += `\n🧪 ${tally}`;
-      telegram.send(msg);
+      telegram.send(`🌙 <b>SESSION END</b>\n📊 ${s.count} trades (✅${s.wins} ❌${s.losses}) | WR ${s.winRate.toFixed(1)}%\n💰 Net: ${money(s.totalProfit, this.currencyStr())}\n💼 Overall: ${money(this.overallProfit, this.currencyStr())}`);
+
       this._saveState('shutdown');
       this.client.stop();
       setTimeout(() => process.exit(0), 2500);
@@ -2446,128 +2685,22 @@ class AccuAPEXnewBot {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 14. SELF-TEST  (pure math + invariants; no network)
-// ═══════════════════════════════════════════════════════════════════════
-function runSelfTest() {
-  const results = [];
-  const test = (name, cond, detail = '') => {
-    results.push({ name, pass: !!cond, detail });
-    if (!cond) console.log(`  ✗ ${name} ${detail}`);
-  };
-  const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
-
-  const an = new ApexAnalyzer(CONFIG);
-
-  // 1. Log returns.
-  const q = [100, 101, 99, 100];
-  const lr = an._logReturns(q);
-  test('log returns count', lr.length === 3, `got ${lr.length}`);
-  test('log returns values', near(lr[0], Math.log(101 / 100)) && near(lr[1], Math.log(99 / 101)), `[${lr.map(v => v.toFixed(5))}]`);
-
-  // 2. MAD scale on symmetric data.
-  const s = an._madScale([0.01, -0.01, 0.012, -0.011, 0.009]);
-  test('mad scale positive', s > 0 && s < 0.02, `scale=${s.toFixed(5)}`);
-
-  // 3. EWMA vars: heavy recent return lifts fast above slow.
-  const vs = an._ewmaVars([0.0001, 0.0001, 0.0001, 0.01, 0.01], 0.3, 0.03);
-  test('ewma fast>slow after burst', Math.sqrt(vs.fastVar) > Math.sqrt(vs.slowVar));
-
-  // 4. EV horizon: highest EV at the K that balances (1+g)^K vs p1^K.
-  const h = an._chooseHorizon(0.05, 0.98, 0.002, 10, 0.5, 0);
-  test('horizon chooses K>=1', h.best.K >= 1, `K=${h.best.K}`);
-  test('horizon edge formula', near(h.raw.edge, Math.pow(1.05, h.raw.K) * Math.pow(0.98, h.raw.K) - 0.002, 1e-9), `edge=${h.raw.edge}`);
-
-  // 5. Hazard haircut is conservative (upper >= raw) and rejects unknown cadence.
-  const hzRaw = 1 / 500;
-  const hzUp = an._hazardUpperBound(10, 500, 6000, 1.28);
-  test('hazard upper >= raw', hzUp >= hzRaw, `${hzUp} vs ${hzRaw}`);
-  test('hazard unknown → 1', an._hazardUpperBound(1, 0, 6000, 1.28) === 1);
-
-  // 6. Kelly bounds.
-  test('kelly caps at fraction', kellyMultiplier(0.02, 1.4, 0.2) <= 0.2 + 1e-12);
-  test('kelly zero for negative EV', kellyMultiplier(-0.01, 1.4, 0.2) === 0);
-  test('kelly full formula', near(kellyMultiplier(0.04, 1.5, 0.5), 0.04 / 0.5, 1e-9));
-
-  // 7. VOL gate: needs compression + wide barrier + real barrier.
-  test('vol gate blocked without compression', isVolEntryAllowed(1.05, 3.0, false, CONFIG).ok === false);
-  test('vol gate blocked with thin barrier', isVolEntryAllowed(0.85, 1.0, false, CONFIG).ok === false);
-  test('vol gate blocked on estimated barrier', isVolEntryAllowed(0.85, 3.0, true, CONFIG).ok === false);
-  test('vol gate allows compressed + wide + real', isVolEntryAllowed(0.85, 3.0, false, CONFIG).ok === true);
-
-  // 8. regimeClassOf.
-  test('regime BOOM', regimeClassOf('BOOM1000') === 'BOOM');
-  test('regime CRASH', regimeClassOf('CRASH500') === 'CRASH');
-  test('regime VOL', regimeClassOf('R_100') === 'VOL' && regimeClassOf('1HZ100V') === 'VOL');
-
-  // 9. Analyzer on synthetic data: no barrier → null (never fabricate).
-  const emptyMarket = { getBarrier: () => null };
-  const ticks = [];
-  let px = 100;
-  for (let i = 0; i < 500; i++) { ticks.push({ epoch: i, quote: px }); px *= 1 + (Math.random() - 0.5) * 0.002; }
-  const noBarrier = an.analyze('R_100', ticks, emptyMarket);
-  test('analyzer null without barrier (no fabrication)', noBarrier === null, noBarrier ? `returned ${JSON.stringify(noBarrier)}` : '');
-
-  // 10. Idempotent settlement.
-  const fakeClient = { forget: () => Promise.resolve(), _isPat: false };
-  const ex = new TradeExecutor(fakeClient, CONFIG);
-  let resultsEmitted = 0;
-  ex.on('result', () => resultsEmitted++);
-  ex.open.set(777, { contractId: 777, symbol: 'R_100', stake: 5, buyPrice: 5, profit: 0, ticksHeld: 0, _exitReason: 'test' });
-  const first = ex._finalizeContract(777, { profit: 0.5, status: 'won', sellPrice: 5.5, sellTime: 1 });
-  const second = ex._finalizeContract(777, { profit: 99, status: 'won', sellPrice: 99 });
-  test('settle returns info once', !!first && second === null);
-  test('settle emits result once', resultsEmitted === 1, `emitted ${resultsEmitted}`);
-  test('settle frees slot', ex.count() === 0);
-
-  // 11. Synthetic VOL compression: high-variance past, calm recent → recommendable VOL entry.
-  const fakeVolMarket = {
-    getBarrier: sym => {
-      if (sym === 'R_100') return { halfBarrierPct: 0.25 };   // ±0.25% per tick
-      return null;
-    },
-  };
-  const volTicks = [];
-  let vpx = 10000;
-  for (let i = 0; i < 600; i++) {
-    // First half: volatile (σ≈0.5%/tick); last 150: compressed (σ≈0.05%/tick).
-    const sig = i < 450 ? 0.005 : 0.0005;
-    vpx *= 1 + (Math.random() - 0.5) * 2 * sig;
-    volTicks.push({ epoch: i, quote: vpx });
-  }
-  const volResult = an.analyze('R_100', volTicks, fakeVolMarket);
-  test('vol-compression produces a candidate', !!volResult, volResult ? `regime=${volResult.regimeClass} reason=${volResult.entryReason}` : 'null');
-  if (volResult) test('vol candidate entry reason', volResult.entryReason === 'vol-compressed', volResult.entryReason);
-
-  const passed = results.filter(r => r.pass).length;
-  console.log(`\nSelf-test: ${passed}/${results.length} passed`);
-  return passed === results.length;
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// 15. BOOTSTRAP
+// 13. BOOTSTRAP
 // ═══════════════════════════════════════════════════════════════════════
 function printBanner() {
   console.log('╔══════════════════════════════════════════════════════╗');
-  console.log('║   AccuAPEXnew — APEX engine (v4, TEST/DEMO)          ║');
-  console.log('║   post-spike exploit • vol-compression • EV-optimal  ║');
-  console.log('║   v4: reconcile • idempotent settle • hard caps      ║');
-  console.log('║   flags: --selftest  --dry-run                       ║');
+  console.log('║   AccuAPEXnew — APEX engine (v3)                    ║');
+  console.log('║   post-spike exploit • conditional-vol • EV-optimal  ║');
+  console.log('║   v3: adaptive sizing • per-asset risk • auto-discover║');
   console.log('╚══════════════════════════════════════════════════════╝\n');
 }
 
 async function main() {
   printBanner();
-  if (process.argv.includes('--selftest')) {
-    process.exitCode = runSelfTest() ? 0 : 1;
-    return;
-  }
   try { require.resolve('ws'); } catch (_) { console.error('npm install ws'); process.exit(1); }
   if (!CONFIG.apiToken) { console.error('API token not set'); process.exit(1); }
-  const dry = process.argv.includes('--dry-run');
-  if (dry) console.log('🔒 DRY-RUN MODE — will analyze and log would-be entries, but place NO trades');
   console.log(CONFIG.telegram.enabled ? '✅ Telegram: ENABLED' : 'ℹ️ Telegram: DISABLED');
   const bot = new AccuAPEXnewBot(CONFIG);
-  bot.dryRun = dry;
   await bot.start();
 }
 
