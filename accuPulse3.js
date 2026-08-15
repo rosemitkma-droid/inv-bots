@@ -37,7 +37,7 @@ const CONFIG = Object.freeze({
   stopLoss: parseFloat('500.0'),
   demoOnly: false,
   tradeEnabled: true,
-  skipRecentTradedSymbols: false,
+  skipRecentTradedSymbols: true,
   recentTradedSymbolsLen: parseInt('2', 10),
 
   // Anti-Martingale
@@ -63,7 +63,7 @@ const CONFIG = Object.freeze({
   maxOpenTrades: parseInt('3', 10),
 
   // Hazard Model (v4.0: relaxed for realistic 20-tick holds)
-  candidateGrowthRates: [0.04],
+  candidateGrowthRates: [0.05],
   hazardWindow: parseInt('600', 10),        // Increased: fresher analysis
   plannedHoldTicks: parseInt('20', 10),
   minBarrierPct: parseFloat('0.015'),       // FIXED: 1.5% (was 0.02=2%, unrealistic)
@@ -129,14 +129,22 @@ const CONFIG = Object.freeze({
   dailyMaxLoss: parseFloat('250'),
   dailyMaxTrades: parseInt('12000'),
 
+  // Drawdown gates (fraction of equity peak) — referenced by
+  // _updateDrawdown()/_checkCircuitBreakers(); previously missing, which
+  // permanently pinned ddReducer at 0.25 after the first trade result.
+  ddFullStake: parseFloat('0.02'),
+  ddReduce25: parseFloat('0.05'),
+  ddReduce50: parseFloat('0.10'),
+  ddStopTrading: parseFloat('0.20'),
+
   // System
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3_v3_02.log',
+  logFile: 'accuPULSE3_v3_03.log',
   logLevel: 'INFO3',
-  stateFile: 'accuPULSE3_state_v3_02.json',
-  metricsFile: 'metrics.json_02',
+  stateFile: 'accuPULSE3_state_v3_03.json',
+  metricsFile: 'metrics.json_03',
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -496,6 +504,10 @@ class DerivClient extends EventEmitter {
           if (subId) {
             this._subs.set(subId, callback);
             resolve(subId);
+            // Deliver the ack message itself — it carries the first payload
+            // (e.g. the contract's current state). Swallowing it could miss
+            // an instant settlement on proposal_open_contract streams.
+            try { callback(msg); } catch (e) { log('ERROR', 'Sub error:', e.message); }
           } else {
             reject(new Error('No sub id'));
           }
@@ -1244,9 +1256,23 @@ class EnhancedTradeExecutor extends EventEmitter {
     this._buying = false;
     this._lastUpdateMap = new Map();
     this._settledIds = new Set();
+    this._contractSubs = new Map();   // contractId → proposal_open_contract sub id
+    this._subInFlight = new Map();    // contractId → pending subscribe promise
     this.positionHistory = [];
     this._lastVolRegime = 'normal';
     this._lastTrend = 'neutral';
+    // Drop stream bookkeeping when the socket dies so reconcile()
+    // re-establishes subscriptions after reconnect.
+    client.on('close', () => {
+      this._contractSubs.clear();
+      this._subInFlight.clear();
+    });
+  }
+
+  _forgetContract(cid) {
+    const subId = this._contractSubs.get(cid);
+    this._contractSubs.delete(cid);
+    if (subId) this.client.forget(subId).catch(() => {});
   }
 
   // Phase 2: Dynamic Stake Sizing
@@ -1329,17 +1355,14 @@ class EnhancedTradeExecutor extends EventEmitter {
   checkCorrelationWithOpen(symbol) {
     if (this.open.size === 0) return true;
 
-    const openSymbols = [...this.open.values()].map(t => t.symbol);
-    const correlationThreshold = this.cfg.maxAssetCorrelation;
-
-    // Simple correlation: R_* assets are highly correlated
-    const getAssetFamily = (sym) => sym.split('_')[0];
-    const family = getAssetFamily(symbol);
-    const openFamilies = openSymbols.map(getAssetFamily);
-
-    const sameFamilyCount = openFamilies.filter(f => f === family).length;
-    if (sameFamilyCount > 0) {
-      log('DEBUG', `Correlation check failed: same family ${family} already open`);
+    // BUGFIX: the old family check (prefix before '_') mapped every
+    // R_10/R_25/R_50/R_75/R_100 asset to the same family 'R', so ANY open
+    // trade blocked ALL entries — the bot could never open a 2nd trade and
+    // maxOpenTrades was unreachable. Block only the identical underlying
+    // (one position per symbol) so multi-asset entries work again.
+    const alreadyOpen = [...this.open.values()].some(t => t.symbol === symbol);
+    if (alreadyOpen) {
+      log('DEBUG', `Correlation check failed: ${symbol} already open`);
       return false;
     }
     return true;
@@ -1445,11 +1468,21 @@ class EnhancedTradeExecutor extends EventEmitter {
     }
   }
 
-  async _subscribeContract(info) {
-    return this.client.subscribe(
-      { proposal_open_contract: 1, contract_id: info.contractId },
-      msg => this._onUpdate(msg, info)
-    );
+  _subscribeContract(info) {
+    // Guard against duplicate streams: reconcile() runs periodically and
+    // would otherwise open a new proposal_open_contract subscription on
+    // every pass for the same contract.
+    if (this._contractSubs.has(info.contractId)) return Promise.resolve();
+    if (this._subInFlight.has(info.contractId)) return this._subInFlight.get(info.contractId);
+    const p = this.client
+      .subscribe(
+        { proposal_open_contract: 1, contract_id: info.contractId },
+        msg => this._onUpdate(msg, info)
+      )
+      .then(subId => { this._contractSubs.set(info.contractId, subId); })
+      .finally(() => { this._subInFlight.delete(info.contractId); });
+    this._subInFlight.set(info.contractId, p);
+    return p;
   }
 
   async reconcile() {
@@ -1493,12 +1526,40 @@ class EnhancedTradeExecutor extends EventEmitter {
       }
     }
     for (const id of [...this.open.keys()]) {
-      if (!liveIds.has(id)) {
+      if (liveIds.has(id)) continue;
+      if (this._settledIds.has(id)) {
         this.open.delete(id);
         this._lastUpdateMap.delete(id);
-        // Server no longer lists it as open → it settled while we weren't
-        // subscribed. Mark settled so a stray echo can't re-settle it.
+        this._forgetContract(id);
+        continue;
+      }
+      // Server no longer lists it as open → it settled while we weren't
+      // subscribed. Fetch the final state once so the result is recorded
+      // (profit, stats, notifications) instead of silently dropped.
+      const info = this.open.get(id);
+      let confirmedClosed = false;
+      let stillOpen = false;
+      try {
+        const res = await this.client._send(
+          { proposal_open_contract: 1, contract_id: id }, 15000
+        );
+        const poc = res?.proposal_open_contract;
+        if (poc && (poc.status !== 'open' || poc.is_sold)) {
+          confirmedClosed = true;
+          this._onUpdate({ proposal_open_contract: poc }, info);
+        } else if (poc) {
+          // Portfolio glitch — server still reports it open. Keep tracking.
+          stillOpen = true;
+        }
+      } catch (e) {
+        log('WARN', `Settlement check #${id} failed:`, e.message);
+      }
+      if (!confirmedClosed && !stillOpen) {
+        // Unconfirmable — drop the local entry so trading is not blocked.
         this._settledIds.add(id);
+        this.open.delete(id);
+        this._lastUpdateMap.delete(id);
+        this._forgetContract(id);
       }
     }
     return true;
@@ -1534,6 +1595,7 @@ class EnhancedTradeExecutor extends EventEmitter {
       if (this._settledIds.has(cid)) {
         this.open.delete(cid);
         this._lastUpdateMap.delete(cid);
+        this._forgetContract(cid);
         return;
       }
       this._settledIds.add(cid);
@@ -1551,9 +1613,7 @@ class EnhancedTradeExecutor extends EventEmitter {
       this._lastUpdateMap.delete(cid);
       this.positionHistory.push(finished);
       this.emit('result', finished);
-      if (msg.subscription?.id) {
-        this.client.forget(msg.subscription.id).catch(() => {});
-      }
+      this._forgetContract(cid);
     } else {
       this.emit('update', {
         ...info,
@@ -1578,47 +1638,84 @@ class EnhancedTradeExecutor extends EventEmitter {
   checkStuckContracts(maxStaleMsec = 180000) {
     const now = Date.now();
     for (const [cid, lastTime] of this._lastUpdateMap.entries()) {
-      if (now - lastTime > maxStaleMsec) {
-        const staleSec = ((now - lastTime) / 1000).toFixed(0);
-        const info = this.open.get(cid);
-        log('WARN', `Contract #${cid} stuck for ${staleSec}s, force-selling`);
-        // Idempotency guard: never re-settle a contract we already finalized.
-        if (this._settledIds.has(cid)) {
-          this.open.delete(cid);
-          this._lastUpdateMap.delete(cid);
-          continue;
-        }
-        this._selling.add(cid);
-        this.sell(cid, 0)
-          .catch(e => {
-            const msg = String(e?.message || e);
-            // "not found among your open positions" = contract already closed
-            // server-side (subscription died before settlement echoed). The
-            // local entry is stale; drop it so the stuck-check loop ends.
-            const alreadyClosed = /not found among your open positions/i.test(msg);
-            if (alreadyClosed) {
-              log('WARN', `Force-sell #${cid} missed: contract already closed on server — dropping stale local entry`);
-              if (info) {
-                info.status = 'unknown';
-                info.profit = 0;
-                info.sellTime = Date.now() / 1000;
-                info.currentSpot = info.currentSpot || 0;
-                // Record as explicit 'unknown' so it is excluded from WR/streaks
-                // (never fabricate a win/loss for an unconfirmable contract).
-                this.positionHistory.push(info);
-                this.emit('result', info);
-              }
-            } else {
-              log('ERROR', `Force-sell #${cid} failed:`, msg);
-            }
-            // In both cases the local entry is gone; never retry forever.
-            this._settledIds.add(cid);
-            this.open.delete(cid);
-            this._lastUpdateMap.delete(cid);
-          })
-          .finally(() => this._selling.delete(cid));
-      }
+      if (now - lastTime <= maxStaleMsec) continue;
+      if (this._selling.has(cid)) continue;
+      const staleSec = ((now - lastTime) / 1000).toFixed(0);
+      log('WARN', `Contract #${cid} stuck for ${staleSec}s, reconciling`);
+      this._selling.add(cid);
+      this._reconcileStuck(cid)
+        .catch(e => log('ERROR', `Stuck reconcile #${cid} failed:`, e?.message || e))
+        .finally(() => this._selling.delete(cid));
     }
+  }
+
+  // Resolve a contract whose stream went quiet: ask the server for its
+  // authoritative state first; force-sell only if it is genuinely still open.
+  async _reconcileStuck(cid) {
+    const info = this.open.get(cid) ||
+      { contractId: cid, symbol: 'UNKNOWN', stake: 0, limit: {}, profit: 0 };
+    const dropLocal = () => {
+      this._settledIds.add(cid);
+      this.open.delete(cid);
+      this._lastUpdateMap.delete(cid);
+      this._forgetContract(cid);
+    };
+
+    try {
+      const res = await this.client._send(
+        { proposal_open_contract: 1, contract_id: cid }, 15000
+      );
+      const poc = res?.proposal_open_contract;
+      if (poc && (poc.status !== 'open' || poc.is_sold)) {
+        // It settled while our subscription was dead — record it properly.
+        this._onUpdate({ proposal_open_contract: poc }, info);
+        return;
+      }
+    } catch (e) {
+      log('DEBUG', `Stuck POC fetch #${cid}:`, e.message);
+    }
+
+    try {
+      await this.sell(cid, 0);
+    } catch (e) {
+      const msg = String(e?.message || e);
+      // "not found among your open positions" = contract already closed
+      // server-side (subscription died before settlement echoed). The
+      // local entry is stale; drop it so the stuck-check loop ends.
+      const alreadyClosed = /not found among your open positions/i.test(msg);
+      if (alreadyClosed) {
+        log('WARN', `Force-sell #${cid} missed: contract already closed on server — dropping stale local entry`);
+        if (this.open.has(cid)) {
+          info.status = 'unknown';
+          info.profit = 0;
+          info.sellTime = Date.now() / 1000;
+          info.currentSpot = info.currentSpot || 0;
+          // Record as explicit 'unknown' so it is excluded from WR/streaks
+          // (never fabricate a win/loss for an unconfirmable contract).
+          this.positionHistory.push(info);
+          this.emit('result', info);
+        }
+      } else {
+        log('ERROR', `Force-sell #${cid} failed:`, msg);
+      }
+      dropLocal();
+      return;
+    }
+
+    // Force-sold — fetch the final state so the result is recorded.
+    try {
+      const res = await this.client._send(
+        { proposal_open_contract: 1, contract_id: cid }, 15000
+      );
+      const poc = res?.proposal_open_contract;
+      if (poc) {
+        this._onUpdate({ proposal_open_contract: poc }, info);
+        return;
+      }
+    } catch (e) {
+      log('DEBUG', `Post-sell POC #${cid}:`, e.message);
+    }
+    dropLocal();
   }
 }
 
@@ -1940,7 +2037,12 @@ class AccuPULSE3BotV3 {
     this._barrierT = setInterval(() => this._refreshBarriers(), this.cfg.barrierRefreshMs);
 
     if (this._stuckCheckTimer) clearInterval(this._stuckCheckTimer);
-    this._stuckCheckTimer = setInterval(() => this.exec.checkStuckContracts(180000), 30000);
+    // Periodic reconciliation retries failed post-buy subscriptions
+    // (buy() previously only warned — reconcile was never called again).
+    this._stuckCheckTimer = setInterval(() => {
+      this.exec.checkStuckContracts(180000);
+      this.exec.reconcile().catch(() => {});
+    }, 30000);
 
     // Metrics dashboard
     if (this._metricsTimer) clearInterval(this._metricsTimer);
@@ -1994,8 +2096,10 @@ class AccuPULSE3BotV3 {
     const rec = this.stats.record(t);
 
     // Phase 1: Record trade for win-rate grid
-    const volRegime = this.exec._lastVolRegime || 'normal';
-    const trendDirection = this.exec._lastTrend || 'neutral';
+    // (the analyzer refreshes these every analysis cycle; the executor's
+    // copies were never updated — use the source of truth.)
+    const volRegime = this.analyzer._lastVolRegime || 'normal';
+    const trendDirection = this.analyzer._lastTrend || 'neutral';
     const hour = new Date(t.sellTime * 1000).getUTCHours();
     this.analyzer.recordTrade(
       t.symbol,
@@ -2395,6 +2499,18 @@ class AccuPULSE3BotV3 {
       if (d.equityPeak != null) this.equityPeak = d.equityPeak;
       if (d.ddReducer != null) this.ddReducer = d.ddReducer;
       this.stats = new EnhancedStatisticsManager(d.stats || {});
+      // Recompute streaks from TODAY's trades only.  Restoring lifetime
+      // streaks caused a ≥7-loss history to trip the loss-streak circuit
+      // breaker before every session's first trade (and ≥3 paused 20 min
+      // after one loss), which looked like "the bot stopped trading".
+      const today = this.stats.todayTrades();
+      let ws = 0, ls = 0;
+      for (const t of today) {
+        if (t.status === 'won') { ws++; ls = 0; }
+        else if (t.status === 'lost') { ls++; ws = 0; }
+      }
+      this.winStreak = ws;
+      this.lossStreak = ls;
       log('INFO', `State restored: overall=${this.overallProfit.toFixed(2)} lossStreak=${this.lossStreak}`);
     } catch (e) {
       log('WARN', 'State load failed:', e.message);
