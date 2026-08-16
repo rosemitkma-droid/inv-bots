@@ -96,10 +96,11 @@ const CONFIG = Object.freeze({
   takeProfit     : parseFloat('10000.0'), // session take-profit
 
   // ── Martingale (off by default — APEX uses adaptive sizing instead) ──
-  martingale:            parseFloat('0'),   // 0 = off
-  martingaleStep:        parseFloat('9'),
+  martingale:            parseFloat('1'),   // 0 = off
   lossesBeforeMartingale:parseInt  ('0'),
-  maxMartingaleStep:     parseFloat('900'),
+  martingaleMultiplier: parseFloat('22'),
+  martingaleStep:        parseFloat('2'),
+  maxMartingaleStep:     parseFloat('2.0'),
 
   // ── Sizing (legacy 'edge' mode) ──
   sizingMode:        'flat',            // 'flat' | 'edge'
@@ -225,8 +226,8 @@ const CONFIG = Object.freeze({
 
   //   Correlated assets to avoid trading simultaneously.
   correlatedGroups         : [
-    ['BOOM1000', 'BOOM900', 'BOOM600', 'BOOM500', 'BOOM300N', 'BOOM150N', 'BOOM50'],
-    ['CRASH1000', 'CRASH900', 'CRASH600', 'CRASH500', 'CRASH1300N', 'CRASH150N', 'CRASH50'],
+    // ['BOOM1000', 'BOOM900', 'BOOM600', 'BOOM500', 'BOOM300N', 'BOOM150N', 'BOOM50'],
+    // ['CRASH1000', 'CRASH900', 'CRASH600', 'CRASH500', 'CRASH1300N', 'CRASH150N', 'CRASH50'],
   ],
 
   // ═══════════════════════════════════════════════════════════════════
@@ -258,11 +259,11 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging ──
-  logFile : 'accuAPEXnew_0001.log',
+  logFile : 'accuAPEXnew_0002.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuAPEXnew_state_0001.json',
+  stateFile           : 'accuAPEXnew_state_0002.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -2018,7 +2019,7 @@ class AccuAPEXnewBot {
     // ── Legacy martingale state (martingale off by default; kept for
     //    the APEX v3Note / currentStake() fallback paths) ──
     this.lossesStreak = 0;
-    this.martingaleMultiplier = 1.0;
+    this.martingaleMultiplier = this.cfg.martingaleMultiplier || 2;
     this.currentStake2 = this.cfg.stake;
   }
 
