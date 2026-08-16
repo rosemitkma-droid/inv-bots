@@ -47,7 +47,9 @@ const CONFIG = Object.freeze({
   maxWinStakeMultiplier: parseFloat('4.0'),
 
   // Assets
-  assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
+  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+    .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
   telegram: {
@@ -64,7 +66,7 @@ const CONFIG = Object.freeze({
   maxOpenTrades: parseInt('3', 10),
 
   // Hazard Model (v4.0 fixes)
-  candidateGrowthRates: [0.05],
+  candidateGrowthRates: [0.05, 0.04, 0.03, 0.02, 0.01],
   hazardWindow: parseInt('600', 10),
   plannedHoldTicks: parseInt('20', 10),
   minBarrierPct: parseFloat('0.015'),
@@ -142,11 +144,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3_v5_02.log',
+  logFile: 'accuPULSE3_v5_03.log',
   logLevel: 'INFO3_v5',
-  stateFile: 'accuPULSE3_state_v5_02.json',
-  metricsFile: 'metrics_v5_02.json',
-  metricsFileV5: 'accuPULSE3_analysis_v5_02.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3_state_v5_03.json',
+  metricsFile: 'metrics_v5_03.json',
+  metricsFileV5: 'accuPULSE3_analysis_v5_03.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -184,7 +186,7 @@ const CONFIG = Object.freeze({
 
   // ── Feature 3: 6-Check Entry Confirmation ─────────────────────────────
   entryConfirmation: {
-    requiredChecks: 5,              // Need 4/6 to pass
+    requiredChecks: 4,              // Need 4/6 to pass
     minVolPercentile: 0.20,         // Vol check: at least 20th percentile
     minBarrierPct: 0.015,           // Barrier check: 1.5% minimum
     minEv: 0.005,                   // EV check: 0.5% net EV
