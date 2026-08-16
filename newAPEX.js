@@ -209,7 +209,7 @@ const CONFIG = Object.freeze({
 
   // ── Correlation haircut ──
   // VOL assets (R_*, 1HZ*V) are near-perfectly correlated; never run two at once.
-  volFamilyGroup   : true,
+  volFamilyGroup   : false,  // if true, only one VOL asset trades at a time (per maxAssetsTrading)
   correlatedGroups : [
     ['BOOM1000', 'BOOM900', 'BOOM600', 'BOOM500', 'BOOM300N', 'BOOM150N', 'BOOM50'],
     ['CRASH1000', 'CRASH900', 'CRASH600', 'CRASH500', 'CRASH1300N', 'CRASH150N', 'CRASH50'],
@@ -218,7 +218,9 @@ const CONFIG = Object.freeze({
   // ── Dynamic asset discovery (off; behind flag) ──
   autoDiscoverAssets  : false,
   discoveryIntervalMs : parseInt('3600000', 10),
-  assetFamilyFilter   : ['BOOM', 'CRASH'],
+  assetFamilyFilter   : [
+    // 'BOOM', 'CRASH'
+  ],
 
   // ── Reconnect ──
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
@@ -230,9 +232,9 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging / state ──
-  logFile           : 'accuAPEXnewn_09.log',
+  logFile           : 'accuAPEXnewnn_01.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuAPEXnewn_state_09.json',
+  stateFile         : 'accuAPEXnewnn_state_01.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 
@@ -241,8 +243,8 @@ const CONFIG = Object.freeze({
 
   // ── Scheduled pause/resume (GMT) ──
   pauseEnabled : true,
-  pauseStartGmt: '23:00',
-  pauseEndGmt  : '01:00',
+  pauseStartGmt: '08:00',
+  pauseEndGmt  : '18:00',
 
   // ── Day-of-week filter ──
   tradeSunday: true, tradeMonday: true, tradeTuesday: true,
