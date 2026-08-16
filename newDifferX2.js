@@ -215,7 +215,7 @@ const CONFIG = Object.freeze({
   // when mode is left at the default. It does NOT silently override an
   // explicit mode. Default false → mode=cycle actually runs the cycle
   // engine (previously this flag silently demoted cycle → conditional).
-  repeatAvoidMode: strEnv('REPEAT_AVOID_MODE', 'conditional'),
+  repeatAvoidMode: strEnv('REPEAT_AVOID_MODE', 'cycle'),
   repeatAvoidUseConditional: false,
   repeatAvoidMaxStreakBucket: 100,
   repeatAvoidMinBucketN: 100,
@@ -353,8 +353,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_20.json'),
-  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_20.log'),
+  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_22.json'),
+  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_22.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFER').toUpperCase(),
 
   // Telegram — existing hardcoded demo-test values, preserved.
