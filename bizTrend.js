@@ -86,8 +86,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'riseFallR50-state_01.json');
-const HISTORY_FILE = path.join(__dirname, 'riseFallR50-history_01.json');
+const STATE_FILE = path.join(__dirname, 'riseFallR50-state_02.json');
+const HISTORY_FILE = path.join(__dirname, 'riseFallR50-history_02.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -123,7 +123,7 @@ const CONFIG = {
     WIN_AMOUNT: 0.7,               // "Win Amount" — reset stake after a win
     LOSS_RECOVERY_MULTIPLIER: 1.071, // after a loss: stake += |loss| * 1.071
     MAX_LOSS_AMOUNT: 100,          // "Max Loss Amount" — reset stake if |loss| >= this
-    EXPECTED_PROFIT: 5,            // "Expected Profit" — stop when total profit >= this
+    EXPECTED_PROFIT: 500,            // "Expected Profit" — stop when total profit >= this
 
     // ── Candle / Contract settings (from the XML trade block) ─
     GRANULARITY: 60,               // 60-second candles
