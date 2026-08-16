@@ -98,7 +98,7 @@ export const DEFAULT_BACKTEST_EDGE = 0;
  * Halt after N consecutive losing blocks. 5 is tight enough to catch a model
  * that's wrong about current vol, loose enough to survive normal variance.
  */
-export const DEFAULT_MAX_CONSECUTIVE_LOSSES = 5;
+export const DEFAULT_MAX_CONSECUTIVE_LOSSES = 25;
 /**
  * Halt when today's realised P&L <= -this (USD, UTC day). 20 at $2/leg stake
  * is ~5–10 losing blocks — a full session of bad luck or a stale model.
