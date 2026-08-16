@@ -243,8 +243,8 @@ const CONFIG = Object.freeze({
 
   // ── Scheduled pause/resume (GMT) ──
   pauseEnabled : true,
-  pauseStartGmt: '23:00',
-  pauseEndGmt  : '01:00',
+  pauseStartGmt: '08:00',
+  pauseEndGmt  : '18:00',
 
   // ── Day-of-week filter ──
   tradeSunday: true, tradeMonday: true, tradeTuesday: true,
