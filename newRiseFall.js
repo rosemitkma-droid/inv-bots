@@ -36,10 +36,10 @@ class ConfigManager {
       trading: {
         symbol: 'R_100',
         initialStake: 0.35,
-        contractDuration: 90,
-        contractDurationUnit: 's',
-        riseType: 'CALLE',
-        fallType: 'PUTE',
+        contractDuration: 1,
+        contractDurationUnit: 'm',
+        riseType: 'PUTE',
+        fallType: 'CALLE',
         maxDailyLoss: 2000,
         maxDailyTrades: 250,
         takeProfitTarget: 3000,
@@ -80,7 +80,7 @@ class ConfigManager {
         staleMessageMs: 45000,
         settlementGraceMs: 45000,
         scheduleCheckMs: 15000,
-        stateFile: path.join(__dirname, 'newRiseFallState_04.json'),
+        stateFile: path.join(__dirname, 'newRiseFallState_05.json'),
       },
     };
     this.validate();
@@ -108,7 +108,7 @@ class Logger {
       transports: [
         new winston.transports.Console(),
         new winston.transports.File({
-          filename: 'newRiseFall_04.log',
+          filename: 'newRiseFall_05.log',
           maxsize: 5 * 1024 * 1024,
           maxFiles: 3,
         }),
