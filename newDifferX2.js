@@ -332,8 +332,8 @@ const CONFIG = Object.freeze({
 
   // ── Scheduled pause/resume ──────────────────────────────────────
   pauseEnabled   : true,
-  pauseStartGmt  : '23:00',
-  pauseEndGmt    : '01:00',
+  pauseStartGmt  : '08:00',
+  pauseEndGmt    : '18:00',
 
   // ── Day-of-week trading filter ──────────────────────────────────
   //   Trading days are evaluated in GMT/UTC. Open trades ALWAYS settle
@@ -353,9 +353,9 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_22.json'),
-  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_22.log'),
-  logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFER').toUpperCase(),
+  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_23.json'),
+  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_23.log'),
+  logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFERX2').toUpperCase(),
 
   // Telegram — existing hardcoded demo-test values, preserved.
   telegram: {
