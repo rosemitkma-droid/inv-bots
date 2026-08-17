@@ -89,12 +89,19 @@ export interface PairTraderDeps {
 }
 
 interface PrefetchEntry {
-  /** Model-derived true win probability at this barrier distance. */
-  trueP: number;
-  /** Pre-fetched edge (trueP − impliedP) for evStagger sizing, or undefined when not pre-fetched. */
-  edge?: number;
-  /** Staggered stake derived from the pre-fetched edge, or undefined. */
-  stake?: number;
+  /** Pre-fetched proposal data from getProposal. When present, openLeg uses
+   *  buyProposal (skipping the internal getProposal) to eliminate the [PriceMoved]
+   *  race where buyContract's getProposal→buy races the other leg's buy. */
+  proposalId: string;
+  askPrice: number;
+  /** Pre-fetched edge (trueP − impliedP) for evStagger sizing. */
+  edge: number;
+  /** Staggered stake derived from the pre-fetched edge. */
+  stake: number;
+  /** Pre-fetched payout (stake / impliedP). */
+  payout: number;
+  /** Pre-fetched implied probability. */
+  impliedP: number;
 }
 
 function formatBarrier(price: number, digits: number): string {
@@ -128,9 +135,10 @@ export class PairTrader {
   private exitState: ExitState = newExitState();
   /** Per-leg edge from the EV selector (evStagger sizing), reset per block. */
   private activeEdges: { HIGHER: number; LOWER: number } | null = null;
-  /** Pre-fetched proposal stakes for legacy-mode evStagger (avoids per-leg
-   *  proposal round-trips that race each other and trigger [PriceMoved]). */
-  private prefetchMap: Map<LegSide, { stake: number; edge: number }> = new Map();
+  /** Pre-fetched proposals for both legs, used to eliminate the [PriceMoved]
+   *  race where buyContract's internal getProposal→buy races the other leg's
+   *  buy execution on synthetic indices. */
+  private prefetchMap: Map<LegSide, PrefetchEntry> = new Map();
 
   constructor(private deps: PairTraderDeps) {}
 
@@ -185,41 +193,61 @@ export class PairTrader {
       `new block ${timeHM(p.blockStart)}–${timeHM(p.blockEnd)}  open=${p.blockOpen.toFixed(this.pipDigits)}  predH=${p.predictedHigh.toFixed(this.pipDigits)}  predL=${p.predictedLow.toFixed(this.pipDigits)}  [${cfg.mode} · ${p.predictionSource}${p.daysUsed ? ` ${p.daysUsed}d` : ''}${evTag}]`,
     );
 
-    // In legacy mode (no EV selector), pre-fetch both proposals in a single
-    // parallel round-trip BEFORE opening legs. Without this, openLeg would
-    // do its own proposal → buy sequentially, and the second leg's proposal
-    // races against the first leg's buy execution — on synthetic indices the
-    // spot shifts within a single bar and Deriv rejects with [PriceMoved].
-    if (!cfg.evMode && cfg.evStagger && this.activeModel) {
-      // Pre-fetch both proposals in parallel before buying either leg.
-      // This eliminates the [PriceMoved] race where openLeg's per-leg
-      // proposal round-trip lags behind the other leg's buy execution.
-      const prefetchLegs: Array<{ side: LegSide; barrier: number; durVal: number; durUnit: 's' | 'm'; ct: HiLoContractType; trueP: number }> = [];
-      if (p.predictedHigh > spot) {
-        const ct = contractTypeFor(cfg.mode, 'HIGHER');
-        const { value: dv, unit: du } = ct === 'NOTOUCH' ? { value: cfg.blockMinutes, unit: 'm' as const } : { value: durationSec, unit: 's' as const };
-        const dist = Math.abs(p.predictedHigh - spot);
-        const trueP = this.activeModel ? winRate(this.activeModel, cfg.mode, 'HIGHER', dist) : 0.5;
-        prefetchLegs.push({ side: 'HIGHER', barrier: p.predictedHigh, durVal: dv, durUnit: du, ct, trueP });
-      }
-      if (p.predictedLow < spot) {
-        const ct = contractTypeFor(cfg.mode, 'LOWER');
-        const { value: dv, unit: du } = ct === 'NOTOUCH' ? { value: cfg.blockMinutes, unit: 'm' as const } : { value: durationSec, unit: 's' as const };
-        const dist = Math.abs(p.predictedLow - spot);
-        const trueP = this.activeModel ? winRate(this.activeModel, cfg.mode, 'LOWER', dist) : 0.5;
-        prefetchLegs.push({ side: 'LOWER', barrier: p.predictedLow, durVal: dv, durUnit: du, ct, trueP });
-      }
-      if (prefetchLegs.length === 2) {
-        const results = await Promise.allSettled(
-          prefetchLegs.map(l =>
-            this.resolveLiveStakeRaw(l.side, l.trueP, l.ct, l.durVal, l.durUnit, formatBarrier(l.barrier, this.pipDigits)),
-          ),
-        );
-        for (let i = 0; i < prefetchLegs.length; i++) {
-          const r = results[i];
-          if (r && r.status === 'fulfilled') {
-            this.prefetchMap.set(prefetchLegs[i]!.side, r.value);
-          }
+    // ── Pre-fetch proposals for both legs in parallel ──────────────────
+    // buyContract does getProposal → buy internally. If both legs call
+    // buyContract in parallel, Leg A's buy execution can shift the spot
+    // before Leg B's proposal returns → [PriceMoved]. Pre-fetching both
+    // proposals first, then executing both buys in parallel, eliminates
+    // the race for BOTH modes (EV and legacy).
+    const prefetchEntries: Array<{ side: LegSide; barrier: number; durVal: number; durUnit: 's' | 'm'; ct: HiLoContractType; dist: number; trueP: number }> = [];
+    if (p.predictedHigh > spot) {
+      const ct = contractTypeFor(cfg.mode, 'HIGHER');
+      const { value: dv, unit: du } = ct === 'NOTOUCH'
+        ? { value: cfg.blockMinutes, unit: 'm' as const }
+        : { value: durationSec, unit: 's' as const };
+      const dist = Math.abs(p.predictedHigh - spot);
+      const trueP = this.activeModel ? winRate(this.activeModel, cfg.mode, 'HIGHER', dist) : 0.5;
+      prefetchEntries.push({ side: 'HIGHER', barrier: p.predictedHigh, durVal: dv, durUnit: du, ct, dist, trueP });
+    }
+    if (p.predictedLow < spot) {
+      const ct = contractTypeFor(cfg.mode, 'LOWER');
+      const { value: dv, unit: du } = ct === 'NOTOUCH'
+        ? { value: cfg.blockMinutes, unit: 'm' as const }
+        : { value: durationSec, unit: 's' as const };
+      const dist = Math.abs(p.predictedLow - spot);
+      const trueP = this.activeModel ? winRate(this.activeModel, cfg.mode, 'LOWER', dist) : 0.5;
+      prefetchEntries.push({ side: 'LOWER', barrier: p.predictedLow, durVal: dv, durUnit: du, ct, dist, trueP });
+    }
+    if (prefetchEntries.length === 2) {
+      const proposalResults = await Promise.allSettled(
+        prefetchEntries.map(l =>
+          this.deps.ws.getProposal({
+            amount: cfg.stake,
+            currency: cfg.currency,
+            contract_type: l.ct,
+            duration: l.durVal,
+            duration_unit: l.durUnit,
+            symbol: cfg.symbol,
+            barrier: formatBarrier(l.barrier, this.pipDigits),
+          }),
+        ),
+      );
+      for (let i = 0; i < prefetchEntries.length; i++) {
+        const r = proposalResults[i];
+        if (r && r.status === 'fulfilled' && r.value.payout > 0 && r.value.impliedP !== undefined) {
+          const impliedP = r.value.impliedP;
+          const edge = prefetchEntries[i]!.trueP - impliedP;
+          const stake = cfg.evStagger
+            ? staggerStake({ baseStake: cfg.stake, edge })
+            : cfg.stake;
+          this.prefetchMap.set(prefetchEntries[i]!.side, {
+            proposalId: r.value.id,
+            askPrice: r.value.ask_price,
+            impliedP,
+            edge,
+            stake,
+            payout: r.value.payout,
+          });
         }
       }
     }
@@ -233,21 +261,27 @@ export class PairTrader {
     // kept defensively.
     const tasks: Array<Promise<void>> = [];
     if (p.predictedHigh > spot) {
-      const prefetchUp = this.prefetchMap.get('HIGHER');
-      tasks.push(this.openLeg('HIGHER', p.predictedHigh, durationSec, spot, prefetchUp?.edge));
+      const prefetch = this.prefetchMap.get('HIGHER');
+      tasks.push(this.openLeg('HIGHER', p.predictedHigh, durationSec, spot, prefetch));
     } else {
       useStore.getState().append('warn', `upper leg skipped — predH ${p.predictedHigh.toFixed(this.pipDigits)} <= spot ${spot.toFixed(this.pipDigits)}`);
     }
     if (p.predictedLow < spot) {
-      const prefetchDn = this.prefetchMap.get('LOWER');
-      tasks.push(this.openLeg('LOWER', p.predictedLow, durationSec, spot, prefetchDn?.edge));
+      const prefetch = this.prefetchMap.get('LOWER');
+      tasks.push(this.openLeg('LOWER', p.predictedLow, durationSec, spot, prefetch));
     } else {
       useStore.getState().append('warn', `lower leg skipped — predL ${p.predictedLow.toFixed(this.pipDigits)} >= spot ${spot.toFixed(this.pipDigits)}`);
     }
     await Promise.allSettled(tasks);
   }
 
-  private async openLeg(side: LegSide, barrier: number, durationSec: number, spot: number, prefetchEdge?: number): Promise<void> {
+  private async openLeg(
+    side: LegSide,
+    barrier: number,
+    durationSec: number,
+    spot: number,
+    prefetch?: PrefetchEntry,
+  ): Promise<void> {
     const cfg = this.deps.cfg();
     const key = side === 'HIGHER' ? 'higher' : 'lower';
     const barrierStr = formatBarrier(barrier, this.pipDigits);
@@ -365,12 +399,66 @@ export class PairTrader {
       return;
     }
 
-    // Live mode. If a prefetched edge was supplied (parallel pre-fetch from
-    // openPair), skip the per-leg proposal round-trip — it races the other
-    // leg's buy and triggers [PriceMoved] on synthetic indices.
-    const eff = prefetchEdge !== undefined && trueP !== undefined && cfg.evStagger
-      ? { stake: staggerStake({ baseStake: cfg.stake, edge: prefetchEdge }), edge: prefetchEdge }
-      : cfg.evStagger && trueP !== undefined
+    // ── Buy ────────────────────────────────────────────────────────────
+    // When a pre-fetched proposal is available (parallel pre-fetch in openPair),
+    // use buyProposal to skip the internal getProposal → buy round-trip.
+    // This eliminates the [PriceMoved] race: buyContract internally calls
+    // getProposal first, and if both legs do that in parallel, Leg A's buy
+    // execution can shift the spot before Leg B's getProposal returns.
+    let leg: LegState;
+    if (prefetch) {
+      const xToken = cfg.evStagger && prefetch.stake !== cfg.stake
+        ? ` ×${(prefetch.stake / cfg.stake).toFixed(2)}`
+        : '';
+      try {
+        const buy = await this.deps.ws.buyProposal(prefetch.proposalId, prefetch.askPrice);
+        const impliedP = prefetch.impliedP;
+        const ev = trueP !== undefined && impliedP !== undefined
+          ? (trueP - impliedP) * prefetch.payout
+          : undefined;
+        leg = {
+          side,
+          contractId: buy.contract_id,
+          stake: buy.buy_price,
+          payout: prefetch.payout,
+          buyPrice: buy.buy_price,
+          barrier,
+          liveProfit: 0,
+          status: 'open',
+          resolved: false,
+          impliedP,
+          trueP,
+          ev,
+        };
+        this.deps.registerContractId(buy.contract_id);
+        this.injectLeg(key, leg);
+        const evTokens = ev === undefined || impliedP === undefined
+          ? ''
+          : ` p=${fmtPct(trueP!)} ev=${fmtSigned(ev)}`;
+        useStore.getState().append(
+          'trade-open',
+          `${label} stake=${buy.buy_price.toFixed(2)} payout=${prefetch.payout.toFixed(2)} barrier=${barrierStr} dur=${durSpec} id=${buy.contract_id}${evTokens}${xToken}`,
+        );
+        this.deps.notify?.sendTradeOpen(
+          timeHM(Date.now() / 1000),
+          label,
+          barrierStr,
+          buy.buy_price.toFixed(2),
+          evTokens || undefined,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        useStore.getState().append(
+          'error',
+          `${label} buy failed (prefetch ${contractType} dur=${durSpec} barrier=${barrierStr}): ${msg}`,
+        );
+      }
+    } else {
+      // No pre-fetch (single-leg skip or prefetch failed for this leg) — fall
+      // back to buyContract which does getProposal → buy internally. This
+      // path races the other leg but is only hit when one leg is skipped or
+      // its proposal failed (e.g., degenerate barrier).
+      const eff = cfg.evStagger && trueP !== undefined
         ? await this.resolveLiveStake({
             side,
             trueP,
@@ -380,58 +468,58 @@ export class PairTrader {
             barrierStr,
           })
         : { stake: cfg.stake, edge: undefined };
-
-    try {
-      const res = await this.deps.ws.buyContract({
-        amount: eff.stake,
-        currency: cfg.currency,
-        contract_type: contractType,
-        duration: durationValue,
-        duration_unit: durationUnit,
-        symbol: cfg.symbol,
-        barrier: barrierStr,
-      });
-      const impliedP = res.impliedP;
-      const ev = trueP !== undefined && impliedP !== undefined
-        ? (trueP - impliedP) * res.payout
-        : undefined;
-      const leg: LegState = {
-        side,
-        contractId: res.contract_id,
-        stake: res.buy_price,
-        payout: res.payout,
-        buyPrice: res.buy_price,
-        barrier,
-        liveProfit: 0,
-        status: 'open',
-        resolved: false,
-        impliedP,
-        trueP,
-        ev,
-      };
-      this.deps.registerContractId(res.contract_id);
-      this.injectLeg(key, leg);
-      const evTokens = ev === undefined || impliedP === undefined
-        ? ''
-        : ` p=${fmtPct(trueP!)} ev=${fmtSigned(ev)}`;
-      const xToken = cfg.evStagger && eff.edge !== undefined ? ` ×${(eff.stake / cfg.stake).toFixed(2)}` : '';
-      useStore.getState().append(
-        'trade-open',
-        `${label} stake=${res.buy_price.toFixed(2)} payout=${res.payout.toFixed(2)} barrier=${barrierStr} dur=${durSpec} id=${res.contract_id}${evTokens}${xToken}`,
-      );
-      this.deps.notify?.sendTradeOpen(
-        timeHM(Date.now() / 1000),
-        label,
-        barrierStr,
-        res.buy_price.toFixed(2),
-        evTokens || undefined,
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      useStore.getState().append(
-        'error',
-        `${label} buy failed (${contractType} dur=${durSpec} barrier=${barrierStr}): ${msg}`,
-      );
+      try {
+        const res = await this.deps.ws.buyContract({
+          amount: eff.stake,
+          currency: cfg.currency,
+          contract_type: contractType,
+          duration: durationValue,
+          duration_unit: durationUnit,
+          symbol: cfg.symbol,
+          barrier: barrierStr,
+        });
+        const impliedP = res.impliedP;
+        const ev = trueP !== undefined && impliedP !== undefined
+          ? (trueP - impliedP) * res.payout
+          : undefined;
+        leg = {
+          side,
+          contractId: res.contract_id,
+          stake: res.buy_price,
+          payout: res.payout,
+          buyPrice: res.buy_price,
+          barrier,
+          liveProfit: 0,
+          status: 'open',
+          resolved: false,
+          impliedP,
+          trueP,
+          ev,
+        };
+        this.deps.registerContractId(res.contract_id);
+        this.injectLeg(key, leg);
+        const evTokens = ev === undefined || impliedP === undefined
+          ? ''
+          : ` p=${fmtPct(trueP!)} ev=${fmtSigned(ev)}`;
+        const xToken = cfg.evStagger && eff.edge !== undefined ? ` ×${(eff.stake / cfg.stake).toFixed(2)}` : '';
+        useStore.getState().append(
+          'trade-open',
+          `${label} stake=${res.buy_price.toFixed(2)} payout=${res.payout.toFixed(2)} barrier=${barrierStr} dur=${durSpec} id=${res.contract_id}${evTokens}${xToken}`,
+        );
+        this.deps.notify?.sendTradeOpen(
+          timeHM(Date.now() / 1000),
+          label,
+          barrierStr,
+          res.buy_price.toFixed(2),
+          evTokens || undefined,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        useStore.getState().append(
+          'error',
+          `${label} buy failed (${contractType} dur=${durSpec} barrier=${barrierStr}): ${msg}`,
+        );
+      }
     }
   }
 
