@@ -556,6 +556,23 @@ export class DerivWS {
   }
 
   /**
+   * Execute a buy from a pre-fetched proposal ID. Skips the proposal round-trip
+   * so both legs can fetch proposals in parallel before either executes — this
+   * eliminates the [PriceMoved] race on synthetic indices where one leg's buy
+   * shifts the spot before the other leg's proposal returns.
+   */
+  async buyProposal(
+    proposalId: string,
+    askPrice: number,
+    slippagePct = 0.1,
+  ): Promise<BuyResult> {
+    const maxPrice = +(askPrice * (1 + Math.max(0, slippagePct))).toFixed(2);
+    const res = await this.send({ buy: proposalId, price: maxPrice, subscribe: 1 });
+    const buy = normalizeBuy((res.buy ?? {}) as Record<string, unknown>);
+    return buy;
+  }
+
+  /**
    * Sell an open contract at the current market bid. `price: 0` means accept
    * any bid — use a positive value as a minimum-acceptable guard if needed.
    * Callers must first verify `is_valid_to_sell === 1` on the latest
