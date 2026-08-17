@@ -375,6 +375,11 @@ export class Trader {
       try {
         await this.ws.subscribeTicks(this.cfg.symbol);
         await this.subscribeLiveCandles();
+        // Re-load candle history — the live feed only appends, it doesn't
+        // backfill, so after a session rollover the array ages out and
+        // selectBand can't find same-TOD matches. This refresh keeps the
+        // predictor healthy indefinitely.
+        await this.loadHistoricalCandles();
         try {
           await this.ws.subscribeBalance();
         } catch {
@@ -384,6 +389,7 @@ export class Trader {
           try { await this.ws.subscribeOpenContract(id); } catch { /* ignore */ }
         }
         this.subscribed = true;
+        st.append('info', `reconnected — ${this.candles.length} candles reloaded`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         st.append('error', `resubscribe failed: ${msg}`);
