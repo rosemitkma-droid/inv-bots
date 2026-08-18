@@ -92,6 +92,7 @@ export const DEFAULT_EV_STAGGER = true;
 
 /** Ledger is off by default — set --ledger / HILO_LEDGER to persist block rows. */
 export const DEFAULT_LEDGER_PATH = '';
+export const DEFAULT_STATE_PATH = '.hilo_state.json';
 /** Backtest house vol premium: 0 = fair house (a calibrated model shows EV≈0). */
 export const DEFAULT_BACKTEST_EDGE = 0;
 /**
