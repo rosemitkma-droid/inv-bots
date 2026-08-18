@@ -114,6 +114,8 @@ export interface Store {
   updateLeg(side: LegSide, patch: Partial<LegState>): void;
   markTpTriggered(reason?: ExitReason): void;
   finalisePair(): PairState | null;
+  /** Restore a persisted session (state file on boot). */
+  restoreSession(s: Partial<SessionState>): void;
   setSessionDay(dayProfit: number, dayKey: string): void;
   addSessionResult(profit: number, legs?: { won: number; lost: number }): void;
   clearTranscript(): void;
@@ -191,6 +193,9 @@ export const useStore = create<Store>((set, get) => ({
 
   setSessionDay: (dayProfit, dayKey) =>
     set((st) => ({ session: { ...st.session, dayProfit, dayKey } })),
+
+  restoreSession: (s) =>
+    set((st) => ({ session: { ...st.session, ...s } })),
 
   finalisePair: () => {
     const p = get().currentPair;
