@@ -93,6 +93,12 @@ export interface HiLoConfig {
   telegramToken?: string;
   telegramChatId?: string;
 
+  // State persistence — JSON file that survives reconnects / restarts.
+  /** Path to the persistent session-state JSON. When set, session stats
+   *  (trades, wins, losses, totalProfit, dayProfit) are saved on every
+   *  trade result and restored on boot. */
+  statePath?: string;
+
   // Modes
   dryRun: boolean;
   /** Skip the contracts_for check. For debugging only — Deriv will reject the proposal. */
