@@ -199,7 +199,7 @@ export class PairTrader {
     // before Leg B's proposal returns → [PriceMoved]. Pre-fetching both
     // proposals first, then executing both buys in parallel, eliminates
     // the race for BOTH modes (EV and legacy).
-    const prefetchEntries: Array<{ side: LegSide; barrier: number; durVal: number; durUnit: 's' | 'm'; ct: HiLoContractType; dist: number; trueP: number }> = [];
+    const prefetchEntries: Array<{ side: LegSide; barrier: number; durVal: number; durUnit: 's' | 'm'; ct: HiLoContractType; dist: number; trueP: number; targetStake: number; edge: number }> = [];
     if (p.predictedHigh > spot) {
       const ct = contractTypeFor(cfg.mode, 'HIGHER');
       const { value: dv, unit: du } = ct === 'NOTOUCH'
@@ -207,7 +207,9 @@ export class PairTrader {
         : { value: durationSec, unit: 's' as const };
       const dist = Math.abs(p.predictedHigh - spot);
       const trueP = this.activeModel ? winRate(this.activeModel, cfg.mode, 'HIGHER', dist) : 0.5;
-      prefetchEntries.push({ side: 'HIGHER', barrier: p.predictedHigh, durVal: dv, durUnit: du, ct, dist, trueP });
+      const edge = p.edges?.['HIGHER'] ?? (this.activeEdges?.['HIGHER'] ?? 0);
+      const targetStake = cfg.evStagger ? staggerStake({ baseStake: cfg.stake, edge }) : cfg.stake;
+      prefetchEntries.push({ side: 'HIGHER', barrier: p.predictedHigh, durVal: dv, durUnit: du, ct, dist, trueP, targetStake, edge });
     }
     if (p.predictedLow < spot) {
       const ct = contractTypeFor(cfg.mode, 'LOWER');
@@ -216,13 +218,15 @@ export class PairTrader {
         : { value: durationSec, unit: 's' as const };
       const dist = Math.abs(p.predictedLow - spot);
       const trueP = this.activeModel ? winRate(this.activeModel, cfg.mode, 'LOWER', dist) : 0.5;
-      prefetchEntries.push({ side: 'LOWER', barrier: p.predictedLow, durVal: dv, durUnit: du, ct, dist, trueP });
+      const edge = p.edges?.['LOWER'] ?? (this.activeEdges?.['LOWER'] ?? 0);
+      const targetStake = cfg.evStagger ? staggerStake({ baseStake: cfg.stake, edge }) : cfg.stake;
+      prefetchEntries.push({ side: 'LOWER', barrier: p.predictedLow, durVal: dv, durUnit: du, ct, dist, trueP, targetStake, edge });
     }
-    if (prefetchEntries.length === 2) {
+    if (prefetchEntries.length > 0) {
       const proposalResults = await Promise.allSettled(
         prefetchEntries.map(l =>
           this.deps.ws.getProposal({
-            amount: cfg.stake,
+            amount: l.targetStake,
             currency: cfg.currency,
             contract_type: l.ct,
             duration: l.durVal,
@@ -234,19 +238,17 @@ export class PairTrader {
       );
       for (let i = 0; i < prefetchEntries.length; i++) {
         const r = proposalResults[i];
+        const entry = prefetchEntries[i]!;
         if (r && r.status === 'fulfilled' && r.value.payout > 0 && r.value.impliedP !== undefined) {
           const impliedP = r.value.impliedP;
-          const edge = prefetchEntries[i]!.trueP - impliedP;
-          const stake = cfg.evStagger
-            ? staggerStake({ baseStake: cfg.stake, edge })
-            : cfg.stake;
-          this.prefetchMap.set(prefetchEntries[i]!.side, {
+          const payout = r.value.payout;
+          this.prefetchMap.set(entry.side, {
             proposalId: r.value.id,
             askPrice: r.value.ask_price,
             impliedP,
-            edge,
-            stake,
-            payout: r.value.payout,
+            edge: entry.edge,
+            stake: entry.targetStake,
+            payout,
           });
         }
       }
@@ -292,13 +294,14 @@ export class PairTrader {
     const model = this.activeModel;
     const trueP = model ? winRate(model, cfg.mode, side, distance) : undefined;
 
-    // Pick the duration unit by contract type:
-    //   HIGHER / LOWER on synthetics accept second-resolution — pass through.
-    //   NOTOUCH on Deriv synthetics is only offered at minute resolution AND
-    //     the strategy is block-anchored, so partial-block NOTOUCH trades
-    //     don't match the intent. We only open NOTOUCH legs if the full
-    //     block duration is still ahead (fresh boundary). Mid-block joins
-    //     skip this block and wait for the next one.
+    // In EV mode, we already have precomputed edges from the selector.
+    // In legacy mode, we need to compute the edge.
+    const edge = prefetch?.edge ?? (cfg.evMode
+        ? (this.activeEdges?.[side] ?? 0)
+        : (trueP !== undefined && prefetch?.impliedP !== undefined ? trueP - prefetch.impliedP : 0));
+    const stake = cfg.evStagger ? staggerStake({ baseStake: cfg.stake, edge }) : cfg.stake;
+    const payout = prefetch?.payout ?? (cfg.stake / (prefetch?.impliedP ?? 1/1.95)); // Fallback
+
     const contractType: HiLoContractType = contractTypeFor(cfg.mode, side);
     const blockSec = cfg.blockMinutes * 60;
     let durationValue: number;
@@ -868,6 +871,15 @@ export class PairTrader {
     this.deps.notify?.sendTradeResult(
       `${realised >= 0 ? '+' : ''}${realised.toFixed(2)}`,
       `H ${legsStr} · L ${lowerStr}`,
+      {
+        trades: useStore.getState().session.trades,
+        wins: useStore.getState().session.wins,
+        losses: useStore.getState().session.losses,
+        winRate: useStore.getState().session.trades > 0
+          ? `${((useStore.getState().session.wins / useStore.getState().session.trades) * 100).toFixed(0)}%`
+          : '0%',
+        netPnl: `${useStore.getState().session.totalProfit >= 0 ? '+' : ''}${useStore.getState().session.totalProfit.toFixed(2)}`,
+      },
     );
     return useStore.getState().finalisePair();
   }
