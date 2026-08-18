@@ -144,13 +144,23 @@ function strEnv(name, def) {
 function listEnv(name, def) {
   return strEnv(name, def).split(',').map(s => s.trim()).filter(Boolean);
 }
+function resolveRepeatAvoidMode(cfg) {
+  const raw = String(cfg?.repeatAvoidMode || 'cycle').trim().toLowerCase();
+  const valid = ['flat', 'conditional', 'cycle'];
+  if (valid.includes(raw)) {
+    if (raw === 'cycle' && cfg?.repeatAvoidUseConditional) return 'conditional';
+    return raw;
+  }
+  if (cfg?.repeatAvoidUseConditional) return 'conditional';
+  return 'cycle';
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // 2. CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────
 const CONFIG = Object.freeze({
   // ── Deriv API (existing hardcoded demo-test credentials — preserved) ──
-  apiToken:    'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee',
+  apiToken:    'pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692',
   appId:       '33uslPtthXBEkQOdfKfoY',
   accountId: '', // recommended/required for PAT new API
   accountType: 'demo', // demo | real
@@ -187,7 +197,7 @@ const CONFIG = Object.freeze({
   //   drop out of the window. Unlike assetRotationMs there is no time
   //   expiry — a symbol stays barred for N subsequent trades.
   skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
-  recentTradedSymbolsLen : parseInt('4', 10),
+  recentTradedSymbolsLen : parseInt('2', 10),
   // ── Hard daily stops (these actually HALT new trades for the day) ──
   dailyMaxLoss: 2000,          // fixed dollar figure
   dailyMaxLossPct: 0.05,       // 5% of day-start balance (whichever hits first)
@@ -215,8 +225,8 @@ const CONFIG = Object.freeze({
   // when mode is left at the default. It does NOT silently override an
   // explicit mode. Default false → mode=cycle actually runs the cycle
   // engine (previously this flag silently demoted cycle → conditional).
-  repeatAvoidMode: strEnv('REPEAT_AVOID_MODE', 'cycle'),
-  repeatAvoidUseConditional: false,
+  repeatAvoidMode: 'cycle',
+  repeatAvoidUseConditional: true,  // alias for mode=conditional if mode is default
   repeatAvoidMaxStreakBucket: 100,
   repeatAvoidMinBucketN: 100,
   // ── Cycle-regime engine (mode=cycle) ─────────────────────────────────
@@ -241,11 +251,11 @@ const CONFIG = Object.freeze({
   // ── Frequency-analysis config ───────────────────────────────────────
   analysisWindow: 400,
   // Value-edge floors (live proposal q_be − pLossUpper)
-  minEdge: 0.0100,
+  minEdge: -0.0122, // 0.0100
   safetyMargin: 0.002,
   modelRiskMargin: 0.0015,
   zScore: 1.28,          // Wilson one-sided upper bound
-  maxLossProb: 0.095,    //0.092 never take if upper-bound P(loss digit) > this
+  maxLossProb: 0.1200,    //0.092 never take if upper-bound P(loss digit) > this
   minProbabilityGap: 0.004,
   // ── Multiple-comparison-corrected deviation gate ────────────────────
   //   The barrier digit is chosen as the COLDEST of 10 empirical
@@ -265,7 +275,7 @@ const CONFIG = Object.freeze({
   //   n≈400 they are statistically indistinguishable from the selection
   //   noise of "coldest of 10" — and unselectable noise is −EV after
   //   house margin.
-  minDeviationZ: 3.3, //4.2
+  minDeviationZ: 0.10, //4.2, 3.3
   // ── Entropy / χ² sanity gates ───────────────────────────────────────
   //   Lower bounds guard against acting on too-small / degenerate samples.
   //   UPPER bounds are deliberately disabled (maxEntropy=1.0,
@@ -331,7 +341,7 @@ const CONFIG = Object.freeze({
   calibProbeStakeFrac : 0.20,
 
   // ── Scheduled pause/resume ──────────────────────────────────────
-  pauseEnabled   : true,
+  pauseEnabled   : false,
   pauseStartGmt  : '08:00',
   pauseEndGmt    : '18:00',
 
@@ -353,8 +363,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_23.json'),
-  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_23.log'),
+  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_24.json'),
+  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_24.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFERX2').toUpperCase(),
 
   // Telegram — existing hardcoded demo-test values, preserved.
@@ -1246,9 +1256,9 @@ class DigitAnalyzer {
     if (best.pLossUpper > this.cfg.maxLossProb) gates.push(`loss-prob-high:${best.pLossUpper.toFixed(4)}`);
     // Multiple-comparison-corrected deviation: the coldest of 10 must be a
     // statistical outlier below fair, not just "the least common digit".
-    if (!Number.isFinite(best.zDev) || best.zDev < this.cfg.minDeviationZ) {
-      gates.push(`deviation-low:${Number(best.zDev || 0).toFixed(2)}`);
-    }
+    // if (!Number.isFinite(best.zDev) || best.zDev < this.cfg.minDeviationZ) {
+    //   gates.push(`deviation-low:${Number(best.zDev || 0).toFixed(2)}`);
+    // }
 
     return {
       symbol,
@@ -1339,13 +1349,7 @@ class RepeatAvoidAnalyzer {
   /** Resolve estimator mode. REPEAT_AVOID_CONDITIONAL only aliases the
    *  default mode; it never overrides an explicit mode. */
   _mode() {
-    const raw = String(this.cfg.repeatAvoidMode || 'cycle').trim().toLowerCase();
-    if (raw === 'flat' || raw === 'conditional' || raw === 'cycle') {
-      if (raw === 'cycle' && this.cfg.repeatAvoidUseConditional) return 'conditional';
-      return raw;
-    }
-    if (this.cfg.repeatAvoidUseConditional) return 'conditional';
-    return 'cycle';
+    return resolveRepeatAvoidMode(this.cfg);
   }
 
   /** Build Bernoulli series R_t = 1 if digit repeated vs previous. */
@@ -1548,7 +1552,7 @@ class RepeatAvoidAnalyzer {
     }];
     const gates = [];
     if (sampleSize < this.cfg.repeatAvoidMinBucketN) gates.push(`sample-too-small:${sampleSize}`);
-    if (zDev < this.cfg.minDeviationZ) gates.push(`deviation-low:${zDev.toFixed(2)}`);
+    // if (zDev < this.cfg.minDeviationZ) gates.push(`deviation-low:${zDev.toFixed(2)}`);
     if (candidates[0].pLossUpper > this.cfg.maxLossProb) gates.push(`loss-prob-high:${candidates[0].pLossUpper.toFixed(4)}`);
 
     return {
@@ -1678,9 +1682,9 @@ class RepeatAvoidAnalyzer {
     // not just "a bit below" — otherwise the cycle engine's quiet-phase
     // estimates (which are produced by the clustering illusion on fair
     // noise) would trade as if they were signal.
-    if (zDev < (this.cfg.minDeviationZ ?? 2.8)) {
-      gates.push(`deviation-low:${zDev.toFixed(2)}`);
-    }
+    // if (zDev < (this.cfg.minDeviationZ ?? 2.8)) {
+    //   gates.push(`deviation-low:${zDev.toFixed(2)}`);
+    // }
 
     return {
       symbol,
@@ -1761,9 +1765,12 @@ class RepeatAvoidAnalyzer {
 /** Factory: pick the analyzer implementation based on cfg.strategy. */
 function makeAnalyzer(cfg) {
   if (cfg.strategy === 'repeat_avoid') {
-    const mode = String(cfg.repeatAvoidMode || 'cycle').toLowerCase();
+    const mode = resolveRepeatAvoidMode(cfg);
+    const label = mode === 'cycle'
+      ? 'regime/cycle engine'
+      : `legacy ${mode} estimator`;
     logger.warn(
-      `STRATEGY=repeat_avoid mode=${mode} — regime/cycle engine. Validate any claimed ` +
+      `STRATEGY=repeat_avoid mode=${mode} — ${label}. Validate any claimed ` +
       `structure with DIAGNOSE=1 & BACKTEST=1 before trusting it; on fair digits this ` +
       `strategy is expected to idle at the current gates.`
     );
@@ -3473,8 +3480,7 @@ class DifferBacktester {
 
   _strategyLabel() {
     if (this.strategy === 'repeat_avoid') {
-      let mode = String(this.cfg.repeatAvoidMode || 'cycle').toLowerCase();
-      if (mode === 'cycle' && this.cfg.repeatAvoidUseConditional) mode = 'conditional';
+      const mode = resolveRepeatAvoidMode(this.cfg);
       if (mode === 'cycle') {
         return `repeat_avoid (cycle-regime: fast=${this.cfg.raFastWindow}/mid=${this.cfg.raMidWindow}/slow=${this.cfg.raSlowWindow}, ` +
           `minQuiet=${this.cfg.raMinQuietProb}, maxLocal=${this.cfg.raMaxLocalRate}, ` +
@@ -3555,8 +3561,7 @@ class DifferBacktester {
       payoutMultiplier  : this.cfg.backtestPayoutMult,
     };
     if (this.strategy === 'repeat_avoid') {
-      let mode = String(this.cfg.repeatAvoidMode || 'cycle').toLowerCase();
-      if (mode === 'cycle' && this.cfg.repeatAvoidUseConditional) mode = 'conditional';
+      const mode = resolveRepeatAvoidMode(this.cfg);
       return {
         ...base,
         repeatAvoidMode           : mode,
@@ -4413,8 +4418,7 @@ async function main() {
     const strat = CONFIG.strategy === 'repeat_avoid' ? 'repeat_avoid' : 'frequency';
     console.log(`🧪 BACKTEST mode — strategy=${strat}  symbols=[${list.join(', ')}]  ticks=${CONFIG.backtestTicks}`);
     if (strat === 'repeat_avoid') {
-      let mode = String(CONFIG.repeatAvoidMode || 'cycle').toLowerCase();
-      if (mode === 'cycle' && CONFIG.repeatAvoidUseConditional) mode = 'conditional';
+      const mode = resolveRepeatAvoidMode(CONFIG);
       if (mode === 'cycle') {
         console.log(`   repeat_avoid cycle-regime: windows=${CONFIG.raFastWindow}/${CONFIG.raMidWindow}/${CONFIG.raSlowWindow}  ` +
           `minQuiet=${CONFIG.raMinQuietProb} maxLocal=${CONFIG.raMaxLocalRate}  ` +
