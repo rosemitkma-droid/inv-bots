@@ -13,6 +13,7 @@ import {
   DEFAULT_EV_STAGGER,
   DEFAULT_K_CANDIDATES,
   DEFAULT_LEDGER_PATH,
+  DEFAULT_STATE_PATH,
   DEFAULT_LOOKBACK_DAYS,
   DEFAULT_MAX_CONSECUTIVE_LOSSES,
   DEFAULT_MIN_EV,
@@ -101,6 +102,10 @@ Survival & measurement (Phase 3):
 Telegram notifications (optional — both required):
   --telegram-token <t>      Telegram bot token (from @BotFather) (or env TELEGRAM_BOT_TOKEN)
   --telegram-chat-id <id>   Telegram chat/user ID to receive notifications (or env TELEGRAM_CHAT_ID)
+
+State persistence (optional):
+  --state-path <path>       JSON file for session stats (default .hilo_state.json,
+                            or env HILO_STATE_PATH). Survives reconnects / restarts.
 
 Account:
   --account-id <id>         pin to a specific Deriv account
@@ -246,6 +251,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     backtestEdge: envNum('HILO_BACKTEST_EDGE', DEFAULT_BACKTEST_EDGE),
     telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
     telegramChatId: process.env.TELEGRAM_CHAT_ID || '',
+    statePath: process.env.HILO_STATE_PATH || DEFAULT_STATE_PATH,
     backtest: false,
     dryRun: false,
     skipContractCheck: false,
@@ -305,6 +311,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       case '--no-ui': cfg.noUi = true; break;
       case '--telegram-token': cfg.telegramToken = str(nxt, 'telegram-token'); i++; break;
       case '--telegram-chat-id': cfg.telegramChatId = str(nxt, 'telegram-chat-id'); i++; break;
+      case '--state-path': cfg.statePath = str(nxt, 'state-path'); i++; break;
       default:
         if (a.startsWith('-')) err(`unknown flag: ${a}`);
         err(`unexpected positional argument: ${a}`);
