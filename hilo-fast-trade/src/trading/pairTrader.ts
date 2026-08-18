@@ -308,7 +308,7 @@ export class PairTrader {
     let durationUnit: 's' | 'm';
     if (contractType === 'NOTOUCH') {
       durationUnit = 'm';
-      const startupSlackSec = 2;
+      const startupSlackSec = 30; // Increased from 2s to 30s so EV scans / network roundtrips don't skip NOTOUCH
       if (durationSec < blockSec - startupSlackSec) {
         const label = legDisplayName(cfg.mode, side);
         useStore.getState().append(
@@ -408,7 +408,7 @@ export class PairTrader {
     // This eliminates the [PriceMoved] race: buyContract internally calls
     // getProposal first, and if both legs do that in parallel, Leg A's buy
     // execution can shift the spot before Leg B's getProposal returns.
-    let leg: LegState;
+    let leg: LegState | null = null;
     if (prefetch) {
       const xToken = cfg.evStagger && prefetch.stake !== cfg.stake
         ? ` ×${(prefetch.stake / cfg.stake).toFixed(2)}`
@@ -451,6 +451,12 @@ export class PairTrader {
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('PriceMoved') || msg.includes('price')) {
+          useStore.getState().append('warn', `${label} buyProposal hit price move, retrying with fresh quote...`);
+          // Fall back to fresh buyContract
+          await this.openLeg(side, barrier, durationSec, spot); // Recursive call without prefetch
+          return;
+        }
         useStore.getState().append(
           'error',
           `${label} buy failed (prefetch ${contractType} dur=${durSpec} barrier=${barrierStr}): ${msg}`,
@@ -848,6 +854,8 @@ export class PairTrader {
     // Win/loss accounting is per-BLOCK (the unit of capital risk): a block is
     // a win when it net-profited, a loss when net-negative. The session trade
     // count and win rate therefore reflect block outcomes, not leg outcomes.
+    if (!finalPair.higher && !finalPair.lower) return useStore.getState().finalisePair();
+
     const legs = { won: 0, lost: 0 };
     for (const leg of [finalPair.higher, finalPair.lower]) {
       if (!leg) continue;
