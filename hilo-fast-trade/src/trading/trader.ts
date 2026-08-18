@@ -19,6 +19,7 @@ import { createTelegramNotifier } from '../services/telegram';
 import type { Candle, ContractUpdate, OhlcPayload, TickPayload } from '../services/derivWS/types';
 import { DEFAULT_APP_ID } from '../constants/api';
 import { useStore } from '../state/store';
+import { loadState, saveState } from '../state/persistence';
 import { blockSeconds, type HiLoConfig } from './config';
 import { contractTypeFor, PairTrader } from './pairTrader';
 
@@ -46,6 +47,8 @@ export class Trader {
   private hourlyTimer: ReturnType<typeof setInterval> | null = null;
   /** Session trade count at the start of the current hour (for hourly delta). */
   private hourlyTradesBase = 0;
+  /** End-of-day timer (fires at GMT+1 / UTC+1 midnight). */
+  private eodTimer: ReturnType<typeof setTimeout> | null = null;
   /** Telegram notifier (best-effort). */
   private telegram: ReturnType<typeof createTelegramNotifier>;
 
@@ -72,6 +75,7 @@ export class Trader {
     st.setStatus('connecting');
     st.append('system', `HiLo-Fast starting — symbol=${this.cfg.symbol} block=${this.cfg.blockMinutes}m stake=${this.cfg.stake} blockTP=${this.cfg.blockTp}${this.cfg.dryRun ? ' [DRY-RUN]' : ''}`);
     this.seedDayFromLedger();
+    this.loadPersistedState();
     // If the ledger says today is already blown (or the streak is already done),
     // halt BEFORE the first block — don't trade a cap that was hit while we were off.
     this.evaluateSessionGuards();
@@ -123,6 +127,9 @@ export class Trader {
       this.hourlyTimer = setInterval(() => this.sendHourlySummary(), 3_600_000);
     }, msToNextHour);
 
+    // End-of-day summary timer (fires at GMT+1 / UTC+1 midnight).
+    this.scheduleEodSummary();
+
     // Strategy is block-anchored: the prediction is locked at the first bar
     // of a block and the contracts are sized to expire on the block end.
     // Mid-block entries mean the prediction is already stale (spot has
@@ -149,6 +156,10 @@ export class Trader {
     if (this.hourlyTimer) {
       clearInterval(this.hourlyTimer);
       this.hourlyTimer = null;
+    }
+    if (this.eodTimer) {
+      clearTimeout(this.eodTimer);
+      this.eodTimer = null;
     }
     // Best-effort: sell sellable open legs before tearing down the socket so a
     // /stop doesn't abandon live exposure to expiry. Guarded so a dead socket
@@ -563,6 +574,7 @@ export class Trader {
     const range = bar ? bar.high - bar.low : 0;
     const pair = this.pair.realiseAtBlockEnd(spot, this.intraHigh, this.intraLow, range);
     if (pair) this.recordLedgerRow(pair, w);
+    this.savePersistedState();
     this.evaluateSessionGuards();
   }
 
@@ -624,7 +636,12 @@ export class Trader {
     if (trades <= 0) return;
     const pnl = st.session.totalProfit;
     const wr = st.session.trades > 0 ? `${((st.session.wins / st.session.trades) * 100).toFixed(0)}%` : '0%';
-    this.telegram.sendHourly(trades, `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`, wr);
+    this.telegram.sendHourly(trades, `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`, wr, {
+      totalTrades: st.session.trades,
+      wins: st.session.wins,
+      losses: st.session.losses,
+      netPnl: `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`,
+    });
     this.hourlyTradesBase = st.session.trades;
   }
 
@@ -652,5 +669,56 @@ export class Trader {
       const msg = err instanceof Error ? err.message : String(err);
       useStore.getState().append('warn', `ledger write failed: ${msg}`);
     }
+  }
+
+  /** Load persisted session state from disk (state file). */
+  private loadPersistedState(): void {
+    if (!this.cfg.statePath) return;
+    const restored = loadState(this.cfg.statePath);
+    if (!restored) return;
+    useStore.getState().restoreSession(restored);
+    useStore.getState().append(
+      'info',
+      `state restored — ${restored.trades} trades, ${restored.wins}W/${restored.losses}L, P/L ${(restored.totalProfit ?? 0) >= 0 ? '+' : ''}${(restored.totalProfit ?? 0).toFixed(2)} (${restored.dayKey})`,
+    );
+  }
+
+  /** Save session state to disk after every trade result. */
+  private savePersistedState(): void {
+    if (!this.cfg.statePath) return;
+    saveState(this.cfg.statePath, useStore.getState().session);
+  }
+
+  /** Schedule the end-of-day summary (GMT+1 / UTC+1 midnight). */
+  private scheduleEodSummary(): void {
+    if (this.eodTimer) clearTimeout(this.eodTimer);
+    // GMT+1 midnight = UTC 23:00 previous day. Compute ms until next occurrence.
+    const now = new Date();
+    const gmt1 = new Date(now.getTime() + 1 * 3600_000); // UTC+1
+    const target = new Date(gmt1);
+    target.setUTCHours(23, 0, 0, 0); // 23:00 UTC = 00:00 GMT+1 next day
+    if (target.getTime() <= now.getTime()) target.setDate(target.getDate() + 1);
+    const msUntil = target.getTime() - now.getTime();
+    this.eodTimer = setTimeout(() => {
+      this.sendEndOfDaySummary();
+      // Re-schedule for the next day
+      this.scheduleEodSummary();
+    }, msUntil);
+  }
+
+  /** Send the end-of-day summary via Telegram. */
+  private sendEndOfDaySummary(): void {
+    const st = useStore.getState();
+    const s = st.session;
+    const dateStr = new Date(Date.now() - 1 * 3600_000).toISOString().slice(0, 10); // GMT+1 date
+    const winRate = s.trades > 0 ? `${((s.wins / s.trades) * 100).toFixed(0)}%` : '0%';
+    this.telegram.sendEndOfDay(dateStr, {
+      trades: s.trades,
+      wins: s.wins,
+      losses: s.losses,
+      winRate,
+      netPnl: `${s.totalProfit >= 0 ? '+' : ''}${s.totalProfit.toFixed(2)}`,
+    });
+    st.append('info', `end-of-day summary sent (${dateStr} GMT+1)`);
   }
 }
