@@ -80,11 +80,14 @@ describe('createTelegramNotifier', () => {
     };
     try {
       const n = createTelegramNotifier('TOKEN', 'CHAT');
-      await n.sendTradeResult('+0.32', 'H won +0.58 · L lost -0.26');
+      await n.sendTradeResult('+0.32', 'H won +0.58 · L lost -0.26', { trades: 5, wins: 3, losses: 2, winRate: '60%', netPnl: '+1.20' });
       expect(calls[0]!.body.text).toContain('📊 Trade Result');
       expect(calls[0]!.body.text).toContain('P/L: +0.32');
       expect(calls[0]!.body.text).toContain('H won +0.58');
       expect(calls[0]!.body.text).toContain('L lost -0.26');
+      expect(calls[0]!.body.text).toContain('Total Trades: 5');
+      expect(calls[0]!.body.text).toContain('Win Ratio: 60%');
+      expect(calls[0]!.body.text).toContain('Net P/L: +1.20');
     } finally {
       (globalThis as Record<string, unknown>).fetch = orig;
     }
@@ -99,11 +102,13 @@ describe('createTelegramNotifier', () => {
     };
     try {
       const n = createTelegramNotifier('TOKEN', 'CHAT');
-      await n.sendHourly(12, '+3.40', '67%');
+      await n.sendHourly(12, '+3.40', '67%', { totalTrades: 50, wins: 33, losses: 17, netPnl: '+10.50' });
       expect(calls[0]!.body.text).toContain('⏱ Hourly Report');
-      expect(calls[0]!.body.text).toContain('Blocks: 12');
-      expect(calls[0]!.body.text).toContain('P/L: +3.40');
-      expect(calls[0]!.body.text).toContain('Win rate: 67%');
+      expect(calls[0]!.body.text).toContain('Blocks Traded (Hour): 12');
+      expect(calls[0]!.body.text).toContain('Hour P/L: +3.40');
+      expect(calls[0]!.body.text).toContain('Total Trades: 50');
+      expect(calls[0]!.body.text).toContain('Win Rate: 67%');
+      expect(calls[0]!.body.text).toContain('Net P/L: +10.50');
     } finally {
       (globalThis as Record<string, unknown>).fetch = orig;
     }
