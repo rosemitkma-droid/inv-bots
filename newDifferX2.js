@@ -173,7 +173,7 @@ const CONFIG = Object.freeze({
   durationTicks: 1, // Digit contracts normally 1-10 ticks
   minStake: 5.5,
   maxStake: 150.00,
-  assets: ['R_10','R_25','R_50','R_75','RDBULL','RDBEAR'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
+  assets: ['R_10','R_50'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
   tickWindow: 1000,
@@ -197,7 +197,7 @@ const CONFIG = Object.freeze({
   //   drop out of the window. Unlike assetRotationMs there is no time
   //   expiry — a symbol stays barred for N subsequent trades.
   skipRecentTradedSymbols: true,        // don't re-enter the same symbol back-to-back
-  recentTradedSymbolsLen : parseInt('2', 10),
+  recentTradedSymbolsLen : parseInt('1', 10),
   // ── Hard daily stops (these actually HALT new trades for the day) ──
   dailyMaxLoss: 2000,          // fixed dollar figure
   dailyMaxLossPct: 0.05,       // 5% of day-start balance (whichever hits first)
@@ -363,8 +363,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_24.json'),
-  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_24.log'),
+  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_25.json'),
+  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_25.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFERX2').toUpperCase(),
 
   // Telegram — existing hardcoded demo-test values, preserved.
