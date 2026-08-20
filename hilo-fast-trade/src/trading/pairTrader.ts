@@ -77,6 +77,17 @@ export interface OpenPairParams {
    * a proposal in openLeg).
    */
   edges?: { HIGHER: number; LOWER: number };
+  /**
+   * Martingale-adjusted stake override. When set, this overrides cfg.stake for
+   * this block. The trader computes this based on consecutive losses.
+   */
+  effectiveStake?: number;
+  /**
+   * Trade direction filter: 'both' opens both legs (default), 'positive-ev'
+   * only opens legs where the edge (trueP − impliedP) is positive. When set
+   * to 'positive-ev' and both edges are negative, the block is skipped.
+   */
+  tradeDirection?: 'both' | 'positive-ev';
 }
 
 export interface PairTraderDeps {
@@ -135,6 +146,8 @@ export class PairTrader {
   private exitState: ExitState = newExitState();
   /** Per-leg edge from the EV selector (evStagger sizing), reset per block. */
   private activeEdges: { HIGHER: number; LOWER: number } | null = null;
+  /** Martingale-adjusted effective base stake for the current block. */
+  private activeEffectiveStake: number = 0;
   /** Pre-fetched proposals for both legs, used to eliminate the [PriceMoved]
    *  race where buyContract's internal getProposal→buy races the other leg's
    *  buy execution on synthetic indices. */
@@ -166,6 +179,7 @@ export class PairTrader {
 
     this.activeModel = p.model ?? null;
     this.activeEdges = p.edges ?? null;
+    this.activeEffectiveStake = p.effectiveStake ?? cfg.stake;
     this.exitState = newExitState();
     this.prefetchMap.clear();
     const spot = p.spot;
@@ -188,9 +202,14 @@ export class PairTrader {
     this.selling = false;
 
     const evTag = cfg.evMode && p.evK !== undefined ? ` · ev K=${p.evK.toFixed(2)}` : '';
+    const dirTag = p.tradeDirection === 'positive-ev' ? ' · +EV only' : '';
+    const effectiveBase = p.effectiveStake ?? cfg.stake;
+    const mgTag = p.effectiveStake && p.effectiveStake !== cfg.stake
+      ? ` · martingale $${p.effectiveStake.toFixed(2)}`
+      : '';
     useStore.getState().append(
       'block',
-      `new block ${timeHM(p.blockStart)}–${timeHM(p.blockEnd)}  open=${p.blockOpen.toFixed(this.pipDigits)}  predH=${p.predictedHigh.toFixed(this.pipDigits)}  predL=${p.predictedLow.toFixed(this.pipDigits)}  [${cfg.mode} · ${p.predictionSource}${p.daysUsed ? ` ${p.daysUsed}d` : ''}${evTag}]`,
+      `new block ${timeHM(p.blockStart)}–${timeHM(p.blockEnd)}  open=${p.blockOpen.toFixed(this.pipDigits)}  predH=${p.predictedHigh.toFixed(this.pipDigits)}  predL=${p.predictedLow.toFixed(this.pipDigits)}  [${cfg.mode} · ${p.predictionSource}${p.daysUsed ? ` ${p.daysUsed}d` : ''}${evTag}${dirTag}${mgTag}]`,
     );
 
     // ── Pre-fetch proposals for both legs in parallel ──────────────────
@@ -200,6 +219,7 @@ export class PairTrader {
     // proposals first, then executing both buys in parallel, eliminates
     // the race for BOTH modes (EV and legacy).
     const prefetchEntries: Array<{ side: LegSide; barrier: number; durVal: number; durUnit: 's' | 'm'; ct: HiLoContractType; dist: number; trueP: number; targetStake: number; edge: number }> = [];
+    const skippedSides = new Set<LegSide>();
     if (p.predictedHigh > spot) {
       const ct = contractTypeFor(cfg.mode, 'HIGHER');
       const { value: dv, unit: du } = ct === 'NOTOUCH'
@@ -208,8 +228,14 @@ export class PairTrader {
       const dist = Math.abs(p.predictedHigh - spot);
       const trueP = this.activeModel ? winRate(this.activeModel, cfg.mode, 'HIGHER', dist) : 0.5;
       const edge = p.edges?.['HIGHER'] ?? (this.activeEdges?.['HIGHER'] ?? 0);
-      const targetStake = cfg.evStagger ? staggerStake({ baseStake: cfg.stake, edge }) : cfg.stake;
-      prefetchEntries.push({ side: 'HIGHER', barrier: p.predictedHigh, durVal: dv, durUnit: du, ct, dist, trueP, targetStake, edge });
+      // Positive-EV filter: skip this leg if tradeDirection is 'positive-ev' and edge <= 0.
+      if (p.tradeDirection === 'positive-ev' && edge <= 0) {
+        skippedSides.add('HIGHER');
+        useStore.getState().append('info', `upper leg (${ct}) skipped — positive-ev mode, edge=${edge.toFixed(4)} <= 0`);
+      } else {
+        const targetStake = cfg.evStagger ? staggerStake({ baseStake: effectiveBase, edge }) : effectiveBase;
+        prefetchEntries.push({ side: 'HIGHER', barrier: p.predictedHigh, durVal: dv, durUnit: du, ct, dist, trueP, targetStake, edge });
+      }
     }
     if (p.predictedLow < spot) {
       const ct = contractTypeFor(cfg.mode, 'LOWER');
@@ -219,8 +245,14 @@ export class PairTrader {
       const dist = Math.abs(p.predictedLow - spot);
       const trueP = this.activeModel ? winRate(this.activeModel, cfg.mode, 'LOWER', dist) : 0.5;
       const edge = p.edges?.['LOWER'] ?? (this.activeEdges?.['LOWER'] ?? 0);
-      const targetStake = cfg.evStagger ? staggerStake({ baseStake: cfg.stake, edge }) : cfg.stake;
-      prefetchEntries.push({ side: 'LOWER', barrier: p.predictedLow, durVal: dv, durUnit: du, ct, dist, trueP, targetStake, edge });
+      // Positive-EV filter: skip this leg if tradeDirection is 'positive-ev' and edge <= 0.
+      if (p.tradeDirection === 'positive-ev' && edge <= 0) {
+        skippedSides.add('LOWER');
+        useStore.getState().append('info', `lower leg (${ct}) skipped — positive-ev mode, edge=${edge.toFixed(4)} <= 0`);
+      } else {
+        const targetStake = cfg.evStagger ? staggerStake({ baseStake: effectiveBase, edge }) : effectiveBase;
+        prefetchEntries.push({ side: 'LOWER', barrier: p.predictedLow, durVal: dv, durUnit: du, ct, dist, trueP, targetStake, edge });
+      }
     }
     if (prefetchEntries.length > 0) {
       const proposalResults = await Promise.allSettled(
@@ -262,15 +294,19 @@ export class PairTrader {
     // guaranteed both are on the right side (anchored at spot); the check is
     // kept defensively.
     const tasks: Array<Promise<void>> = [];
-    if (p.predictedHigh > spot) {
+    if (!skippedSides.has('HIGHER') && p.predictedHigh > spot) {
       const prefetch = this.prefetchMap.get('HIGHER');
       tasks.push(this.openLeg('HIGHER', p.predictedHigh, durationSec, spot, prefetch));
+    } else if (p.predictedHigh > spot) {
+      // already logged as skipped in the prefetch phase
     } else {
       useStore.getState().append('warn', `upper leg skipped — predH ${p.predictedHigh.toFixed(this.pipDigits)} <= spot ${spot.toFixed(this.pipDigits)}`);
     }
-    if (p.predictedLow < spot) {
+    if (!skippedSides.has('LOWER') && p.predictedLow < spot) {
       const prefetch = this.prefetchMap.get('LOWER');
       tasks.push(this.openLeg('LOWER', p.predictedLow, durationSec, spot, prefetch));
+    } else if (p.predictedLow < spot) {
+      // already logged as skipped in the prefetch phase
     } else {
       useStore.getState().append('warn', `lower leg skipped — predL ${p.predictedLow.toFixed(this.pipDigits)} >= spot ${spot.toFixed(this.pipDigits)}`);
     }
@@ -299,8 +335,14 @@ export class PairTrader {
     const edge = prefetch?.edge ?? (cfg.evMode
         ? (this.activeEdges?.[side] ?? 0)
         : (trueP !== undefined && prefetch?.impliedP !== undefined ? trueP - prefetch.impliedP : 0));
-    const stake = cfg.evStagger ? staggerStake({ baseStake: cfg.stake, edge }) : cfg.stake;
-    const payout = prefetch?.payout ?? (cfg.stake / (prefetch?.impliedP ?? 1/1.95)); // Fallback
+    // Safety guard: skip if positive-ev mode and edge <= 0 (catches fallback paths)
+    if (cfg.tradeDirection === 'positive-ev' && edge <= 0) {
+      const label = legDisplayName(cfg.mode, side);
+      useStore.getState().append('info', `${label} skipped (fallback guard) — positive-ev, edge=${edge.toFixed(4)} <= 0`);
+      return;
+    }
+    const stake = cfg.evStagger ? staggerStake({ baseStake: this.activeEffectiveStake, edge }) : this.activeEffectiveStake;
+    const payout = prefetch?.payout ?? (this.activeEffectiveStake / (prefetch?.impliedP ?? 1/1.95)); // Fallback
 
     const contractType: HiLoContractType = contractTypeFor(cfg.mode, side);
     const blockSec = cfg.blockMinutes * 60;
