@@ -50,8 +50,8 @@ class ConfigManager {
       schedule: {
         enabled: true,
         timezone: 'Africa/Lagos',
-        resumeTime: '02:00',
-        pauseTime: '24:00',
+        resumeTime: '03:00',
+        pauseTime: '18:00',
       },
       analysis: {
         bbPeriod: 50,
@@ -80,7 +80,7 @@ class ConfigManager {
         staleMessageMs: 45000,
         settlementGraceMs: 45000,
         scheduleCheckMs: 15000,
-        stateFile: path.join(__dirname, 'newRiseFallState_05.json'),
+        stateFile: path.join(__dirname, 'newRiseFallState_06.json'),
       },
     };
     this.validate();
@@ -108,7 +108,7 @@ class Logger {
       transports: [
         new winston.transports.Console(),
         new winston.transports.File({
-          filename: 'newRiseFall_05.log',
+          filename: 'newRiseFall_06.log',
           maxsize: 5 * 1024 * 1024,
           maxFiles: 3,
         }),
