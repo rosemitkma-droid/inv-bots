@@ -123,3 +123,15 @@ export const DEFAULT_REGIME_BARS = 24;
 export const DEFAULT_REGIME_BLEND = 0;
 export const DEFAULT_SESSION_TP = 15;
 export const DEFAULT_SESSION_SL = 10;
+
+// ─── Trade direction & Martingale ─────────────────────────────────────────────
+
+/** Trade both legs (upper + lower) by default. 'positive-ev' only opens legs with EV > 0. */
+export const DEFAULT_TRADE_DIRECTION: 'both' | 'positive-ev' = 'both';
+
+/** Martingale is OFF by default — opt-in via env or CLI. */
+export const DEFAULT_MARTINGALE_ENABLED = false;
+/** Stake multiplier per losing step (default 2×). */
+export const DEFAULT_MARTINGALE_MULTIPLIER = 2;
+/** Maximum consecutive losing steps before martingale resets to base stake. */
+export const DEFAULT_MARTINGALE_STEPS = 3;
