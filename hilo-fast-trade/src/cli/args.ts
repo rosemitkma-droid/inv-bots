@@ -26,10 +26,14 @@ import {
   DEFAULT_STAKE,
   DEFAULT_SYMBOL,
   DEFAULT_TRADE_MODE,
+  DEFAULT_TRADE_DIRECTION,
+  DEFAULT_MARTINGALE_ENABLED,
+  DEFAULT_MARTINGALE_MULTIPLIER,
+  DEFAULT_MARTINGALE_STEPS,
   DEFAULT_TRAIL_ARM_FRACTION,
 } from '../constants/api';
 import type { RangeMode } from '../engine/rangePredictor';
-import type { HiLoConfig, TradeMode } from '../trading/config';
+import type { HiLoConfig, TradeMode, TradeDirection } from '../trading/config';
 
 export interface ParsedArgs {
   cfg: HiLoConfig;
@@ -85,6 +89,17 @@ EV-first band selection (Phase 1 — ON by default):
   --no-ev-stagger           disable edge-scaled per-leg stake
   --ev-stagger              size each leg by its edge: stake × clamp(1 + 2·(trueP−impliedP))
                            (default on)
+
+Trade direction:
+  --trade-direction <mode>  both (open upper+lower, default) or positive-ev
+                           (only open legs with positive EV; skip leg if EV <= 0)
+                           (default ${DEFAULT_TRADE_DIRECTION}, or env HILO_TRADE_DIRECTION)
+
+Martingale stake sizing (OFF by default):
+  --martingale              enable martingale stake multiplier after losses (env HILO_MARTINGALE_ENABLED)
+  --no-martingale           disable martingale
+  --martingale-multiplier <x>  stake multiplier per losing step (default ${DEFAULT_MARTINGALE_MULTIPLIER})
+  --martingale-steps <n>    max consecutive losing steps before reset (default ${DEFAULT_MARTINGALE_STEPS})
 
 Survival & measurement (Phase 3):
   --ledger <path>           append each realised block as a CSV row; seed today's P&L at
@@ -196,6 +211,21 @@ function envPrefer(name: string): 'demo' | 'real' {
   return raw === 'real' ? 'real' : 'demo';
 }
 
+function envTradeDirection(name: string, fallback: TradeDirection): TradeDirection {
+  const raw = process.env[name]?.toLowerCase();
+  if (!raw) return fallback;
+  if (raw === 'positive-ev' || raw === 'positiveev' || raw === 'positive' || raw === 'single') return 'positive-ev';
+  return 'both';
+}
+
+function tradeDirectionArg(v: string | undefined): TradeDirection {
+  if (v === undefined) err('--trade-direction requires a value');
+  const lc = v.toLowerCase();
+  if (lc === 'both') return 'both';
+  if (lc === 'positive-ev' || lc === 'positiveev' || lc === 'positive' || lc === 'single') return 'positive-ev';
+  err(`--trade-direction must be one of: both, positive-ev (got '${v}')`);
+}
+
 /** Parse a comma-separated K grid from env, fall back to the default. */
 function envKList(name: string, fallback: number[]): number[] {
   const raw = process.env[name];
@@ -245,6 +275,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
     minEv: envNum('HILO_MIN_EV', DEFAULT_MIN_EV),
     dryRunEdge: envNum('HILO_DRY_RUN_EDGE', DEFAULT_DRY_RUN_EDGE),
     evStagger: process.env.HILO_EV_STAGGER === '1' || process.env.HILO_EV_STAGGER === 'true',
+    tradeDirection: envTradeDirection('HILO_TRADE_DIRECTION', DEFAULT_TRADE_DIRECTION),
+    martingaleEnabled: process.env.HILO_MARTINGALE_ENABLED === '1' || process.env.HILO_MARTINGALE_ENABLED === 'true',
+    martingaleMultiplier: envNum('HILO_MARTINGALE_MULTIPLIER', DEFAULT_MARTINGALE_MULTIPLIER),
+    martingaleSteps: envNum('HILO_MARTINGALE_STEPS', DEFAULT_MARTINGALE_STEPS),
     ledgerPath: process.env.HILO_LEDGER || DEFAULT_LEDGER_PATH,
     maxConsecutiveLosses: envNum('HILO_MAX_LOSSES', DEFAULT_MAX_CONSECUTIVE_LOSSES),
     dailyLossCap: envNum('HILO_DAILY_LOSS_CAP', DEFAULT_DAILY_LOSS_CAP),
@@ -300,6 +334,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
       case '--min-ev': cfg.minEv = numArg(nxt, 'min-ev'); i++; break;
       case '--dry-run-edge': cfg.dryRunEdge = numArg(nxt, 'dry-run-edge'); i++; break;
       case '--ev-stagger': cfg.evStagger = true; break;
+      case '--trade-direction': cfg.tradeDirection = tradeDirectionArg(nxt); i++; break;
+      case '--martingale': cfg.martingaleEnabled = true; break;
+      case '--martingale-multiplier': cfg.martingaleMultiplier = numArg(nxt, 'martingale-multiplier'); i++; break;
+      case '--martingale-steps': cfg.martingaleSteps = numArg(nxt, 'martingale-steps'); i++; break;
       case '--ledger': cfg.ledgerPath = str(nxt, 'ledger'); i++; break;
       case '--max-losses': cfg.maxConsecutiveLosses = numArg(nxt, 'max-losses'); i++; break;
       case '--daily-loss-cap': cfg.dailyLossCap = numArg(nxt, 'daily-loss-cap'); i++; break;
@@ -313,6 +351,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       case '--telegram-chat-id': cfg.telegramChatId = str(nxt, 'telegram-chat-id'); i++; break;
       case '--state-path': cfg.statePath = str(nxt, 'state-path'); i++; break;
       default:
+        // Allow --no-* flags to pass through for post-loop handling
+        if (a.startsWith('--no-')) break;
         if (a.startsWith('-')) err(`unknown flag: ${a}`);
         err(`unexpected positional argument: ${a}`);
     }
@@ -325,6 +365,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   // out without remembering the env-var dance.
   if (argv.includes('--no-ev-mode')) cfg.evMode = false;
   if (argv.includes('--no-ev-stagger')) cfg.evStagger = false;
+  if (argv.includes('--no-martingale')) cfg.martingaleEnabled = false;
 
   // Block length must be a positive integer and map to a Deriv candle granularity.
   if (!Number.isInteger(cfg.blockMinutes) || cfg.blockMinutes <= 0) {
