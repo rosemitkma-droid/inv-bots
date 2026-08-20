@@ -198,6 +198,10 @@ export class Trader {
       'currency',
       'maxConsecutiveLosses',
       'dailyLossCap',
+      'tradeDirection',
+      'martingaleEnabled',
+      'martingaleMultiplier',
+      'martingaleSteps',
     ];
     const applied: Partial<HiLoConfig> = {};
     const rejected: string[] = [];
@@ -425,6 +429,15 @@ export class Trader {
     const granularity = blockSeconds(this.cfg);
     const hh = new Date(w.start * 1000).toISOString().slice(11, 16) + 'Z';
 
+    // Martingale: if enabled, increase stake based on consecutive losses.
+    let effectiveStake = this.cfg.stake;
+    if (this.cfg.martingaleEnabled) {
+      const losses = Math.min(useStore.getState().session.consecutiveLosses, this.cfg.martingaleSteps);
+      if (losses > 0) {
+        effectiveStake = this.cfg.stake * Math.pow(this.cfg.martingaleMultiplier, losses);
+      }
+    }
+
     // EV-first path: quote the candidate K grid, pick the highest-EV band,
     // skip the block when even the best EV is below the floor. The band is
     // anchored at the LIVE spot (not the block-open) so the barrier we quote
@@ -478,6 +491,8 @@ export class Trader {
         evK: chosen.k,
         model: sel.model,
         edges,
+        effectiveStake,
+        tradeDirection: this.cfg.tradeDirection,
       });
       return;
     }
@@ -513,6 +528,8 @@ export class Trader {
       daysUsed: pred.daysUsed,
       spot,
       model,
+      effectiveStake,
+      tradeDirection: this.cfg.tradeDirection,
     });
   }
 
