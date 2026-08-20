@@ -9,6 +9,7 @@ import type { RangeMode } from '../engine/rangePredictor';
  *     barrier during the block. Both win ⇒ price stayed in [predL, predH].
  */
 export type TradeMode = 'higher-lower' | 'no-touch';
+export type TradeDirection = 'both' | 'positive-ev';
 
 export interface HiLoConfig {
   // Auth / transport
@@ -22,7 +23,14 @@ export interface HiLoConfig {
   currency: string;
 
   // Sizing
-  stake: number; // per-leg stake
+  stake: number; // per-leg base stake
+  /** Trade direction mode: 'both' (open both legs, default) or 'positive-ev' (only open legs with EV > 0). */
+  tradeDirection: TradeDirection;
+
+  // Martingale
+  martingaleEnabled: boolean;
+  martingaleMultiplier: number;
+  martingaleSteps: number;
 
   // Block grid
   blockMinutes: number;
