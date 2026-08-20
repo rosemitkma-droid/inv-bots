@@ -39,7 +39,7 @@ const CONFIG = Object.freeze({
   demoOnly: false,
   tradeEnabled: true,
   skipRecentTradedSymbols: true,
-  recentTradedSymbolsLen: parseInt('3', 10),
+  recentTradedSymbolsLen: parseInt('1', 10),
 
   // Anti-Martingale
   winsBeforeScaling: parseInt('500'),
@@ -48,7 +48,7 @@ const CONFIG = Object.freeze({
 
   // Assets
   // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  assets: ('R_10,R_25,R_50,R_75,R_100')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
@@ -146,9 +146,9 @@ const CONFIG = Object.freeze({
   maxTelegramQueue: parseInt('100', 10),
   logFile: 'accuPULSE3_v5_03.log',
   logLevel: 'INFO3_v5',
-  stateFile: 'accuPULSE3_state_v5_03.json',
+  stateFile: 'accuPULSE3_state_v5_04.json',
   metricsFile: 'metrics_v5_03.json',
-  metricsFileV5: 'accuPULSE3_analysis_v5_03.jsonl',  // Feature 7: Full metrics logging
+  metricsFileV5: 'accuPULSE3_analysis_v5_04.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
