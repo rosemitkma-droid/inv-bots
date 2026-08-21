@@ -48,7 +48,8 @@ const CONFIG = Object.freeze({
 
   // Assets
   // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  
+  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
@@ -66,7 +67,7 @@ const CONFIG = Object.freeze({
   maxOpenTrades: parseInt('3', 10),
 
   // Hazard Model (v4.0 fixes)
-  candidateGrowthRates: [0.05], //[0.05, 0.04, 0.03, 0.02, 0.01]
+  candidateGrowthRates: [0.05, 0.04], //[0.05, 0.04, 0.03, 0.02, 0.01]
   hazardWindow: parseInt('600', 10),
   plannedHoldTicks: parseInt('20', 10),
   minBarrierPct: parseFloat('0.015'),
@@ -80,12 +81,12 @@ const CONFIG = Object.freeze({
   minConfidenceByRegime: {
     0: 0.08,  // low vol: stricter (good conditions, be selective)
     1: 0.05,  // normal vol: balanced
-    2: 0.03,  // high vol: looser (risky anyway, take more)
-    3: 0.01,  // extreme: only obvious setups
+    // 2: 0.03,  // high vol: looser (risky anyway, take more)
+    // 3: 0.01,  // extreme: only obvious setups
   },
 
   // ARCA gates (v4.0 relaxations + v5.0 adaptive)
-  minConfidence: parseFloat('0.05'),   // fallback if regime lookup fails
+  minConfidence: parseFloat('0.066'),   // fallback if regime lookup fails
   maxVolRegime: parseInt('3', 10),     // ALLOW all regimes (scale stake instead)
   maxHurst: parseFloat('0.70'),
   minSurvivalSlope: parseFloat('-0.01'),
@@ -144,11 +145,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3_v5_07.log',
+  logFile: 'accuPULSE3_v5_08.log',
   logLevel: 'INFO3_v5',
-  stateFile: 'accuPULSE3_state_v5_07.json',
-  metricsFile: 'metrics_v5_07.json',
-  metricsFileV5: 'accuPULSE3_analysis_v5_07.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3_state_v5_08.json',
+  metricsFile: 'metrics_v5_08.json',
+  metricsFileV5: 'accuPULSE3_analysis_v5_08.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -175,8 +176,8 @@ const CONFIG = Object.freeze({
   // ── Feature 6: Enhanced Streak Recovery ────────────────────────────────
   recoveryConfig: {
     triggerLosses: 3,
-    recoveryMinStake: 1.00,
-    recoveryMaxStake: 20.00,
+    recoveryMinStake: 0.40,
+    recoveryMaxStake: 1.00,
     recoveryExitWins: 10,
     recoveryExitHours: 2,
     wrThresholdNormal: 0.70,
@@ -2571,10 +2572,10 @@ class AccuPULSE3BotV5 {
 
       let best = null;
       for (const cand of ranked) {
-        if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(cand.symbol)) {
-          log('DEBUG', `Recently traded ${cand.symbol} — skipping`);
-          continue;
-        }
+        // if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(cand.symbol)) {
+        //   log('DEBUG', `Recently traded ${cand.symbol} — skipping`);
+        //   continue;
+        // }
 
         // ── Feature 1: Adaptive confidence gate ─────────────────────────
         const adaptiveMinConfidence = this.getMinConfidence(cand.volRegime);
@@ -2607,6 +2608,11 @@ class AccuPULSE3BotV5 {
         log('DEBUG', 'No candidate passed all gates');
         return;
       }
+
+      if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(best.symbol)) {
+          log('DEBUG', `Recently traded ${best.symbol} — skipping`);
+          return;
+        }
 
       log('INFO', `Best candidate: ${best.symbol} score=${best.score.toFixed(3)} [${best.reasons.join(', ')}]`);
 
