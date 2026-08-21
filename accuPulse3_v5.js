@@ -38,7 +38,7 @@ const CONFIG = Object.freeze({
   stopLoss: parseFloat('500.0'),
   demoOnly: false,
   tradeEnabled: true,
-  skipRecentTradedSymbols: true,
+  skipRecentTradedSymbols: false,
   recentTradedSymbolsLen: parseInt('1', 10),
 
   // Anti-Martingale
@@ -48,7 +48,7 @@ const CONFIG = Object.freeze({
 
   // Assets
   // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('R_10,R_25,R_50,R_75,R_100')
+  assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
@@ -144,11 +144,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3_v5_03.log',
+  logFile: 'accuPULSE3_v5_06.log',
   logLevel: 'INFO3_v5',
-  stateFile: 'accuPULSE3_state_v5_04.json',
-  metricsFile: 'metrics_v5_03.json',
-  metricsFileV5: 'accuPULSE3_analysis_v5_04.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3_state_v5_06.json',
+  metricsFile: 'metrics_v5_06.json',
+  metricsFileV5: 'accuPULSE3_analysis_v5_06.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
