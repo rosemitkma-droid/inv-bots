@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R50_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R50_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -1604,7 +1604,7 @@ class IndexBot {
         // You can implement a function to analyze the last few closed candles and determine if the market is trending or ranging.
         const mode = this._determineMarketMode(a.closedCandles);
 
-        if (mode === 'trend') {
+        if (mode === 'range') {
             if (dir === 'CALLE') {
                 LOGGER.signal(`[${symbol}] BUY SIGNAL`);
                 const setupSuccess = 'PUTE';
