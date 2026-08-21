@@ -66,7 +66,7 @@ const CONFIG = Object.freeze({
   maxOpenTrades: parseInt('3', 10),
 
   // Hazard Model (v4.0 fixes)
-  candidateGrowthRates: [0.05, 0.04, 0.03, 0.02, 0.01],
+  candidateGrowthRates: [0.05], //[0.05, 0.04, 0.03, 0.02, 0.01]
   hazardWindow: parseInt('600', 10),
   plannedHoldTicks: parseInt('20', 10),
   minBarrierPct: parseFloat('0.015'),
@@ -144,11 +144,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3_v5_06.log',
+  logFile: 'accuPULSE3_v5_07.log',
   logLevel: 'INFO3_v5',
-  stateFile: 'accuPULSE3_state_v5_06.json',
-  metricsFile: 'metrics_v5_06.json',
-  metricsFileV5: 'accuPULSE3_analysis_v5_06.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3_state_v5_07.json',
+  metricsFile: 'metrics_v5_07.json',
+  metricsFileV5: 'accuPULSE3_analysis_v5_07.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -175,8 +175,8 @@ const CONFIG = Object.freeze({
   // ── Feature 6: Enhanced Streak Recovery ────────────────────────────────
   recoveryConfig: {
     triggerLosses: 3,
-    recoveryMinStake: 0.40,
-    recoveryMaxStake: 1.00,
+    recoveryMinStake: 1.00,
+    recoveryMaxStake: 20.00,
     recoveryExitWins: 10,
     recoveryExitHours: 2,
     wrThresholdNormal: 0.70,
