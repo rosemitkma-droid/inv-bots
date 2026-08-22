@@ -95,15 +95,8 @@ const CONFIG = Object.freeze({
   stopLoss       : parseFloat('900.0'),   // hard $ stop per contract
   takeProfit     : parseFloat('10000.0'), // session take-profit
 
-  // ── Martingale (off by default — APEX uses adaptive sizing instead) ──
-  martingale:            parseFloat('1'),   // 0 = off
-  lossesBeforeMartingale:parseInt  ('0'),
-  martingaleMultiplier: parseFloat('22'),
-  martingaleStep:        parseFloat('2'),
-  maxMartingaleStep:     parseFloat('2.0'),
-
   // ── Sizing (legacy 'edge' mode) ──
-  sizingMode:        'flat',            // 'flat' | 'edge'
+  sizingMode:        'flat',            // 'flat' | 'edge'  (legacy; prefer sizingModeV3)
   edgeScaleMax:      parseFloat('2.0'),
   edgeScaleEdgeRef:  parseFloat('0.05'),
   downscaleAfterLoss:false,
@@ -142,7 +135,7 @@ const CONFIG = Object.freeze({
   pulseMaxHorizon     : parseInt  ('6', 10),
 
   // ── Growth-rate candidates (Deriv supports 0.01-0.05) ──
-  pulseGrowthRates    : [0.05, 0.04, 0.03, 0.02, 0.01], //0.05, 0.04, 0.03, 0.02, 0.01 eval multiple rates, let EV pick best
+  pulseGrowthRates    : [0.05], //0.05, 0.04, 0.03, 0.02, 0.01 eval multiple rates, let EV pick best
 
   // ── Volatility regime ──
   pulseCalmMaxRatio   : parseFloat('1.05'),
@@ -231,14 +224,19 @@ const CONFIG = Object.freeze({
   ],
 
   // ═══════════════════════════════════════════════════════════════════
-  // v3: SMART POSITION SIZING (replaces raw martingale)
+  // v3: SMART POSITION SIZING  (flat | adaptive | kelly | martingale)
+  // ── 'martingale' — classic martingale: stake ×martingaleMultiplier after
+  //    each consecutive loss (reset to base stake on a win); the bot stops
+  //    trading entirely once martingaleStep consecutive losses are reached.
   // ═══════════════════════════════════════════════════════════════════
-  sizingModeV3             : 'adaptive',  // 'flat'|'adaptive'|'kelly'
-  lossStakeReduction       : parseFloat('0.70'),  // stake × 0.70 after each loss
-  winStakeRecovery         : parseFloat('1.15'),  // stake × 1.15 after each win
-  minStakeFraction         : parseFloat('0.25'),  // never go below 25% of base
-  maxStakeFraction         : parseFloat('1.50'),  // never exceed 250% of base
-  kellyFraction            : parseFloat('0.20'),
+  sizingModeV3             : 'martingale',  // 'flat'|'adaptive'|'kelly'|'martingale'
+  lossStakeReduction       : parseFloat('0.70'),  // stake × 0.70 after each loss (adaptive only)
+  winStakeRecovery         : parseFloat('1.15'),  // stake × 1.15 after each win (adaptive only)
+  minStakeFraction         : parseFloat('0.25'),  // never go below 25% of base (flat/adaptive/kelly clamp)
+  maxStakeFraction         : parseFloat('1.50'),  // never exceed 150% of base (flat/adaptive/kelly clamp)
+  kellyFraction            : parseFloat('0.20'),  // fractional Kelly (kelly only)
+  martingaleMultiplier     : parseFloat('22.0'),  // martingale × on each consecutive loss
+  martingaleStep           : parseInt('2', 10),   // stop trading after this many consecutive losses (martingale only)
 
   // ── Daily limits ──
   dailyMaxLoss   : parseFloat('500'),
@@ -259,11 +257,11 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: parseInt('90000', 10),
 
   // ── Logging ──
-  logFile : 'accuAPEXBC_03.log',
+  logFile : 'accuAPEXBC_04.log',
   logLevel: 'INFO',
 
   // ── State persistence ──
-  stateFile           : 'accuAPEXBC_state_03.json',
+  stateFile           : 'accuAPEXBC_state_04.json',
   stateSaveOnTrade    : true,
   stateSaveOnShutdown : true,
 
@@ -869,6 +867,13 @@ class MarketDataManager extends EventEmitter {
   }
 
   historyFor(symbol) { return this.history.get(symbol) || []; }
+}
+
+// ── Shared helpers (ported from accuAPEX.js sizingModeV3 / martingale) ──
+function kellyMultiplier(netReturnPerStake, grossMultiple, fraction) {
+  const profitOnWin = grossMultiple - 1;
+  if (profitOnWin <= 0 || netReturnPerStake <= 0) return 0;
+  return Math.max(0, Math.min(fraction, netReturnPerStake / profitOnWin));
 }
 
 // 8. APEX ANALYZER  (Conditional-volatility bimodal survival engine)
@@ -2016,11 +2021,11 @@ class AccuAPEXnewBot {
     this._pauseEndTimer   = null;
     this._lastDayISODate  = null;
 
-    // ── Legacy martingale state (martingale off by default; kept for
-    //    the APEX v3Note / currentStake() fallback paths) ──
-    this.lossesStreak = 0;
-    this.martingaleMultiplier = this.cfg.martingaleMultiplier || 2;
-    this.currentStake2 = this.cfg.stake;
+    // Martingale sizing state (only used when sizingModeV3 === 'martingale').
+    // stake = stake the NEXT trade will use; grows ×martingaleMultiplier
+    // after each consecutive loss and resets to base on a win. Once `streak`
+    // hits martingaleStep the bot halts trading (`stopped`).
+    this.martingale = { streak: 0, stake: this.cfg.stake, stopped: false };
   }
 
   async start() {
@@ -2176,10 +2181,15 @@ class AccuAPEXnewBot {
       `<b>Type:</b> ${info.isVirtual ? '🟡 DEMO' : '🔴 REAL'}\n` +
       `<b>Balance:</b> ${this.startBalance.toFixed(2)} ${this.currencyStr()}\n` +
       `<b>Assets:</b> ${this.cfg.assets.length} ${this.cfg.autoDiscoverAssets ? '(auto-discover ON)' : ''}\n` +
-      `<b>Stake:</b> ${this.cfg.stake}\n` +
+      `<b>Stake:</b> ${this.cfg.stake} · Sizing: ${this.cfg.sizingModeV3}\n` +
       `<b>Growth rates:</b> ${this.cfg.pulseGrowthRates.map(g => (g*100).toFixed(0)+'%').join(', ')}\n` +
-      `<b>Sizing:</b> ${this.cfg.sizingModeV3} ` +
-        `(loss×${this.cfg.lossStakeReduction}, win×${this.cfg.winStakeRecovery})\n` +
+      (this.cfg.sizingModeV3 === 'martingale'
+        ? `<b>Martingale:</b> ×${this.cfg.martingaleMultiplier} step ${this.cfg.martingaleStep} (stop after ${this.cfg.martingaleStep} consecutive losses)\n`
+        : this.cfg.sizingModeV3 === 'adaptive'
+          ? `<b>Sizing:</b> adaptive (loss×${this.cfg.lossStakeReduction}, win×${this.cfg.winStakeRecovery})\n`
+          : this.cfg.sizingModeV3 === 'kelly'
+            ? `<b>Kelly:</b> fraction ${this.cfg.kellyFraction}\n`
+            : `<b>Sizing:</b> flat\n`) +
       `<b>Min EV:</b> ${(this.cfg.apexMinEV*100).toFixed(1)}%\n` +
       `<b>Min survival:</b> ${(this.cfg.apexMinSurvival*100).toFixed(1)}%\n` +
       `<b>Spread cost:</b> ${(this.cfg.pulseSpreadCost*100).toFixed(2)}%\n\n` +
@@ -2272,13 +2282,17 @@ class AccuAPEXnewBot {
 
     const a = t._analysis || {};
     const sizingMode = a.sizingMode || 'legacy';
-    let sizingLine;
+    let sizingLine = '';
     if (sizingMode === 'adaptive') {
       const assetState = this.assetTracker._getAsset(t.symbol);
       sizingLine = `<b>Sizing:</b> Adaptive (${t.stake.toFixed(2)} ${this.currencyStr()})\n` +
         `• Base: ${(a.baseStake ?? this.cfg.stake).toFixed(2)} | WR: ${(assetState.rollingWinRate*100).toFixed(0)}% | Asset losses: ${assetState.consecutiveLosses}\n`;
-    } else {
-      sizingLine = '';
+    } else if (sizingMode === 'kelly') {
+      sizingLine = `<b>Sizing:</b> Kelly (${t.stake.toFixed(2)} ${this.currencyStr()}) | Base: ${(a.baseStake ?? this.cfg.stake).toFixed(2)}\n`;
+    } else if (sizingMode === 'martingale') {
+      sizingLine = `<b>Sizing:</b> Martingale (${t.stake.toFixed(2)} ${this.currencyStr()}) | Base: ${(a.baseStake ?? this.cfg.stake).toFixed(2)} | Streak: ${this.martingale.streak}/${this.cfg.martingaleStep}\n`;
+    } else if (sizingMode === 'flat') {
+      sizingLine = `<b>Sizing:</b> Flat (${t.stake.toFixed(2)} ${this.currencyStr()})\n`;
     }
 
     const msg =
@@ -2328,6 +2342,9 @@ class AccuAPEXnewBot {
       const currentStake = this.assetTracker.getAdaptiveStake(t.symbol, this.cfg.stake);
       this.assetTracker.updateStakeAfterResult(t.symbol, won, currentStake, this.cfg.stake);
     }
+    if (this.cfg.sizingModeV3 === 'martingale') {
+      this._updateMartingaleState(t.symbol, won);
+    }
 
     const todayStats = this.stats.stats(this.stats.todayTrades(rec.date));
 
@@ -2376,6 +2393,10 @@ class AccuAPEXnewBot {
       }
       if (!this._isTradingAllowedToday()) return;
       this._checkDayChange();
+      if (this.cfg.sizingModeV3 === 'martingale' && this.martingale.stopped) {
+        logger.debug('martingale: step limit reached — trading stopped (restart the bot to reset)');
+        return;
+      }
 
       // Daily limits
       const today = this.stats.todayTrades();
@@ -2483,11 +2504,8 @@ class AccuAPEXnewBot {
         `spikeSurv=${(best.spikeSurvivalHold*100).toFixed(1)}%`,
       );
 
-      // v3: Use adaptive stake sizing instead of raw martingale
-      const baseStake = this.cfg.stake;
-      const stake = (this.cfg.sizingModeV3 === 'adaptive')
-        ? this.assetTracker.getAdaptiveStake(best.symbol, baseStake)
-        : this.currentStake(best.edge);
+      // v3: sizingModeV3 — flat | adaptive | kelly | martingale (ported from accuAPEX.js)
+      const stake = this._computeStake(best.symbol, best);
 
       const tpFraction  = best.suggestedTakeProfit;
       const takeProfit  = +(stake * tpFraction).toFixed(2);
@@ -2503,10 +2521,10 @@ class AccuAPEXnewBot {
         vrRatio: best.vrRatio, sigma: best.sigma,
         growthRate: best.growthRate, halfBarrierFrac: best.halfBarrierFrac,
         logBarrierHalf: best.logBarrierHalf,
-        // v3: Use adaptive sizing info instead of martingale
+        // v3: sizing info (mirrors accuAPEX.js — martingale stake lives in this.martingale)
         sizingMode: this.cfg.sizingModeV3,
         adaptiveStake: stake,
-        baseStake: baseStake,
+        baseStake: this.cfg.stake,
         rollingWinRate: this.assetTracker._getAsset(best.symbol).rollingWinRate,
         assetLosses: this.assetTracker._getAsset(best.symbol).consecutiveLosses,
         sessionPnl: this.assetTracker.sessionPnl,
@@ -2523,7 +2541,11 @@ class AccuAPEXnewBot {
 
       const v3Note = this.cfg.sizingModeV3 === 'adaptive'
         ? ` adaptive-stake=${stake} (WR=${(analysis.rollingWinRate*100).toFixed(0)}%)`
-        : ` martingale × ${this.martingaleMultiplier.toFixed(2)} (${this.lossesStreak} losses)`;
+        : this.cfg.sizingModeV3 === 'martingale'
+          ? ` martingale stake=${stake} (streak ${this.martingale.streak}/${this.cfg.martingaleStep} ×${this.cfg.martingaleMultiplier})`
+          : this.cfg.sizingModeV3 === 'kelly'
+            ? ` kelly-stake=${stake}`
+            : ` flat-stake=${stake}`;
       logger.info(
         `trade placed #${trade.contractId} ${best.symbol} g=${best.growthRate} ` +
         `stake=${stake}${v3Note} tp=${takeProfit} ` +
@@ -2534,23 +2556,52 @@ class AccuAPEXnewBot {
     }
   }
 
-  // ── Stake sizing (v3 adaptive / legacy edge) ───────────────
-  currentStake(edge) {
-    const base = this.stats.currentLossStreak > 0 ? Number(this.currentStake2) : this.cfg.stake;
-    let mult = 1.0;
-    if (this.cfg.sizingMode === 'edge' && edge && edge > 1) {
-      const evFrac = Math.max(0, edge - 1);
-      const scaled = 1 + (evFrac / this.cfg.edgeScaleEdgeRef) * (this.cfg.edgeScaleMax - 1);
-      mult = Math.max(1, Math.min(this.cfg.edgeScaleMax, scaled));
+  // ── Sizing: mirrors accuAPEX.js sizingModeV3 (flat|adaptive|kelly|martingale) ──
+  _computeStake(symbol, analysis) {
+    const base = this.cfg.stake;
+    const lo = base * this.cfg.minStakeFraction;
+    const hi = base * this.cfg.maxStakeFraction;
+    if (this.cfg.sizingModeV3 === 'kelly') {
+      const gross = Math.pow(1 + analysis.growthRate, analysis.bestN);
+      const mult = kellyMultiplier((analysis.edge ?? 1) - 1, gross, this.cfg.kellyFraction);
+      return +Math.max(lo, Math.min(hi, base * mult)).toFixed(2);
     }
-    if (this.cfg.downscaleAfterLoss && this.stats.currentLossStreak > 0) {
-      mult *= Math.max(0.5, Math.pow(0.85, this.stats.currentLossStreak));
+    if (this.cfg.sizingModeV3 === 'martingale') return +this.martingale.stake.toFixed(2);
+    if (this.cfg.sizingModeV3 === 'flat') return +base.toFixed(2);
+    return this.assetTracker.getAdaptiveStake(symbol, base);   // adaptive
+  }
+
+  // Martingale state transition on settle: a loss multiplies the next stake
+  // by martingaleMultiplier; a win resets the progression back to base stake.
+  // Once `streak` hits martingaleStep the bot halts trading (`stopped`).
+  _updateMartingaleState(symbol, won) {
+    const m = this.martingale;
+    if (won) {
+      m.streak = 0;
+      m.stake = this.cfg.stake;
+      m.stopped = false;
+      logger.info(`martingale: WIN on ${symbol} — streak reset, next stake back to base ${this.cfg.stake.toFixed(2)}`);
+      return;
     }
-    const m = this.cfg.martingale || 0;
-    if (m > 0 && this.lossesStreak > (this.cfg.lossesBeforeMartingale || 0)) {
-      mult *= this.martingaleMultiplier;
+    m.streak += 1;
+    m.stake = +(m.stake * this.cfg.martingaleMultiplier).toFixed(2);
+    logger.warn(
+      `martingale: LOSS #${m.streak} on ${symbol} — next stake ${m.stake.toFixed(2)} ` +
+      `(×${this.cfg.martingaleMultiplier}${m.streak > 1 ? ' again' : ''})`,
+    );
+    if (m.streak >= this.cfg.martingaleStep) {
+      m.stopped = true;
+      logger.error(
+        `martingale: reached step limit (${m.streak} ≥ ${this.cfg.martingaleStep} consecutive losses) ` +
+        `— BOT STOPPED trading until restart`,
+      );
+      telegram.send(
+        `⛔ <b>MARTINGALE STEP LIMIT REACHED</b>\n` +
+        `${m.streak} consecutive losses (step limit: ${this.cfg.martingaleStep}).\n` +
+        `Next stake would have been <b>${m.stake.toFixed(2)} ${this.currencyStr()}</b>.\n` +
+        `Trading halted — restart the bot to reset the sequence.`,
+      );
     }
-    return +(base * mult).toFixed(2);
   }
 
   async _refreshBarriers() {
@@ -2626,11 +2677,12 @@ class AccuAPEXnewBot {
     if (!this.cfg.stateSaveOnShutdown && reason === 'shutdown')    return;
     try {
       const payload = {
-        version: 4, engine: 'APEX v3', savedAt: new Date().toISOString(), savedReason: reason,
+        version: 5, engine: 'APEX v4 — martingale ported from accuAPEX.js', savedAt: new Date().toISOString(), savedReason: reason,
         startBalance: this.startBalance, lastBalance: this.lastBalance, overallProfit: this.overallProfit,
         stats: this.stats.serialize(),
         // v3: per-asset tracker state
         assetTracker: this.assetTracker.serialize(),
+        martingale: this.martingale,
       };
       const tmp = this.cfg.stateFile + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify(payload, null, 2));
@@ -2649,10 +2701,17 @@ class AccuAPEXnewBot {
       this.stats = new StatisticsManager(d.stats || {});
       // v3: restore per-asset tracker state
       if (d.assetTracker) this.assetTracker.loadSaved(d.assetTracker);
+      if (d.martingale) {
+        this.martingale = {
+          streak: Number(d.martingale.streak || 0),
+          stake: Number(d.martingale.stake || this.cfg.stake),
+          stopped: !!d.martingale.stopped,
+        };
+      }
       logger.info(
-        `state restored (APEX v3): overallProfit=${this.stats.overallProfit.toFixed(2)} ` +
-        `lossStreak=${this.stats.currentLossStreak} ` +
-        `sessionPnl=${this.assetTracker.sessionPnl.toFixed(2)} ` +
+        `state restored (APEX v4 — martingale): overallProfit=${this.stats.overallProfit.toFixed(2)} ` +
+        `lossStreak=${this.stats.currentLossStreak} sessionPnl=${this.assetTracker.sessionPnl.toFixed(2)} ` +
+        `martingale streak=${this.martingale.streak} stake=${this.martingale.stake.toFixed(2)} ` +
         `trackedAssets=${this.assetTracker.assets.size}`,
       );
     } catch (e) { logger.warn('state load:', e.message); }
