@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R50_02-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_02-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R50_03-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_03-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -133,7 +133,7 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 30,
     MAX_CANDLES_STORED: 30,
-    DURATION: 30,
+    DURATION: 50,
     DURATION_UNIT: 's', // 's' | 'm' | 'h'
     MIN_CANDLES_REQUIRED: 30,    
 
@@ -556,7 +556,7 @@ class TelegramService {
                 lines.push(`Levels: H=${a.breakout.highLevel.toFixed(5)} L=${a.breakout.lowLevel.toFixed(5)}`);
             }
             if (a?.normalModeActive) {
-                lines.push(`Normal Mode: ${a.tradesInNormalMode} | Direction: ${a.normalModeDirection}`);
+                lines.push(`Martingale Level: ${a?.martingaleLevel ?? 0} | Direction: ${a.normalModeDirection}`);
             }
         }
 
@@ -1607,18 +1607,18 @@ class IndexBot {
         if (mode === 'range') {
             if (dir === 'CALLE') {
                 LOGGER.signal(`[${symbol}] BUY SIGNAL`);
-                const setupSuccess = 'PUTE';
+                const setupSuccess = 'CALLE';
 
                 if (setupSuccess) {
                     // Execute first trade as CALLE
-                    const firstDir = 'PUTE';
+                    const firstDir = 'CALLE';
                     a.normalModeActive = true;
                     a.tradesInNormalMode = 1;
                     a.normalModeDirection = firstDir;
                     a.lastTradeDirection = firstDir;
                     a.currentDirection = firstDir;
 
-                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
                     this._executeBuy(symbol, firstDir, stake, {
                         method: 'CANDLE_CLOSE_BULLISH',
@@ -1629,31 +1629,32 @@ class IndexBot {
                     a.buyFlagActive = false; // consumed
                 }
                 return;
-            } else {
-                LOGGER.signal(`[${symbol}] SELL SIGNAL`);
-                const setupSuccess = 'CALLE';
+            } 
+            // else {
+            //     LOGGER.signal(`[${symbol}] SELL SIGNAL`);
+            //     const setupSuccess = 'PUTE';
 
-                if (setupSuccess) {
-                    // Execute first trade as PUTE
-                    const firstDir = 'CALLE';
-                    a.normalModeActive = true;
-                    a.tradesInNormalMode = 1;
-                    a.normalModeDirection = firstDir;
-                    a.lastTradeDirection = firstDir;
-                    a.currentDirection = firstDir;
+            //     if (setupSuccess) {
+            //         // Execute first trade as PUTE
+            //         const firstDir = 'PUTE';
+            //         a.normalModeActive = true;
+            //         a.tradesInNormalMode = 1;
+            //         a.normalModeDirection = firstDir;
+            //         a.lastTradeDirection = firstDir;
+            //         a.currentDirection = firstDir;
 
-                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+            //         LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
-                    this._executeBuy(symbol, firstDir, stake, {
-                        method: 'CANDLE_CLOSE_BEARISH',
-                        reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
-                        marketMode: mode,
-                    });
+            //         this._executeBuy(symbol, firstDir, stake, {
+            //             method: 'CANDLE_CLOSE_BEARISH',
+            //             reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
+            //             marketMode: mode,
+            //         });
 
-                    a.sellFlagActive = false; // consumed
-                }
-                return;
-            }
+            //         a.sellFlagActive = false; // consumed
+            //     }
+            //     return;
+            // }
         } 
         // else {
         //     if (dir === 'CALLE') {
