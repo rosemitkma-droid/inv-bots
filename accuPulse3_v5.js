@@ -42,9 +42,9 @@ const CONFIG = Object.freeze({
   recentTradedSymbolsLen: parseInt('1', 10),
 
   // Anti-Martingale
-  winsBeforeScaling: parseInt('500'),
+  winsBeforeScaling: parseInt('1'),
   winStakeMultiplier: parseFloat('1.2'),
-  maxWinStakeMultiplier: parseFloat('4.0'),
+  maxWinStakeMultiplier: parseFloat('5.0'),
 
   // Assets
   // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
@@ -148,11 +148,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3_v5_09.log',
+  logFile: 'accuPULSE3_v5_10.log',
   logLevel: 'INFO3_v5',
-  stateFile: 'accuPULSE3_state_v5_09.json',
-  metricsFile: 'metrics_v5_09.json',
-  metricsFileV5: 'accuPULSE3_analysis_v5_09.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3_state_v5_10.json',
+  metricsFile: 'metrics_v5_10.json',
+  metricsFileV5: 'accuPULSE3_analysis_v5_10.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -160,8 +160,8 @@ const CONFIG = Object.freeze({
 
   // ── Feature 5: Warm-up Mode Lifecycle ─────────────────────────────────
   warmupConfig: {
-    warmupTrades: 30,        // Trades 0-30
-    balancedTrades: 300,     // Trades 30-300
+    warmupTrades: 3,        // Trades 0-30
+    balancedTrades: 10,     // Trades 30-300
     warmupMaxOpen: 5,        // Max open during warmup
     balancedMaxOpen: 3,      // Max open during balanced
     optimizedMaxOpen: 2,     // Max open during optimized
