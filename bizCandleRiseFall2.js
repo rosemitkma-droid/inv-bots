@@ -1605,12 +1605,12 @@ class IndexBot {
         const mode = this._determineMarketMode(a.closedCandles);
 
         if (mode === 'range') {
-            if (dir === 'CALLE') {
-                LOGGER.signal(`[${symbol}] BUY SIGNAL`);
+            if (dir === 'PUTE') {
+                LOGGER.signal(`[${symbol}] SELL SIGNAL`);
                 const setupSuccess = 'PUTE';
 
                 if (setupSuccess) {
-                    // Execute first trade as CALLE
+                    // Execute first trade as PUTE
                     const firstDir = 'PUTE';
                     a.normalModeActive = true;
                     a.tradesInNormalMode = 1;
@@ -1621,12 +1621,12 @@ class IndexBot {
                     LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
                     this._executeBuy(symbol, firstDir, stake, {
-                        method: 'CANDLE_CLOSE_BULLISH',
-                        reason: `CANDLE_CLOSE_BULLISH signal — candle closed above previous candle (bullish pattern)`,
+                        method: 'CANDLE_CLOSE_BEARISH',
+                        reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
                         marketMode: mode,
                     });
 
-                    a.buyFlagActive = false; // consumed
+                    a.sellFlagActive = false; // consumed
                 }
                 return;
             } 
