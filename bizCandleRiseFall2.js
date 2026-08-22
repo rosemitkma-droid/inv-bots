@@ -540,7 +540,7 @@ class TelegramService {
         const today = TradeHistoryManager.getTodayStats();
 
         const lines = [
-            `${emoji} <b>CANDLE DIRECTION BOT v1.0 — ${type}</b>`,
+            `${emoji} <b>CANDLE DIRECTION BOT2 v1.0 — ${type}</b>`,
             `Pair: <b>${symbol}</b>  Direction: <b>${direction === 'CALLE' ? '\u{1f4c8} CALLE' : '\u{1f4c9} PUTE'}</b>`,
             `Stake: $${stake.toFixed(2)} | Duration: ${duration}${(durationUnit || 's').toUpperCase()}`,
             `Recovery Step: ${a?.recoveryStep ?? 0} | ${TradingSessionManager.getStatusString()}`,
@@ -556,7 +556,7 @@ class TelegramService {
                 lines.push(`Levels: H=${a.breakout.highLevel.toFixed(5)} L=${a.breakout.lowLevel.toFixed(5)}`);
             }
             if (a?.normalModeActive) {
-                lines.push(`Normal Mode: ${a.tradesInNormalMode} | Direction: ${a.normalModeDirection}`);
+                lines.push(`Martingale Level: ${a?.martingaleLevel ?? 0} | Direction: ${a.normalModeDirection}`);
             }
         }
 
@@ -737,7 +737,7 @@ class SessionManager {
             LOGGER.info(`Day changed: ${state.currentTradeDay} -> ${today}`);
             const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
             TelegramService.sendMessage(
-                `\u{1f319} <b>CANDLE DIRECTION BOT END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
+                `\u{1f319} <b>CANDLE DIRECTION BOT2 END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
             );
             this._resetDailyStats();
             if (!state.session.isActive) {
@@ -842,7 +842,7 @@ class SessionManager {
                 a.forceRecoverDirection = null;
                 LOGGER.warn(`[${symbol}] 10 consecutive losses — cooling down for ${CONFIG.COOLDOWN_CANDLES} candles`);
                 TelegramService.sendMessage(
-                    `❄️ <b>[${symbol}] CANDLE DIRECTION BOT COOL-DOWN ACTIVATED</b>\n` +
+                    `❄️ <b>[${symbol}] CANDLE DIRECTION BOT2 COOL-DOWN ACTIVATED</b>\n` +
                     `10 consecutive losses\n` +
                     `Pausing for ${CONFIG.COOLDOWN_CANDLES} candles\n` +
                     `Capital: $${state.capital.toFixed(2)}`
@@ -1412,7 +1412,7 @@ class ConnectionManager {
             this.reconnectAttempts++;
             const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
             LOGGER.info(`Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts})`);
-            TelegramService.sendMessage(`⚠️ <b>CANDLE DIRECTION BOT CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
+            TelegramService.sendMessage(`⚠️ <b>CANDLE DIRECTION BOT2 CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
 
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null;
@@ -1422,7 +1422,7 @@ class ConnectionManager {
             }, delay);
         } else {
             LOGGER.error('Max reconnection attempts reached — giving up');
-            TelegramService.sendMessage(`\u{1f6d1} <b>CANDLE DIRECTION BOT STOPPED</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
+            TelegramService.sendMessage(`\u{1f6d1} <b>CANDLE DIRECTION BOT2 STOPPED</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -1607,18 +1607,18 @@ class IndexBot {
         if (mode === 'range') {
             if (dir === 'CALLE') {
                 LOGGER.signal(`[${symbol}] BUY SIGNAL`);
-                const setupSuccess = 'CALLE';
+                const setupSuccess = 'PUTE';
 
                 if (setupSuccess) {
                     // Execute first trade as CALLE
-                    const firstDir = 'CALLE';
+                    const firstDir = 'PUTE';
                     a.normalModeActive = true;
                     a.tradesInNormalMode = 1;
                     a.normalModeDirection = firstDir;
                     a.lastTradeDirection = firstDir;
                     a.currentDirection = firstDir;
 
-                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
                     this._executeBuy(symbol, firstDir, stake, {
                         method: 'CANDLE_CLOSE_BULLISH',
@@ -1629,31 +1629,32 @@ class IndexBot {
                     a.buyFlagActive = false; // consumed
                 }
                 return;
-            } else {
-                LOGGER.signal(`[${symbol}] SELL SIGNAL`);
-                const setupSuccess = 'PUTE';
+            } 
+            // else {
+            //     LOGGER.signal(`[${symbol}] SELL SIGNAL`);
+            //     const setupSuccess = 'CALLE';
 
-                if (setupSuccess) {
-                    // Execute first trade as PUTE
-                    const firstDir = 'PUTE';
-                    a.normalModeActive = true;
-                    a.tradesInNormalMode = 1;
-                    a.normalModeDirection = firstDir;
-                    a.lastTradeDirection = firstDir;
-                    a.currentDirection = firstDir;
+            //     if (setupSuccess) {
+            //         // Execute first trade as PUTE
+            //         const firstDir = 'CALLE';
+            //         a.normalModeActive = true;
+            //         a.tradesInNormalMode = 1;
+            //         a.normalModeDirection = firstDir;
+            //         a.lastTradeDirection = firstDir;
+            //         a.currentDirection = firstDir;
 
-                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+            //         LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
-                    this._executeBuy(symbol, firstDir, stake, {
-                        method: 'CANDLE_CLOSE_BEARISH',
-                        reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
-                        marketMode: mode,
-                    });
+            //         this._executeBuy(symbol, firstDir, stake, {
+            //             method: 'CANDLE_CLOSE_BEARISH',
+            //             reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
+            //             marketMode: mode,
+            //         });
 
-                    a.sellFlagActive = false; // consumed
-                }
-                return;
-            }
+            //         a.sellFlagActive = false; // consumed
+            //     }
+            //     return;
+            // }
         } 
         // else {
         //     if (dir === 'CALLE') {
@@ -1861,7 +1862,7 @@ class IndexBot {
         state.tradeStartTime = null;
 
         TelegramService.sendMessage(
-            `⚠️ <b>CANDLE DIRECTION BOT STUCK TRADE RECOVERED [${reason}]</b>\n` +
+            `⚠️ <b>CANDLE DIRECTION BOT2 STUCK TRADE RECOVERED [${reason}]</b>\n` +
             `Contract: ${contractId}\n` +
             `⚠️ VERIFY OUTCOME MANUALLY ON DERIV\n` +
             `Capital: $${state.capital.toFixed(2)}`
