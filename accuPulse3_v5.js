@@ -107,7 +107,7 @@ const CONFIG = Object.freeze({
   // Dynamic Sizing (v4.0)
   kellyFraction: parseFloat('0.25'),
   maxStakeMultiplier: parseFloat('3.0'),
-  minStakeMultiplier: parseFloat('0.5'),
+  minStakeMultiplier: parseFloat('1.5'),
   volAdjustThreshold: parseFloat('0.65'),
 
   // Entry/Exit (v4.0)
@@ -148,11 +148,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3_v5_10.log',
+  logFile: 'accuPULSE3_v5_11.log',
   logLevel: 'INFO3_v5',
-  stateFile: 'accuPULSE3_state_v5_10.json',
-  metricsFile: 'metrics_v5_10.json',
-  metricsFileV5: 'accuPULSE3_analysis_v5_10.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3_state_v5_11.json',
+  metricsFile: 'metrics_v5_11.json',
+  metricsFileV5: 'accuPULSE3_analysis_v5_11.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -162,9 +162,9 @@ const CONFIG = Object.freeze({
   warmupConfig: {
     warmupTrades: 3,        // Trades 0-30
     balancedTrades: 10,     // Trades 30-300
-    warmupMaxOpen: 5,        // Max open during warmup
-    balancedMaxOpen: 3,      // Max open during balanced
-    optimizedMaxOpen: 2,     // Max open during optimized
+    warmupMaxOpen: 1,        // Max open during warmup
+    balancedMaxOpen: 1,      // Max open during balanced
+    optimizedMaxOpen: 1,     // Max open during optimized
     warmupAssets: true,      // Use ALL assets during warmup
   },
 
