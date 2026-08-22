@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R50_03-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_03-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R50_05-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_05-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -1605,7 +1605,7 @@ class IndexBot {
         const mode = this._determineMarketMode(a.closedCandles);
 
         if (mode === 'range') {
-            if (dir === 'CALLE') {
+            if (dir === 'PUTE') {
                 LOGGER.signal(`[${symbol}] BUY SIGNAL`);
                 const setupSuccess = 'CALLE';
 
