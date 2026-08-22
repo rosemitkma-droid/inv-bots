@@ -293,10 +293,10 @@ export class PairTrader {
     // instantly lost for NOTOUCH). In EV mode the selector has already
     // guaranteed both are on the right side (anchored at spot); the check is
     // kept defensively.
-    const tasks: Array<Promise<void>> = [];
+    const tasks: Array<{ side: LegSide; task: Promise<void>; edge: number }> = [];
     if (!skippedSides.has('HIGHER') && p.predictedHigh > spot) {
       const prefetch = this.prefetchMap.get('HIGHER');
-      tasks.push(this.openLeg('HIGHER', p.predictedHigh, durationSec, spot, prefetch));
+      tasks.push({ side: 'HIGHER', task: this.openLeg('HIGHER', p.predictedHigh, durationSec, spot, prefetch), edge: prefetch?.edge ?? p.edges?.['HIGHER'] ?? 0 });
     } else if (p.predictedHigh > spot) {
       // already logged as skipped in the prefetch phase
     } else {
@@ -304,13 +304,24 @@ export class PairTrader {
     }
     if (!skippedSides.has('LOWER') && p.predictedLow < spot) {
       const prefetch = this.prefetchMap.get('LOWER');
-      tasks.push(this.openLeg('LOWER', p.predictedLow, durationSec, spot, prefetch));
+      tasks.push({ side: 'LOWER', task: this.openLeg('LOWER', p.predictedLow, durationSec, spot, prefetch), edge: prefetch?.edge ?? p.edges?.['LOWER'] ?? 0 });
     } else if (p.predictedLow < spot) {
       // already logged as skipped in the prefetch phase
     } else {
       useStore.getState().append('warn', `lower leg skipped — predL ${p.predictedLow.toFixed(this.pipDigits)} >= spot ${spot.toFixed(this.pipDigits)}`);
     }
-    await Promise.allSettled(tasks);
+
+    // In positive-ev mode, only open the single leg with the highest EV.
+    if (p.tradeDirection === 'positive-ev' && tasks.length > 1) {
+      tasks.sort((a, b) => b.edge - a.edge);
+      const winner = tasks[0]!;
+      const losers = tasks.slice(1);
+      const ct = contractTypeFor(cfg.mode, winner.side);
+      useStore.getState().append('info', `positive-ev: opening only ${winner.side} (${ct}) — ev=${winner.edge.toFixed(4)} (${losers.map(l => `${l.side} ${l.edge.toFixed(4)}`).join(', ')})`);
+      await Promise.allSettled([winner.task]);
+    } else {
+      await Promise.allSettled(tasks.map(t => t.task));
+    }
   }
 
   private async openLeg(
