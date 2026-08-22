@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_010-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_010-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R502_01-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R502_01-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -106,7 +106,7 @@ const LOGGER = {
 // ============================================================
 const CONFIG = {
     // ── Deriv API [RETAINED credentials] ─────────────────────
-    API_TOKEN: 'pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692', //pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692  //pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee
+    API_TOKEN: 'pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee', //pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692  //pat_8e0a3285bd6e74f52a67985b8069f4bea42aa96ce65d129c60ebb838ed1065ee
     APP_ID: '33uslPtthXBEkQOdfKfoY',
     ACCOUNT_TYPE: 'demo',          // 'demo' | 'real' (PAT mode only)
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
@@ -118,9 +118,9 @@ const CONFIG = {
     MAX_MARTINGALE_LEVEL: 1,
     AFTER_MAX_LOSS: 'continue',
     CONTINUE_EXTRA_LEVELS: 8,
-    EXTRA_LEVEL_MULTIPLIERS: [1.8, 2.1, 2.1, 2.1, 2.1, 2.1, 2.1],
-    AUTO_COMPOUNDING: true,
-    COMPOUND_PERCENTAGE: 0.24,
+    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2.0, 2.0, 2.0, 2.0, 2.3], //[2.1, 2.2, 2, 2.3]
+    AUTO_COMPOUNDING: false,
+    COMPOUND_PERCENTAGE: 0.1,
     STOP_LOSS: 152,
 
     // ── Session / daily guards ───────────────────
@@ -131,29 +131,34 @@ const CONFIG = {
     // ── Candle / Contract Settings [RETAINED] ────────────────
     GRANULARITY: 60,     // 1-minute candles
     TIMEFRAME_LABEL: '1m',
-    CANDLES_TO_LOAD: 200,
-    MAX_CANDLES_STORED: 300,
-    DURATION: 1,
-    DURATION_UNIT: 'm',
-    MIN_CANDLES_REQUIRED: 82,    
+    CANDLES_TO_LOAD: 30,
+    MAX_CANDLES_STORED: 30,
+    DURATION: 50,
+    DURATION_UNIT: 's', // 's' | 'm' | 'h'
+    MIN_CANDLES_REQUIRED: 30,    
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
-    USE_TRADING_SESSIONS: false,
+    USE_TRADING_SESSIONS: true,
     SESSIONS: [
         { name: 'LONDON_OPEN', start: 2, end: 17 },
-        { name: 'NY_OPEN', start: 12, end: 22 },
+        { name: 'NY_OPEN', start: 12, end: 18 },
     ],
 
     // ── Position Management ───────────────────────────────────
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS: 6,
-    MAX_TRADES_PER_CYCLE: 3,
+    MAX_TOTAL_POSITIONS: 1,
+    MAX_TRADES_PER_CYCLE: 1,
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
-        'R_75',
+        'R_50',
+        // 'R_75',
         // 'R_100',
         // 'stpRNG',
+        // 'stpRNG2',
+        // 'stpRNG3',
+        // 'stpRNG4',
+        // 'stpRNG5',
     ],
 
     // ── Misc ──────────────────────────────────────────────────
@@ -186,7 +191,7 @@ class StakeCalculator {
     }
 
     static calculate(investmentRemaining, martingaleLevel = 0) {
-        const level = Math.max(0, martingaleLevel || 0);
+        let level = Math.max(0, martingaleLevel || 0);
         let base = this.getBaseStake(investmentRemaining);
         base = Math.max(base, CONFIG.INITIAL_STAKE);
 
@@ -198,6 +203,12 @@ class StakeCalculator {
             const extraIdx = level - CONFIG.MAX_MARTINGALE_LEVEL - 1;
             for (let i = 0; i <= extraIdx; i++) {
                 stake *= (CONFIG.EXTRA_LEVEL_MULTIPLIERS[i] || CONFIG.MARTINGALE_MULTIPLIER);
+            }
+
+            // Reset to base stake after exceeding max martingale + extra levels
+            if (level > CONFIG.MAX_MARTINGALE_LEVEL + CONFIG.CONTINUE_EXTRA_LEVELS) {
+                stake = base;
+                level = 0; // Reset level to 0 for calculation
             }
         }
 
@@ -585,7 +596,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `⏰ <b>CANDLE DIRECTION BOT v1.0 Hourly</b>`,
+            `⏰ <b>CANDLE DIRECTION BOT2 v1.0 Hourly</b>`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '\u{1f7e2}' : '\u{1f534}'} $${h.pnl.toFixed(2)}`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
             `Loss Stats: x2:${today.x2Losses || 0} x3:${today.x3Losses || 0} x4:${today.x4Losses || 0} x5:${today.x5Losses || 0} x6:${today.x6Losses || 0} x7:${today.x7Losses || 0} x8:${today.x8Losses || 0} x9:${today.x9Losses || 0}`,
@@ -613,7 +624,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `\u{1f4ca} <b>CANDLE DIRECTION BOT v1.0 SESSION SUMMARY</b>`,
+            `\u{1f4ca} <b>CANDLE DIRECTION BOT2 v1.0 SESSION SUMMARY</b>`,
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
             `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
@@ -634,7 +645,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `\u{1f916} <b>CANDLE DIRECTION BOT v1.0 STARTED</b>`,
+            `\u{1f916} <b>CANDLE DIRECTION BOT2 v1.0 STARTED</b>`,
             `Strategy: Candle Direction + Normal Trading Mode`,
             `Candle Period: ${CONFIG.CANDLE_PERIOD} | Overbought: ${CONFIG.CANDLE_OVERBOUGHT} | Oversold: ${CONFIG.CANDLE_OVERSOLD}`,
             `Risk: Martingale progression with cap $${CONFIG.INVESTMENT_AMOUNT}`,
@@ -1593,7 +1604,7 @@ class IndexBot {
         // You can implement a function to analyze the last few closed candles and determine if the market is trending or ranging.
         const mode = this._determineMarketMode(a.closedCandles);
 
-        if (mode === 'trend') {
+        if (mode === 'range') {
             if (dir === 'CALLE') {
                 LOGGER.signal(`[${symbol}] BUY SIGNAL`);
                 const setupSuccess = 'CALLE';
@@ -1643,57 +1654,58 @@ class IndexBot {
                 }
                 return;
             }
-        } else {
-            if (dir === 'CALLE') {
-                LOGGER.signal(`[${symbol}] BUY SIGNAL`);
-                const setupSuccess = 'PUTE';
+        } 
+        // else {
+        //     if (dir === 'CALLE') {
+        //         LOGGER.signal(`[${symbol}] BUY SIGNAL`);
+        //         const setupSuccess = 'PUTE';
 
-                if (setupSuccess) {
-                    // Execute first trade as PUTE
-                    const firstDir = 'PUTE';
-                    a.normalModeActive = true;
-                    a.tradesInNormalMode = 1;
-                    a.normalModeDirection = firstDir;
-                    a.lastTradeDirection = firstDir;
-                    a.currentDirection = firstDir;
+        //         if (setupSuccess) {
+        //             // Execute first trade as PUTE
+        //             const firstDir = 'PUTE';
+        //             a.normalModeActive = true;
+        //             a.tradesInNormalMode = 1;
+        //             a.normalModeDirection = firstDir;
+        //             a.lastTradeDirection = firstDir;
+        //             a.currentDirection = firstDir;
 
-                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+        //             LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
-                    this._executeBuy(symbol, firstDir, stake, {
-                        method: 'CANDLE_CLOSE_BULLISH',
-                        reason: `CANDLE_CLOSE_BULLISH signal — candle closed above previous candle (bullish pattern)`,
-                        marketMode: mode,
-                    });
+        //             this._executeBuy(symbol, firstDir, stake, {
+        //                 method: 'CANDLE_CLOSE_BULLISH',
+        //                 reason: `CANDLE_CLOSE_BULLISH signal — candle closed above previous candle (bullish pattern)`,
+        //                 marketMode: mode,
+        //             });
 
-                    a.buyFlagActive = false; // consumed
-                }
-                return;
-            } else {
-                LOGGER.signal(`[${symbol}] BUY SIGNAL`);
-                const setupSuccess = 'CALLE';
+        //             a.buyFlagActive = false; // consumed
+        //         }
+        //         return;
+        //     } else {
+        //         LOGGER.signal(`[${symbol}] BUY SIGNAL`);
+        //         const setupSuccess = 'CALLE';
 
-                if (setupSuccess) {
-                    // Execute first trade as PUTE
-                    const firstDir = 'CALLE';
-                    a.normalModeActive = true;
-                    a.tradesInNormalMode = 1;
-                    a.normalModeDirection = firstDir;
-                    a.lastTradeDirection = firstDir;
-                    a.currentDirection = firstDir;
+        //         if (setupSuccess) {
+        //             // Execute first trade as PUTE
+        //             const firstDir = 'CALLE';
+        //             a.normalModeActive = true;
+        //             a.tradesInNormalMode = 1;
+        //             a.normalModeDirection = firstDir;
+        //             a.lastTradeDirection = firstDir;
+        //             a.currentDirection = firstDir;
 
-                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+        //             LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
-                    this._executeBuy(symbol, firstDir, stake, {
-                        method: 'CANDLE_CLOSE_BEARISH',
-                        reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
-                        marketMode: mode,
-                    });
+        //             this._executeBuy(symbol, firstDir, stake, {
+        //                 method: 'CANDLE_CLOSE_BEARISH',
+        //                 reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
+        //                 marketMode: mode,
+        //             });
 
-                    a.sellFlagActive = false; // consumed
-                }
-                return;
-            }
-        }
+        //             a.sellFlagActive = false; // consumed
+        //         }
+        //         return;
+        //     }
+        // }
 
         // No signal — log status
         LOGGER.debug(`[${symbol}] No new trade signal detected — last closed candle: O:${lastClosedCandle.open.toFixed(5)} H:${lastClosedCandle.high.toFixed(5)} L:${lastClosedCandle.low.toFixed(5)} C:${lastClosedCandle.close.toFixed(5)}`);
