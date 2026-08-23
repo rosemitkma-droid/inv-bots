@@ -75,7 +75,7 @@ const CONFIG = Object.freeze({
   maxOpenTrades: parseInt('3', 10),
 
   // Hazard Model (v4.0 fixes)
-  candidateGrowthRates: [0.05], //[0.05, 0.04, 0.03, 0.02, 0.01]
+  candidateGrowthRates: [0.02, 0.01], //[0.05, 0.04, 0.03, 0.02, 0.01]
   hazardWindow: parseInt('600', 10),
   plannedHoldTicks: parseInt('15', 10),
   minBarrierPct: parseFloat('0.015'),
@@ -188,11 +188,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_04.log',
+  logFile: 'accuPULSE3BC_v5_05.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_04.json',
-  metricsFile: 'metricsBC_v5_04.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_04.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_05.json',
+  metricsFile: 'metricsBC_v5_05.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_05.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
