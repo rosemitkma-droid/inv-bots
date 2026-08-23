@@ -173,7 +173,7 @@ const CONFIG = Object.freeze({
   durationTicks: 1, // Digit contracts normally 1-10 ticks
   minStake: 5.5,
   maxStake: 150.00,
-  assets: ['R_50'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
+  assets: ['R_100'], //'1HZ10V','1HZ25V','1HZ50V','1HZ75V','1HZ100V','R_10','R_25','R_50','R_75','R_100','RDBULL','RDBEAR'
 
   // Trading frequency / limits
   tickWindow: 1000,
@@ -342,7 +342,7 @@ const CONFIG = Object.freeze({
 
   // ── Scheduled pause/resume ──────────────────────────────────────
   pauseEnabled   : true,
-  pauseStartGmt  : '18:00',
+  pauseStartGmt  : '19:00',
   pauseEndGmt    : '02:00',
 
   // ── Day-of-week trading filter ──────────────────────────────────
@@ -363,8 +363,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_27.json'),
-  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_27.log'),
+  stateFile: strEnv('STATE_FILE', 'newX2Differ_state_28.json'),
+  logFile: strEnv('LOG_FILE', 'newX2Differ_bot_28.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFO NEWDIFFERX2').toUpperCase(),
 
   // Telegram — existing hardcoded demo-test values, preserved.
