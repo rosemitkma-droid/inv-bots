@@ -638,6 +638,7 @@ export class Trader {
       st.halt(reason);
       st.append('system', `halted — ${reason}`);
       this.telegram.sendSessionEnd(
+        this.cfg.symbol,
         st.session.trades,
         `${p >= 0 ? '+' : ''}${p.toFixed(2)}`,
         `${st.session.trades > 0 ? ((st.session.wins / st.session.trades) * 100).toFixed(0) : '0'}%`,
@@ -653,7 +654,7 @@ export class Trader {
     if (trades <= 0) return;
     const pnl = st.session.totalProfit;
     const wr = st.session.trades > 0 ? `${((st.session.wins / st.session.trades) * 100).toFixed(0)}%` : '0%';
-    this.telegram.sendHourly(trades, `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`, wr, {
+    this.telegram.sendHourly(this.cfg.symbol, trades, `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`, wr, {
       totalTrades: st.session.trades,
       wins: st.session.wins,
       losses: st.session.losses,
@@ -729,7 +730,7 @@ export class Trader {
     const s = st.session;
     const dateStr = new Date(Date.now() - 1 * 3600_000).toISOString().slice(0, 10); // GMT+1 date
     const winRate = s.trades > 0 ? `${((s.wins / s.trades) * 100).toFixed(0)}%` : '0%';
-    this.telegram.sendEndOfDay(dateStr, {
+    this.telegram.sendEndOfDay(this.cfg.symbol, dateStr, {
       trades: s.trades,
       wins: s.wins,
       losses: s.losses,
