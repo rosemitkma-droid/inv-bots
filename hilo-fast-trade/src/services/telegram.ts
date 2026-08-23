@@ -17,15 +17,15 @@ export interface TelegramNotifier {
   /** Raw HTML text — caller handles formatting. */
   send(text: string): Promise<void>;
   /** Convenience: formatted trade-open message. */
-  sendTradeOpen(blockTime: string, label: string, barrier: string, stakeUsd: string, evTag?: string): Promise<void>;
+  sendTradeOpen(symbol: string, blockTime: string, label: string, barrier: string, stakeUsd: string, evTag?: string): Promise<void>;
   /** Convenience: formatted trade-result message. */
-  sendTradeResult(pnl: string, legs: string, stats: { trades: number; wins: number; losses: number; winRate: string; netPnl: string }): Promise<void>;
+  sendTradeResult(symbol: string, pnl: string, legs: string, stats: { trades: number; wins: number; losses: number; winRate: string; netPnl: string }): Promise<void>;
   /** Convenience: formatted hourly summary. */
-  sendHourly(trades: number, pnl: string, winRate: string, stats: { totalTrades: number; wins: number; losses: number; netPnl: string }): Promise<void>;
+  sendHourly(symbol: string, trades: number, pnl: string, winRate: string, stats: { totalTrades: number; wins: number; losses: number; netPnl: string }): Promise<void>;
   /** Convenience: formatted session-end message. */
-  sendSessionEnd(trades: number, pnl: string, winRate: string, reason: string): Promise<void>;
+  sendSessionEnd(symbol: string, trades: number, pnl: string, winRate: string, reason: string): Promise<void>;
   /** Convenience: formatted end-of-day summary (GMT+1). */
-  sendEndOfDay(dateStr: string, stats: { trades: number; wins: number; losses: number; winRate: string; netPnl: string }): Promise<void>;
+  sendEndOfDay(symbol: string, dateStr: string, stats: { trades: number; wins: number; losses: number; winRate: string; netPnl: string }): Promise<void>;
   /** Returns whether the notifier is configured. */
   get enabled(): boolean;
 }
@@ -70,18 +70,18 @@ export function createTelegramNotifier(
       await post(text);
     },
 
-    async sendTradeOpen(blockTime: string, label: string, barrier: string, stakeUsd: string, evTag?: string): Promise<void> {
+    async sendTradeOpen(symbol: string, blockTime: string, label: string, barrier: string, stakeUsd: string, evTag?: string): Promise<void> {
       const evLine = evTag ? `\n${evTag}` : '';
       await post(
-        `<b>🔵 Trade Open</b> ${blockTime}\n` +
+        `<b>🔵 Trade Open</b> ${symbol} ${blockTime}\n` +
         `${label} @ ${barrier}\n` +
         `Stake: $${stakeUsd}${evLine}`,
       );
     },
 
-    async sendTradeResult(pnl: string, legs: string, stats: { trades: number; wins: number; losses: number; winRate: string; netPnl: string }): Promise<void> {
+    async sendTradeResult(symbol: string, pnl: string, legs: string, stats: { trades: number; wins: number; losses: number; winRate: string; netPnl: string }): Promise<void> {
       await post(
-        `<b>📊 Trade Result</b>\n` +
+        `<b>📊 Trade Result</b> ${symbol}\n` +
         `P/L: ${pnl}\n` +
         `${legs}\n\n` +
         `📈 <b>Session Stats</b>\n` +
@@ -91,9 +91,9 @@ export function createTelegramNotifier(
       );
     },
 
-    async sendHourly(trades: number, pnl: string, winRate: string, stats: { totalTrades: number; wins: number; losses: number; netPnl: string }): Promise<void> {
+    async sendHourly(symbol: string, trades: number, pnl: string, winRate: string, stats: { totalTrades: number; wins: number; losses: number; netPnl: string }): Promise<void> {
       await post(
-        `<b>⏱ Hourly Report</b>\n` +
+        `<b>⏱ Hourly Report</b> ${symbol}\n` +
         `Blocks Traded (Hour): ${trades}\n` +
         `Hour P/L: ${pnl}\n\n` +
         `📈 <b>Session Summary</b>\n` +
@@ -103,18 +103,18 @@ export function createTelegramNotifier(
       );
     },
 
-    async sendSessionEnd(trades: number, pnl: string, winRate: string, reason: string): Promise<void> {
+    async sendSessionEnd(symbol: string, trades: number, pnl: string, winRate: string, reason: string): Promise<void> {
       await post(
-        `<b>🏁 Session Ended</b> — ${reason}\n` +
+        `<b>🏁 Session Ended</b> ${symbol} — ${reason}\n` +
         `Blocks: ${trades}\n` +
         `P/L: ${pnl}\n` +
         `Win rate: ${winRate}`,
       );
     },
 
-    async sendEndOfDay(dateStr: string, stats: { trades: number; wins: number; losses: number; winRate: string; netPnl: string }): Promise<void> {
+    async sendEndOfDay(symbol: string, dateStr: string, stats: { trades: number; wins: number; losses: number; winRate: string; netPnl: string }): Promise<void> {
       await post(
-        `🌙 <b>End of Day Report (${dateStr} GMT+1)</b>\n` +
+        `🌙 <b>End of Day Report</b> ${symbol} (${dateStr} GMT+1)\n` +
         `Total Trades: ${stats.trades} (Win: ${stats.wins} / Loss: ${stats.losses})\n` +
         `Win Rate: ${stats.winRate}\n` +
         `Net P/L: ${stats.netPnl}`,
