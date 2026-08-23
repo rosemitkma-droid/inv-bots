@@ -228,10 +228,11 @@ export class PairTrader {
       const dist = Math.abs(p.predictedHigh - spot);
       const trueP = this.activeModel ? winRate(this.activeModel, cfg.mode, 'HIGHER', dist) : 0.5;
       const edge = p.edges?.['HIGHER'] ?? (this.activeEdges?.['HIGHER'] ?? 0);
-      // Positive-EV filter: skip this leg if tradeDirection is 'positive-ev' and edge <= 0.
-      if (p.tradeDirection === 'positive-ev' && edge <= 0) {
+      // Positive-EV filter: skip this leg if tradeDirection is 'positive-ev' and edge <= 0 or below minEv.
+      const evDollarUp = edge * (effectiveBase / (1 / 1.95)); // rough payout estimate for floor check
+      if (p.tradeDirection === 'positive-ev' && (!Number.isFinite(edge) || edge <= 0 || evDollarUp < cfg.minEv)) {
         skippedSides.add('HIGHER');
-        useStore.getState().append('info', `upper leg (${ct}) skipped — positive-ev mode, edge=${edge.toFixed(4)} <= 0`);
+        useStore.getState().append('info', `upper leg (${ct}) skipped — positive-ev mode, edge=${isFinite(edge) ? edge.toFixed(4) : 'NaN'}${evDollarUp < cfg.minEv && isFinite(edge) && edge > 0 ? ` ev=$${evDollarUp.toFixed(2)} < minEv $${cfg.minEv}` : ''}`);
       } else {
         const targetStake = cfg.evStagger ? staggerStake({ baseStake: effectiveBase, edge }) : effectiveBase;
         prefetchEntries.push({ side: 'HIGHER', barrier: p.predictedHigh, durVal: dv, durUnit: du, ct, dist, trueP, targetStake, edge });
@@ -245,10 +246,11 @@ export class PairTrader {
       const dist = Math.abs(p.predictedLow - spot);
       const trueP = this.activeModel ? winRate(this.activeModel, cfg.mode, 'LOWER', dist) : 0.5;
       const edge = p.edges?.['LOWER'] ?? (this.activeEdges?.['LOWER'] ?? 0);
-      // Positive-EV filter: skip this leg if tradeDirection is 'positive-ev' and edge <= 0.
-      if (p.tradeDirection === 'positive-ev' && edge <= 0) {
+      // Positive-EV filter: skip this leg if tradeDirection is 'positive-ev' and edge <= 0 or below minEv.
+      const evDollarDn = edge * (effectiveBase / (1 / 1.95));
+      if (p.tradeDirection === 'positive-ev' && (!Number.isFinite(edge) || edge <= 0 || evDollarDn < cfg.minEv)) {
         skippedSides.add('LOWER');
-        useStore.getState().append('info', `lower leg (${ct}) skipped — positive-ev mode, edge=${edge.toFixed(4)} <= 0`);
+        useStore.getState().append('info', `lower leg (${ct}) skipped — positive-ev mode, edge=${isFinite(edge) ? edge.toFixed(4) : 'NaN'}${evDollarDn < cfg.minEv && isFinite(edge) && edge > 0 ? ` ev=$${evDollarDn.toFixed(2)} < minEv $${cfg.minEv}` : ''}`);
       } else {
         const targetStake = cfg.evStagger ? staggerStake({ baseStake: effectiveBase, edge }) : effectiveBase;
         prefetchEntries.push({ side: 'LOWER', barrier: p.predictedLow, durVal: dv, durUnit: du, ct, dist, trueP, targetStake, edge });
@@ -446,6 +448,7 @@ export class PairTrader {
         `DRY ${label} stake=${stake.toFixed(2)} payout=${payout.toFixed(2)} barrier=${barrierStr} dur=${durSpec} id=${fakeId}${evTokens}${xToken}`,
       );
       this.deps.notify?.sendTradeOpen(
+        cfg.symbol,
         `DRY ${timeHM(Date.now() / 1000)}`,
         label,
         barrierStr,
@@ -496,6 +499,7 @@ export class PairTrader {
           `${label} stake=${buy.buy_price.toFixed(2)} payout=${prefetch.payout.toFixed(2)} barrier=${barrierStr} dur=${durSpec} id=${buy.contract_id}${evTokens}${xToken}`,
         );
         this.deps.notify?.sendTradeOpen(
+          cfg.symbol,
           timeHM(Date.now() / 1000),
           label,
           barrierStr,
@@ -569,6 +573,7 @@ export class PairTrader {
           `${label} stake=${res.buy_price.toFixed(2)} payout=${res.payout.toFixed(2)} barrier=${barrierStr} dur=${durSpec} id=${res.contract_id}${evTokens}${xToken}`,
         );
         this.deps.notify?.sendTradeOpen(
+          cfg.symbol,
           timeHM(Date.now() / 1000),
           label,
           barrierStr,
@@ -930,6 +935,7 @@ export class PairTrader {
       ? `${finalPair.lower.status} ${finalPair.lower.liveProfit >= 0 ? '+' : ''}${finalPair.lower.liveProfit.toFixed(2)}`
       : '—';
     this.deps.notify?.sendTradeResult(
+      this.deps.cfg().symbol,
       `${realised >= 0 ? '+' : ''}${realised.toFixed(2)}`,
       `H ${legsStr} · L ${lowerStr}`,
       {
