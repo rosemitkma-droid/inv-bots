@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R502_03-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R502_03-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R502_05-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R502_05-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -118,7 +118,7 @@ const CONFIG = {
     MAX_MARTINGALE_LEVEL: 1,
     AFTER_MAX_LOSS: 'continue',
     CONTINUE_EXTRA_LEVELS: 8,
-    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2.0, 2.0, 2.0, 2.0, 2.3], //[2.1, 2.2, 2, 2.3]
+    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2.0, 2.0, 2.2, 2.3, 2.3], //[2.1, 2.2, 2, 2.3]
     AUTO_COMPOUNDING: false,
     COMPOUND_PERCENTAGE: 0.1,
     STOP_LOSS: 152,
@@ -133,8 +133,8 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 30,
     MAX_CANDLES_STORED: 30,
-    DURATION: 1,
-    DURATION_UNIT: 'm', // 's' | 'm' | 'h'
+    DURATION: 50,
+    DURATION_UNIT: 's', // 's' | 'm' | 'h'
     MIN_CANDLES_REQUIRED: 30,    
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
@@ -1604,46 +1604,46 @@ class IndexBot {
         // You can implement a function to analyze the last few closed candles and determine if the market is trending or ranging.
         const mode = this._determineMarketMode(a.closedCandles);
 
-        if (mode === 'range') {
+        if (mode === 'trend') {
             if (dir === 'CALLE') {
-                LOGGER.signal(`[${symbol}] SELL SIGNAL`);
-                const setupSuccess = 'PUTE';
+                LOGGER.signal(`[${symbol}] BUY SIGNAL`);
+                const setupSuccess = 'CALLE';
 
                 if (setupSuccess) {
                     // Execute first trade as PUTE
-                    const firstDir = 'PUTE';
+                    const firstDir = 'CALLE';
                     a.normalModeActive = true;
                     a.tradesInNormalMode = 1;
                     a.normalModeDirection = firstDir;
                     a.lastTradeDirection = firstDir;
                     a.currentDirection = firstDir;
 
-                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
                     this._executeBuy(symbol, firstDir, stake, {
-                        method: 'CANDLE_CLOSE_BEARISH',
-                        reason: `CANDLE_CLOSE_BEARISH signal — candle closed below previous candle (bearish pattern)`,
+                        method: 'CANDLE_CLOSE_BULLISH',
+                        reason: `CANDLE_CLOSE_BULLISH signal — candle closed above previous candle (bullish pattern)`,
                         marketMode: mode,
                     });
 
-                    a.sellFlagActive = false; // consumed
+                    a.buyFlagActive = false; // consumed
                 }
                 return;
             } 
             // else {
             //     LOGGER.signal(`[${symbol}] SELL SIGNAL`);
-            //     const setupSuccess = 'CALLE';
+            //     const setupSuccess = 'PUTE';
 
             //     if (setupSuccess) {
             //         // Execute first trade as PUTE
-            //         const firstDir = 'CALLE';
+            //         const firstDir = 'PUTE';
             //         a.normalModeActive = true;
             //         a.tradesInNormalMode = 1;
             //         a.normalModeDirection = firstDir;
             //         a.lastTradeDirection = firstDir;
             //         a.currentDirection = firstDir;
 
-            //         LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c9} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+            //         LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} PUTE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
 
             //         this._executeBuy(symbol, firstDir, stake, {
             //             method: 'CANDLE_CLOSE_BEARISH',
