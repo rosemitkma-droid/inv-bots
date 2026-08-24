@@ -432,9 +432,13 @@ export class Trader {
     // Martingale: if enabled, increase stake based on consecutive losses.
     let effectiveStake = this.cfg.stake;
     if (this.cfg.martingaleEnabled) {
-      const losses = Math.min(useStore.getState().session.consecutiveLosses, this.cfg.martingaleSteps);
+      const consecutiveLosses = useStore.getState().session.consecutiveLosses;
+      const losses = Math.min(consecutiveLosses, this.cfg.martingaleSteps);
       if (losses > 0) {
         effectiveStake = this.cfg.stake * Math.pow(this.cfg.martingaleMultiplier, losses);
+        useStore.getState().append('info', `martingale: losses=${consecutiveLosses} capped=${losses} stake=${this.cfg.stake.toFixed(2)}→${effectiveStake.toFixed(2)} (×${this.cfg.martingaleMultiplier}^${losses})`);
+      } else {
+        useStore.getState().append('info', `martingale: losses=${consecutiveLosses} — using base stake ${effectiveStake.toFixed(2)}`);
       }
     }
 
