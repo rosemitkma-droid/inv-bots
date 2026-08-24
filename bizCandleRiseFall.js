@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R50_10-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_10-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R50_11-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_11-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -133,8 +133,8 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 30,
     MAX_CANDLES_STORED: 30,
-    DURATION: 1,
-    DURATION_UNIT: 'm', // 's' | 'm' | 'h'
+    DURATION: 57,
+    DURATION_UNIT: 's', // 's' | 'm' | 'h'
     MIN_CANDLES_REQUIRED: 30,    
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
@@ -343,7 +343,6 @@ class TradeHistoryManager {
             dayAssetStats.winsCount++; dayAssetStats.profit += profit; dayAssetStats.netPL += profit;
             overall.winsCount++; overall.profit += profit; overall.netPL += profit;
             overallAsset.winsCount++; overallAsset.profit += profit; overallAsset.netPL += profit;
-            this.rangeCheck = false;
         } else {
             dayStats.lossesCount++; dayStats.loss += Math.abs(profit); dayStats.netPL += profit;
             dayAssetStats.lossesCount++; dayAssetStats.loss += Math.abs(profit); dayAssetStats.netPL += profit;
@@ -801,7 +800,11 @@ class SessionManager {
             a.cooldownCandles = 0;
             a.lastTradeWasWin = true;
             a.forceRecoverDirection = null;  // win exits forced recovery mode
-            this.rangeCheck = false;
+            // Reset rangeCheck filter after win → wait for next 'range' before allowing a 'trend' trade
+            // if (typeof bot !== 'undefined' && bot) {
+            //     bot.rangeCheck = false;
+            //     LOGGER.info(`[${symbol}] WIN — rangeCheck reset to false (awaiting next RANGE mode)`);
+            // }
 
             // Credit payout (stake + profit) back to investment pool — pool grows on win
             a.investmentRemaining = Number((a.investmentRemaining + stake + profit).toFixed(2));
@@ -834,6 +837,14 @@ class SessionManager {
                 const key = `x${a.martingaleLevel}Losses`;
                 state.session[key]++;
                 a[key]++;
+            }
+
+            if (a.consecutiveLosses === 3) {
+                if (typeof bot !== 'undefined' && bot) bot.rangeCheck = false;
+                LOGGER.info(`[${symbol}] 3 consecutive losses — Going back to range check for next trade`);
+            } else if (a.consecutiveLosses === 6) {
+                if (typeof bot !== 'undefined' && bot) bot.rangeCheck = false;
+                LOGGER.warn(`[${symbol}] 6 consecutive losses — Going back to range check for next trade`);
             }
 
             a.currentStake = StakeCalculator.calculate(a.investmentRemaining, a.martingaleLevel);
@@ -1609,6 +1620,7 @@ class IndexBot {
 
         if (mode === 'range' && !this.rangeCheck) {
             this.rangeCheck = true;
+            LOGGER.info(`[${symbol}] RANGE detected — rangeCheck armed (true) → next TREND will trigger trade | mode=${mode}`);
             // if (dir === 'CALLE') {
             //     LOGGER.signal(`[${symbol}] BUY SIGNAL`);
             //     const setupSuccess = 'CALLE';
