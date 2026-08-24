@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R50_09-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_09-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R50_10-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_10-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -343,6 +343,7 @@ class TradeHistoryManager {
             dayAssetStats.winsCount++; dayAssetStats.profit += profit; dayAssetStats.netPL += profit;
             overall.winsCount++; overall.profit += profit; overall.netPL += profit;
             overallAsset.winsCount++; overallAsset.profit += profit; overallAsset.netPL += profit;
+            this.rangeCheck = false;
         } else {
             dayStats.lossesCount++; dayStats.loss += Math.abs(profit); dayStats.netPL += profit;
             dayAssetStats.lossesCount++; dayAssetStats.loss += Math.abs(profit); dayAssetStats.netPL += profit;
