@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R50_12-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_12-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R50_14-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_14-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -133,7 +133,7 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 30,
     MAX_CANDLES_STORED: 30,
-    DURATION: 56,
+    DURATION: 57,
     DURATION_UNIT: 's', // 's' | 'm' | 'h'
     MIN_CANDLES_REQUIRED: 30,    
 
@@ -801,10 +801,10 @@ class SessionManager {
             a.lastTradeWasWin = true;
             a.forceRecoverDirection = null;  // win exits forced recovery mode
             // Reset rangeCheck filter after win → wait for next 'range' before allowing a 'trend' trade
-            // if (typeof bot !== 'undefined' && bot) {
-            //     bot.rangeCheck = false;
-            //     LOGGER.info(`[${symbol}] WIN — rangeCheck reset to false (awaiting next RANGE mode)`);
-            // }
+            if (typeof bot !== 'undefined' && bot) {
+                bot.rangeCheck = false;
+                LOGGER.info(`[${symbol}] WIN — rangeCheck reset to false (awaiting next RANGE mode)`);
+            }
 
             // Credit payout (stake + profit) back to investment pool — pool grows on win
             a.investmentRemaining = Number((a.investmentRemaining + stake + profit).toFixed(2));
