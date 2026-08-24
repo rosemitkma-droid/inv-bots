@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R50_11-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_11-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R50_12-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_12-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -133,7 +133,7 @@ const CONFIG = {
     TIMEFRAME_LABEL: '1m',
     CANDLES_TO_LOAD: 30,
     MAX_CANDLES_STORED: 30,
-    DURATION: 57,
+    DURATION: 56,
     DURATION_UNIT: 's', // 's' | 'm' | 'h'
     MIN_CANDLES_REQUIRED: 30,    
 
