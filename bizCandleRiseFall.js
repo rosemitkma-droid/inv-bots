@@ -15,7 +15,6 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
-const e = require('express');
 
 // ══════════════════════════════════════════════════════════════════════════════
 // DERIV REST CLIENT  (for the PAT / OAuth OTP-based auth flow)  [RETAINED]
@@ -80,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R50_20-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_20-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R50_23-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_23-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -840,6 +839,8 @@ class SessionManager {
                 a[key]++;
             }
 
+            a.currentStake = StakeCalculator.calculate(a.investmentRemaining, a.martingaleLevel);
+
             if (a.consecutiveLosses === 2) {
                 if (typeof bot !== 'undefined' && bot) bot.rangeCheck = false;
                 LOGGER.info(`[${symbol}] 2 consecutive losses — Going back to range check for next trade`);
@@ -853,8 +854,6 @@ class SessionManager {
                 if (typeof bot !== 'undefined' && bot) bot.rangeCheck = false;
                 LOGGER.warn(`[${symbol}] 8 consecutive losses — Going back to range check for next trade`);
             }
-
-            a.currentStake = StakeCalculator.calculate(a.investmentRemaining, a.martingaleLevel);
 
             if (a.consecutiveLosses >= 10) {
                 a.currentStake = CONFIG.INITIAL_STAKE;
