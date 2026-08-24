@@ -204,8 +204,12 @@ export class PairTrader {
     const evTag = cfg.evMode && p.evK !== undefined ? ` · ev K=${p.evK.toFixed(2)}` : '';
     const dirTag = p.tradeDirection === 'positive-ev' ? ' · +EV only' : '';
     const effectiveBase = p.effectiveStake ?? cfg.stake;
-    const mgTag = p.effectiveStake && p.effectiveStake !== cfg.stake
-      ? ` · martingale $${p.effectiveStake.toFixed(2)}`
+    // When martingale is actively scaling the stake (effectiveBase > base),
+    // bypass evStagger to preserve the geometric progression. Otherwise,
+    // evStagger could shrink the martingale stake and break the recovery math.
+    const martingaleActive = effectiveBase > cfg.stake;
+    const mgTag = martingaleActive
+      ? ` · martingale $${effectiveBase.toFixed(2)}`
       : '';
     useStore.getState().append(
       'block',
@@ -234,7 +238,8 @@ export class PairTrader {
         skippedSides.add('HIGHER');
         useStore.getState().append('info', `upper leg (${ct}) skipped — positive-ev mode, edge=${isFinite(edge) ? edge.toFixed(4) : 'NaN'}${evDollarUp < cfg.minEv && isFinite(edge) && edge > 0 ? ` ev=$${evDollarUp.toFixed(2)} < minEv $${cfg.minEv}` : ''}`);
       } else {
-        const targetStake = cfg.evStagger ? staggerStake({ baseStake: effectiveBase, edge }) : effectiveBase;
+        // When martingale is active, bypass evStagger to preserve geometric progression
+        const targetStake = (cfg.evStagger && !martingaleActive) ? staggerStake({ baseStake: effectiveBase, edge }) : effectiveBase;
         prefetchEntries.push({ side: 'HIGHER', barrier: p.predictedHigh, durVal: dv, durUnit: du, ct, dist, trueP, targetStake, edge });
       }
     }
@@ -252,7 +257,8 @@ export class PairTrader {
         skippedSides.add('LOWER');
         useStore.getState().append('info', `lower leg (${ct}) skipped — positive-ev mode, edge=${isFinite(edge) ? edge.toFixed(4) : 'NaN'}${evDollarDn < cfg.minEv && isFinite(edge) && edge > 0 ? ` ev=$${evDollarDn.toFixed(2)} < minEv $${cfg.minEv}` : ''}`);
       } else {
-        const targetStake = cfg.evStagger ? staggerStake({ baseStake: effectiveBase, edge }) : effectiveBase;
+        // When martingale is active, bypass evStagger to preserve geometric progression
+        const targetStake = (cfg.evStagger && !martingaleActive) ? staggerStake({ baseStake: effectiveBase, edge }) : effectiveBase;
         prefetchEntries.push({ side: 'LOWER', barrier: p.predictedLow, durVal: dv, durUnit: du, ct, dist, trueP, targetStake, edge });
       }
     }
@@ -295,10 +301,12 @@ export class PairTrader {
     // instantly lost for NOTOUCH). In EV mode the selector has already
     // guaranteed both are on the right side (anchored at spot); the check is
     // kept defensively.
-    const tasks: Array<{ side: LegSide; task: Promise<void>; edge: number }> = [];
+    // Tasks are built lazily — the promise factory is called only when we await.
+    // This prevents both legs from starting buys before we pick a winner in positive-ev mode.
+    const tasks: Array<{ side: LegSide; task: () => Promise<void>; edge: number }> = [];
     if (!skippedSides.has('HIGHER') && p.predictedHigh > spot) {
       const prefetch = this.prefetchMap.get('HIGHER');
-      tasks.push({ side: 'HIGHER', task: this.openLeg('HIGHER', p.predictedHigh, durationSec, spot, prefetch), edge: prefetch?.edge ?? p.edges?.['HIGHER'] ?? 0 });
+      tasks.push({ side: 'HIGHER', task: () => this.openLeg('HIGHER', p.predictedHigh, durationSec, spot, prefetch), edge: prefetch?.edge ?? p.edges?.['HIGHER'] ?? 0 });
     } else if (p.predictedHigh > spot) {
       // already logged as skipped in the prefetch phase
     } else {
@@ -306,7 +314,7 @@ export class PairTrader {
     }
     if (!skippedSides.has('LOWER') && p.predictedLow < spot) {
       const prefetch = this.prefetchMap.get('LOWER');
-      tasks.push({ side: 'LOWER', task: this.openLeg('LOWER', p.predictedLow, durationSec, spot, prefetch), edge: prefetch?.edge ?? p.edges?.['LOWER'] ?? 0 });
+      tasks.push({ side: 'LOWER', task: () => this.openLeg('LOWER', p.predictedLow, durationSec, spot, prefetch), edge: prefetch?.edge ?? p.edges?.['LOWER'] ?? 0 });
     } else if (p.predictedLow < spot) {
       // already logged as skipped in the prefetch phase
     } else {
@@ -320,9 +328,9 @@ export class PairTrader {
       const losers = tasks.slice(1);
       const ct = contractTypeFor(cfg.mode, winner.side);
       useStore.getState().append('info', `positive-ev: opening only ${winner.side} (${ct}) — ev=${winner.edge.toFixed(4)} (${losers.map(l => `${l.side} ${l.edge.toFixed(4)}`).join(', ')})`);
-      await Promise.allSettled([winner.task]);
+      await Promise.allSettled([winner.task()]);
     } else {
-      await Promise.allSettled(tasks.map(t => t.task));
+      await Promise.allSettled(tasks.map(t => t.task()));
     }
   }
 
