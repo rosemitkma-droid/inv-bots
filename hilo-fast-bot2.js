@@ -104,7 +104,7 @@ const CONFIG = {
   // Trade direction & Martingale
   TRADE_DIRECTION: (function() {
     const raw = (process.env.HILO_TRADE_DIRECTION2 || 'both').toLowerCase();
-    if (raw === 'positive-ev' || raw === 'positiveev' || raw === 'positive' || raw === 'single') return 'positive-ev';
+    // if (raw === 'positive-ev' || raw === 'positiveev' || raw === 'positive' || raw === 'single') return 'positive-ev';
     return 'both';
   })(),
   MARTINGALE_ENABLED: process.env.HILO_MARTINGALE_ENABLED2 === '1' || process.env.HILO_MARTINGALE_ENABLED2 === 'true',
