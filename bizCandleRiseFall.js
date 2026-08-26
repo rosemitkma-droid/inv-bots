@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R50_23-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_23-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R50_25-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R50_25-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -1680,31 +1680,6 @@ class IndexBot {
         } 
         else if (mode === 'trend' && this.rangeCheck) {
             if (dir === 'CALLE') {
-                LOGGER.signal(`[${symbol}] BUY SIGNAL`);
-                const setupSuccess = 'CALLE';
-
-                if (setupSuccess) {
-                    // Execute first trade as CALLE
-                    const firstDir = 'CALLE';
-                    a.normalModeActive = true;
-                    a.tradesInNormalMode = 1;
-                    a.normalModeDirection = firstDir;
-                    a.lastTradeDirection = firstDir;
-                    a.currentDirection = firstDir;
-
-                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
-
-                    this._executeBuy(symbol, firstDir, stake, {
-                        method: 'CANDLE_CLOSE_BULLISH',
-                        reason: `CANDLE_CLOSE_BULLISH signal — candle closed above previous candle (bullish pattern)`,
-                        marketMode: mode,
-                    });
-
-                    a.buyFlagActive = false; // consumed
-                }
-                return;
-            } 
-            else {
                 LOGGER.signal(`[${symbol}] SELL SIGNAL`);
                 const setupSuccess = 'PUTE';
 
@@ -1726,6 +1701,31 @@ class IndexBot {
                     });
 
                     a.sellFlagActive = false; // consumed
+                }
+                return;
+            } 
+            else {
+                LOGGER.signal(`[${symbol}] BUY SIGNAL`);
+                const setupSuccess = 'CALLE';
+
+                if (setupSuccess) {
+                    // Execute first trade as CALLE
+                    const firstDir = 'CALLE';
+                    a.normalModeActive = true;
+                    a.tradesInNormalMode = 1;
+                    a.normalModeDirection = firstDir;
+                    a.lastTradeDirection = firstDir;
+                    a.currentDirection = firstDir;
+
+                    LOGGER.normal(`[${symbol}] NORMAL MODE #1/${CONFIG.MAX_TRADES_PER_CYCLE} \u{1f4c8} CALLE (initial signal trade) | Stake: $${stake.toFixed(2)}`);
+
+                    this._executeBuy(symbol, firstDir, stake, {
+                        method: 'CANDLE_CLOSE_BULLISH',
+                        reason: `CANDLE_CLOSE_BULLISH signal — candle closed above previous candle (bullish pattern)`,
+                        marketMode: mode,
+                    });
+
+                    a.buyFlagActive = false; // consumed
                 }
                 return;
             }
