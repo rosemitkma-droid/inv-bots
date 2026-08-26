@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R502_10-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R502_10-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R502_13-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R502_13-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -140,7 +140,7 @@ const CONFIG = {
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
     USE_TRADING_SESSIONS: true,
     SESSIONS: [
-        { name: 'LONDON_OPEN', start: 2, end: 17 },
+        { name: 'LONDON_OPEN', start: 6, end: 13 },
         { name: 'NY_OPEN', start: 12, end: 18 },
     ],
 
