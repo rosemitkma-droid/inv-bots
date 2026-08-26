@@ -542,6 +542,7 @@ function evaluatePairExit(args) {
 
 /**
  * Edge-scaled per-leg stake: baseStake × clamp(1 + α·edge, minRatio, maxRatio).
+ * Enforces Deriv's minimum stake ($0.35) to prevent buy rejections.
  */
 function staggerStake(args) {
   const { baseStake, edge } = args;
@@ -549,7 +550,9 @@ function staggerStake(args) {
   const minRatio = args.minRatio ?? 0.5;
   const maxRatio = args.maxRatio ?? 2;
   const ratio = Math.min(maxRatio, Math.max(minRatio, 1 + alpha * edge));
-  return Math.max(0.01, Math.round(baseStake * ratio * 100) / 100);
+  // Deriv minimum stake is $0.35 — below this the buy is rejected.
+  const minStake = 0.35;
+  return Math.max(minStake, Math.round(baseStake * ratio * 100) / 100);
 }
 
 /**
@@ -750,23 +753,33 @@ async function selectBand(args) {
   for (const k of kCandidates) {
     const distanceUp = k * model.meanUp;
     const distanceDn = k * model.meanDn;
-    const predHigh = spot + distanceUp;
-    const predLow = spot - distanceDn;
-    const truePUp = winRate(model, mode, 'HIGHER', distanceUp);
-    const truePDn = winRate(model, mode, 'LOWER', distanceDn);
+    // Ensure barriers always straddle spot with a minimum distance.
+    // Without this, if meanUp or meanDn is 0 (or very small), one leg's
+    // barrier equals spot and the side is silently skipped in openPair.
+    // Deriv also rejects NO-TOUCH barriers that are too close to spot,
+    // so we enforce a per-side minimum distance and an absolute pip floor.
+    const pipFloor = 0.05; // ~5 pips for 2-digit instruments (covers 1HZ50V)
+    const minDistUp = Math.max(model.sigmaUp > 0 ? model.sigmaUp * 0.5 : 0.01, pipFloor);
+    const minDistDn = Math.max(model.sigmaDn > 0 ? model.sigmaDn * 0.5 : 0.01, pipFloor);
+    const safeDistUp = Math.max(distanceUp, minDistUp);
+    const safeDistDn = Math.max(distanceDn, minDistDn);
+    const predHigh = spot + safeDistUp;
+    const predLow = spot - safeDistDn;
+    const truePUp = winRate(model, mode, 'HIGHER', safeDistUp);
+    const truePDn = winRate(model, mode, 'LOWER', safeDistDn);
 
     const [qUp, qDn] = await Promise.all([
       quote({
         k, side: 'HIGHER', barrier: predHigh, durationSec,
-        distance: distanceUp, trueP: truePUp, sigmaBlock: legSigmaBlock(model, 'HIGHER'),
+        distance: safeDistUp, trueP: truePUp, sigmaBlock: legSigmaBlock(model, 'HIGHER'),
       }),
       quote({
         k, side: 'LOWER', barrier: predLow, durationSec,
-        distance: distanceDn, trueP: truePDn, sigmaBlock: legSigmaBlock(model, 'LOWER'),
+        distance: safeDistDn, trueP: truePDn, sigmaBlock: legSigmaBlock(model, 'LOWER'),
       }),
     ]);
 
-    const c = { k, distanceUp, distanceDn, predHigh, predLow, truePUp, truePDn };
+    const c = { k, distanceUp: safeDistUp, distanceDn: safeDistDn, predHigh, predLow, truePUp, truePDn };
     if (qUp) {
       c.payoutUp = qUp.payout;
       c.impliedPUp = qUp.impliedP;
@@ -1797,6 +1810,13 @@ class PairTrader {
       appendLog('warn', 'lower leg skipped — predL ' + p.predictedLow.toFixed(this.pipDigits) + ' >= spot ' + spot.toFixed(this.pipDigits));
     }
 
+    // Safety net: if TRADE_DIRECTION=both but only one leg was queued (e.g. barrier
+    // equals spot due to flat historical data), log it clearly so the user can
+    // see why a single-direction trade happened.
+    if (cfg.TRADE_DIRECTION === 'both' && tasks.length < 2) {
+      appendLog('warn', 'trade-direction=both but only ' + tasks.length + ' leg(s) queued — predH=' + p.predictedHigh.toFixed(this.pipDigits) + ' spot=' + spot.toFixed(this.pipDigits) + ' predL=' + p.predictedLow.toFixed(this.pipDigits));
+    }
+
     if (p.tradeDirection === 'positive-ev' && tasks.length > 1) {
       tasks.sort((a, b) => b.edge - a.edge);
       const winner = tasks[0];
@@ -1805,10 +1825,13 @@ class PairTrader {
       appendLog('info', 'positive-ev: opening only ' + winner.side + ' (' + ct + ') — ev=' + winner.edge.toFixed(4) + ' (' + losers.map((l) => l.side + ' ' + l.edge.toFixed(4)).join(', ') + ')');
       await Promise.allSettled([winner.task()]);
     } else {
-      for (const task of tasks) {
-        const result = await Promise.allSettled([task.task()]);
-        if (result[0].status === 'rejected') {
-          appendLog('error', task.side + ' leg task failed: ' + (result[0].reason?.message || String(result[0].reason)));
+      // Open both legs in parallel — minimizes time drift between legs so the
+      // second leg does not hit price-moved / stale-proposal failures when
+      // TRADE_DIRECTION=both (the user's reported symptom: mostly single leg).
+      const results = await Promise.allSettled(tasks.map((t) => t.task()));
+      for (let i = 0; i < results.length; i++) {
+        if (results[i].status === 'rejected') {
+          appendLog('error', tasks[i].side + ' leg task failed: ' + (results[i].reason?.message || String(results[i].reason)));
         }
       }
     }
@@ -1903,12 +1926,21 @@ class PairTrader {
         if (this.deps.notify) this.deps.notify.sendTradeOpen(cfg.SYMBOL, timeHM(Date.now() / 1000), label, barrierStr, buy.buy_price.toFixed(2), evTokens || undefined);
       } catch (err) {
         const msg = err.message || String(err);
-        if (msg.indexOf('PriceMoved') !== -1 || msg.indexOf('price') !== -1) {
-          appendLog('warn', label + ' buyProposal hit price move, retrying with fresh quote...');
+        // Retry on price-move errors AND transient errors (rate limit, server busy).
+        // Only skip retry on hard errors (insufficient balance, invalid barrier, etc.)
+        const isRetryable = msg.indexOf('PriceMoved') !== -1
+          || msg.indexOf('price') !== -1
+          || msg.indexOf('RateLimit') !== -1
+          || msg.indexOf('rate limit') !== -1
+          || msg.indexOf('busy') !== -1
+          || msg.indexOf('timeout') !== -1
+          || msg.indexOf('Timeout') !== -1;
+        if (isRetryable) {
+          appendLog('warn', label + ' buyProposal hit transient error, retrying with fresh quote: ' + msg);
           await this.openLeg(side, barrier, durationSec, spot, undefined);
           return;
         }
-        appendLog('error', label + ' buy failed (prefetch ' + contractType + ' dur=' + durSpec + ' barrier=' + barrierStr + '): ' + msg);
+        appendLog('error', label + ' buy failed (prefetch ' + contractType + ' dur=' + durSpec + ' barrier=' + barrierStr + '): ' + msg + ' — leg dropped');
       }
       return;
     }
