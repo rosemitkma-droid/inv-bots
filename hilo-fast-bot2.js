@@ -104,7 +104,7 @@ const CONFIG = {
   // Trade direction & Martingale
   TRADE_DIRECTION: (function() {
     const raw = (process.env.HILO_TRADE_DIRECTION2 || 'both').toLowerCase();
-    // if (raw === 'positive-ev' || raw === 'positiveev' || raw === 'positive' || raw === 'single') return 'positive-ev';
+    if (raw === 'positive-ev' || raw === 'positiveev' || raw === 'positive' || raw === 'single') return 'positive-ev';
     return 'both';
   })(),
   MARTINGALE_ENABLED: process.env.HILO_MARTINGALE_ENABLED2 === '1' || process.env.HILO_MARTINGALE_ENABLED2 === 'true',
@@ -1773,6 +1773,8 @@ class PairTrader {
             stake: entry.targetStake,
             payout: r.value.payout,
           });
+        } else if (r && r.status === 'rejected') {
+          appendLog('warn', entry.side + ' proposal prefetch failed — will request a fresh quote before buying: ' + (r.reason?.message || String(r.reason)));
         }
       }
     }
@@ -1803,7 +1805,12 @@ class PairTrader {
       appendLog('info', 'positive-ev: opening only ' + winner.side + ' (' + ct + ') — ev=' + winner.edge.toFixed(4) + ' (' + losers.map((l) => l.side + ' ' + l.edge.toFixed(4)).join(', ') + ')');
       await Promise.allSettled([winner.task()]);
     } else {
-      await Promise.allSettled(tasks.map((t) => t.task()));
+      for (const task of tasks) {
+        const result = await Promise.allSettled([task.task()]);
+        if (result[0].status === 'rejected') {
+          appendLog('error', task.side + ' leg task failed: ' + (result[0].reason?.message || String(result[0].reason)));
+        }
+      }
     }
   }async openLeg(side, barrier, durationSec, spot, prefetch) {
     const cfg = this.deps.cfg();
@@ -1898,7 +1905,7 @@ class PairTrader {
         const msg = err.message || String(err);
         if (msg.indexOf('PriceMoved') !== -1 || msg.indexOf('price') !== -1) {
           appendLog('warn', label + ' buyProposal hit price move, retrying with fresh quote...');
-          await this.openLeg(side, barrier, durationSec, spot);
+          await this.openLeg(side, barrier, durationSec, spot, undefined);
           return;
         }
         appendLog('error', label + ' buy failed (prefetch ' + contractType + ' dur=' + durSpec + ' barrier=' + barrierStr + '): ' + msg);
