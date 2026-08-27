@@ -79,8 +79,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizCandle_R502_13-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizCandle_R502_13-history.json');
+const STATE_FILE = path.join(__dirname, 'bizCandle_R502_01-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizCandle_R502_01-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -112,11 +112,11 @@ const CONFIG = {
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // ── Martingale / staking settings mirrored from candlePatternRFm.js ─
-    INITIAL_STAKE: 0.35,
+    INITIAL_STAKE: 1,
     INVESTMENT_AMOUNT: 208,
-    MARTINGALE_MULTIPLIER: 1.48,
-    MAX_MARTINGALE_LEVEL: 1,
-    AFTER_MAX_LOSS: 'continue',
+    MARTINGALE_MULTIPLIER: 1, //1.48
+    MAX_MARTINGALE_LEVEL: 30, //1
+    AFTER_MAX_LOSS: 'stop', // 'continue' | 'reset' | 'stop'
     CONTINUE_EXTRA_LEVELS: 8,
     EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.1, 2.2, 2.3, 2.3], //[2.1, 2.2, 2, 2.3]
     AUTO_COMPOUNDING: false,
@@ -140,8 +140,8 @@ const CONFIG = {
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
     USE_TRADING_SESSIONS: true,
     SESSIONS: [
-        { name: 'LONDON_OPEN', start: 6, end: 13 },
-        { name: 'NY_OPEN', start: 12, end: 18 },
+        { name: 'LONDON_OPEN', start: 1, end: 17 },
+        { name: 'NY_OPEN', start: 12, end: 23 },
     ],
 
     // ── Position Management ───────────────────────────────────
