@@ -138,7 +138,7 @@ const CONFIG = {
     // Number of consecutive same-direction candles to trigger opposite trade
     PATTERN_CONSECUTIVE_COUNT: 6,
     // Minimum seconds remaining in candle to allow immediate recovery; else defer to next candle
-    MIN_RECOVERY_SECONDS: 10,
+    MIN_RECOVERY_SECONDS: 20,
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
     USE_TRADING_SESSIONS: true,
@@ -210,7 +210,7 @@ const DEFAULT_ASSET_CONFIG = {
     PATTERN_CONSECUTIVE_COUNT: 6,
     PATTERN_DOJI_THRESHOLD: 0.00001,
     // Recovery: minimum seconds remaining to allow immediate retry; else defer to next candle
-    MIN_RECOVERY_SECONDS: 15,
+    MIN_RECOVERY_SECONDS: 20,
     // Legacy fields retained for compat but unused in consecutive mode
     PATTERN_MIN_CONFIDENCE: 0.10,
     MIN_PATTERN_CONFIDENCE: 0.10,
