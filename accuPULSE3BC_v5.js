@@ -75,7 +75,7 @@ const CONFIG = Object.freeze({
   maxOpenTrades: parseInt('3', 10),
 
   // Hazard Model (v4.0 fixes)
-  candidateGrowthRates: [0.02, 0.01], //[0.05, 0.04, 0.03, 0.02, 0.01]
+  candidateGrowthRates: [0.05], //[0.05, 0.04, 0.03, 0.02, 0.01]
   hazardWindow: parseInt('600', 10),
   plannedHoldTicks: parseInt('15', 10),
   minBarrierPct: parseFloat('0.015'),
@@ -188,11 +188,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_05.log',
+  logFile: 'accuPULSE3BC_v5_001.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_05.json',
-  metricsFile: 'metricsBC_v5_05.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_05.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_001.json',
+  metricsFile: 'metricsBC_v5_001.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_001.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -236,6 +236,17 @@ const CONFIG = Object.freeze({
     minEv: 0.005,                   // EV check: 0.5% net EV
     minMomentum: 0.0001,            // Momentum check: non-flat
     minSurvivalMean: 15,            // Survival check: 15+ ticks
+  },
+
+  // ── Daily-Reset + Relaxed Sharpe (fix multi-day decay) ─────────────────
+  relaxedAssetsConfig: {
+    minTradesForFilter: 200,  // only Sharpe-filter after 200 trades (was 50)
+    topN: 5,                  // keep 5 of 8 assets (was 3) when filtering
+  },
+  dailyReset: {
+    enabled: true,
+    decayRegimeRates: true,   // halve regime win/loss counts on reset
+    resetEquityPeak: true,    // set equityPeak = lastBalance on new day
   },
 
   // Reconnect
@@ -2046,6 +2057,7 @@ class EnhancedTradeExecutor extends EventEmitter {
       this.open.delete(cid);
       this._lastUpdateMap.delete(cid);
       this.positionHistory.push(finished);
+      if (this.positionHistory.length > 6000) this.positionHistory.splice(0, this.positionHistory.length - 5000);
       this.emit('result', finished);
       if (msg.subscription?.id) {
         this.client.forget(msg.subscription.id).catch(() => {});
@@ -2102,6 +2114,7 @@ class EnhancedTradeExecutor extends EventEmitter {
                 // Record as explicit 'unknown' so it is excluded from WR/streaks
                 // (never fabricate a win/loss for an unconfirmable contract).
                 this.positionHistory.push(info);
+                if (this.positionHistory.length > 6000) this.positionHistory.splice(0, this.positionHistory.length - 5000);
                 this.emit('result', info);
               }
             } else {
@@ -2185,6 +2198,8 @@ class EnhancedStatisticsManager {
       hour: utcHour(d)
     };
     this.trades.push(rec);
+    // Prevent unbounded growth over multi-day runs (cap 6000, trim oldest 1000)
+    if (this.trades.length > 6000) this.trades.splice(0, this.trades.length - 5000);
     this.overallProfit += Number(rec.profit || 0);
 
     // Phase 4: Track per-asset
@@ -2336,6 +2351,9 @@ class AccuPULSE3BotV5 {
     // ── Feature 7: Metrics Logging ──────────────────────────────────────
     this._metricsCycleCount = 0;
     this._metricsBuffer = [];
+
+    // ── Daily-Reset tracking (fix multi-day decay, state persists) ───────
+    this.lastResetDate = utcDateStr();
   }
 
   // ── Feature 5: Get current mode and its parameters ─────────────────────
@@ -2384,6 +2402,39 @@ class AccuPULSE3BotV5 {
       ? thresholds[volRegime]
       : this.cfg.minConfidence;
     return threshold;
+  }
+
+  // ── Daily-Reset: restore Day-1 frequency while keeping state persistence ─
+  _maybeResetDailyState() {
+    if (!this.cfg.dailyReset?.enabled) return false;
+    const today = utcDateStr();
+    if (this.lastResetDate === today) return false;
+    // Reset warm-up lifecycle so next day starts like Day 1
+    this.tradeCount = 0;
+    this.currentMode = 'WARMUP';
+    this.lastTradedSymbols = [];
+    this.recoveryMode = false;
+    this.recoveryWins = 0;
+    this.recoveryStartTime = 0;
+    // Decay (not wipe) regime win-rates so compositeScore doesn't permanently depress
+    if (this.cfg.dailyReset.decayRegimeRates) {
+      for (const cell of this.analyzer.regimeWinRates.values()) {
+        cell.wins = Math.floor(cell.wins * 0.5);
+        cell.losses = Math.floor(cell.losses * 0.5);
+        if (cell.trades.length > 500) cell.trades = cell.trades.slice(-500);
+      }
+    }
+    // Reset drawdown peak to avoid permanent ddReducer throttle
+    if (this.cfg.dailyReset.resetEquityPeak) {
+      const bal = this.lastBalance ?? this.startBalance ?? this.equityPeak;
+      this.equityPeak = bal;
+      this.ddReducer = 1.0;
+    }
+    this.lastResetDate = today;
+    log('INFO', `Daily reset ${today}: warmup restored, Sharpe/recent symbols cleared`);
+    try { telegram.send(`🔄 <b>AccuPULSE3BC_v5 Daily reset</b> ${today} → WARMUP (Day-1 frequency restored)`); } catch (_) {}
+    this._saveState('daily-reset');
+    return true;
   }
 
   // ── Feature 6: Enhanced Streak Recovery ────────────────────────────────
@@ -2535,6 +2586,8 @@ class AccuPULSE3BotV5 {
     this.startBalance ??= this.client.balance;
     this.lastBalance = this.client.balance ?? this.lastBalance ?? this.startBalance;
     this.equityPeak = Math.max(this.equityPeak || 0, this.lastBalance || 0);
+    // Daily-reset check on (re)connect — catches date rollover across restarts
+    try { this._maybeResetDailyState(); } catch (_) {}
 
     telegram.send(
       `🤖 <b>AccuPULSE3BC_v5 Online</b>\n\n` +
@@ -2788,6 +2841,9 @@ class AccuPULSE3BotV5 {
       if (!this.cfg.tradeEnabled) return;
       if (this._checkCircuitBreakers()) { this.stopped = true; return; }
 
+      // ── Daily-reset: restore Day-1 frequency ─────────────────────────
+      try { this._maybeResetDailyState(); } catch (_) {}
+
       // ── Feature 5: Update mode ───────────────────────────────────────
       this.currentMode = this.getMode();
       const modeConfig = this.getModeConfig();
@@ -2800,13 +2856,17 @@ class AccuPULSE3BotV5 {
 
       if (this.exec.count() >= modeConfig.maxOpen) return;
 
-      // Phase 4: Rank assets by Sharpe
+      // Phase 4: Rank assets by Sharpe (relaxed — fix multi-day decay)
+      const relaxed = this.cfg.relaxedAssetsConfig || {};
+      const topN = relaxed.topN ?? 5;
+      const minTradesForFilter = relaxed.minTradesForFilter ?? 200;
       const rankedAssets = this.stats.getRankedAssets();
-      const topAssets = rankedAssets.slice(0, 3).map(a => a.symbol);
+      const topAssets = rankedAssets.slice(0, topN).map(a => a.symbol);
 
       const analyses = this.cfg.assets.flatMap(sym => {
         // ── Feature 5: During warmup, use ALL assets ────────────────────
-        if (!modeConfig.useAllAssets && topAssets.length > 0 && !topAssets.includes(sym) && this.stats.trades.length > 50) {
+        // Relaxed: only filter after 200 trades (was 50) and keep 5 of 8 assets (was 3)
+        if (!modeConfig.useAllAssets && topAssets.length > 0 && !topAssets.includes(sym) && this.stats.trades.length > minTradesForFilter) {
           return [];
         }
 
@@ -2863,10 +2923,11 @@ class AccuPULSE3BotV5 {
 
       let best = null;
       for (const cand of ranked) {
-        // if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(cand.symbol)) {
-        //   log('DEBUG', `Recently traded ${cand.symbol} — skipping`);
-        //   continue;
-        // }
+        // Relaxed fix: skip recently-traded symbols by trying next candidate instead of blocking entire cycle
+        if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(cand.symbol)) {
+          log('DEBUG', `Recently traded ${cand.symbol} — skipping to next candidate`);
+          continue;
+        }
 
         // ── Feature 1: Adaptive confidence gate ─────────────────────────
         const adaptiveMinConfidence = this.getMinConfidence(cand.volRegime);
@@ -2899,11 +2960,6 @@ class AccuPULSE3BotV5 {
         log('DEBUG', 'No candidate passed all gates');
         return;
       }
-
-      if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(best.symbol)) {
-          log('DEBUG', `Recently traded ${best.symbol} — skipping`);
-          return;
-        }
 
       log('INFO', `Best candidate: ${best.symbol} score=${best.score.toFixed(3)} [${best.reasons.join(', ')}]`);
 
@@ -3150,6 +3206,7 @@ class AccuPULSE3BotV5 {
         recoveryMode: this.recoveryMode,
         recoveryStartTime: this.recoveryStartTime,
         recoveryWins: this.recoveryWins,
+        lastResetDate: this.lastResetDate,
       };
       const tmp = this.cfg.stateFile + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify(payload, null, 2));
@@ -3178,8 +3235,18 @@ class AccuPULSE3BotV5 {
       if (d.recoveryMode != null) this.recoveryMode = d.recoveryMode;
       if (d.recoveryStartTime != null) this.recoveryStartTime = d.recoveryStartTime;
       if (d.recoveryWins != null) this.recoveryWins = d.recoveryWins;
+      if (d.lastResetDate != null) this.lastResetDate = d.lastResetDate;
+      else this.lastResetDate = utcDateStr(); // migrate old state
       this.stats = new EnhancedStatisticsManager(d.stats || {});
-      log('INFO', `State restored: overall=${this.overallProfit.toFixed(2)} mode=${this.currentMode} trades=${this.tradeCount}`);
+      // If state is from a previous UTC day, reset immediately so new day starts like Day-1
+      try {
+        const today = utcDateStr();
+        if (this.lastResetDate !== today && this.cfg.dailyReset?.enabled) {
+          log('INFO', `State from ${this.lastResetDate} != today ${today} → daily reset on load`);
+          this._maybeResetDailyState();
+        }
+      } catch (_) {}
+      log('INFO', `State restored: overall=${this.overallProfit.toFixed(2)} mode=${this.currentMode} trades=${this.tradeCount} resetDate=${this.lastResetDate}`);
     } catch (e) {
       log('WARN', 'State load failed:', e.message);
     }
