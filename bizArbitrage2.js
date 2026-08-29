@@ -82,8 +82,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitrage_trend_001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_trend_001-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitrage_trend_002-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_trend_002-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -135,7 +135,7 @@ const CONFIG = {
 
     // ── Consecutive Candle Pattern (user configurable) ──────────
     // Number of consecutive same-direction candles to trigger opposite trade
-    PATTERN_CONSECUTIVE_COUNT: 6,
+    PATTERN_CONSECUTIVE_COUNT: 3,
     // MIN_RECOVERY_SECONDS kept for backward compat (no longer used — recovery always 1m on candle close)
     MIN_RECOVERY_SECONDS: 10,
 
@@ -209,7 +209,7 @@ const DEFAULT_ASSET_CONFIG = {
     // Pattern Analysis Settings — CONSECUTIVE OPPOSITE logic
     // Number of consecutive same candles (B or R) required before opposite trade
     // Doji breaks the streak (no trade). User can set per-asset via ASSET_CONFIGS.
-    PATTERN_CONSECUTIVE_COUNT: 6,
+    PATTERN_CONSECUTIVE_COUNT: 3,
     PATTERN_DOJI_THRESHOLD: 0.00001,
     // MIN_RECOVERY_SECONDS kept for compat (recovery now always 1m on candle close)
     MIN_RECOVERY_SECONDS: 10,
@@ -1507,7 +1507,20 @@ class ConnectionManager {
         SessionManager.checkSessionTargets();
         StatePersistence.saveState();
         // Recovery is now handled ONLY on candle close (handleOHLC → executeRecoveryTradeImmediate)
-        // — no immediate settlement trade to ensure every trade is a full 1m candle (open→close)
+        if (profit < 0 && a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.cooldownCandles === 0) {
+            // Defer to next-tick to allow lock release and state flush
+            setImmediate(() => {
+                try {
+                    if (bot && typeof bot.executeRecoveryTradeImmediate === 'function') {
+                        bot.executeRecoveryTradeImmediate(ownerSym);
+                    }
+                } catch (e) {
+                    LOGGER.error(`[${ownerSym}] Immediate recovery error: ${e.message}`);
+                    if (bot) bot._forceReleaseTradeLock();
+                }
+            });
+        }
+        
     }
 
     // ════════════════════════════════════════════════════════
