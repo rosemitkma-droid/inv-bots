@@ -2005,9 +2005,11 @@ class PairTrader {
       return;
     }
 
-    // Stake sizing.
+    // Stake sizing — when martingale is active, suppress EV_STAGGER to guarantee
+    // deterministic STAKE * MULTIPLIER^losses per user MARTINGALE_ENABLED setting.
+    const martingaleActive = this.activeEffectiveStake > cfg.STAKE + 1e-9;
     let stake = this.activeEffectiveStake;
-    if (cfg.EV_STAGGER) {
+    if (cfg.EV_STAGGER && !martingaleActive) {
       const sInfo = staggerStake({ baseStake: this.activeEffectiveStake, edge });
       stake = sInfo.stake;
     }
@@ -2098,8 +2100,14 @@ class PairTrader {
 
       try {
         // Fresh proposal + buy (no prefetch, or retry after prefetch failure).
-        let eff = { stake: cfg.STAKE, edge: undefined };
-        if (cfg.EV_STAGGER && trueP !== undefined) eff = await this.resolveLiveStake(side, trueP, contractType, durationValue, durationUnit, barrierStr);
+        // Martingale-aware: base on activeEffectiveStake, suppress stagger when martingale active
+        const distanceEff = Math.abs(barrier - spot);
+        const modelEff = this.activeModel;
+        const truePForEff = modelEff ? winRate(modelEff, cfg.MODE, side, distanceEff) : undefined;
+        let eff = { stake: this.activeEffectiveStake, edge };
+        if (cfg.EV_STAGGER && !martingaleActive && truePForEff !== undefined) {
+          eff = await this.resolveLiveStake(side, truePForEff, contractType, durationValue, durationUnit, barrierStr, this.activeEffectiveStake);
+        }
         const res = await this.deps.ws.buyContract({
           amount: eff.stake,
           currency: cfg.CURRENCY,
@@ -2158,12 +2166,14 @@ class PairTrader {
     const model = this.activeModel;
     const trueP = model ? winRate(model, cfg.MODE, side, distance) : 0.5;
     const fakeId = -Math.floor(Math.random() * 1000000000);
-    const sim = (trueP !== undefined && model) ? simulateQuote({ trueP, distance, sigmaBlock: legSigmaBlock(model, side), mode: cfg.MODE, edge: cfg.DRY_RUN_EDGE || 0, stake: cfg.STAKE }) : { impliedP: 1 / 1.95, payout: cfg.STAKE * 1.95 };
+    const effectiveBase = this.activeEffectiveStake ?? stake ?? cfg.STAKE;
+    const martingaleActive = effectiveBase > cfg.STAKE + 1e-9;
+    const sim = (trueP !== undefined && model) ? simulateQuote({ trueP, distance, sigmaBlock: legSigmaBlock(model, side), mode: cfg.MODE, edge: cfg.DRY_RUN_EDGE || 0, stake: effectiveBase }) : { impliedP: 1 / 1.95, payout: effectiveBase * 1.95 };
     const impliedP = sim.impliedP;
     const edge2 = trueP !== undefined ? trueP - impliedP : undefined;
-    let stake2 = cfg.STAKE;
-    if (cfg.EV_STAGGER && edge2 !== undefined) {
-      const sInfo = staggerStake({ baseStake: cfg.STAKE, edge: edge2 });
+    let stake2 = effectiveBase;
+    if (cfg.EV_STAGGER && !martingaleActive && edge2 !== undefined) {
+      const sInfo = staggerStake({ baseStake: effectiveBase, edge: edge2 });
       stake2 = sInfo.stake;
     }
     const payout2 = impliedP > 0 ? stake2 / impliedP : sim.payout;
@@ -2178,24 +2188,25 @@ class PairTrader {
     if (this.deps.notify) this.deps.notify.sendTradeOpen(cfg.SYMBOL, 'DRY ' + timeHM(Date.now() / 1000), label, barrierStr, stake2.toFixed(2), evTokens.trim() || undefined);
   }
 
-  async resolveLiveStake(side, trueP, contractType, durationValue, durationUnit, barrierStr) {
+  async resolveLiveStake(side, trueP, contractType, durationValue, durationUnit, barrierStr, baseStake) {
     const cfg = this.deps.cfg();
+    const base = baseStake ?? this.activeEffectiveStake ?? cfg.STAKE;
     if (cfg.EV_MODE) {
       const edge = this.activeEdges ? this.activeEdges[side] : 0;
-      const s = staggerStake({ baseStake: cfg.STAKE, edge });
+      const s = staggerStake({ baseStake: base, edge });
       return { stake: s.stake, edge };
     }
     try {
       const p = await this.deps.ws.getProposal({
-        amount: cfg.STAKE, currency: cfg.CURRENCY, contract_type: contractType,
+        amount: base, currency: cfg.CURRENCY, contract_type: contractType,
         duration: durationValue, duration_unit: durationUnit, symbol: cfg.SYMBOL, barrier: barrierStr,
       });
-      if (p.impliedP === undefined) return { stake: cfg.STAKE, edge: 0 };
+      if (p.impliedP === undefined) return { stake: base, edge: 0 };
       const edge = trueP - p.impliedP;
-      const s = staggerStake({ baseStake: cfg.STAKE, edge });
+      const s = staggerStake({ baseStake: base, edge });
       return { stake: s.stake, edge };
     } catch {
-      return { stake: cfg.STAKE, edge: 0 };
+      return { stake: base, edge: 0 };
     }
   }
 
