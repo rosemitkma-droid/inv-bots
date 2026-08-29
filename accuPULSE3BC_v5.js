@@ -188,11 +188,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_002.log',
+  logFile: 'accuPULSE3BC_v5_003.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_002.json',
-  metricsFile: 'metricsBC_v5_002.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_002.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_003.json',
+  metricsFile: 'metricsBC_v5_003.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_003.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -200,8 +200,8 @@ const CONFIG = Object.freeze({
 
   // ── Feature 5: Warm-up Mode Lifecycle ─────────────────────────────────
   warmupConfig: {
-    warmupTrades: 3,        // Trades 0-30
-    balancedTrades: 10,     // Trades 30-300
+    warmupTrades: 300,        // Trades 0-30
+    balancedTrades: 300,     // Trades 30-300
     warmupMaxOpen: 1,        // Max open during warmup
     balancedMaxOpen: 1,      // Max open during balanced
     optimizedMaxOpen: 1,     // Max open during optimized
@@ -218,7 +218,7 @@ const CONFIG = Object.freeze({
 
   // ── Feature 6: Enhanced Streak Recovery ────────────────────────────────
   recoveryConfig: {
-    triggerLosses: 3,
+    triggerLosses: 2,
     recoveryMinStake: 0.40,
     recoveryMaxStake: 1.00,
     recoveryExitWins: 10,
@@ -230,7 +230,7 @@ const CONFIG = Object.freeze({
 
   // ── Feature 3: 6-Check Entry Confirmation ─────────────────────────────
   entryConfirmation: {
-    requiredChecks: 4,              // Need 4/6 to pass
+    requiredChecks: 5,              // Need 4/6 to pass
     minVolPercentile: 0.20,         // Vol check: at least 20th percentile
     minBarrierPct: 0.015,           // Barrier check: 1.5% minimum
     minEv: 0.005,                   // EV check: 0.5% net EV
@@ -240,8 +240,8 @@ const CONFIG = Object.freeze({
 
   // ── Daily-Reset + Relaxed Sharpe (fix multi-day decay) ─────────────────
   relaxedAssetsConfig: {
-    minTradesForFilter: 200,  // only Sharpe-filter after 200 trades (was 50)
-    topN: 5,                  // keep 5 of 8 assets (was 3) when filtering
+    minTradesForFilter: 300,  // only Sharpe-filter after 200 trades (was 50)
+    topN: 3,                  // keep 3 of 4 assets (was 3) when filtering
   },
   dailyReset: {
     enabled: true,
