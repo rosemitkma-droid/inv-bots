@@ -6,10 +6,9 @@
  * ║  STRATEGY:                                                               ║
  * ║  1. Last N (default 6, per-asset configurable) same candles →            ║
  * ║     opposite trade (6 BULL → PUTE, 6 BEAR → CALLE, Doji breaks streak)  ║
- * ║  2. Recovery: on loss → immediate same-asset same-direction retry with   ║
- * ║     DURATION='s' = remaining seconds in 1m candle (e.g. 3s elapsed→57s) ║
- * ║     if remaining < MIN_RECOVERY_SECONDS → defer to next candle close     ║
- * ║     stay 's' until win, then revert to 1m                               ║
+ * ║  2. Recovery: on loss → retry EVERY 1m candle close in SAME direction    ║
+ * ║     (no candle skipped) with DURATION=1m (open→close) until win, then   ║
+ * ║     revert to normal pattern. No seconds-remaining/settlement logic.    ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 
@@ -137,8 +136,8 @@ const CONFIG = {
     // ── Consecutive Candle Pattern (user configurable) ──────────
     // Number of consecutive same-direction candles to trigger opposite trade
     PATTERN_CONSECUTIVE_COUNT: 6,
-    // Minimum seconds remaining in candle to allow immediate recovery; else defer to next candle
-    MIN_RECOVERY_SECONDS: 20,
+    // MIN_RECOVERY_SECONDS kept for backward compat (no longer used — recovery always 1m on candle close)
+    MIN_RECOVERY_SECONDS: 10,
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
     USE_TRADING_SESSIONS: true,
@@ -154,17 +153,20 @@ const CONFIG = {
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
+        'R_10',
         'R_25',
         'R_50',
         'R_75',
-        // 'R_100',
-        // '1HZ10V',
-        // '1HZ25V',
-        // '1HZ100V',
+        'R_100',
+        '1HZ10V',
+        '1HZ25V',
+        '1HZ50V',
+        '1HZ75V',
+        '1HZ100V',
         // 'stpRNG',
         // 'stpRNG3',
-        'stpRNG4',
-        'stpRNG5'
+        // 'stpRNG4',
+        // 'stpRNG5'
     ],
 
     // ── Misc ──────────────────────────────────────────────────
@@ -209,8 +211,8 @@ const DEFAULT_ASSET_CONFIG = {
     // Doji breaks the streak (no trade). User can set per-asset via ASSET_CONFIGS.
     PATTERN_CONSECUTIVE_COUNT: 6,
     PATTERN_DOJI_THRESHOLD: 0.00001,
-    // Recovery: minimum seconds remaining to allow immediate retry; else defer to next candle
-    MIN_RECOVERY_SECONDS: 20,
+    // MIN_RECOVERY_SECONDS kept for compat (recovery now always 1m on candle close)
+    MIN_RECOVERY_SECONDS: 10,
     // Legacy fields retained for compat but unused in consecutive mode
     PATTERN_MIN_CONFIDENCE: 0.10,
     MIN_PATTERN_CONFIDENCE: 0.10,
@@ -743,11 +745,9 @@ class TelegramService {
         let analysisDetails = '';
         if (type === 'OPEN' && details) {
             if (details.isRecovery) {
-                const durInfo = details.recoveryDuration ? ` (${details.recoveryDuration}${(details.recoveryDurationUnit||'s').toUpperCase()} remaining)` : '';
                 analysisDetails = `
-        🔄 <b>RECOVERY MODE: YES</b>${durInfo}
-        ⚡ Same direction as loss trade (NO pattern analysis)
-        ${details.pendingDefer ? '⏳ Deferred: too little time left, waiting next candle' : ''}`;
+        🔄 <b>RECOVERY MODE: YES</b> (${duration}${(durationUnit||'m').toUpperCase()} full 1m candle, every candle until win)
+        ⚡ Same direction as loss trade (NO pattern analysis)`;
             } else if (details.analysis) {
                 const analysis = details.analysis;
                 const typesStr = analysis?.details?.types || 'N/A';
@@ -1051,7 +1051,7 @@ class SessionManager {
             if (CONFIG.USE_RECOVERY_STRATEGY) {
                 a.isRecovery = true;
                 a.pendingRecovery = false;
-                LOGGER.info(`[${symbol}] Recovery mode ENTERED - Will retry ${direction} immediately (seconds-remaining duration)`);
+                LOGGER.info(`[${symbol}] Recovery mode ENTERED - Will retry ${direction} on EVERY 1m candle close (1m duration) until win`);
             }
 
             // Pause normal mode during recovery
@@ -1506,21 +1506,8 @@ class ConnectionManager {
 
         SessionManager.checkSessionTargets();
         StatePersistence.saveState();
-
-        // ── Immediate recovery: same asset, same direction, seconds-remaining duration ──
-        if (profit < 0 && a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.cooldownCandles === 0) {
-            // Defer to next-tick to allow lock release and state flush
-            setImmediate(() => {
-                try {
-                    if (bot && typeof bot.executeRecoveryTradeImmediate === 'function') {
-                        bot.executeRecoveryTradeImmediate(ownerSym);
-                    }
-                } catch (e) {
-                    LOGGER.error(`[${ownerSym}] Immediate recovery error: ${e.message}`);
-                    if (bot) bot._forceReleaseTradeLock();
-                }
-            });
-        }
+        // Recovery is now handled ONLY on candle close (handleOHLC → executeRecoveryTradeImmediate)
+        // — no immediate settlement trade to ensure every trade is a full 1m candle (open→close)
     }
 
     // ════════════════════════════════════════════════════════
@@ -1575,29 +1562,20 @@ class ConnectionManager {
 
                     a.canTrade = true;
 
-                    // If recovery was deferred due to too little time left, retry now (new candle → full 60s)
-                    if (a.pendingRecovery && a.isRecovery && a.cooldownCandles === 0) {
-                        LOGGER.recovery(`[${symbol}] Deferred recovery retry on new candle`);
-                        // keep pendingRecovery flag; executeRecovery will clear it on success or keep on next defer
-                        try {
-                            // Use immediate recovery path for correct seconds-duration handling
-                            if (bot.executeRecoveryTradeImmediate(symbol)) {
-                                // success → no need for normal trade path
-                            } else {
-                                // if still deferred (edge rare) let normal flow handle
+                    // Recovery trades on EVERY candle close with full 1m duration — no candle skipped
+                    try {
+                        if (a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.lastTradeDirection) {
+                            // Prefer explicit recovery path so duration is guaranteed 1m
+                            if (!bot.executeRecoveryTradeImmediate(symbol)) {
+                                // If recovery couldn't execute (cooldown/locked/capital), fall back to normal logic
                                 bot.executeNextTrade(symbol, closed);
                             }
-                        } catch (err) {
-                            LOGGER.error(`[${symbol}] Deferred recovery error: ${err.message}`);
-                            bot._forceReleaseTradeLock();
-                        }
-                    } else {
-                        try {
+                        } else {
                             bot.executeNextTrade(symbol, closed);
-                        } catch (err) {
-                            LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
-                            bot._forceReleaseTradeLock();
                         }
+                    } catch (err) {
+                        LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
+                        bot._forceReleaseTradeLock();
                     }
                 }
             }
@@ -1752,7 +1730,7 @@ class IndexBot {
         console.log(`Assets    : ${CONFIG.ACTIVE_ASSETS.join(', ')}`);
         const nDefault = CONFIG.PATTERN_CONSECUTIVE_COUNT;
         console.log(`Pattern   : Last N=${nDefault} same (B→PUTE, R→CALLE, Doji breaks) — per-asset override via ASSET_CONFIGS`);
-        console.log(`Timeframe : ${CONFIG.TIMEFRAME_LABEL} candles | Default Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} | Recovery: 's' remaining in 1m candle (min ${CONFIG.MIN_RECOVERY_SECONDS}s else defer)`);
+        console.log(`Timeframe : ${CONFIG.TIMEFRAME_LABEL} candles | Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} (all trades 1m) | Recovery: every candle close same-direction 1m until win`);
         console.log(`Risk      : Martingale level progression with cap $${CONFIG.ACTIVE_ASSETS.length ? getAssetConfig(CONFIG.ACTIVE_ASSETS[0]).INVESTMENT_AMOUNT : DEFAULT_ASSET_CONFIG.INVESTMENT_AMOUNT}`);
         console.log(`Capital   : $${state.capital.toFixed(2)}`);
         console.log(`Sessions  : ${TradingSessionManager.getStatusString()}`);
@@ -1797,26 +1775,20 @@ class IndexBot {
         this.connection.activeSubscriptions.add(symbol);
     }
 
-    // ── Duration helpers for recovery (seconds-remaining) ──
+    // ── Duration helpers — all trades are full 1m candles (open→close) ──
     _getRemainingSecondsInCandle() {
+        // Kept for backward compat / logging only — not used for trade duration
         const gran = CONFIG.GRANULARITY || 60;
         const nowSec = Math.floor(Date.now() / 1000);
         const secIntoCandle = nowSec % gran;
         let remaining = gran - secIntoCandle;
         if (remaining <= 0) remaining = gran;
-        if (remaining === gran && secIntoCandle === 0) remaining = gran;
-        // Avoid 0; ensure at least 1
-        remaining = Math.max(1, Math.min(gran, remaining));
-        return remaining;
+        return Math.max(1, Math.min(gran, remaining));
     }
 
     _getTradeDuration(symbol) {
-        const a = state.assets[symbol];
+        // All trades (normal + recovery) are 1m → open at candle open, close at candle close
         const assetConfig = getAssetConfig(symbol);
-        if (a && a.isRecovery) {
-            const remaining = this._getRemainingSecondsInCandle();
-            return { duration: remaining, durationUnit: 's', remaining };
-        }
         return { duration: assetConfig.DURATION, durationUnit: assetConfig.DURATION_UNIT, remaining: null };
     }
 
@@ -1838,10 +1810,10 @@ class IndexBot {
         assetState.investmentRemaining = Number((assetState.investmentRemaining - stake).toFixed(2));
         state.capital = Number((state.capital - stake).toFixed(2));
 
-        const { duration, durationUnit, remaining } = this._getTradeDuration(symbol);
+        const { duration, durationUnit } = this._getTradeDuration(symbol);
 
         if (isRecovery) {
-            LOGGER.trade(`   Recovery Mode: YES | Same direction ${direction} | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel} | Duration: ${duration}${durationUnit} (remaining ${remaining}s)`);
+            LOGGER.trade(`   Recovery Mode: YES | Same direction ${direction} | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel} | Duration: ${duration}${durationUnit} (1m candle)`);
         } else {
             const typesStr = analysis?.details?.types || 'N/A';
             const N = analysis?.details?.consecutiveCount || getAssetConfig(symbol).PATTERN_CONSECUTIVE_COUNT || CONFIG.PATTERN_CONSECUTIVE_COUNT;
@@ -1888,8 +1860,9 @@ class IndexBot {
         return position;
     }
 
-    // Immediate recovery trade (called on contract settle, not candle close)
-    // Returns true if trade executed, false if deferred to next candle
+    // Recovery trade — called ONLY on candle close, every candle until win (no candle skipped)
+    // Always 1m duration (trade opens at candle open, closes at candle close)
+    // Returns true if trade executed, false if blocked (cooldown/locked/capital)
     executeRecoveryTradeImmediate(symbol) {
         const a = state.assets[symbol];
         if (!a) return false;
@@ -1917,20 +1890,10 @@ class IndexBot {
             return false;
         }
 
-        const remaining = this._getRemainingSecondsInCandle();
-        const minSec = getAssetConfig(symbol).MIN_RECOVERY_SECONDS ?? CONFIG.MIN_RECOVERY_SECONDS ?? 10;
-        if (remaining < minSec) {
-            a.pendingRecovery = true;
-            LOGGER.recovery(`[${symbol}] Recovery DEFERRED — remaining ${remaining}s < min ${minSec}s → waiting next candle (direction ${a.lastTradeDirection})`);
-            StatePersistence.saveState();
-            TelegramService.sendMessage(`⏳ <b>[${symbol}] Recovery deferred</b> — ${remaining}s left < ${minSec}s min, waiting next 1m candle (dir ${a.lastTradeDirection})`);
-            return false;
-        }
-
-        // Clear defer flag and execute
         a.pendingRecovery = false;
         const direction = a.lastTradeDirection;
-        LOGGER.trade(`🔄 [${symbol}] IMMEDIATE RECOVERY — ${direction} DURATION ${remaining}s (remaining in 1m candle)`);
+        const assetConfig = getAssetConfig(symbol);
+        LOGGER.trade(`🔄 [${symbol}] RECOVERY (candle close) — ${direction} DURATION ${assetConfig.DURATION}${assetConfig.DURATION_UNIT} (full 1m candle, every candle until win)`);
         const pos = this._executeBuy(symbol, direction, true, null);
         return !!pos;
     }
@@ -1968,27 +1931,16 @@ class IndexBot {
         let analysis = null;
         const isRecoveryPreCheck = assetState.isRecovery;
 
-        // Recovery priority: same asset, same direction, seconds-remaining duration
+        // Recovery priority: same asset, same direction, every 1m candle until win (no defer, no seconds)
         if (CONFIG.USE_RECOVERY_STRATEGY && assetState.isRecovery && assetState.lastTradeDirection) {
             if (assetState.cooldownCandles > 0) {
                 LOGGER.info(`[${symbol}] In recovery but cool-down ${assetState.cooldownCandles} — skipping`);
                 assetState.canTrade = false;
                 return;
             }
-            // If called from candle close, we still need to respect MIN_RECOVERY_SECONDS
-            const remaining = this._getRemainingSecondsInCandle();
-            const minSec = assetConfig.MIN_RECOVERY_SECONDS ?? CONFIG.MIN_RECOVERY_SECONDS ?? 10;
-            // When triggered from handleOHLC (candle close), remaining is ~60 (new candle) so always passes
-            // When called directly after settle via executeRecoveryTradeImmediate, this path is not used
-            if (remaining < minSec && !assetState.pendingRecovery) {
-                assetState.pendingRecovery = true;
-                LOGGER.recovery(`[${symbol}] Recovery at candle close deferred — remaining ${remaining}s < ${minSec}s`);
-                assetState.canTrade = false;
-                return;
-            }
             assetState.pendingRecovery = false;
             direction = assetState.lastTradeDirection;
-            LOGGER.trade(`🔄 [${symbol}] RECOVERY TRADE (candle-triggered) — Same direction: ${direction} | Duration ${remaining}s`);
+            LOGGER.trade(`🔄 [${symbol}] RECOVERY TRADE (candle close) — Same direction: ${direction} | Duration ${assetConfig.DURATION}${assetConfig.DURATION_UNIT} (full 1m)`);
             this._executeBuy(symbol, direction, true, null);
             return;
         }
