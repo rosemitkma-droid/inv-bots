@@ -6,9 +6,9 @@
  * ║  STRATEGY:                                                               ║
  * ║  1. Last N (default 6, per-asset configurable) same candles →            ║
  * ║     opposite trade (6 BULL → PUTE, 6 BEAR → CALLE, Doji breaks streak)  ║
- * ║  2. Recovery: on loss → retry EVERY 1m candle close in SAME direction    ║
- * ║     (no candle skipped) with DURATION=1m (open→close) until win, then   ║
- * ║     revert to normal pattern. No seconds-remaining/settlement logic.    ║
+ * ║  2. Recovery (B + Exclusive): on loss → first recovery 58s (finish      ║
+ * ║     current candle, no skip), then every next 1m candle 1m until win.  ║
+ * ║     While recovery active, ONLY recovery asset trades (exclusive).       ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 
@@ -82,8 +82,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitrage_trend_002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_trend_002-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitrage_trend_03-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_trend_03-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -615,6 +615,7 @@ class StatePersistence {
                     tradesInNormalMode: a.tradesInNormalMode,
                     normalModeDirection: a.normalModeDirection,
                     pendingRecovery: a.pendingRecovery || false,
+                    recoveryFirstDone: a.recoveryFirstDone || false,
                     // Stats
                     tradesCount: a.tradesCount, winsCount: a.winsCount,
                     lossesCount: a.lossesCount, netPL: a.netPL,
@@ -681,6 +682,7 @@ class StatePersistence {
                         a.tradesInNormalMode = saved.tradesInNormalMode || 0;
                         a.normalModeDirection = saved.normalModeDirection || null;
                         a.pendingRecovery = saved.pendingRecovery || false;
+                        a.recoveryFirstDone = saved.recoveryFirstDone || false;
 
                         // Stats
                         a.tradesCount = saved.tradesCount || 0;
@@ -1024,6 +1026,7 @@ class SessionManager {
                 LOGGER.info(`[${symbol}] Recovery mode EXITED - Win achieved → revert to ${getAssetConfig(symbol).DURATION}${getAssetConfig(symbol).DURATION_UNIT}`);
             }
             a.pendingRecovery = false;
+            a.recoveryFirstDone = false;
 
             // Credit payout (stake + profit) back to investment pool — pool grows on win
             a.investmentRemaining = Number((a.investmentRemaining + stake + profit).toFixed(2));
@@ -1049,9 +1052,11 @@ class SessionManager {
 
             // Enter recovery mode on loss (if recovery strategy is enabled)
             if (CONFIG.USE_RECOVERY_STRATEGY) {
+                const wasAlreadyRecovery = a.isRecovery;
                 a.isRecovery = true;
                 a.pendingRecovery = false;
-                LOGGER.info(`[${symbol}] Recovery mode ENTERED - Will retry ${direction} on EVERY 1m candle close (1m duration) until win`);
+                if (!wasAlreadyRecovery) a.recoveryFirstDone = false;
+                LOGGER.info(`[${symbol}] Recovery mode ENTERED - First recovery 58s (finish current candle), then 1m every candle until win (exclusive asset)`);
             }
 
             // Pause normal mode during recovery
@@ -1319,6 +1324,7 @@ class ConnectionManager {
                     normalModeDirection: null,
                     normalModePaused: false,
                     pendingRecovery: false,
+                    recoveryFirstDone: false,
 
                     // Last analysis for notifications
                     lastAnalysis: null,
@@ -1506,13 +1512,16 @@ class ConnectionManager {
 
         SessionManager.checkSessionTargets();
         StatePersistence.saveState();
-        // Recovery is now handled ONLY on candle close (handleOHLC → executeRecoveryTradeImmediate)
+        // B: Immediate first recovery on settlement (58s) to avoid missing the forming candle
         if (profit < 0 && a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.cooldownCandles === 0) {
-            // Defer to next-tick to allow lock release and state flush
             setImmediate(() => {
                 try {
                     if (bot && typeof bot.executeRecoveryTradeImmediate === 'function') {
-                        bot.executeRecoveryTradeImmediate(ownerSym);
+                        // Execute only if still recovery and no active position (deduplicate vs OHLC)
+                        if (a.isRecovery && !a.activePositions.length && !bot._tradeLocked) {
+                            const ok = bot.executeRecoveryTradeImmediate(ownerSym);
+                            if (ok) LOGGER.recovery(`[${ownerSym}] First recovery executed on settlement (B:58s)`);
+                        }
                     }
                 } catch (e) {
                     LOGGER.error(`[${ownerSym}] Immediate recovery error: ${e.message}`);
@@ -1575,20 +1584,23 @@ class ConnectionManager {
 
                     a.canTrade = true;
 
-                    // Recovery trades on EVERY candle close with full 1m duration — no candle skipped
-                    try {
-                        if (a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.lastTradeDirection) {
-                            // Prefer explicit recovery path so duration is guaranteed 1m
-                            if (!bot.executeRecoveryTradeImmediate(symbol)) {
-                                // If recovery couldn't execute (cooldown/locked/capital), fall back to normal logic
+                    // Exclusive recovery: if any asset is in recovery, only that asset may trade
+                    const recoveryAsset = bot._getRecoveryAsset ? bot._getRecoveryAsset() : null;
+                    if (recoveryAsset && recoveryAsset !== symbol) {
+                        LOGGER.info(`[${symbol}] Candle closed but blocked — recovery exclusive on ${recoveryAsset} (no skip for ${recoveryAsset}, wait)`);
+                    } else {
+                        try {
+                            if (a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.lastTradeDirection) {
+                                if (!bot.executeRecoveryTradeImmediate(symbol)) {
+                                    bot.executeNextTrade(symbol, closed);
+                                }
+                            } else {
                                 bot.executeNextTrade(symbol, closed);
                             }
-                        } else {
-                            bot.executeNextTrade(symbol, closed);
+                        } catch (err) {
+                            LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
+                            bot._forceReleaseTradeLock();
                         }
-                    } catch (err) {
-                        LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
-                        bot._forceReleaseTradeLock();
                     }
                 }
             }
@@ -1743,7 +1755,7 @@ class IndexBot {
         console.log(`Assets    : ${CONFIG.ACTIVE_ASSETS.join(', ')}`);
         const nDefault = CONFIG.PATTERN_CONSECUTIVE_COUNT;
         console.log(`Pattern   : Last N=${nDefault} same (B→PUTE, R→CALLE, Doji breaks) — per-asset override via ASSET_CONFIGS`);
-        console.log(`Timeframe : ${CONFIG.TIMEFRAME_LABEL} candles | Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} (all trades 1m) | Recovery: every candle close same-direction 1m until win`);
+        console.log(`Timeframe : ${CONFIG.TIMEFRAME_LABEL} candles | Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} | Recovery B: first 58s (finish current candle), then 1m every candle (exclusive asset) until win`);
         console.log(`Risk      : Martingale level progression with cap $${CONFIG.ACTIVE_ASSETS.length ? getAssetConfig(CONFIG.ACTIVE_ASSETS[0]).INVESTMENT_AMOUNT : DEFAULT_ASSET_CONFIG.INVESTMENT_AMOUNT}`);
         console.log(`Capital   : $${state.capital.toFixed(2)}`);
         console.log(`Sessions  : ${TradingSessionManager.getStatusString()}`);
@@ -1799,9 +1811,24 @@ class IndexBot {
         return Math.max(1, Math.min(gran, remaining));
     }
 
+    // ── Exclusive recovery helper (only recovery asset may trade) ──
+    _getRecoveryAsset() {
+        for (const sym of CONFIG.ACTIVE_ASSETS) {
+            const a = state.assets[sym];
+            if (a && a.isRecovery) return sym;
+        }
+        return null;
+    }
+    _hasAnyRecovery() { return !!this._getRecoveryAsset(); }
+
     _getTradeDuration(symbol) {
-        // All trades (normal + recovery) are 1m → open at candle open, close at candle close
+        const a = state.assets[symbol];
         const assetConfig = getAssetConfig(symbol);
+        // B: first recovery after loss = remaining seconds (58s) to finish current candle, no skip
+        if (a && a.isRecovery && !a.recoveryFirstDone) {
+            const rem = this._getRemainingSecondsInCandle();
+            return { duration: rem, durationUnit: 's', remaining: rem };
+        }
         return { duration: assetConfig.DURATION, durationUnit: assetConfig.DURATION_UNIT, remaining: null };
     }
 
@@ -1823,10 +1850,11 @@ class IndexBot {
         assetState.investmentRemaining = Number((assetState.investmentRemaining - stake).toFixed(2));
         state.capital = Number((state.capital - stake).toFixed(2));
 
-        const { duration, durationUnit } = this._getTradeDuration(symbol);
+        const { duration, durationUnit, remaining } = this._getTradeDuration(symbol);
 
         if (isRecovery) {
-            LOGGER.trade(`   Recovery Mode: YES | Same direction ${direction} | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel} | Duration: ${duration}${durationUnit} (1m candle)`);
+            const firstTag = !assetState.recoveryFirstDone ? ` (FIRST 58s finish current candle)` : ` (1m)`;
+            LOGGER.trade(`   Recovery Mode: YES | Same direction ${direction} | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel} | Duration: ${duration}${durationUnit}${remaining ? ` (${remaining}s)` : ''}${firstTag}`);
         } else {
             const typesStr = analysis?.details?.types || 'N/A';
             const N = analysis?.details?.consecutiveCount || getAssetConfig(symbol).PATTERN_CONSECUTIVE_COUNT || CONFIG.PATTERN_CONSECUTIVE_COUNT;
@@ -1873,13 +1901,19 @@ class IndexBot {
         return position;
     }
 
-    // Recovery trade — called ONLY on candle close, every candle until win (no candle skipped)
-    // Always 1m duration (trade opens at candle open, closes at candle close)
-    // Returns true if trade executed, false if blocked (cooldown/locked/capital)
+    // Recovery trade — B: first execution 58s (finish current candle, no skip), subsequent 1m
+    // Called both on settlement (handleOpenContract) and on candle close (handleOHLC)
+    // Returns true if trade executed, false if blocked
     executeRecoveryTradeImmediate(symbol) {
         const a = state.assets[symbol];
         if (!a) return false;
         if (!CONFIG.USE_RECOVERY_STRATEGY || !a.isRecovery || !a.lastTradeDirection) return false;
+        // Exclusive: only recovery asset may trade while any asset is in recovery
+        const recoveryAsset = this._getRecoveryAsset();
+        if (recoveryAsset && recoveryAsset !== symbol) {
+            LOGGER.info(`[${symbol}] Blocked — recovery exclusive on ${recoveryAsset}`);
+            return false;
+        }
         if (a.cooldownCandles > 0) {
             LOGGER.info(`[${symbol}] Recovery deferred — cool-down ${a.cooldownCandles} candles`);
             return false;
@@ -1905,9 +1939,11 @@ class IndexBot {
 
         a.pendingRecovery = false;
         const direction = a.lastTradeDirection;
-        const assetConfig = getAssetConfig(symbol);
-        LOGGER.trade(`🔄 [${symbol}] RECOVERY (candle close) — ${direction} DURATION ${assetConfig.DURATION}${assetConfig.DURATION_UNIT} (full 1m candle, every candle until win)`);
+        const isFirst = !a.recoveryFirstDone;
+        const durInfo = isFirst ? `${this._getRemainingSecondsInCandle()}s (finish current candle)` : `1m`;
+        LOGGER.trade(`🔄 [${symbol}] RECOVERY ${isFirst ? 'FIRST 58s' : '1m'} — ${direction} DURATION ${durInfo} ${isFirst ? '(B)' : ''}`);
         const pos = this._executeBuy(symbol, direction, true, null);
+        if (pos) a.recoveryFirstDone = true;
         return !!pos;
     }
 
@@ -1940,21 +1976,26 @@ class IndexBot {
             return;
         }
 
+        // Exclusive recovery: only recovery asset may trade
+        const recoveryAsset = this._getRecoveryAsset();
+        if (recoveryAsset && recoveryAsset !== symbol) {
+            LOGGER.info(`[${symbol}] Blocked — recovery exclusive on ${recoveryAsset} (normal trades paused)`);
+            assetState.canTrade = false;
+            return;
+        }
+
         let direction;
         let analysis = null;
-        const isRecoveryPreCheck = assetState.isRecovery;
 
-        // Recovery priority: same asset, same direction, every 1m candle until win (no defer, no seconds)
+        // Recovery priority: B - first 58s finish current candle, subsequent 1m until win
         if (CONFIG.USE_RECOVERY_STRATEGY && assetState.isRecovery && assetState.lastTradeDirection) {
             if (assetState.cooldownCandles > 0) {
                 LOGGER.info(`[${symbol}] In recovery but cool-down ${assetState.cooldownCandles} — skipping`);
                 assetState.canTrade = false;
                 return;
             }
-            assetState.pendingRecovery = false;
-            direction = assetState.lastTradeDirection;
-            LOGGER.trade(`🔄 [${symbol}] RECOVERY TRADE (candle close) — Same direction: ${direction} | Duration ${assetConfig.DURATION}${assetConfig.DURATION_UNIT} (full 1m)`);
-            this._executeBuy(symbol, direction, true, null);
+            // Delegate to unified recovery executor (handles first s vs subsequent 1m)
+            this.executeRecoveryTradeImmediate(symbol);
             return;
         }
 
