@@ -75,7 +75,7 @@ const CONFIG = Object.freeze({
   maxOpenTrades: parseInt('3', 10),
 
   // Hazard Model (v4.0 fixes)
-  candidateGrowthRates: [0.05], //[0.05, 0.04, 0.03, 0.02, 0.01]
+  candidateGrowthRates: [0.03], //[0.05, 0.04, 0.03, 0.02, 0.01]
   hazardWindow: parseInt('600', 10),
   plannedHoldTicks: parseInt('15', 10),
   minBarrierPct: parseFloat('0.015'),
@@ -92,8 +92,8 @@ const CONFIG = Object.freeze({
     // server-recorded survival history of previous contracts at this exact
     // symbol + growth rate. No fabricated barriers, no abs() log-ret math.
     nominalSpikeInterval: {
-      BOOM300: 300, BOOM500: 500, BOOM600: 600, BOOM900: 900, BOOM1000: 1000,
-      CRASH300: 300, CRASH500: 500, CRASH600: 600, CRASH900: 900, CRASH1000: 1000,
+      BOOM900: 900, BOOM1000: 1000,
+      CRASH900: 900, CRASH1000: 1000,
     },
     // Stay samples required before trusting P(reach N). The API returns ~100
     // per refresh; require most of a full refresh before trading.
@@ -188,11 +188,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_003.log',
+  logFile: 'accuPULSE3BC_v5_004.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_003.json',
-  metricsFile: 'metricsBC_v5_003.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_003.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_004.json',
+  metricsFile: 'metricsBC_v5_004.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_004.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
