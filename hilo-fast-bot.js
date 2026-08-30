@@ -92,7 +92,7 @@ const CONFIG = {
   // EV-first band selection (Phase 1)
   EV_MODE: process.env.HILO_EV_MODE === '1' || process.env.HILO_EV_MODE === 'true',
   K_CANDIDATES: (function() {
-    const raw = process.env.HILO_K_CANDIDATES;
+    const raw = process.env.HILO_K_CANDIDATES2;
     if (!raw) return [1.0, 1.5, 2.0, 2.5, 3.0];
     const out = raw.split(',').map(s => Number(s.trim())).filter(n => Number.isFinite(n) && n > 0);
     return out.length ? out : [1.0, 1.5, 2.0, 2.5, 3.0];
@@ -113,7 +113,7 @@ const CONFIG = {
 
   // Survival & measurement (Phase 3)
   LEDGER_PATH: process.env.HILO_LEDGER || '',
-  STATE_PATH: process.env.HILO_STATE_PATH || '.hilo_state_0001.json',
+  STATE_PATH: process.env.HILO_STATE_PATH || '.hilo_state_01.json',
   MAX_CONSECUTIVE_LOSSES: Number(process.env.HILO_MAX_LOSSES) || 25,
   DAILY_LOSS_CAP: Number(process.env.HILO_DAILY_LOSS_CAP) || 200,
 
@@ -131,6 +131,22 @@ const CONFIG = {
 // Dedupe and sort K candidates
 CONFIG.K_CANDIDATES = [...new Set(CONFIG.K_CANDIDATES)].sort((a, b) => a - b);
 
+// Stake guard: enforce minimum and warn about stagger + low base.
+const STAKE_MIN_DERIV = 0.35;
+const STAKE_MIN_STAGGER = 0.70;
+if (CONFIG.STAKE < STAKE_MIN_DERIV) {
+  CONFIG.STAKE = STAKE_MIN_DERIV;
+}
+if (CONFIG.EV_STAGGER && CONFIG.STAKE < STAKE_MIN_STAGGER) {
+  // When base < 0.70, stagger's 0.5× floor clips at 0.35 defeating differentiation.
+  // Auto-disable stagger unless the user explicitly set HILO_ALLOW_MICRO_STAGGER.
+  if (process.env.HILO_ALLOW_MICRO_STAGGER !== '1' && process.env.HILO_ALLOW_MICRO_STAGGER !== 'true') {
+    CONFIG.EV_STAGGER = false;
+    // Will log warning after LOGGER is defined
+  }
+}
+const _staggerWarn = CONFIG.EV_STAGGER === false && (process.env.HILO_EV_STAGGER === '1' || process.env.HILO_EV_STAGGER === 'true') && CONFIG.STAKE < STAKE_MIN_STAGGER;
+
 // ─── LOGGER ─────────────────────────────────────────────────────────────────────
 function timestamp() {
   return new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
@@ -146,6 +162,11 @@ const LOGGER = {
   debug:  (msg) => { if (CONFIG.DEBUG_MODE) console.log(`\x1b[90m[DEBUG] ${timestamp()} - ${msg}\x1b[0m`); },
   system: (msg) => console.log(`\x1b[34m[SYS]   ${timestamp()} - ${msg}\x1b[0m`),
 };
+
+// Deferred stagger warning (needs LOGGER).
+if (_staggerWarn) {
+  LOGGER.warn('EV_STAGGER auto-disabled: stake $' + CONFIG.STAKE.toFixed(2) + ' < $0.70 — stagger 0.5× would clip at $0.35, defeating edge sizing. Set HILO_ALLOW_MICRO_STAGGER=1 or raise --stake to 0.70+ to re-enable.');
+}
 
 // ─── Utility Functions ──────────────────────────────────────────────────────────
 function timeHM(epochSec) {
@@ -542,6 +563,9 @@ function evaluatePairExit(args) {
 
 /**
  * Edge-scaled per-leg stake: baseStake × clamp(1 + α·edge, minRatio, maxRatio).
+ * Enforces Deriv's minimum stake ($0.35) to prevent buy rejections.
+ * Returns { stake, ratio, clipped } so callers can detect when the floor
+ * defeated the intended downsize (clipped && ratio < 1).
  */
 function staggerStake(args) {
   const { baseStake, edge } = args;
@@ -549,7 +573,60 @@ function staggerStake(args) {
   const minRatio = args.minRatio ?? 0.5;
   const maxRatio = args.maxRatio ?? 2;
   const ratio = Math.min(maxRatio, Math.max(minRatio, 1 + alpha * edge));
-  return Math.max(0.01, Math.round(baseStake * ratio * 100) / 100);
+  // Deriv minimum stake is $0.35 — below this the buy is rejected.
+  const minStake = 0.35;
+  const rawStake = Math.round(baseStake * ratio * 100) / 100;
+  const stake = Math.max(minStake, rawStake);
+  const clipped = rawStake < minStake;
+  return { stake, ratio, clipped };
+}
+
+/**
+ * Ensure barriers always straddle spot with a minimum distance.
+ * When meanUp/meanDn is near zero (flat history), one barrier could sit
+ * at or beyond spot, making the bet meaningless or causing Deriv to reject
+ * the proposal. This enforces a per-side minimum distance (half the
+ * calibrated sigma) plus a dynamic pip floor scaled to the instrument.
+ *
+ * @returns { predHigh, predLow, adjusted } — adjusted is true when any
+ *   distance was raised above the raw K·mean value.
+ */
+function enforceBarrierFloor(spot, predHigh, predLow, model, pipDigits) {
+  const pipSize = pipDigits <= 2 ? 0.01 : pipDigits <= 4 ? 0.0001 : Math.pow(10, -pipDigits);
+  const pipFloor = Math.max(0.05, 5 * pipSize);
+
+  const rawDistUp = predHigh - spot;
+  const rawDistDn = spot - predLow;
+
+  const sigmaUp = model ? (model.sigmaUp * Math.sqrt(model.ticks)) : 0;
+  const sigmaDn = model ? (model.sigmaDn * Math.sqrt(model.ticks)) : 0;
+
+  const minDistUp = Math.max(sigmaUp > 0 ? sigmaUp * 0.5 : 0.01, pipFloor);
+  const minDistDn = Math.max(sigmaDn > 0 ? sigmaDn * 0.5 : 0.01, pipFloor);
+
+  const safeDistUp = Math.max(rawDistUp, minDistUp);
+  const safeDistDn = Math.max(rawDistDn, minDistDn);
+
+  return {
+    predHigh: spot + safeDistUp,
+    predLow: spot - safeDistDn,
+    adjusted: safeDistUp > rawDistUp || safeDistDn > rawDistDn,
+  };
+}
+
+/**
+ * Check if a Deriv error message indicates a transient/retryable failure.
+ */
+function isRetryableError(msg) {
+  return msg.indexOf('PriceMoved') !== -1
+    || msg.indexOf('price') !== -1
+    || msg.indexOf('RateLimit') !== -1
+    || msg.indexOf('rate limit') !== -1
+    || msg.indexOf('busy') !== -1
+    || msg.indexOf('timeout') !== -1
+    || msg.indexOf('Timeout') !== -1
+    || msg.indexOf('NetworkError') !== -1
+    || msg.indexOf('ConnectionClosed') !== -1;
 }
 
 /**
@@ -748,25 +825,28 @@ async function selectBand(args) {
   const candidates = [];
 
   for (const k of kCandidates) {
-    const distanceUp = k * model.meanUp;
-    const distanceDn = k * model.meanDn;
-    const predHigh = spot + distanceUp;
-    const predLow = spot - distanceDn;
-    const truePUp = winRate(model, mode, 'HIGHER', distanceUp);
-    const truePDn = winRate(model, mode, 'LOWER', distanceDn);
+    const rawPredHigh = spot + k * model.meanUp;
+    const rawPredLow = spot - k * model.meanDn;
+    const floored = enforceBarrierFloor(spot, rawPredHigh, rawPredLow, model, 2);
+    const predHigh = floored.predHigh;
+    const predLow = floored.predLow;
+    const safeDistUp = predHigh - spot;
+    const safeDistDn = spot - predLow;
+    const truePUp = winRate(model, mode, 'HIGHER', safeDistUp);
+    const truePDn = winRate(model, mode, 'LOWER', safeDistDn);
 
     const [qUp, qDn] = await Promise.all([
       quote({
         k, side: 'HIGHER', barrier: predHigh, durationSec,
-        distance: distanceUp, trueP: truePUp, sigmaBlock: legSigmaBlock(model, 'HIGHER'),
+        distance: safeDistUp, trueP: truePUp, sigmaBlock: legSigmaBlock(model, 'HIGHER'),
       }),
       quote({
         k, side: 'LOWER', barrier: predLow, durationSec,
-        distance: distanceDn, trueP: truePDn, sigmaBlock: legSigmaBlock(model, 'LOWER'),
+        distance: safeDistDn, trueP: truePDn, sigmaBlock: legSigmaBlock(model, 'LOWER'),
       }),
     ]);
 
-    const c = { k, distanceUp, distanceDn, predHigh, predLow, truePUp, truePDn };
+    const c = { k, distanceUp: safeDistUp, distanceDn: safeDistDn, predHigh, predLow, truePUp, truePDn };
     if (qUp) {
       c.payoutUp = qUp.payout;
       c.impliedPUp = qUp.impliedP;
@@ -1687,12 +1767,20 @@ class PairTrader {
     this.prefetchMap.clear();
     const spot = p.spot;
 
+    // Apply barrier floor to both predictions.
+    const floored = enforceBarrierFloor(spot, p.predictedHigh, p.predictedLow, this.activeModel, this.pipDigits);
+    const predHigh = floored.predHigh;
+    const predLow = floored.predLow;
+    if (floored.adjusted) {
+      appendLog('info', 'barrier floor applied — predH ' + p.predictedHigh.toFixed(this.pipDigits) + '->' + predHigh.toFixed(this.pipDigits) + ' predL ' + p.predictedLow.toFixed(this.pipDigits) + '->' + predLow.toFixed(this.pipDigits));
+    }
+
     const pair = {
       blockStart: p.blockStart,
       blockEnd: p.blockEnd,
       blockOpen: p.blockOpen,
-      predictedHigh: p.predictedHigh,
-      predictedLow: p.predictedLow,
+      predictedHigh: predHigh,
+      predictedLow: predLow,
       predictionSource: p.predictionSource,
       daysUsed: p.daysUsed,
       higher: null,
@@ -1711,90 +1799,117 @@ class PairTrader {
     appendLog('block',
       'new block ' + timeHM(p.blockStart) + '–' + timeHM(p.blockEnd) +
       '  open=' + p.blockOpen.toFixed(this.pipDigits) +
-      '  predH=' + p.predictedHigh.toFixed(this.pipDigits) +
-      '  predL=' + p.predictedLow.toFixed(this.pipDigits) +
+      '  predH=' + predHigh.toFixed(this.pipDigits) +
+      '  predL=' + predLow.toFixed(this.pipDigits) +
       '  [' + cfg.MODE + ' · ' + p.predictionSource + (p.daysUsed ? ' ' + p.daysUsed + 'd' : '') + evTag + dirTag + mgTag + ']'
     );
 
+    // ── Build leg specs ──
     const prefetchEntries = [];
     const skippedSides = new Set();
-    if (p.predictedHigh > spot) {
-      const ct = contractTypeFor(cfg.MODE, 'HIGHER');
+    const minStake = 0.35;
+
+    const buildLegSpec = (side, barrier, spotPrice) => {
+      const ct = contractTypeFor(cfg.MODE, side);
       const dv = ct === 'NOTOUCH' ? { value: cfg.BLOCK_MINUTES, unit: 'm' } : { value: durationSec, unit: 's' };
-      const dist = Math.abs(p.predictedHigh - spot);
-      const trueP = this.activeModel ? winRate(this.activeModel, cfg.MODE, 'HIGHER', dist) : 0.5;
-      const edge = p.edges ? p.edges.HIGHER : (this.activeEdges ? this.activeEdges.HIGHER : 0);
-      const evDollarUp = edge * (effectiveBase / (1 / 1.95));
-      if (p.tradeDirection === 'positive-ev' && (!Number.isFinite(edge) || edge <= 0 || evDollarUp < cfg.MIN_EV)) {
+      const dist = Math.abs(barrier - spotPrice);
+      const trueP = this.activeModel ? winRate(this.activeModel, cfg.MODE, side, dist) : 0.5;
+      const edge = p.edges ? p.edges[side] : (this.activeEdges ? this.activeEdges[side] : 0);
+
+      // positive-ev mode: skip if edge is not positive enough
+      if (p.tradeDirection === 'positive-ev') {
+        const evDollar = edge * (effectiveBase / (1 / 1.95));
+        if (!Number.isFinite(edge) || edge <= 0 || evDollar < cfg.MIN_EV) {
+          return { skip: true, reason: 'positive-ev mode, edge=' + (isFinite(edge) ? edge.toFixed(4) : 'NaN') };
+        }
+      }
+
+      // Stake sizing
+      let targetStake = effectiveBase;
+      let staggerInfo = null;
+      if (cfg.EV_STAGGER && !martingaleActive) {
+        staggerInfo = staggerStake({ baseStake: effectiveBase, edge });
+        targetStake = staggerInfo.stake;
+      }
+
+      // Skip-on-clip: if stagger intended a downsize but floor clipped it up, skip the leg.
+      if (staggerInfo && staggerInfo.clipped && staggerInfo.ratio < 1) {
+        return { skip: true, reason: 'stagger clipped below $' + minStake + ' (intended $' + (effectiveBase * staggerInfo.ratio).toFixed(2) + '), edge=' + edge.toFixed(4) + ' — skipping' };
+      }
+
+      return { skip: false, side, barrier, durVal: dv.value, durUnit: dv.unit, ct, dist, trueP, targetStake, edge };
+    };
+
+    if (predHigh > spot) {
+      const spec = buildLegSpec('HIGHER', predHigh, spot);
+      if (spec.skip) {
         skippedSides.add('HIGHER');
-        appendLog('info', 'upper leg (' + ct + ') skipped — positive-ev mode, edge=' + (isFinite(edge) ? edge.toFixed(4) : 'NaN'));
+        appendLog('info', 'upper leg (' + spec.ct + ') skipped — ' + spec.reason);
       } else {
-        const targetStake = (cfg.EV_STAGGER && !martingaleActive) ? staggerStake({ baseStake: effectiveBase, edge }) : effectiveBase;
-        prefetchEntries.push({ side: 'HIGHER', barrier: p.predictedHigh, durVal: dv.value, durUnit: dv.unit, ct, dist, trueP: trueP, targetStake, edge });
+        prefetchEntries.push(spec);
       }
+    } else {
+      skippedSides.add('HIGHER');
+      appendLog('warn', 'upper leg skipped — predH ' + predHigh.toFixed(this.pipDigits) + ' <= spot ' + spot.toFixed(this.pipDigits));
     }
-    if (p.predictedLow < spot) {
-      const ct = contractTypeFor(cfg.MODE, 'LOWER');
-      const dv = ct === 'NOTOUCH' ? { value: cfg.BLOCK_MINUTES, unit: 'm' } : { value: durationSec, unit: 's' };
-      const dist = Math.abs(p.predictedLow - spot);
-      const trueP = this.activeModel ? winRate(this.activeModel, cfg.MODE, 'LOWER', dist) : 0.5;
-      const edge = p.edges ? p.edges.LOWER : (this.activeEdges ? this.activeEdges.LOWER : 0);
-      const evDollarDn = edge * (effectiveBase / (1 / 1.95));
-      if (p.tradeDirection === 'positive-ev' && (!Number.isFinite(edge) || edge <= 0 || evDollarDn < cfg.MIN_EV)) {
+    if (predLow < spot) {
+      const spec = buildLegSpec('LOWER', predLow, spot);
+      if (spec.skip) {
         skippedSides.add('LOWER');
-        appendLog('info', 'lower leg (' + ct + ') skipped — positive-ev mode, edge=' + (isFinite(edge) ? edge.toFixed(4) : 'NaN'));
+        appendLog('info', 'lower leg (' + spec.ct + ') skipped — ' + spec.reason);
       } else {
-        const targetStake = (cfg.EV_STAGGER && !martingaleActive) ? staggerStake({ baseStake: effectiveBase, edge }) : effectiveBase;
-        prefetchEntries.push({ side: 'LOWER', barrier: p.predictedLow, durVal: dv.value, durUnit: dv.unit, ct, dist, trueP: trueP, targetStake, edge });
+        prefetchEntries.push(spec);
       }
+    } else {
+      skippedSides.add('LOWER');
+      appendLog('warn', 'lower leg skipped — predL ' + predLow.toFixed(this.pipDigits) + ' >= spot ' + spot.toFixed(this.pipDigits));
     }
 
+    // ── Serialized prefetch proposals (sequential to avoid RateLimit) ──
     if (prefetchEntries.length > 0) {
-      const proposalResults = await Promise.allSettled(
-        prefetchEntries.map((l) => this.deps.ws.getProposal({
-          amount: l.targetStake,
-          currency: cfg.CURRENCY,
-          contract_type: l.ct,
-          duration: l.durVal,
-          duration_unit: l.durUnit,
-          symbol: cfg.SYMBOL,
-          barrier: formatBarrier(l.barrier, this.pipDigits),
-        }))
-      );
-      for (let i = 0; i < prefetchEntries.length; i++) {
-        const r = proposalResults[i];
-        const entry = prefetchEntries[i];
-        if (r && r.status === 'fulfilled' && r.value.payout > 0 && r.value.impliedP !== undefined) {
-          this.prefetchMap.set(entry.side, {
-            proposalId: r.value.id,
-            askPrice: r.value.ask_price,
-            impliedP: r.value.impliedP,
-            edge: entry.edge,
-            stake: entry.targetStake,
-            payout: r.value.payout,
+      for (const entry of prefetchEntries) {
+        try {
+          const pResult = await this.deps.ws.getProposal({
+            amount: entry.targetStake,
+            currency: cfg.CURRENCY,
+            contract_type: entry.ct,
+            duration: entry.durVal,
+            duration_unit: entry.durUnit,
+            symbol: cfg.SYMBOL,
+            barrier: formatBarrier(entry.barrier, this.pipDigits),
           });
+          if (pResult.payout > 0 && pResult.impliedP !== undefined) {
+            this.prefetchMap.set(entry.side, {
+              proposalId: pResult.id,
+              askPrice: pResult.ask_price,
+              impliedP: pResult.impliedP,
+              edge: entry.edge,
+              stake: entry.targetStake,
+              payout: pResult.payout,
+            });
+          }
+        } catch (err) {
+          appendLog('warn', entry.side + ' proposal prefetch failed — will request fresh quote: ' + (err.message || String(err)));
+        }
+        // Brief pause between proposals to reduce RateLimit risk.
+        if (prefetchEntries.length > 1) {
+          await new Promise(r => setTimeout(r, 100));
         }
       }
     }
 
+    // ── Build task list ──
     const tasks = [];
-    if (!skippedSides.has('HIGHER') && p.predictedHigh > spot) {
+    if (!skippedSides.has('HIGHER')) {
       const prefetch = this.prefetchMap.get('HIGHER');
-      tasks.push({ side: 'HIGHER', task: () => this.openLeg('HIGHER', p.predictedHigh, durationSec, spot, prefetch), edge: prefetch ? prefetch.edge : (p.edges ? p.edges.HIGHER : 0) });
-    } else if (p.predictedHigh > spot) {
-      // already logged
-    } else {
-      appendLog('warn', 'upper leg skipped — predH ' + p.predictedHigh.toFixed(this.pipDigits) + ' <= spot ' + spot.toFixed(this.pipDigits));
+      tasks.push({ side: 'HIGHER', task: () => this.openLeg('HIGHER', predHigh, durationSec, spot, prefetch), edge: prefetch ? prefetch.edge : (p.edges ? p.edges.HIGHER : 0) });
     }
-    if (!skippedSides.has('LOWER') && p.predictedLow < spot) {
+    if (!skippedSides.has('LOWER')) {
       const prefetch = this.prefetchMap.get('LOWER');
-      tasks.push({ side: 'LOWER', task: () => this.openLeg('LOWER', p.predictedLow, durationSec, spot, prefetch), edge: prefetch ? prefetch.edge : (p.edges ? p.edges.LOWER : 0) });
-    } else if (p.predictedLow < spot) {
-      // already logged
-    } else {
-      appendLog('warn', 'lower leg skipped — predL ' + p.predictedLow.toFixed(this.pipDigits) + ' >= spot ' + spot.toFixed(this.pipDigits));
+      tasks.push({ side: 'LOWER', task: () => this.openLeg('LOWER', predLow, durationSec, spot, prefetch), edge: prefetch ? prefetch.edge : (p.edges ? p.edges.LOWER : 0) });
     }
 
+    // ── Positive-ev mode: only open the best leg ──
     if (p.tradeDirection === 'positive-ev' && tasks.length > 1) {
       tasks.sort((a, b) => b.edge - a.edge);
       const winner = tasks[0];
@@ -1802,155 +1917,296 @@ class PairTrader {
       const ct = contractTypeFor(cfg.MODE, winner.side);
       appendLog('info', 'positive-ev: opening only ' + winner.side + ' (' + ct + ') — ev=' + winner.edge.toFixed(4) + ' (' + losers.map((l) => l.side + ' ' + l.edge.toFixed(4)).join(', ') + ')');
       await Promise.allSettled([winner.task()]);
-    } else {
-      await Promise.allSettled(tasks.map((t) => t.task()));
-    }
-  }async openLeg(side, barrier, durationSec, spot, prefetch) {
-    const cfg = this.deps.cfg();
-    const key = side === 'HIGHER' ? 'higher' : 'lower';
-    const barrierStr = formatBarrier(barrier, this.pipDigits);
-    const distance = Math.abs(barrier - spot);
-    const model = this.activeModel;
-    const trueP = model ? winRate(model, cfg.MODE, side, distance) : undefined;
-
-    const edge = prefetch ? prefetch.edge
-      : (cfg.EV_MODE ? (this.activeEdges ? this.activeEdges[side] : 0)
-        : (trueP !== undefined && prefetch && prefetch.impliedP !== undefined ? trueP - prefetch.impliedP : 0));
-
-    if (cfg.TRADE_DIRECTION === 'positive-ev' && edge <= 0) {
-      const lbl = legDisplayName(cfg.MODE, side);
-      appendLog('info', lbl + ' skipped (fallback guard) — positive-ev, edge=' + edge.toFixed(4) + ' <= 0');
       return;
     }
-    let stake = this.activeEffectiveStake;
-    if (cfg.EV_STAGGER) stake = staggerStake({ baseStake: this.activeEffectiveStake, edge });
-    const payout = prefetch ? prefetch.payout : (this.activeEffectiveStake / (prefetch ? prefetch.impliedP : 1 / 1.95));
 
+    // ── Both-or-none: open legs in parallel ──
+    if (tasks.length === 0) return;
+
+    const results = await Promise.allSettled(tasks.map((t) => t.task()));
+
+    // Count successfully injected legs.
+    const currentPair = state.currentPair;
+    const injectedCount = currentPair ? [currentPair.higher, currentPair.lower].filter(l => l && !l.resolved).length : 0;
+
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === 'rejected') {
+        appendLog('error', tasks[i].side + ' leg failed: ' + (results[i].reason?.message || String(results[i].reason)));
+      }
+    }
+
+    // ── Atomic pair enforcement ──
+    if (cfg.TRADE_DIRECTION === 'both' && tasks.length === 2 && injectedCount === 1) {
+      appendLog('warn', 'atomic pair: only 1/2 legs injected — attempting retry for failed side');
+      const failedEntry = tasks.find((t, i) => results[i].status !== 'fulfilled' || !this._legInjected(t.side));
+      if (failedEntry) {
+        await failedEntry.task();
+        const afterRetry = state.currentPair;
+        const retryCount = afterRetry ? [afterRetry.higher, afterRetry.lower].filter(l => l && !l.resolved).length : 0;
+        if (retryCount < 2) {
+          appendLog('warn', 'atomic pair: retry failed — rolling back single leg');
+          await this._rollbackSingleLeg();
+        }
+      } else {
+        await this._rollbackSingleLeg();
+      }
+    } else if (cfg.TRADE_DIRECTION === 'both' && tasks.length === 1 && injectedCount === 0) {
+      appendLog('warn', 'atomic pair: single-leg queued but failed — no trade this block');
+    }
+  }
+
+  _legInjected(side) {
+    const pair = state.currentPair;
+    if (!pair) return false;
+    const leg = side === 'HIGHER' ? pair.higher : pair.lower;
+    return leg && !leg.resolved;
+  }
+
+  async _rollbackSingleLeg() {
+    const pair = state.currentPair;
+    if (!pair) return;
+    const cfg = this.deps.cfg();
+    for (const leg of [pair.higher, pair.lower]) {
+      if (!leg || leg.resolved) continue;
+      const label = legDisplayName(cfg.MODE, leg.side);
+      if (cfg.DRY_RUN) {
+        updateLeg(leg.side, { status: 'sold', resolved: true, liveProfit: -leg.stake });
+        appendLog('sell', 'DRY ' + label + ' rollback — no trade (single-leg abort)');
+        continue;
+      }
+      if (leg.isValidToSell === 1) {
+        try {
+          const res = await this.deps.ws.sellContract(leg.contractId, 0);
+          const realised = (res.sold_for ?? 0) - (leg.buyPrice ?? leg.stake);
+          updateLeg(leg.side, { status: 'sold', resolved: true, liveProfit: realised });
+          appendLog('sell', label + ' rollback sold — realised=' + (realised >= 0 ? '+' : '') + realised.toFixed(2));
+        } catch (err) {
+          appendLog('warn', label + ' rollback sell failed: ' + (err.message || String(err)) + ' — riding to expiry');
+          updateLeg(leg.side, { status: 'open', resolved: false });
+        }
+      } else {
+        appendLog('warn', label + ' not sellable for rollback — riding to expiry');
+      }
+    }
+    // Clear pair so it doesn't count in session accounting.
+    finalisePair();
+  }
+
+  async openLeg(side, barrier, durationSec, spot, prefetch) {
+    const cfg = this.deps.cfg();
+    const key = side === 'HIGHER' ? 'higher' : 'lower';
+    const contractType = contractTypeFor(cfg.MODE, side);
+    const label = legDisplayName(cfg.MODE, side);
+
+    // Positive-ev fallback guard.
+    const edge = prefetch ? prefetch.edge : (cfg.EV_MODE ? (this.activeEdges ? this.activeEdges[side] : 0) : 0);
+    if (cfg.TRADE_DIRECTION === 'positive-ev' && edge <= 0) {
+      appendLog('info', label + ' skipped (fallback guard) — positive-ev, edge=' + edge.toFixed(4) + ' <= 0');
+      return;
+    }
+
+    // Stake sizing — when martingale is active, suppress EV_STAGGER to guarantee
+    // deterministic STAKE * MULTIPLIER^losses per user MARTINGALE_ENABLED setting.
+    const martingaleActive = this.activeEffectiveStake > cfg.STAKE + 1e-9;
+    let stake = this.activeEffectiveStake;
+    if (cfg.EV_STAGGER && !martingaleActive) {
+      const sInfo = staggerStake({ baseStake: this.activeEffectiveStake, edge });
+      stake = sInfo.stake;
+    }
+
+    // DRY RUN path.
+    if (cfg.DRY_RUN) {
+      return this._openLegDryRun(side, barrier, durationSec, spot, prefetch, stake, edge);
+    }
+
+    // LIVE path — unified retry.
+    const maxRetries = 2;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      // Fresh duration recalc on each attempt.
+      const freshNowSec = Date.now() / 1000;
+      const freshDurationSec = Math.max(15, Math.floor(durationSec + (freshNowSec - Date.now() / 1000)));
+      const blockSec = cfg.BLOCK_MINUTES * 60;
+      let durationValue;
+      let durationUnit;
+      if (contractType === 'NOTOUCH') {
+        durationUnit = 'm';
+        const startupSlackSec = 30;
+        if (freshDurationSec < blockSec - startupSlackSec) {
+          appendLog('warn', label + ' skipped — ' + freshDurationSec + 's left vs full block ' + blockSec + '; NOTOUCH only trades fresh blocks');
+          return;
+        }
+        durationValue = cfg.BLOCK_MINUTES;
+      } else {
+        durationUnit = 's';
+        durationValue = Math.max(15, Math.floor(durationSec - (Date.now() / 1000 - freshNowSec)));
+      }
+      const barrierStr = formatBarrier(barrier, this.pipDigits);
+      const durSpec = String(durationValue) + durationUnit;
+
+      // Duration constraint check.
+      const effectiveSec = durationUnit === 'm' ? durationValue * 60 : durationValue;
+      const cst = this.constraints[contractType];
+      const minD = cst ? cst.minDurationSec : undefined;
+      const maxD = cst ? cst.maxDurationSec : undefined;
+      if (minD !== undefined && effectiveSec < minD) {
+        appendLog('warn', label + ' skipped — ' + effectiveSec + 's < ' + contractType + ' min ' + minD + 's');
+        return;
+      }
+      if (maxD !== undefined && effectiveSec > maxD) {
+        durationValue = durationUnit === 'm' ? Math.floor(maxD / 60) : maxD;
+      }
+
+      // Re-check spot vs barrier before buy.
+      const currentSpot = state.lastSpot ?? spot;
+      if (side === 'HIGHER' && barrier <= currentSpot) {
+        appendLog('warn', label + ' skipped — barrier ' + barrierStr + ' <= current spot ' + currentSpot.toFixed(this.pipDigits));
+        return;
+      }
+      if (side === 'LOWER' && barrier >= currentSpot) {
+        appendLog('warn', label + ' skipped — barrier ' + barrierStr + ' >= current spot ' + currentSpot.toFixed(this.pipDigits));
+        return;
+      }
+
+      try {
+        if (prefetch && attempt === 0) {
+          // Use prefetched proposal.
+          const buy = await this.deps.ws.buyProposal(prefetch.proposalId, prefetch.askPrice);
+          const impliedP = prefetch.impliedP;
+          const model = this.activeModel;
+          const distance = Math.abs(barrier - spot);
+          const trueP = model ? winRate(model, cfg.MODE, side, distance) : undefined;
+          const ev = (trueP !== undefined && impliedP !== undefined) ? (trueP - impliedP) * prefetch.payout : undefined;
+          const leg = { side, contractId: buy.contract_id, stake: buy.buy_price, payout: prefetch.payout, buyPrice: buy.buy_price, barrier, liveProfit: 0, status: 'open', resolved: false, impliedP, trueP, ev };
+          this.deps.registerContractId(buy.contract_id);
+          this.injectLeg(key, leg);
+          let evTokens = '';
+          if (ev !== undefined && impliedP !== undefined) evTokens = ' p=' + fmtPct(trueP) + ' ev=' + fmtSigned(ev);
+          let xToken = '';
+          if (cfg.EV_STAGGER && prefetch.stake !== cfg.STAKE) xToken = ' x' + (prefetch.stake / cfg.STAKE).toFixed(2);
+          appendLog('trade-open', label + ' stake=' + buy.buy_price.toFixed(2) + ' payout=' + prefetch.payout.toFixed(2) + ' barrier=' + barrierStr + ' dur=' + durSpec + ' id=' + buy.contract_id + evTokens + xToken);
+          if (this.deps.notify) this.deps.notify.sendTradeOpen(cfg.SYMBOL, timeHM(Date.now() / 1000), label, barrierStr, buy.buy_price.toFixed(2), evTokens || undefined);
+          return; // Success, no retry needed.
+        }
+      } catch (err) {
+        const msg = err.message || String(err);
+        if (isRetryableError(msg) && attempt < maxRetries) {
+          appendLog('warn', label + ' buy (attempt ' + (attempt + 1) + ') transient error: ' + msg + ' — retrying (' + (maxRetries - attempt) + ' left)');
+          await new Promise(r => setTimeout(r, 200 + attempt * 150));
+          continue;
+        }
+        appendLog('error', label + ' buy failed (' + contractType + ' dur=' + durSpec + ' barrier=' + barrierStr + '): ' + (attempt > 0 ? '(after ' + attempt + ' retries) ' : '') + msg);
+        return;
+      }
+
+      try {
+        // Fresh proposal + buy (no prefetch, or retry after prefetch failure).
+        // Martingale-aware: base on activeEffectiveStake, suppress stagger when martingale active
+        const distanceEff = Math.abs(barrier - spot);
+        const modelEff = this.activeModel;
+        const truePForEff = modelEff ? winRate(modelEff, cfg.MODE, side, distanceEff) : undefined;
+        let eff = { stake: this.activeEffectiveStake, edge };
+        if (cfg.EV_STAGGER && !martingaleActive && truePForEff !== undefined) {
+          eff = await this.resolveLiveStake(side, truePForEff, contractType, durationValue, durationUnit, barrierStr, this.activeEffectiveStake);
+        }
+        const res = await this.deps.ws.buyContract({
+          amount: eff.stake,
+          currency: cfg.CURRENCY,
+          contract_type: contractType,
+          duration: durationValue,
+          duration_unit: durationUnit,
+          symbol: cfg.SYMBOL,
+          barrier: barrierStr,
+        });
+        const impliedP = res.impliedP;
+        const model = this.activeModel;
+        const distance = Math.abs(barrier - spot);
+        const trueP = model ? winRate(model, cfg.MODE, side, distance) : undefined;
+        const ev = (trueP !== undefined && impliedP !== undefined) ? (trueP - impliedP) * res.payout : undefined;
+        const leg = { side, contractId: res.contract_id, stake: res.buy_price, payout: res.payout, buyPrice: res.buy_price, barrier, liveProfit: 0, status: 'open', resolved: false, impliedP, trueP: trueP, ev };
+        this.deps.registerContractId(res.contract_id);
+        this.injectLeg(key, leg);
+        let evTokens = '';
+        if (ev !== undefined && impliedP !== undefined) evTokens = ' p=' + fmtPct(trueP) + ' ev=' + fmtSigned(ev);
+        let xToken = '';
+        if (cfg.EV_STAGGER && eff.edge !== undefined) xToken = ' x' + (eff.stake / cfg.STAKE).toFixed(2);
+        appendLog('trade-open', label + ' stake=' + res.buy_price.toFixed(2) + ' payout=' + res.payout.toFixed(2) + ' barrier=' + barrierStr + ' dur=' + durSpec + ' id=' + res.contract_id + evTokens + xToken);
+        if (this.deps.notify) this.deps.notify.sendTradeOpen(cfg.SYMBOL, timeHM(Date.now() / 1000), label, barrierStr, res.buy_price.toFixed(2), evTokens || undefined);
+        return; // Success.
+      } catch (err) {
+        const msg = err.message || String(err);
+        if (isRetryableError(msg) && attempt < maxRetries) {
+          appendLog('warn', label + ' buyContract (attempt ' + (attempt + 1) + ') transient error: ' + msg + ' — retrying (' + (maxRetries - attempt) + ' left)');
+          await new Promise(r => setTimeout(r, 200 + attempt * 150));
+          continue;
+        }
+        appendLog('error', label + ' buy failed (' + contractType + ' dur=' + durSpec + ' barrier=' + barrierStr + '): ' + (attempt > 0 ? '(after ' + attempt + ' retries) ' : '') + msg);
+        return;
+      }
+    }
+  }
+
+  _openLegDryRun(side, barrier, durationSec, spot, prefetch, stake, edge) {
+    const cfg = this.deps.cfg();
+    const key = side === 'HIGHER' ? 'higher' : 'lower';
+    const label = legDisplayName(cfg.MODE, side);
+    const barrierStr = formatBarrier(barrier, this.pipDigits);
     const contractType = contractTypeFor(cfg.MODE, side);
     const blockSec = cfg.BLOCK_MINUTES * 60;
     let durationValue;
     let durationUnit;
     if (contractType === 'NOTOUCH') {
       durationUnit = 'm';
-      const startupSlackSec = 30;
-      if (durationSec < blockSec - startupSlackSec) {
-        const label = legDisplayName(cfg.MODE, side);
-        appendLog('warn', label + ' skipped — ' + durationSec + 's left vs full block ' + blockSec + '; NOTOUCH only trades fresh blocks');
-        return;
-      }
       durationValue = cfg.BLOCK_MINUTES;
     } else {
       durationUnit = 's';
       durationValue = durationSec;
     }
-
-    const label = legDisplayName(cfg.MODE, side);
     const durSpec = String(durationValue) + durationUnit;
-
-    const effectiveSec = durationUnit === 'm' ? durationValue * 60 : durationValue;
-    const cst = this.constraints[contractType];
-    const minD = cst ? cst.minDurationSec : undefined;
-    const maxD = cst ? cst.maxDurationSec : undefined;
-    if (minD !== undefined && effectiveSec < minD) {
-      appendLog('warn', label + ' skipped — ' + effectiveSec + 's < ' + contractType + ' min ' + minD + 's');
-      return;
+    const distance = Math.abs(barrier - spot);
+    const model = this.activeModel;
+    const trueP = model ? winRate(model, cfg.MODE, side, distance) : 0.5;
+    const fakeId = -Math.floor(Math.random() * 1000000000);
+    const effectiveBase = this.activeEffectiveStake ?? stake ?? cfg.STAKE;
+    const martingaleActive = effectiveBase > cfg.STAKE + 1e-9;
+    const sim = (trueP !== undefined && model) ? simulateQuote({ trueP, distance, sigmaBlock: legSigmaBlock(model, side), mode: cfg.MODE, edge: cfg.DRY_RUN_EDGE || 0, stake: effectiveBase }) : { impliedP: 1 / 1.95, payout: effectiveBase * 1.95 };
+    const impliedP = sim.impliedP;
+    const edge = trueP !== undefined ? trueP - impliedP : undefined;
+    let stake = effectiveBase;
+    if (cfg.EV_STAGGER && !martingaleActive && edge !== undefined) {
+      const sInfo = staggerStake({ baseStake: effectiveBase, edge: edge });
+      stake = sInfo.stake;
     }
-    if (maxD !== undefined && effectiveSec > maxD) {
-      appendLog('warn', label + ' ' + effectiveSec + 's > ' + contractType + ' max ' + maxD + 's — capping');
-      durationValue = durationUnit === 'm' ? Math.floor(maxD / 60) : maxD;
-    }
-
-    if (cfg.DRY_RUN) {
-      const fakeId = -Math.floor(Math.random() * 1000000000);
-      const sim = (trueP !== undefined && model) ? simulateQuote({ trueP: trueP, distance: distance, sigmaBlock: legSigmaBlock(model, side), mode: cfg.MODE, edge: cfg.DRY_RUN_EDGE || 0, stake: cfg.STAKE }) : { impliedP: 1 / 1.95, payout: cfg.STAKE * 1.95 };
-      const impliedP = sim.impliedP;
-      const edge2 = trueP !== undefined ? trueP - impliedP : undefined;
-      let stake2 = cfg.STAKE;
-      if (cfg.EV_STAGGER && edge2 !== undefined) stake2 = staggerStake({ baseStake: cfg.STAKE, edge: edge2 });
-      const payout2 = impliedP > 0 ? stake2 / impliedP : sim.payout;
-      const ev = (trueP !== undefined && edge2 !== undefined) ? edge2 * payout2 : undefined;
-      const leg = { side: side, contractId: fakeId, stake: stake2, payout: payout2, buyPrice: stake2, barrier: barrier, liveProfit: 0, status: 'open', resolved: false, impliedP: impliedP, trueP: trueP, ev: ev };
-      this.injectLeg(key, leg);
-      let evTokens = '';
-      if (ev !== undefined && trueP !== undefined) evTokens = ' p=' + fmtPct(trueP) + ' ev=' + fmtSigned(ev);
-      let xToken = '';
-      if (cfg.EV_STAGGER && stake2 !== cfg.STAKE) xToken = ' x' + (stake2 / cfg.STAKE).toFixed(2);
-      appendLog('trade-open', 'DRY ' + label + ' stake=' + stake2.toFixed(2) + ' payout=' + payout2.toFixed(2) + ' barrier=' + barrierStr + ' dur=' + durSpec + ' id=' + fakeId + evTokens + xToken);
-      if (this.deps.notify) this.deps.notify.sendTradeOpen(cfg.SYMBOL, 'DRY ' + timeHM(Date.now() / 1000), label, barrierStr, stake2.toFixed(2), evTokens.trim() || undefined);
-      return;
-    }
-
-    if (prefetch) {
-      let xToken = '';
-      if (cfg.EV_STAGGER && prefetch.stake !== cfg.STAKE) xToken = ' x' + (prefetch.stake / cfg.STAKE).toFixed(2);
-      try {
-        const buy = await this.deps.ws.buyProposal(prefetch.proposalId, prefetch.askPrice);
-        const impliedP = prefetch.impliedP;
-        const ev = (trueP !== undefined && impliedP !== undefined) ? (trueP - impliedP) * prefetch.payout : undefined;
-        const leg = { side: side, contractId: buy.contract_id, stake: buy.buy_price, payout: prefetch.payout, buyPrice: buy.buy_price, barrier: barrier, liveProfit: 0, status: 'open', resolved: false, impliedP: impliedP, trueP: trueP, ev: ev };
-        this.deps.registerContractId(buy.contract_id);
-        this.injectLeg(key, leg);
-        let evTokens = '';
-        if (ev !== undefined && impliedP !== undefined) evTokens = ' p=' + fmtPct(trueP) + ' ev=' + fmtSigned(ev);
-        appendLog('trade-open', label + ' stake=' + buy.buy_price.toFixed(2) + ' payout=' + prefetch.payout.toFixed(2) + ' barrier=' + barrierStr + ' dur=' + durSpec + ' id=' + buy.contract_id + evTokens + xToken);
-        if (this.deps.notify) this.deps.notify.sendTradeOpen(cfg.SYMBOL, timeHM(Date.now() / 1000), label, barrierStr, buy.buy_price.toFixed(2), evTokens || undefined);
-      } catch (err) {
-        const msg = err.message || String(err);
-        if (msg.indexOf('PriceMoved') !== -1 || msg.indexOf('price') !== -1) {
-          appendLog('warn', label + ' buyProposal hit price move, retrying with fresh quote...');
-          await this.openLeg(side, barrier, durationSec, spot);
-          return;
-        }
-        appendLog('error', label + ' buy failed (prefetch ' + contractType + ' dur=' + durSpec + ' barrier=' + barrierStr + '): ' + msg);
-      }
-      return;
-    }
-
-    let eff = { stake: cfg.STAKE, edge: undefined };
-    if (cfg.EV_STAGGER && trueP !== undefined) eff = await this.resolveLiveStake(side, trueP, contractType, durationValue, durationUnit, barrierStr);
-    try {
-      const res = await this.deps.ws.buyContract({
-        amount: eff.stake,
-        currency: cfg.CURRENCY,
-        contract_type: contractType,
-        duration: durationValue,
-        duration_unit: durationUnit,
-        symbol: cfg.SYMBOL,
-        barrier: barrierStr,
-      });
-      const impliedP = res.impliedP;
-      const ev = (trueP !== undefined && impliedP !== undefined) ? (trueP - impliedP) * res.payout : undefined;
-      const leg = { side: side, contractId: res.contract_id, stake: res.buy_price, payout: res.payout, buyPrice: res.buy_price, barrier: barrier, liveProfit: 0, status: 'open', resolved: false, impliedP: impliedP, trueP: trueP, ev: ev };
-      this.deps.registerContractId(res.contract_id);
-      this.injectLeg(key, leg);
-      let evTokens = '';
-      if (ev !== undefined && impliedP !== undefined) evTokens = ' p=' + fmtPct(trueP) + ' ev=' + fmtSigned(ev);
-      let xToken = '';
-      if (cfg.EV_STAGGER && eff.edge !== undefined) xToken = ' x' + (eff.stake / cfg.STAKE).toFixed(2);
-      appendLog('trade-open', label + ' stake=' + res.buy_price.toFixed(2) + ' payout=' + res.payout.toFixed(2) + ' barrier=' + barrierStr + ' dur=' + durSpec + ' id=' + res.contract_id + evTokens + xToken);
-      if (this.deps.notify) this.deps.notify.sendTradeOpen(cfg.SYMBOL, timeHM(Date.now() / 1000), label, barrierStr, res.buy_price.toFixed(2), evTokens || undefined);
-    } catch (err) {
-      const msg = err.message || String(err);
-      appendLog('error', label + ' buy failed (' + contractType + ' dur=' + durSpec + ' barrier=' + barrierStr + '): ' + msg);
-    }
+    const payout = impliedP > 0 ? stake / impliedP : sim.payout;
+    const ev = (trueP !== undefined && edge !== undefined) ? edge * payout : undefined;
+    const leg = { side, contractId: fakeId, stake: stake, payout: payout, buyPrice: stake, barrier, liveProfit: 0, status: 'open', resolved: false, impliedP, trueP, ev };
+    this.injectLeg(key, leg);
+    let evTokens = '';
+    if (ev !== undefined && trueP !== undefined) evTokens = ' p=' + fmtPct(trueP) + ' ev=' + fmtSigned(ev);
+    let xToken = '';
+    if (cfg.EV_STAGGER && stake !== cfg.STAKE) xToken = ' x' + (stake / cfg.STAKE).toFixed(2);
+    appendLog('trade-open', 'DRY ' + label + ' stake=' + stake.toFixed(2) + ' payout=' + payout.toFixed(2) + ' barrier=' + barrierStr + ' dur=' + durSpec + ' id=' + fakeId + evTokens + xToken);
+    if (this.deps.notify) this.deps.notify.sendTradeOpen(cfg.SYMBOL, 'DRY ' + timeHM(Date.now() / 1000), label, barrierStr, stake.toFixed(2), evTokens.trim() || undefined);
   }
 
-  async resolveLiveStake(side, trueP, contractType, durationValue, durationUnit, barrierStr) {
+  async resolveLiveStake(side, trueP, contractType, durationValue, durationUnit, barrierStr, baseStake) {
     const cfg = this.deps.cfg();
+    const base = baseStake ?? this.activeEffectiveStake ?? cfg.STAKE;
     if (cfg.EV_MODE) {
       const edge = this.activeEdges ? this.activeEdges[side] : 0;
-      return { stake: staggerStake({ baseStake: cfg.STAKE, edge: edge }), edge: edge };
+      const s = staggerStake({ baseStake: base, edge });
+      return { stake: s.stake, edge };
     }
     try {
       const p = await this.deps.ws.getProposal({
-        amount: cfg.STAKE, currency: cfg.CURRENCY, contract_type: contractType,
+        amount: base, currency: cfg.CURRENCY, contract_type: contractType,
         duration: durationValue, duration_unit: durationUnit, symbol: cfg.SYMBOL, barrier: barrierStr,
       });
-      if (p.impliedP === undefined) return { stake: cfg.STAKE, edge: 0 };
+      if (p.impliedP === undefined) return { stake: base, edge: 0 };
       const edge = trueP - p.impliedP;
-      return { stake: staggerStake({ baseStake: cfg.STAKE, edge: edge }), edge: edge };
+      const s = staggerStake({ baseStake: base, edge });
+      return { stake: s.stake, edge };
     } catch {
-      return { stake: cfg.STAKE, edge: 0 };
+      return { stake: base, edge: 0 };
     }
   }
 
@@ -1987,20 +2243,25 @@ class PairTrader {
     const open = [pair.higher, pair.lower].filter((l) => l && !l.resolved);
     if (open.length === 0) return;
 
-    const blockTp = cfg.BLOCK_TP ?? 0;
-    const blockSl = cfg.BLOCK_SL ?? 0;
-    const blockTrail = cfg.BLOCK_TRAIL ?? 0;
+    // Normalize TP/SL/trail to stake ratio so exit probability stays
+    // constant regardless of effective stake (e.g. 0.35 vs 1.0).
+    const stakeRatio = this.activeEffectiveStake / 1.0;
+    const blockTp = (cfg.BLOCK_TP ?? 0) * stakeRatio;
+    const blockSl = (cfg.BLOCK_SL ?? 0) * stakeRatio;
+    const blockTrail = (cfg.BLOCK_TRAIL ?? 0) * stakeRatio;
     const trailArmAt = (blockTp > 0 && blockTrail > 0) ? blockTp * DEFAULT_TRAIL_ARM_FRACTION : 0;
     const dec = evaluatePairExit({ state: this.exitState, profit, blockTp, blockSl, blockTrail, trailArmAt });
     if (!dec.exit) return;
 
     this.selling = true;
     markTpTriggered(dec.reason);
+    const rawTp = cfg.BLOCK_TP ?? 0;
+    const rawSl = cfg.BLOCK_SL ?? 0;
     const reason = dec.reason === 'sl'
-      ? 'pair P/L ' + (profit <= 0 ? '' : '+') + profit.toFixed(2) + ' <= -sl ' + blockSl.toFixed(2)
+      ? 'pair P/L ' + (profit <= 0 ? '' : '+') + profit.toFixed(2) + ' <= -sl ' + blockSl.toFixed(2) + ' (raw ' + rawSl.toFixed(2) + ' × ' + stakeRatio.toFixed(2) + ')'
       : dec.reason === 'trail'
         ? 'pair P/L retraced ' + (this.exitState.peakPL - profit).toFixed(2) + ' from peak +' + this.exitState.peakPL.toFixed(2)
-        : 'pair P/L ' + (profit >= 0 ? '+' : '') + profit.toFixed(2) + ' >= tp ' + blockTp.toFixed(2);
+        : 'pair P/L ' + (profit >= 0 ? '+' : '') + profit.toFixed(2) + ' >= tp ' + blockTp.toFixed(2) + ' (raw ' + rawTp.toFixed(2) + ' × ' + stakeRatio.toFixed(2) + ')';
     appendLog('sell', reason + ' — selling sellable legs');
     void this.sellSellableLegs(pair);
   }
@@ -2372,6 +2633,24 @@ class Trader {
       return;
     }
 
+    // Trade gate: skip if previous pair still has live (unresolved) legs.
+    const prevPair = state.currentPair;
+    if (prevPair && (prevPair.higher || prevPair.lower)) {
+      const prevOpen = [prevPair.higher, prevPair.lower].filter(l => l && !l.resolved);
+      if (prevOpen.length > 0) {
+        appendLog('warn', 'block ' + new Date(w.start * 1000).toISOString().slice(11, 16) + 'Z — previous pair still has ' + prevOpen.length + ' live leg(s), skipping');
+        return;
+      }
+    }
+
+    // Trade gate: skip if insufficient time for any contract.
+    const nowSec = Date.now() / 1000;
+    const durationSec = Math.max(0, Math.floor(w.end - nowSec));
+    if (durationSec < 15) {
+      appendLog('warn', 'block ' + new Date(w.start * 1000).toISOString().slice(11, 16) + 'Z — only ' + durationSec + 's left, skipping pair');
+      return;
+    }
+
     const spot = state.lastSpot ?? (this.candles.length ? this.candles[this.candles.length - 1].close : 0);
     this.intraHigh = spot;
     this.intraLow = spot;
@@ -2455,6 +2734,12 @@ class Trader {
       return;
     }
 
+    // Apply barrier floor to legacy predictions too.
+    const flooredLegacy = enforceBarrierFloor(spot, pred.predictedHigh, pred.predictedLow, null, this.pipDigits);
+    if (flooredLegacy.adjusted) {
+      appendLog('info', 'legacy barrier floor — predH ' + pred.predictedHigh.toFixed(this.pipDigits) + '->' + flooredLegacy.predHigh.toFixed(this.pipDigits) + ' predL ' + pred.predictedLow.toFixed(this.pipDigits) + '->' + flooredLegacy.predLow.toFixed(this.pipDigits));
+    }
+
     let model = null;
     if (pred.meanUp !== undefined && pred.meanDown !== undefined) {
       model = winRateModelFromMeans(pred.meanUp, pred.meanDown, granularity, pred.daysUsed);
@@ -2464,8 +2749,8 @@ class Trader {
       blockStart: w.start,
       blockEnd: w.end,
       blockOpen: pred.blockOpen,
-      predictedHigh: pred.predictedHigh,
-      predictedLow: pred.predictedLow,
+      predictedHigh: flooredLegacy.predHigh,
+      predictedLow: flooredLegacy.predLow,
       predictionSource: pred.source,
       daysUsed: pred.daysUsed,
       spot: spot,
