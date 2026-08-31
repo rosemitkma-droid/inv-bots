@@ -2658,9 +2658,17 @@ class Trader {
     const hh = new Date(w.start * 1000).toISOString().slice(11, 16) + 'Z';
 
     // Martingale: if enabled, increase stake based on consecutive losses.
+    // Respects HILO_MARTINGALE_STEPS — caps exponent and resets cycle after limit.
     let effectiveStake = this.cfg.STAKE;
     if (this.cfg.MARTINGALE_ENABLED) {
-      const consecutiveLosses = state.session.consecutiveLosses;
+      let consecutiveLosses = state.session.consecutiveLosses;
+      // Respect STEPS: if exceeded limit, reset cycle to base (prevents infinite growth and halt)
+      if (this.cfg.MARTINGALE_STEPS > 0 && consecutiveLosses > this.cfg.MARTINGALE_STEPS) {
+        appendLog('info', 'martingale: steps limit ' + this.cfg.MARTINGALE_STEPS + ' exceeded (' + consecutiveLosses + ' losses) — resetting to base stake ' + this.cfg.STAKE.toFixed(2));
+        state.session.consecutiveLosses = 0;
+        consecutiveLosses = 0;
+        saveState(this.cfg.STATE_PATH, state.session);
+      }
       const losses = Math.min(consecutiveLosses, this.cfg.MARTINGALE_STEPS);
       if (losses > 0) {
         effectiveStake = this.cfg.STAKE * Math.pow(this.cfg.MARTINGALE_MULTIPLIER, losses);
@@ -2842,7 +2850,11 @@ class Trader {
     } else if (this.cfg.SESSION_SL !== undefined && p <= -this.cfg.SESSION_SL) {
       reason = 'session SL hit: ' + p.toFixed(2) + ' <= -' + this.cfg.SESSION_SL;
     } else if ((this.cfg.MAX_CONSECUTIVE_LOSSES ?? 0) > 0 && st.consecutiveLosses >= this.cfg.MAX_CONSECUTIVE_LOSSES) {
-      reason = 'circuit-breaker: ' + st.consecutiveLosses + ' consecutive losses (max ' + this.cfg.MAX_CONSECUTIVE_LOSSES + ')';
+      // When Martingale is enabled, respect HILO_MARTINGALE_STEPS — don't halt while within martingale cycle
+      const inMartingaleCycle = this.cfg.MARTINGALE_ENABLED && st.consecutiveLosses <= this.cfg.MARTINGALE_STEPS;
+      if (!inMartingaleCycle) {
+        reason = 'circuit-breaker: ' + st.consecutiveLosses + ' consecutive losses (max ' + this.cfg.MAX_CONSECUTIVE_LOSSES + ')';
+      }
     } else if ((this.cfg.DAILY_LOSS_CAP ?? 0) > 0 && st.dayProfit <= -this.cfg.DAILY_LOSS_CAP) {
       reason = 'daily loss cap: today ' + st.dayProfit.toFixed(2) + ' <= -' + this.cfg.DAILY_LOSS_CAP;
     }
