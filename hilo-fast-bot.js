@@ -92,7 +92,7 @@ const CONFIG = {
   // EV-first band selection (Phase 1)
   EV_MODE: process.env.HILO_EV_MODE === '1' || process.env.HILO_EV_MODE === 'true',
   K_CANDIDATES: (function() {
-    const raw = process.env.HILO_K_CANDIDATES2;
+    const raw = process.env.HILO_K_CANDIDATES;
     if (!raw) return [1.0, 1.5, 2.0, 2.5, 3.0];
     const out = raw.split(',').map(s => Number(s.trim())).filter(n => Number.isFinite(n) && n > 0);
     return out.length ? out : [1.0, 1.5, 2.0, 2.5, 3.0];
@@ -1218,7 +1218,7 @@ function createTelegramNotifier(token, chatId) {
     async sendTradeOpen(symbol, blockTime, label, barrier, stakeUsd, evTag) {
       const evLine = evTag ? `\n${evTag}` : '';
       await post(
-        `<b>🔵 NodeJS Bot Trade Open</b> ${symbol} ${blockTime}\n` +
+        `<b>🔵 NodeJS2 Bot Trade Open2</b> ${symbol} ${blockTime}\n` +
         `${label} @ ${barrier}\n` +
         `Stake: $${stakeUsd}${evLine}`
       );
@@ -1226,10 +1226,10 @@ function createTelegramNotifier(token, chatId) {
 
     async sendTradeResult(symbol, pnl, legs, stats) {
       await post(
-        `<b>📊 Trade Result</b> ${symbol}\n` +
+        `<b>📊 Trade Result2</b> ${symbol}\n` +
         `P/L: ${pnl}\n` +
         `${legs}\n\n` +
-        `📈 <b>NodeJS Bot Session Stats</b>\n` +
+        `📈 <b>NodeJS2 Bot Session Stats</b>\n` +
         `Total Trades: ${stats.trades} (Win: ${stats.wins} / Loss: ${stats.losses})\n` +
         `Win Ratio: ${stats.winRate}\n` +
         `Net P/L: ${stats.netPnl}`
@@ -1238,7 +1238,7 @@ function createTelegramNotifier(token, chatId) {
 
     async sendHourly(symbol, trades, pnl, winRate, stats) {
       await post(
-        `<b>⏱ NodeJS Bot Hourly Report</b> ${symbol}\n` +
+        `<b>⏱ NodeJS2 Bot Hourly Report</b> ${symbol}\n` +
         `Blocks Traded (Hour): ${trades}\n` +
         `Hour P/L: ${pnl}\n\n` +
         `📈 <b>Session Summary</b>\n` +
@@ -1250,7 +1250,7 @@ function createTelegramNotifier(token, chatId) {
 
     async sendSessionEnd(symbol, trades, pnl, winRate, reason) {
       await post(
-        `<b>🏁 NodeJS Bot Session Ended</b> ${symbol} — ${reason}\n` +
+        `<b>🏁 NodeJS2 Bot Session Ended</b> ${symbol} — ${reason}\n` +
         `Blocks: ${trades}\n` +
         `P/L: ${pnl}\n` +
         `Win rate: ${winRate}`
@@ -1259,7 +1259,7 @@ function createTelegramNotifier(token, chatId) {
 
     async sendEndOfDay(symbol, dateStr, stats) {
       await post(
-        `🌙 <b>NodeJS Bot End of Day Report</b> ${symbol} (${dateStr} GMT+1)\n` +
+        `🌙 <b>NodeJS2 Bot End of Day Report</b> ${symbol} (${dateStr} GMT+1)\n` +
         `Total Trades: ${stats.trades} (Win: ${stats.wins} / Loss: ${stats.losses})\n` +
         `Win Rate: ${stats.winRate}\n` +
         `Net P/L: ${stats.netPnl}`
@@ -2120,13 +2120,13 @@ class PairTrader {
         const impliedP = res.impliedP;
         const model = this.activeModel;
         const distance = Math.abs(barrier - spot);
-        const trueP = model ? winRate(model, cfg.MODE, side, distance) : undefined;
-        const ev = (trueP !== undefined && impliedP !== undefined) ? (trueP - impliedP) * res.payout : undefined;
-        const leg = { side, contractId: res.contract_id, stake: res.buy_price, payout: res.payout, buyPrice: res.buy_price, barrier, liveProfit: 0, status: 'open', resolved: false, impliedP, trueP: trueP, ev };
+        const trueP2 = model ? winRate(model, cfg.MODE, side, distance) : undefined;
+        const ev = (trueP2 !== undefined && impliedP !== undefined) ? (trueP2 - impliedP) * res.payout : undefined;
+        const leg = { side, contractId: res.contract_id, stake: res.buy_price, payout: res.payout, buyPrice: res.buy_price, barrier, liveProfit: 0, status: 'open', resolved: false, impliedP, trueP: trueP2, ev };
         this.deps.registerContractId(res.contract_id);
         this.injectLeg(key, leg);
         let evTokens = '';
-        if (ev !== undefined && impliedP !== undefined) evTokens = ' p=' + fmtPct(trueP) + ' ev=' + fmtSigned(ev);
+        if (ev !== undefined && impliedP !== undefined) evTokens = ' p=' + fmtPct(trueP2) + ' ev=' + fmtSigned(ev);
         let xToken = '';
         if (cfg.EV_STAGGER && eff.edge !== undefined) xToken = ' x' + (eff.stake / cfg.STAKE).toFixed(2);
         appendLog('trade-open', label + ' stake=' + res.buy_price.toFixed(2) + ' payout=' + res.payout.toFixed(2) + ' barrier=' + barrierStr + ' dur=' + durSpec + ' id=' + res.contract_id + evTokens + xToken);
@@ -2170,22 +2170,22 @@ class PairTrader {
     const martingaleActive = effectiveBase > cfg.STAKE + 1e-9;
     const sim = (trueP !== undefined && model) ? simulateQuote({ trueP, distance, sigmaBlock: legSigmaBlock(model, side), mode: cfg.MODE, edge: cfg.DRY_RUN_EDGE || 0, stake: effectiveBase }) : { impliedP: 1 / 1.95, payout: effectiveBase * 1.95 };
     const impliedP = sim.impliedP;
-    const edge = trueP !== undefined ? trueP - impliedP : undefined;
-    let stake = effectiveBase;
-    if (cfg.EV_STAGGER && !martingaleActive && edge !== undefined) {
-      const sInfo = staggerStake({ baseStake: effectiveBase, edge: edge });
-      stake = sInfo.stake;
+    const edge2 = trueP !== undefined ? trueP - impliedP : undefined;
+    let stake2 = effectiveBase;
+    if (cfg.EV_STAGGER && !martingaleActive && edge2 !== undefined) {
+      const sInfo = staggerStake({ baseStake: effectiveBase, edge: edge2 });
+      stake2 = sInfo.stake;
     }
-    const payout = impliedP > 0 ? stake / impliedP : sim.payout;
-    const ev = (trueP !== undefined && edge !== undefined) ? edge * payout : undefined;
-    const leg = { side, contractId: fakeId, stake: stake, payout: payout, buyPrice: stake, barrier, liveProfit: 0, status: 'open', resolved: false, impliedP, trueP, ev };
+    const payout2 = impliedP > 0 ? stake2 / impliedP : sim.payout;
+    const ev = (trueP !== undefined && edge2 !== undefined) ? edge2 * payout2 : undefined;
+    const leg = { side, contractId: fakeId, stake: stake2, payout: payout2, buyPrice: stake2, barrier, liveProfit: 0, status: 'open', resolved: false, impliedP, trueP, ev };
     this.injectLeg(key, leg);
     let evTokens = '';
     if (ev !== undefined && trueP !== undefined) evTokens = ' p=' + fmtPct(trueP) + ' ev=' + fmtSigned(ev);
     let xToken = '';
-    if (cfg.EV_STAGGER && stake !== cfg.STAKE) xToken = ' x' + (stake / cfg.STAKE).toFixed(2);
-    appendLog('trade-open', 'DRY ' + label + ' stake=' + stake.toFixed(2) + ' payout=' + payout.toFixed(2) + ' barrier=' + barrierStr + ' dur=' + durSpec + ' id=' + fakeId + evTokens + xToken);
-    if (this.deps.notify) this.deps.notify.sendTradeOpen(cfg.SYMBOL, 'DRY ' + timeHM(Date.now() / 1000), label, barrierStr, stake.toFixed(2), evTokens.trim() || undefined);
+    if (cfg.EV_STAGGER && stake2 !== cfg.STAKE) xToken = ' x' + (stake2 / cfg.STAKE).toFixed(2);
+    appendLog('trade-open', 'DRY ' + label + ' stake=' + stake2.toFixed(2) + ' payout=' + payout2.toFixed(2) + ' barrier=' + barrierStr + ' dur=' + durSpec + ' id=' + fakeId + evTokens + xToken);
+    if (this.deps.notify) this.deps.notify.sendTradeOpen(cfg.SYMBOL, 'DRY ' + timeHM(Date.now() / 1000), label, barrierStr, stake2.toFixed(2), evTokens.trim() || undefined);
   }
 
   async resolveLiveStake(side, trueP, contractType, durationValue, durationUnit, barrierStr, baseStake) {
