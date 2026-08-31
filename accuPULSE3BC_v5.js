@@ -48,7 +48,7 @@ const CONFIG = Object.freeze({
   demoOnly: false,
   tradeEnabled: true,
   skipRecentTradedSymbols: true,
-  recentTradedSymbolsLen: parseInt('2', 10),
+  recentTradedSymbolsLen: parseInt('5', 10),
 
   // Anti-Martingale
   winsBeforeScaling: parseInt('500'),
@@ -56,9 +56,11 @@ const CONFIG = Object.freeze({
   maxWinStakeMultiplier: parseFloat('4.0'),
 
   // Assets
-  // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('BOOM900,BOOM1000,CRASH900,CRASH1000')
+  assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
   telegram: {
@@ -77,7 +79,7 @@ const CONFIG = Object.freeze({
   // Hazard Model (v4.0 fixes)
   candidateGrowthRates: [0.05, 0.04, 0.03, 0.02, 0.01], //[0.05, 0.04, 0.03, 0.02, 0.01]
   hazardWindow: parseInt('600', 10),
-  plannedHoldTicks: parseInt('15', 10),
+  plannedHoldTicks: parseInt('5', 10), //15
   minBarrierPct: parseFloat('0.015'),
   minEmpiricalSamples: parseInt('150', 10),
   confidenceZ: parseFloat('1.28'),
@@ -92,8 +94,8 @@ const CONFIG = Object.freeze({
     // server-recorded survival history of previous contracts at this exact
     // symbol + growth rate. No fabricated barriers, no abs() log-ret math.
     nominalSpikeInterval: {
-      BOOM900: 900, BOOM1000: 1000,
-      CRASH900: 900, CRASH1000: 1000,
+      BOOM300: 300, BOOM500: 500, BOOM600: 600, BOOM900: 900, BOOM1000: 1000,
+      CRASH300: 300, CRASH500: 500, CRASH600: 600, CRASH900: 900, CRASH1000: 1000,
     },
     // Stay samples required before trusting P(reach N). The API returns ~100
     // per refresh; require most of a full refresh before trading.
@@ -122,14 +124,14 @@ const CONFIG = Object.freeze({
 
   // ── Feature 1: Adaptive Confidence Gates (by vol regime) ──────────────
   minConfidenceByRegime: {
-    0: 0.13,  // low vol: stricter (good conditions, be selective)
-    1: 0.10,  // normal vol: balanced
+    0: 0.9,  // low vol: stricter (good conditions, be selective)
+    // 1: 0.10,  // normal vol: balanced
     // 2: 0.03,  // high vol: looser (risky anyway, take more)
     // 3: 0.01,  // extreme: only obvious setups
   },
 
   // ARCA gates (v4.0 relaxations + v5.0 adaptive)
-  minConfidence: parseFloat('0.07'),   // fallback if regime lookup fails
+  minConfidence: parseFloat('0.57'),   //0.07 fallback if regime lookup fails
   maxVolRegime: parseInt('3', 10),     // ALLOW all regimes (scale stake instead)
   maxHurst: parseFloat('0.70'),
   minSurvivalSlope: parseFloat('-0.01'),
@@ -188,11 +190,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_007.log',
+  logFile: 'accuPULSE3BC_v5_008.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_007.json',
-  metricsFile: 'metricsBC_v5_007.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_007.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_008.json',
+  metricsFile: 'metricsBC_v5_008.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_008.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -211,17 +213,17 @@ const CONFIG = Object.freeze({
   // ── Feature 4: 4-Tier Exit Strategy ───────────────────────────────────
   tp_tiers: {
     quick_win:  { ticks: 3,  profit_pct: 0.15, scale_out: 0.30 },
-    early_win:  { ticks: 8,  profit_pct: 0.25, scale_out: 0.30 },
-    mid_win:    { ticks: 15, profit_pct: 0.35, scale_out: 0.30 },
-    full_hold:  { ticks: 20, profit_pct: 0.50, scale_out: 0.00 },
+    early_win:  { ticks: 5,  profit_pct: 0.25, scale_out: 0.30 }, //8
+    mid_win:    { ticks: 8, profit_pct: 0.35, scale_out: 0.30 }, //15
+    full_hold:  { ticks: 10, profit_pct: 0.50, scale_out: 0.00 }, //20
   },
 
   // ── Feature 6: Enhanced Streak Recovery ────────────────────────────────
   recoveryConfig: {
-    triggerLosses: 2,
-    recoveryMinStake: 0.40,
-    recoveryMaxStake: 1.00,
-    recoveryExitWins: 10,
+    triggerLosses: 1,
+    recoveryMinStake: 5.00,
+    recoveryMaxStake: 25.00,
+    recoveryExitWins: 5,
     recoveryExitHours: 2,
     wrThresholdNormal: 0.70,
     wrThresholdMedium: 0.60,
@@ -244,9 +246,9 @@ const CONFIG = Object.freeze({
     topN: 3,                  // keep 3 of 4 assets (was 3) when filtering
   },
   dailyReset: {
-    enabled: true,
-    decayRegimeRates: true,   // halve regime win/loss counts on reset
-    resetEquityPeak: true,    // set equityPeak = lastBalance on new day
+    enabled: false,
+    decayRegimeRates: false,   // halve regime win/loss counts on reset
+    resetEquityPeak: false,    // set equityPeak = lastBalance on new day
   },
 
   // Reconnect
