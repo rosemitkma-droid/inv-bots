@@ -108,7 +108,7 @@ const CONFIG = Object.freeze({
     // assumption doesn't hold for BC — spikes correlate contract survival).
     // No additional haircut is applied; the LB is the single conservative
     // layer, letting candidates with genuine survival evidence through.
-    confidenceZ: parseFloat('0.67'),
+    confidenceZ: parseFloat('1.28'), //0.67
     // Minimum acceptable P(survive N ticks) — needs to cover break-even
     // gross: (1+g)^N - 1. For g=3%, N=15: break-even pHorizon ≈ 0.64.
     // The Wilson LB on n=100 with p≈0.60 gives ≈0.52, which is close.
@@ -122,8 +122,8 @@ const CONFIG = Object.freeze({
 
   // ── Feature 1: Adaptive Confidence Gates (by vol regime) ──────────────
   minConfidenceByRegime: {
-    0: 0.08,  // low vol: stricter (good conditions, be selective)
-    1: 0.07,  // normal vol: balanced
+    0: 0.13,  // low vol: stricter (good conditions, be selective)
+    1: 0.10,  // normal vol: balanced
     // 2: 0.03,  // high vol: looser (risky anyway, take more)
     // 3: 0.01,  // extreme: only obvious setups
   },
@@ -188,11 +188,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_006.log',
+  logFile: 'accuPULSE3BC_v5_007.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_006.json',
-  metricsFile: 'metricsBC_v5_006.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_006.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_007.json',
+  metricsFile: 'metricsBC_v5_007.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_007.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
