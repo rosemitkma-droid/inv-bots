@@ -47,7 +47,7 @@ const CONFIG = Object.freeze({
   stopLoss: parseFloat('500.0'),
   demoOnly: false,
   tradeEnabled: true,
-  skipRecentTradedSymbols: true,
+  skipRecentTradedSymbols: false,
   recentTradedSymbolsLen: parseInt('2', 10),
 
   // Anti-Martingale
@@ -56,9 +56,10 @@ const CONFIG = Object.freeze({
   maxWinStakeMultiplier: parseFloat('4.0'),
 
   // Assets
-  // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('R_10,R_25,R_50,R_75,R_100')
+  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
+  // assets: ('R_10,R_25,R_50,R_75,R_100')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
   telegram: {
@@ -72,12 +73,12 @@ const CONFIG = Object.freeze({
   minTicksForAnalysis: parseInt('200', 10),
   analysisIntervalMs: parseInt('3000', 10),
   tradeCooldownMs: parseInt('500', 10),
-  maxOpenTrades: parseInt('3', 10),
+  maxOpenTrades: parseInt('13', 10),
 
   // Hazard Model (v4.0 fixes)
   candidateGrowthRates: [0.05, 0.04, 0.03, 0.02, 0.01], //0.05, 0.04, 0.03, 0.02, 0.01
   hazardWindow: parseInt('600', 10),
-  plannedHoldTicks: parseInt('20', 10),
+  plannedHoldTicks: parseInt('2', 10),
   minBarrierPct: parseFloat('0.015'),
   minEmpiricalSamples: parseInt('150', 10),
   confidenceZ: parseFloat('0.67'), //1.28
@@ -113,26 +114,27 @@ const CONFIG = Object.freeze({
     // data — far fewer observations than per-tick — so keep z modest).
     confidenceZ: parseFloat('0.67'), //1.28
     // Minimum acceptable estimated P(survive N ticks) after haircut.
-    minPHorizon: parseFloat('0.55'),
+    minPHorizon: parseFloat('0.75'),
     // Reject candidates whose empirical spike rate is wildly worse than the
     // nominal (e.g. clustered spikes). 0.5 = allow if observed rate ≤ 2× nominal.
-    maxSpikeRateVsNominal: parseFloat('2.0'),
+    maxSpikeRateVsNominal: parseFloat('1.0'), //2.0
   },
 
   // ── Feature 1: Adaptive Confidence Gates (by vol regime) ──────────────
   minConfidenceByRegime: {
-    0: 0.08,  // low vol: stricter (good conditions, be selective)
-    // 1: 0.05,  // normal vol: balanced
+    0: 0.10,  // low vol: stricter (good conditions, be selective)
+    // 1: 0.06,  // normal vol: balanced
     // 2: 0.03,  // high vol: looser (risky anyway, take more)
     // 3: 0.01,  // extreme: only obvious setups
   },
 
   // ARCA gates (v4.0 relaxations + v5.0 adaptive)
-  minConfidence: parseFloat('0.55'),   //0.05 fallback if regime lookup fails
+  minConfidence: parseFloat('0.95'),   //0.05 fallback if regime lookup fails
   maxVolRegime: parseInt('3', 10),     // ALLOW all regimes (scale stake instead)
   maxHurst: parseFloat('0.70'),
   minSurvivalSlope: parseFloat('-0.01'),
   minSurvivalConsist: parseFloat('0.20'),
+  bestScore: parseFloat('0.83'),
 
   // ARCA weights
   weights: {
@@ -159,25 +161,25 @@ const CONFIG = Object.freeze({
   maxAssetCorrelation: parseFloat('0.70'),
 
   // Time-of-Day
-  timeOfDayLimits: {
-    0: { maxStake: 0.5, tpMult: 0.8 }, 1: { maxStake: 0.5, tpMult: 0.8 },
-    2: { maxStake: 0.5, tpMult: 0.8 }, 3: { maxStake: 0.5, tpMult: 0.8 },
-    4: { maxStake: 0.5, tpMult: 0.8 }, 5: { maxStake: 0.5, tpMult: 0.8 },
-    6: { maxStake: 0.6, tpMult: 0.9 }, 7: { maxStake: 0.7, tpMult: 0.95 },
-    8: { maxStake: 1.0, tpMult: 1.0 }, 9: { maxStake: 1.0, tpMult: 1.0 },
-    10: { maxStake: 1.0, tpMult: 1.0 }, 11: { maxStake: 1.0, tpMult: 1.0 },
-    12: { maxStake: 1.0, tpMult: 1.0 }, 13: { maxStake: 1.0, tpMult: 1.0 },
-    14: { maxStake: 1.0, tpMult: 1.0 }, 15: { maxStake: 1.0, tpMult: 1.0 },
-    16: { maxStake: 1.0, tpMult: 1.0 }, 17: { maxStake: 0.8, tpMult: 1.0 },
-    18: { maxStake: 0.8, tpMult: 0.95 }, 19: { maxStake: 0.7, tpMult: 0.9 },
-    20: { maxStake: 0.6, tpMult: 0.8 }, 21: { maxStake: 0.5, tpMult: 0.8 },
-    22: { maxStake: 0.5, tpMult: 0.8 }, 23: { maxStake: 0.5, tpMult: 0.8 },
-  },
+  // timeOfDayLimits: {
+  //   0: { maxStake: 0.5, tpMult: 0.8 }, 1: { maxStake: 0.5, tpMult: 0.8 },
+  //   2: { maxStake: 0.5, tpMult: 0.8 }, 3: { maxStake: 0.5, tpMult: 0.8 },
+  //   4: { maxStake: 0.5, tpMult: 0.8 }, 5: { maxStake: 0.5, tpMult: 0.8 },
+  //   6: { maxStake: 0.6, tpMult: 0.9 }, 7: { maxStake: 0.7, tpMult: 0.95 },
+  //   8: { maxStake: 1.0, tpMult: 1.0 }, 9: { maxStake: 1.0, tpMult: 1.0 },
+  //   10: { maxStake: 1.0, tpMult: 1.0 }, 11: { maxStake: 1.0, tpMult: 1.0 },
+  //   12: { maxStake: 1.0, tpMult: 1.0 }, 13: { maxStake: 1.0, tpMult: 1.0 },
+  //   14: { maxStake: 1.0, tpMult: 1.0 }, 15: { maxStake: 1.0, tpMult: 1.0 },
+  //   16: { maxStake: 1.0, tpMult: 1.0 }, 17: { maxStake: 0.8, tpMult: 1.0 },
+  //   18: { maxStake: 0.8, tpMult: 0.95 }, 19: { maxStake: 0.7, tpMult: 0.9 },
+  //   20: { maxStake: 0.6, tpMult: 0.8 }, 21: { maxStake: 0.5, tpMult: 0.8 },
+  //   22: { maxStake: 0.5, tpMult: 0.8 }, 23: { maxStake: 0.5, tpMult: 0.8 },
+  // },
 
   // Streak Recovery (v4.0 base)
   streakPauseMinutes: parseInt('20', 10),
-  streakReduceStake: parseInt('3', 10),
-  streakStopDay: parseInt('7', 10),
+  streakReduceStake: parseInt('5', 10), //3
+  streakStopDay: parseInt('15', 10), //7
 
   // Daily limits
   dailyMaxLoss: parseFloat('250'),
@@ -187,11 +189,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5b_01.log',
+  logFile: 'accuPULSE3BC_v5b_03.log',
   logLevel: 'INFO3BC_v5b',
-  stateFile: 'accuPULSE3BC_state_v5b_01.json',
-  metricsFile: 'metricsBC_v5b_01.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5b_01.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5b_03.json',
+  metricsFile: 'metricsBC_v5b_03.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5b_03.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -210,7 +212,7 @@ const CONFIG = Object.freeze({
   // ── Feature 4: 4-Tier Exit Strategy ───────────────────────────────────
   tp_tiers: {
     quick_win:  { ticks: 3,  profit_pct: 0.15, scale_out: 0.30 },
-    early_win:  { ticks: 8,  profit_pct: 0.25, scale_out: 0.30 },
+    // early_win:  { ticks: 8,  profit_pct: 0.25, scale_out: 0.30 },
     // mid_win:    { ticks: 15, profit_pct: 0.35, scale_out: 0.30 },
     // full_hold:  { ticks: 20, profit_pct: 0.50, scale_out: 0.00 },
   },
@@ -218,13 +220,13 @@ const CONFIG = Object.freeze({
   // ── Feature 6: Enhanced Streak Recovery ────────────────────────────────
   recoveryConfig: {
     triggerLosses: 1,
-    recoveryMinStake: 1.00,
-    recoveryMaxStake: 5.00,
+    recoveryMinStake: 5.00,
+    recoveryMaxStake: 25.00,
     recoveryExitWins: 5,
     recoveryExitHours: 2,
-    wrThresholdNormal: 0.70,
-    wrThresholdMedium: 0.60,
-    wrThresholdLow: 0.50,
+    wrThresholdNormal: 0.90,
+    wrThresholdMedium: 0.80,
+    wrThresholdLow: 0.70,
   },
 
   // ── Feature 3: 6-Check Entry Confirmation ─────────────────────────────
@@ -2415,9 +2417,9 @@ class AccuPULSE3BotV5 {
 
     return {
       quick_win:  { ticks: tiers.quick_win?.ticks || 3,  profit_target: baseTP * (tiers.quick_win?.profit_pct || 0.15) * 4, scale_out: tiers.quick_win?.scale_out || 0.30 },
-      early_win:  { ticks: tiers.early_win?.ticks || 8,  profit_target: baseTP * (tiers.early_win?.profit_pct || 0.25) * 4, scale_out: tiers.early_win?.scale_out || 0.30 },
-      mid_win:    { ticks: tiers.mid_win?.ticks || 15,   profit_target: baseTP * (tiers.mid_win?.profit_pct || 0.35) * 4, scale_out: tiers.mid_win?.scale_out || 0.30 },
-      full_hold:  { ticks: tiers.full_hold?.ticks || 20, profit_target: baseTP * (tiers.full_hold?.profit_pct || 0.50) * 4, scale_out: tiers.full_hold?.scale_out || 0.00 },
+      // early_win:  { ticks: tiers.early_win?.ticks || 8,  profit_target: baseTP * (tiers.early_win?.profit_pct || 0.25) * 4, scale_out: tiers.early_win?.scale_out || 0.30 },
+      // mid_win:    { ticks: tiers.mid_win?.ticks || 15,   profit_target: baseTP * (tiers.mid_win?.profit_pct || 0.35) * 4, scale_out: tiers.mid_win?.scale_out || 0.30 },
+      // full_hold:  { ticks: tiers.full_hold?.ticks || 20, profit_target: baseTP * (tiers.full_hold?.profit_pct || 0.50) * 4, scale_out: tiers.full_hold?.scale_out || 0.00 },
     };
   }
 
@@ -2685,9 +2687,9 @@ class AccuPULSE3BotV5 {
   }
 
   // Time-of-Day Limits
-  _getTimeOfDayLimit(hour) {
-    return this.cfg.timeOfDayLimits[hour] || { maxStake: 1.0, tpMult: 1.0 };
-  }
+  // _getTimeOfDayLimit(hour) {
+  //   return this.cfg.timeOfDayLimits[hour] || { maxStake: 1.0, tpMult: 1.0 };
+  // }
 
   // ── Feature 2 + 6: Current stake with v5.0 multi-factor sizing ────────
   currentStake(compositeScore, volRegime, volHurst, recentWinRate = 0.5) {
@@ -2717,8 +2719,8 @@ class AccuPULSE3BotV5 {
 
     // Time-of-day limit
     const hour = new Date().getUTCHours();
-    const timeLimits = this._getTimeOfDayLimit(hour);
-    const finalStake = Math.min(stake, this.cfg.baseStake * timeLimits.maxStake);
+    // const timeLimits = this._getTimeOfDayLimit(hour);
+    const finalStake = Math.min(stake, this.cfg.baseStake); //const finalStake = Math.min(stake, this.cfg.baseStake * timeLimits.maxStake);
 
     return +finalStake.toFixed(2);
   }
@@ -2866,12 +2868,20 @@ class AccuPULSE3BotV5 {
       }
 
       if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(best.symbol)) {
-          log('DEBUG', `Recently traded ${best.symbol} — skipping`);
-          return;
-        }
+        log('DEBUG', `Recently traded ${best.symbol} — skipping`);
+        return;
+      }
+
+      //Return if Best Score is less than 0.82
+      const bestScore = best.score.toFixed(3);
+      if (bestScore < this.cfg.bestScore) {
+        log('DEBUG', `Best Score is less than 0.82 ${bestScore} — skipping`);
+        return;
+      }
 
       log('INFO', `Best candidate: ${best.symbol} score=${best.score.toFixed(3)} [${best.reasons.join(', ')}]`);
 
+      
       this.lastTradedSymbols.push(best.symbol);
       if (this.lastTradedSymbols.length > this.cfg.recentTradedSymbolsLen) {
         this.lastTradedSymbols.shift();
@@ -2889,8 +2899,9 @@ class AccuPULSE3BotV5 {
       // ── Feature 4: 4-tier exit targets ───────────────────────────────
       const tiers = this.getTieredTargets(stake, best);
       const hour = new Date().getUTCHours();
-      const timeLimits = this._getTimeOfDayLimit(hour);
-      const tp = +(stake * Math.max(0.10, Math.min(0.50, best.model.conservativeEV * 4)) * timeLimits.tpMult).toFixed(2);
+      // const timeLimits = this._getTimeOfDayLimit(hour);
+      // const tp = +(stake * Math.max(0.10, Math.min(0.50, best.model.conservativeEV * 4)) * timeLimits.tpMult).toFixed(2);
+      const tp = +(stake * Math.max(0.10, Math.min(0.50, best.model.conservativeEV * 4))).toFixed(2);
 
       // ── Feature 3: 6-check entry confirmation ─────────────────────────
       const ticks = this.market.historyFor(best.symbol);
