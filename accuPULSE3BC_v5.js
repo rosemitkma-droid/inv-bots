@@ -42,13 +42,13 @@ const CONFIG = Object.freeze({
   accountType: 'demo',
 
   // Trade parameters
-  baseStake: parseFloat('5.0'),
+  baseStake: parseFloat('2.0'),
   growthRate: parseFloat('0.05'),
   stopLoss: parseFloat('500.0'),
   demoOnly: false,
   tradeEnabled: true,
-  skipRecentTradedSymbols: true,
-  recentTradedSymbolsLen: parseInt('7', 10),
+  skipRecentTradedSymbols: false,
+  recentTradedSymbolsLen: parseInt('9', 10),
 
   // Anti-Martingale
   winsBeforeScaling: parseInt('500'),
@@ -59,7 +59,7 @@ const CONFIG = Object.freeze({
   // assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  assets: ('BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
@@ -74,10 +74,10 @@ const CONFIG = Object.freeze({
   minTicksForAnalysis: parseInt('200', 10),
   analysisIntervalMs: parseInt('3000', 10),
   tradeCooldownMs: parseInt('500', 10),
-  maxOpenTrades: parseInt('3', 10),
+  maxOpenTrades: parseInt('1', 10),
 
   // Hazard Model (v4.0 fixes)
-  candidateGrowthRates: [0.05, 0.04, 0.03, 0.02, 0.01], //[0.05, 0.04, 0.03, 0.02, 0.01]
+  candidateGrowthRates: [0.03], //[0.05, 0.04, 0.03, 0.02, 0.01]
   hazardWindow: parseInt('600', 10),
   plannedHoldTicks: parseInt('2', 10), //15
   minBarrierPct: parseFloat('0.015'),
@@ -94,8 +94,8 @@ const CONFIG = Object.freeze({
     // server-recorded survival history of previous contracts at this exact
     // symbol + growth rate. No fabricated barriers, no abs() log-ret math.
     nominalSpikeInterval: {
-      BOOM300: 300, BOOM500: 500, BOOM600: 600, BOOM900: 900, BOOM1000: 1000,
-      CRASH300: 300, CRASH500: 500, CRASH600: 600, CRASH900: 900, CRASH1000: 1000,
+      BOOM300: 50, BOOM500: 500, BOOM600: 600, BOOM900: 900, BOOM1000: 1000,
+      CRASH300: 50, CRASH500: 500, CRASH600: 600, CRASH900: 900, CRASH1000: 1000,
     },
     // Stay samples required before trusting P(reach N). The API returns ~100
     // per refresh; require most of a full refresh before trading.
@@ -117,6 +117,8 @@ const CONFIG = Object.freeze({
     minPHorizon: parseFloat('0.35'),
     // Block only when recent spikes run clearly hotter than nominal AND stay
     // data is thin.
+    // Reject candidates whose empirical spike rate is wildly worse than the
+    // nominal (e.g. clustered spikes). 0.5 = allow if observed rate ≤ 2× nominal.
     maxSpikeRateVsNominal: parseFloat('2.0'),
     // Backfill length for BC symbols (secondary regime check wants history).
     backfillTicks: parseInt('4000', 10),
@@ -134,9 +136,7 @@ const CONFIG = Object.freeze({
   minConfidence: parseFloat('0.95'),   //0.07 fallback if regime lookup fails
   maxVolRegime: parseInt('3', 10),     // ALLOW all regimes (scale stake instead)
   maxHurst: parseFloat('0.70'),
-  minSurvivalSlope: parseFloat('-0.01'),
-  minSurvivalConsist: parseFloat('0.20'),
-  bestScore: parseFloat('0.856'),//0.88
+  bestScore: parseFloat('0.55'),//0.88
 
   // ARCA weights
   weights: {
@@ -191,11 +191,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_010.log',
+  logFile: 'accuPULSE3BC_v5_011.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_010.json',
-  metricsFile: 'metricsBC_v5_010.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_010.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_011.json',
+  metricsFile: 'metricsBC_v5_011.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_011.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -233,11 +233,12 @@ const CONFIG = Object.freeze({
 
   // ── Feature 3: 6-Check Entry Confirmation ─────────────────────────────
   entryConfirmation: {
-    requiredChecks: 5,              // Need 4/6 to pass
+    requiredChecks: 6,              // Need 4/6 to pass
     minVolPercentile: 0.20,         // Vol check: at least 20th percentile
     minBarrierPct: 0.015,           // Barrier check: 1.5% minimum
-    minEv: 0.005,                   // EV check: 0.5% net EV
-    minMomentum: 0.0001,            // Momentum check: non-flat
+    minEv: 0.005,                   // 0.005 EV check: 0.5% net EV
+    minMomentum: 0.000013,            // Momentum check: non-flat (for Crash)
+    minMomentum2: -0.000013,            // Momentum check: non-flat (for Boom)
     minSurvivalMean: 15,            // Survival check: 15+ ticks
   },
 
@@ -247,7 +248,7 @@ const CONFIG = Object.freeze({
     topN: 3,                  // keep 3 of 4 assets (was 3) when filtering
   },
   dailyReset: {
-    enabled: false,
+    enabled: true,
     decayRegimeRates: false,   // halve regime win/loss counts on reset
     resetEquityPeak: false,    // set equityPeak = lastBalance on new day
   },
@@ -1037,6 +1038,82 @@ class EnhancedARCAAnalyzer {
 
     const score = compositeScore + regimeScore * 0.05 + asymmetryBoost + (model.conservativeEV > 0 ? 0.1 : -0.2);
 
+    // ── v5.1-BC patch: reasons now mirrors the 6-check entryConfirmation gates ──
+    // so the INFO log shows the *complete* gate state, not just EV/pL.
+    const ec = this.cfg.entryConfirmation || {};
+    let _volPct = 0.5, _recentVol = 0;
+    try {
+      if (ticks && ticks.length >= 21) {
+        const slice = ticks.slice(-20);
+        const rets = [];
+        for (let i = 1; i < slice.length; i++) {
+          const pv = slice[i - 1].quote, cv = slice[i].quote;
+          if (pv > 0 && cv > 0) rets.push(Math.log(cv / pv));
+        }
+        if (rets.length >= 2) {
+          const m = rets.reduce((s, v) => s + v, 0) / rets.length;
+          let vv = 0; for (const r of rets) vv += (r - m) ** 2;
+          _recentVol = Math.sqrt(vv / rets.length);
+        }
+        const w = 20; const vols = [];
+        for (let i = w + 1; i < ticks.length; i++) {
+          const sl = ticks.slice(i - w, i);
+          const rr = [];
+          for (let j = 1; j < sl.length; j++) {
+            const pv = sl[j - 1].quote, cv = sl[j].quote;
+            if (pv > 0 && cv > 0) rr.push(Math.log(cv / pv));
+          }
+          if (rr.length >= 2) {
+            const mm = rr.reduce((s, v) => s + v, 0) / rr.length;
+            let v2 = 0; for (const r of rr) v2 += (r - mm) ** 2;
+            vols.push(Math.sqrt(v2 / rr.length));
+          }
+        }
+        if (vols.length >= 2) {
+          const sorted = [...vols].sort((a, b) => a - b);
+          const idx = sorted.findIndex(v => v >= _recentVol);
+          _volPct = idx < 0 ? 1.0 : idx / sorted.length;
+        }
+      }
+    } catch (_) {}
+    const _volGate = _volPct > (ec.minVolPercentile ?? 0.20);
+    const _barrierPctVal = barrier?.halfBarrierPct ?? model.barrierPct ?? 0;
+    const _isBc = isBoomCrash(symbol);
+    const _barrierGate = _isBc
+      ? (model.bcModel === true && (model.staySamples || 0) >= (this.cfg.boomCrash?.minStaySamples || 50) && (model.conservativeEV || 0) > 0)
+      : _barrierPctVal >= (ec.minBarrierPct ?? 0.015);
+    const _evGate = (model.conservativeEV || 0) >= (ec.minEv ?? 0.02);
+    const _trendGate = (trend?.direction !== 'neutral' || (trend?.composite || 0) > 0.5);
+    let _momentumVal = 0;
+    try {
+      if (ticks && ticks.length >= 10) {
+        const rec = ticks.slice(-10);
+        let sum = 0; for (let i = 1; i < rec.length; i++) sum += Math.log(rec[i].quote / rec[i - 1].quote);
+        _momentumVal = sum;
+      }
+    } catch (_) {}
+    // ── Boom/Crash directional momentum — must mirror confirmEntry logic ──
+    let _momentumGate, _momentumThr, _momentumOp;
+    const _upper = String(symbol).toUpperCase();
+    const _isBoom = _upper.startsWith('BOOM');
+    const _isCrash = _upper.startsWith('CRASH');
+    if (_isCrash) {
+      _momentumThr = ec.minMomentum ?? 0.00001;
+      _momentumOp = '>';
+      _momentumGate = _momentumVal > _momentumThr;
+    } else if (_isBoom) {
+      _momentumThr = ec.minMomentum2 ?? -0.00001;
+      _momentumOp = '<';
+      _momentumGate = _momentumVal < _momentumThr;
+    } else {
+      _momentumThr = ec.minMomentum ?? 0.0001;
+      _momentumOp = '|abs|>';
+      _momentumGate = Math.abs(_momentumVal) > _momentumThr;
+    }
+    const _survivalGate = (survivalTrend?.mean ?? 0) > (ec.minSurvivalMean ?? 15);
+    const _gatesPass = [_volGate, _barrierGate, _evGate, _trendGate, _momentumGate, _survivalGate].filter(Boolean).length;
+    const _gatesReq = ec.requiredChecks ?? 5;
+
     return {
       symbol,
       growthRate,
@@ -1062,10 +1139,16 @@ class EnhancedARCAAnalyzer {
       suggestedGrowth: growthRate,
       hurst: vol?.hurst ?? 0.5,
       reasons: [
-        `EV:${(model.conservativeEV * 100).toFixed(1)}%`,
-        `pL:${model.pLower.toFixed(3)}`,
+        `EV:${(model.conservativeEV * 100).toFixed(2)}%[${_evGate ? 'PASS' : 'FAIL'}>=${((ec.minEv ?? 0.02) * 100).toFixed(1)}%]`,
+        `pL:${model.pLower.toFixed(4)}|pH:${(model.pHorizon ?? 0).toFixed(4)}${model.bcModel ? `|reach:${(model.reachRate ?? model.pTick ?? 0).toFixed(3)} n=${model.staySamples}` : ''}`,
         `regime:${regimeScore.toFixed(2)}`,
-        `asymm:${asymmetry?.bias}`
+        `asymm:${asymmetry?.bias}(${ (asymmetry?.asymmetry ?? 0).toFixed(3)})`,
+        `vol:${vol?.regimeLabel ?? '?'}(${_volPct.toFixed(2)}${_volGate ? '✓' : '✗'}>=${(ec.minVolPercentile ?? 0.20).toFixed(2)})`,
+        `barrier:${_barrierPctVal.toFixed(4)}%[${_barrierGate ? 'PASS' : 'FAIL'}>=${_isBc ? `BC n>=${this.cfg.boomCrash?.minStaySamples} & EV>0` : `${(ec.minBarrierPct ?? 0.015).toFixed(4)}%`}]`,
+        `trend:${trend?.direction ?? '?'}(${(trend?.composite ?? 0).toFixed(2)}${_trendGate ? '✓' : '✗'})`,
+        `momen:${_momentumVal.toFixed(6)}[${_momentumGate ? 'PASS' : 'FAIL'}${_momentumOp}${_momentumThr}]${_isBoom ? '[BOOM]' : _isCrash ? '[CRASH]' : ''}`,
+        `surv:${(survivalTrend?.mean ?? 0).toFixed(1)}[${_survivalGate ? 'PASS' : 'FAIL'}>${ec.minSurvivalMean ?? 15}]`,
+        `gates:${_gatesPass}/${_gatesReq}${_gatesPass >= _gatesReq ? '✓' : '✗'}`,
       ],
     };
   }
@@ -1669,7 +1752,7 @@ class EnhancedTradeExecutor extends EventEmitter {
           ?? analysis?.model?.barrierPct
           ?? 0;
         const result = barrierPct >= (cfg.minBarrierPct || 0.015);
-        log('DEBUG', `EntryCheck barrier: ${Number(barrierPct).toFixed(3)}% >= ${(cfg.minBarrierPct || 0.015) * 100}% = ${result}`);
+        log('DEBUG', `EntryCheck barrier: ${Number(barrierPct).toFixed(4)}% >= ${(cfg.minBarrierPct || 0.015).toFixed(4)}% = ${result}`);
         return result;
       },
 
@@ -1690,16 +1773,40 @@ class EnhancedTradeExecutor extends EventEmitter {
         return result;
       },
 
-      // 5. Recent momentum
+      // 5. Recent momentum — Boom/Crash directional (fixed)
+      //  • R_ indices: require non-flat market  → |momentum| > minMomentum
+      //  • CRASH spikes down: avoid buying into a down-spike → require momentum > +thr (flat / recovering up)
+      //  • BOOM spikes up: avoid buying into an up-spike → require momentum < -thr (flat / recovering down)
+      //  Original bug: isBoomCrash() returns boolean, so `=== 'CRASH'` never matched;
+      //  and `Math.abs(m) < -0.00001` is always false. Fixed below.
       momentum_check: () => {
         if (!ticks || ticks.length < 10) return false;
         const recent = ticks.slice(-10);
-        const returns = recent.map((t, i) =>
-          i === 0 ? 0 : Math.log(t.quote / recent[i - 1].quote)
-        );
-        const momentum = returns.reduce((a, b) => a + b, 0);
-        const result = Math.abs(momentum) > (cfg.minMomentum || 0.0001);
-        log('DEBUG', `EntryCheck momentum: ${momentum.toFixed(6)} > ${cfg.minMomentum || 0.0001} = ${result}`);
+        let momentum = 0;
+        for (let i = 1; i < recent.length; i++) {
+          const prev = Number(recent[i - 1].quote);
+          const curr = Number(recent[i].quote);
+          if (prev > 0 && curr > 0) momentum += Math.log(curr / prev);
+        }
+        const upper = String(symbol).toUpperCase();
+        const isBoom = upper.startsWith('BOOM');
+        const isCrash = upper.startsWith('CRASH');
+        let result;
+        let threshold;
+        if (isCrash) {
+          threshold = cfg.minMomentum ?? 0.00001;
+          result = momentum > threshold;
+          log('DEBUG', `EntryCheck momentum [CRASH]: ${momentum.toFixed(6)} > ${threshold} = ${result}`);
+        } else if (isBoom) {
+          threshold = cfg.minMomentum2 ?? -0.00001;
+          // threshold is negative (-1e-5): require net-down drift
+          result = momentum < threshold;
+          log('DEBUG', `EntryCheck momentum [BOOM]: ${momentum.toFixed(6)} < ${threshold} = ${result}`);
+        } else {
+          threshold = cfg.minMomentum ?? 0.0001;
+          result = Math.abs(momentum) > threshold;
+          log('DEBUG', `EntryCheck momentum: ${momentum.toFixed(6)} |abs| > ${threshold} = ${result}`);
+        }
         return result;
       },
 
@@ -2449,12 +2556,12 @@ class AccuPULSE3BotV5 {
       this.recoveryStartTime = Date.now();
       this.recoveryWins = 0;
       log('WARN', `🔄 Recovery mode activated: loss streak ${this.lossStreak}`);
-      telegram.send(
-        `🔄 <b>AccuPULSE3BC_v5 Recovery mode activated</b>\n` +
-        `Loss streak: ${this.lossStreak}\n` +
-        `Stake: ${((rc.recoveryMinStake || 0.40) * 100).toFixed(0)}% of base\n` +
-        `Graduated return based on win rate`
-      );
+      // telegram.send(
+      //   `🔄 <b>AccuPULSE3BC_v5 Recovery mode activated</b>\n` +
+      //   `Loss streak: ${this.lossStreak}\n` +
+      //   `Stake: ${((rc.recoveryMinStake || 0.40) * 100).toFixed(0)}% of base\n` +
+      //   `Graduated return based on win rate`
+      // );
     }
 
     if (this.recoveryMode) {
@@ -2644,32 +2751,118 @@ class AccuPULSE3BotV5 {
   }
 
   _onTradeOpen(t) {
-    this.tradeStartTime = Date.now();
-    const a = t._analysis;
-    let msg =
-      `🟢 <b>AccuPULSE3BC_v5 TRADE OPENED</b>\n\n` +
-      `🎫 <b>#</b>${t.contractId}\n` +
-      `📊 <code>${t.symbol}</code>\n` +
-      `📈 Growth: ${(t.growthRate * 100).toFixed(0)}%\n` +
-      `💵 Stake: ${t.stake.toFixed(2)} ${this.currencyStr()}\n` +
-      `🎯 TP: ${t.limit.take_profit ?? '–'}\n` +
-      `🏷️ Mode: ${this.currentMode}\n`;
-    if (a) {
-      msg += `\n🧠 <b>Analysis</b>\n` +
-        `• Score: <b>${a.score.toFixed(3)}</b>\n` +
-        `• Vol: ${a.volRegimeLabel}\n` +
-        `• Trend: ${a.trendDirection}\n` +
-        `• Regime Score: ${a.regimeScore.toFixed(2)}\n` +
-        `• Asymmetry: ${a.asymmetry}\n` +
-        `• Hurst: ${a.hurst.toFixed(2)}`;
+    try {
+      this.tradeStartTime = Date.now();
+      const a = t._analysis;
+      let msg =
+        `🟢 <b>AccuPULSE3BC_v5 TRADE OPENED</b>\n\n` +
+        `🎫 <b>#</b>${t.contractId}\n` +
+        `📊 <code>${t.symbol}</code>\n` +
+        `📈 Growth: ${(t.growthRate * 100).toFixed(0)}%\n` +
+        `💵 Stake: ${t.stake.toFixed(2)} ${this.currencyStr()}\n` +
+        `🎯 TP: ${t.limit.take_profit ?? '–'}\n` +
+        `🏷️ Mode: ${this.currentMode}\n`;
+      if (a) {
+        try {
+          const scoreStr = (a.score != null && isFinite(a.score)) ? a.score.toFixed(3) : String(a.score ?? '—');
+          const regimeStr = (a.regimeScore != null) ? Number(a.regimeScore).toFixed(2) : '—';
+          const hurstStr = (a.hurst != null) ? Number(a.hurst).toFixed(2) : '—';
+          msg += `\n🧠 <b>Analysis</b>\n` +
+            `• Score: <b>${scoreStr}</b>\n` +
+            `• Vol: ${a.volRegimeLabel ?? '—'}\n` +
+            `• Trend: ${a.trendDirection ?? '—'}\n` +
+            `• Regime Score: ${regimeStr}\n` +
+            `• Asymmetry: ${a.asymmetry ?? '—'}\n` +
+            `• Hurst: ${hurstStr}`;
+          // ── 6-check Entry Confirmation scores (new) ─────────────────────
+          try {
+            const gs = a.gateScores || {};
+            const checks = Array.isArray(a.entryChecks) ? a.entryChecks : [];
+            const reasons = Array.isArray(a.reasons) ? a.reasons : [];
+            const hasGates = Object.keys(gs).length > 0 || checks.length > 0 || reasons.some(r => { try { return /^(EV|vol:|barrier:|trend:|momen:|surv:|gates)/i.test(String(r)); } catch(_) { return false; } });
+            if (hasGates) {
+              let summary = '';
+              try {
+                summary = a.entryGateSummary || (checks.length ? `GATES ${checks.filter(c=>c && c.result).length}/${this.cfg.entryConfirmation?.requiredChecks||5} [${checks.map(c=>`${String(c.check)}:${c && c.result?'PASS':'FAIL'}`).join(', ')}]` : (reasons.find(r=>{ try{ return String(r).toLowerCase().startsWith('gates'); }catch(_){return false;}}) || ''));
+              } catch(_) { summary = a.entryGateSummary || ''; }
+              // escape HTML < > inside code via Telegram HTML — keep as text inside <code>
+              const escSummary = String(summary).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              msg += `\n\n🔍 <b>Entry Gates</b>${summary ? '' : ''}\n`;
+              const order = ['ev','vol','barrier','trend','momentum','survival'];
+              const labels = { ev:'EV', vol:'Vol', barrier:'Barrier', trend:'Trend', momentum:'Momen', survival:'Surv'};
+              let hasStructured = false;
+              for (const k of order) {
+                const val = gs[k];
+                if (val != null && String(val).trim() !== '') {
+                  hasStructured = true;
+                  const esc = String(val).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                  msg += `• <code>${esc}</code>\n`;
+                }
+              }
+              if (!hasStructured) {
+                const gateReasons = reasons.filter(r => { try { return /^(EV|vol:|barrier:|trend:|momen:|surv:|gates)/i.test(String(r)); } catch(_) { return false; } });
+                for (const r of gateReasons) {
+                  const esc = String(r).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                  // msg += `• <code>${esc}</code>\n`;
+                }
+                // if (checks.length && !gateReasons.length) {
+                //   for (const c of checks) msg += `• ${c && c.result ? '✅' : '❌'} ${String(c.check)}\n`;
+                // }
+              } 
+              // else if (checks.length) {
+              //   const compact = checks.map(c => `${String(c.check).replace('_check','')}:${c && c.result ? '✅' : '❌'}`).join(' ');
+              //   msg += `• <i>${compact}</i>\n`;
+              // }
+              if (a.model) {
+                try {
+                  const m = a.model;
+                  if (m.bcModel) {
+                    msg += `• pL:${(m.pLower ?? 0).toFixed(4)} pH:${(m.pHorizon ?? 0).toFixed(4)} reach:${(m.reachRate ?? m.pTick ?? 0).toFixed(3)} n=${m.staySamples}\n`;
+                  } else if (m.pLower != null) {
+                    msg += `• pL:${m.pLower.toFixed(4)} pH:${(m.pHorizon ?? 0).toFixed(4)} EV:${(m.conservativeEV * 100).toFixed(2)}%\n`;
+                  }
+                } catch(_) {}
+              }
+            } 
+            else if (reasons.length) {
+              const esc = reasons.join(', ').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              // msg += `\n🔍 Gates: <code>${esc}</code>\n`;
+            }
+          } catch (gateErr) {
+            log('WARN', '_onTradeOpen gate render failed:', gateErr.message);
+            try {
+              if (Array.isArray(a.reasons) && a.reasons.length) {
+                const esc = a.reasons.join(', ').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                // msg += `\n🔍 Gates: <code>${esc}</code>\n`;
+              }
+            } catch(_) {}
+          }
+        } catch (e) {
+          log('WARN', '_onTradeOpen analysis block failed:', e.message);
+        }
+      }
+      if (this.winStakeMultiplier > 1) {
+        try { msg += `\n📈 Win streak ×${Number(this.winStakeMultiplier).toFixed(2)}`; } catch(_) {}
+      }
+      if (this.recoveryMode) {
+        try { msg += `\n🔄 Recovery mode: ${(this.getRecoveryStakeMultiplier() * 100).toFixed(0)}% stake`; } catch(_) {}
+      }
+      // hard guarantee: never silently drop the OPEN notification
+      try {
+        telegram.send(msg);
+      } catch (e) {
+        log('ERROR', '_onTradeOpen telegram.send failed:', e.message);
+        try { telegram.send(`🟢 <b>AccuPULSE3BC_v5 TRADE OPENED</b> #${t.contractId} ${t.symbol} stake=${t.stake}`); } catch(_) {}
+      }
+      log('INFO', `Trade OPEN telegram queued #${t.contractId} ${t.symbol}`);
+    } catch (e) {
+      log('ERROR', '_onTradeOpen fatal:', e.message, e.stack || '');
+      // last-resort minimal notification so user still sees the open
+      try {
+        const fallback = `🟢 <b>AccuPULSE3BC_v5 TRADE OPENED (fallback)</b>\n🎫 #${t.contractId ?? '—'} ${t.symbol ?? ''}\nStake: ${t.stake ?? '—'}`;
+        telegram.send(fallback);
+      } catch(_) {}
     }
-    if (this.winStakeMultiplier > 1) {
-      msg += `\n📈 Win streak ×${this.winStakeMultiplier.toFixed(2)}`;
-    }
-    if (this.recoveryMode) {
-      msg += `\n🔄 Recovery mode: ${(this.getRecoveryStakeMultiplier() * 100).toFixed(0)}% stake`;
-    }
-    telegram.send(msg);
   }
 
   _onTradeUpdate(t) {
@@ -3000,12 +3193,24 @@ class AccuPULSE3BotV5 {
       const timeLimits = this._getTimeOfDayLimit(hour);
       const tp = +(stake * Math.max(0.10, Math.min(0.50, best.model.conservativeEV * 4)) * timeLimits.tpMult).toFixed(2);
 
-      // ── Feature 3: 6-check entry confirmation ─────────────────────────
+      // ── Feature 3: 6-check entry confirmation (enhanced logging) ─────
       const ticks = this.market.historyFor(best.symbol);
       const entryCheck = this.exec.confirmEntry(best.symbol, best, ticks, { contract_details: { tick_size_barrier_percentage: best.model?.barrierPct } });
+      // Enrich reasons with authoritative gate results so [reasons] always reflects live entryConfirmation
+      const _gateStr = entryCheck.details.map(d => `${d.check}:${d.result ? 'PASS' : 'FAIL'}`).join(', ');
+      const _gateSummary = `GATES ${entryCheck.passed}/${entryCheck.required} [${_gateStr}]`;
+      // Update best.reasons in-place so downstream `analysis.reasons` and trade log carry full gates
+      try {
+        if (Array.isArray(best.reasons)) {
+          // strip old preview gates entry (case-insensitive) and replace with authoritative one, keep other diagnostics
+          best.reasons = best.reasons.filter(r => { try { return !String(r).toLowerCase().startsWith('gates'); } catch(_) { return true; } });
+          best.reasons.push(_gateSummary);
+        }
+      } catch(e) { log('WARN', 'reason enrich failed:', e.message); }
+      try { log('INFO', `Entry gates for ${best.symbol}: ${_gateSummary} | preview=[${Array.isArray(best.reasons) ? best.reasons.join(', ') : String(best.reasons)}]`); } catch(_) { log('INFO', `Entry gates for ${best.symbol}: ${_gateSummary}`); }
 
       if (!entryCheck.approved) {
-        log('WARN', `Entry confirmation FAILED for ${best.symbol}: ${entryCheck.passed}/${entryCheck.required} checks passed`);
+        log('WARN', `Entry confirmation FAILED for ${best.symbol}: ${entryCheck.passed}/${entryCheck.required} checks — ${_gateStr}`);
         // Log rejected entry to metrics
         this._metricsCycleCount++;
         this.logMetrics({
@@ -3033,7 +3238,7 @@ class AccuPULSE3BotV5 {
         return;
       }
 
-      log('INFO', `Entry confirmation PASSED for ${best.symbol}: ${entryCheck.passed}/${entryCheck.required} checks`);
+      log('INFO', `Entry confirmation PASSED for ${best.symbol}: ${entryCheck.passed}/${entryCheck.required} checks — ${_gateStr}`);
 
       const analysis = {
         score: best.score,
@@ -3045,6 +3250,30 @@ class AccuPULSE3BotV5 {
         pSurvival: best.pSurvival,
         reasons: best.reasons,
         tiers,
+        // ── Telegram: persist full 6-check entryConfirmation for notification ──
+        entryChecks: entryCheck.details,
+        entryGateSummary: _gateSummary,
+        entryGateStr: _gateStr,
+        // structured gate scores for easy rendering (mirrors the 6 reasons) — defensive
+        gateScores: (() => {
+          const find = (prefix) => {
+            try {
+              const p = String(prefix).toLowerCase();
+              const hit = (Array.isArray(best.reasons) ? best.reasons : []).find(r => { try { return String(r).toLowerCase().startsWith(p); } catch(_) { return false; } });
+              return hit || '';
+            } catch(_) { return ''; }
+          };
+          return {
+            vol: find('vol:'),
+            barrier: find('barrier:'),
+            ev: find('EV:'),
+            trend: find('trend:'),
+            momentum: find('momen:'),
+            survival: find('surv:'),
+            gates: find('gates') || _gateSummary,
+          };
+        })(),
+        model: best.model,
       };
 
       const trade = await this.exec.buy(
@@ -3093,7 +3322,7 @@ class AccuPULSE3BotV5 {
       // Phase 4: Alert on asset rotation
       const newTopAsset = rankedAssets[0]?.symbol;
       if (this._prevTopAsset !== newTopAsset) {
-        telegram.send(`📊 <b>AccuPULSE3BC_v5 Asset Rotation</b>\n${this._prevTopAsset || '—'} → ${newTopAsset}`);
+        // telegram.send(`📊 <b>AccuPULSE3BC_v5 Asset Rotation</b>\n${this._prevTopAsset || '—'} → ${newTopAsset}`);
         this._prevTopAsset = newTopAsset;
       }
     } catch (e) {
