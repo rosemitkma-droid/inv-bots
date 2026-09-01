@@ -47,8 +47,8 @@ const CONFIG = Object.freeze({
   stopLoss: parseFloat('500.0'),
   demoOnly: false,
   tradeEnabled: true,
-  skipRecentTradedSymbols: false,
-  recentTradedSymbolsLen: parseInt('5', 10),
+  skipRecentTradedSymbols: true,
+  recentTradedSymbolsLen: parseInt('7', 10),
 
   // Anti-Martingale
   winsBeforeScaling: parseInt('500'),
@@ -136,7 +136,7 @@ const CONFIG = Object.freeze({
   maxHurst: parseFloat('0.70'),
   minSurvivalSlope: parseFloat('-0.01'),
   minSurvivalConsist: parseFloat('0.20'),
-  bestScore: parseFloat('0.88'),
+  bestScore: parseFloat('0.856'),//0.88
 
   // ARCA weights
   weights: {
@@ -191,11 +191,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_009.log',
+  logFile: 'accuPULSE3BC_v5_010.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_009.json',
-  metricsFile: 'metricsBC_v5_009.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_009.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_010.json',
+  metricsFile: 'metricsBC_v5_010.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_010.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
