@@ -42,12 +42,12 @@ const CONFIG = Object.freeze({
   accountType: 'demo',
 
   // Trade parameters
-  baseStake: parseFloat('2.0'),
+  baseStake: parseFloat('5.0'),
   growthRate: parseFloat('0.05'),
   stopLoss: parseFloat('500.0'),
   demoOnly: false,
   tradeEnabled: true,
-  skipRecentTradedSymbols: true,
+  skipRecentTradedSymbols: false,
   recentTradedSymbolsLen: parseInt('5', 10),
 
   // Anti-Martingale
@@ -79,7 +79,7 @@ const CONFIG = Object.freeze({
   // Hazard Model (v4.0 fixes)
   candidateGrowthRates: [0.05, 0.04, 0.03, 0.02, 0.01], //[0.05, 0.04, 0.03, 0.02, 0.01]
   hazardWindow: parseInt('600', 10),
-  plannedHoldTicks: parseInt('5', 10), //15
+  plannedHoldTicks: parseInt('2', 10), //15
   minBarrierPct: parseFloat('0.015'),
   minEmpiricalSamples: parseInt('150', 10),
   confidenceZ: parseFloat('1.28'),
@@ -124,18 +124,19 @@ const CONFIG = Object.freeze({
 
   // ── Feature 1: Adaptive Confidence Gates (by vol regime) ──────────────
   minConfidenceByRegime: {
-    0: 0.9,  // low vol: stricter (good conditions, be selective)
-    // 1: 0.10,  // normal vol: balanced
+    0: 0.10,  // low vol: stricter (good conditions, be selective)
+    // 1: 0.06,  // normal vol: balanced
     // 2: 0.03,  // high vol: looser (risky anyway, take more)
     // 3: 0.01,  // extreme: only obvious setups
   },
 
   // ARCA gates (v4.0 relaxations + v5.0 adaptive)
-  minConfidence: parseFloat('0.57'),   //0.07 fallback if regime lookup fails
+  minConfidence: parseFloat('0.95'),   //0.07 fallback if regime lookup fails
   maxVolRegime: parseInt('3', 10),     // ALLOW all regimes (scale stake instead)
   maxHurst: parseFloat('0.70'),
   minSurvivalSlope: parseFloat('-0.01'),
   minSurvivalConsist: parseFloat('0.20'),
+  bestScore: parseFloat('0.88'),
 
   // ARCA weights
   weights: {
@@ -179,8 +180,8 @@ const CONFIG = Object.freeze({
 
   // Streak Recovery (v4.0 base)
   streakPauseMinutes: parseInt('20', 10),
-  streakReduceStake: parseInt('3', 10),
-  streakStopDay: parseInt('7', 10),
+  streakReduceStake: parseInt('5', 10), //3
+  streakStopDay: parseInt('15', 10), //7
 
   // Daily limits
   dailyMaxLoss: parseFloat('250'),
@@ -190,11 +191,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_008.log',
+  logFile: 'accuPULSE3BC_v5_009.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_008.json',
-  metricsFile: 'metricsBC_v5_008.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_008.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_009.json',
+  metricsFile: 'metricsBC_v5_009.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_009.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -213,9 +214,9 @@ const CONFIG = Object.freeze({
   // ── Feature 4: 4-Tier Exit Strategy ───────────────────────────────────
   tp_tiers: {
     quick_win:  { ticks: 3,  profit_pct: 0.15, scale_out: 0.30 },
-    early_win:  { ticks: 5,  profit_pct: 0.25, scale_out: 0.30 }, //8
-    mid_win:    { ticks: 8, profit_pct: 0.35, scale_out: 0.30 }, //15
-    full_hold:  { ticks: 10, profit_pct: 0.50, scale_out: 0.00 }, //20
+    // early_win:  { ticks: 5,  profit_pct: 0.25, scale_out: 0.30 }, //8
+    // mid_win:    { ticks: 8, profit_pct: 0.35, scale_out: 0.30 }, //15
+    // full_hold:  { ticks: 10, profit_pct: 0.50, scale_out: 0.00 }, //20
   },
 
   // ── Feature 6: Enhanced Streak Recovery ────────────────────────────────
@@ -2925,11 +2926,11 @@ class AccuPULSE3BotV5 {
 
       let best = null;
       for (const cand of ranked) {
-        // Relaxed fix: skip recently-traded symbols by trying next candidate instead of blocking entire cycle
-        if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(cand.symbol)) {
-          log('DEBUG', `Recently traded ${cand.symbol} — skipping to next candidate`);
-          continue;
-        }
+        // // Relaxed fix: skip recently-traded symbols by trying next candidate instead of blocking entire cycle
+        // if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(cand.symbol)) {
+        //   log('DEBUG', `Recently traded ${cand.symbol} — skipping to next candidate`);
+        //   continue;
+        // }
 
         // ── Feature 1: Adaptive confidence gate ─────────────────────────
         const adaptiveMinConfidence = this.getMinConfidence(cand.volRegime);
@@ -2958,8 +2959,22 @@ class AccuPULSE3BotV5 {
         best = cand;
         break;
       }
+
       if (!best) {
         log('DEBUG', 'No candidate passed all gates');
+        return;
+      }
+
+      // skip recently-traded symbols
+      if (this.cfg.skipRecentTradedSymbols && this.lastTradedSymbols.includes(best.symbol)) {
+        log('DEBUG', `Recently traded ${best.symbol} — skipping`);
+        return;
+      }
+
+      //Return if Best Score is less than 0.82
+      const bestScore = best.score.toFixed(3);
+      if (bestScore < this.cfg.bestScore) {
+        log('DEBUG', `Best Score is less than 0.82 ${bestScore} — skipping`);
         return;
       }
 
@@ -2969,7 +2984,7 @@ class AccuPULSE3BotV5 {
       if (this.lastTradedSymbols.length > this.cfg.recentTradedSymbolsLen) {
         this.lastTradedSymbols.shift();
       }
-
+      
       const growthRate = best.suggestedGrowth;
       const recentWinRate = this.stats.trades.length >= 10
         ? this.stats.trades.slice(-50).filter(t => t.status === 'won').length /
