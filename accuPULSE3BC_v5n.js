@@ -46,7 +46,7 @@ const PROFILE_DEFS = Object.freeze({
     minConfidenceByRegime: { 0: 0.12, 1: 0.10, 2: 0.06, 3: 0.03 },
     minConfidence: 0.08,
     bestScore: 0.82,
-    entryRequiredChecks: 4,
+    entryRequiredChecks: 5,
     minVolPercentile: 0.35,
     minEv: 0.012,
     minMomentum: 0.000020,
@@ -125,7 +125,7 @@ const _BASE_CONFIG = {
   // assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('R_10,R_25,R_50,R_75,R_100,BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
+  assets: ('BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
@@ -257,11 +257,11 @@ const _BASE_CONFIG = {
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5n_04.log',
+  logFile: 'accuPULSE3BC_v5n_05.log',
   logLevel: 'INFO3BC_v5n',
-  stateFile: 'accuPULSE3BC_state_v5n_04.json',
-  metricsFile: 'metricsBC_v5n_04.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5n_04.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5n_05.json',
+  metricsFile: 'metricsBC_v5n_05.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5n_05.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
