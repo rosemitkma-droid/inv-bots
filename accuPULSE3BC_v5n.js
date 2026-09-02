@@ -125,7 +125,7 @@ const _BASE_CONFIG = {
   // assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
+  assets: ('R_10,R_25,R_50,R_75,R_100,BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
@@ -143,7 +143,7 @@ const _BASE_CONFIG = {
   maxOpenTrades: parseInt('1', 10),
 
   // Hazard Model (v4.0 fixes)
-  candidateGrowthRates: [0.03], //[0.05, 0.04, 0.03, 0.02, 0.01]
+  candidateGrowthRates: [0.05, 0.04, 0.03, 0.02], //[0.05, 0.04, 0.03, 0.02, 0.01]
   hazardWindow: parseInt('600', 10),
   plannedHoldTicks: parseInt('2', 10), //15
   minBarrierPct: parseFloat('0.015'),
@@ -257,11 +257,11 @@ const _BASE_CONFIG = {
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5n_02.log',
+  logFile: 'accuPULSE3BC_v5n_03.log',
   logLevel: 'INFO3BC_v5n',
-  stateFile: 'accuPULSE3BC_state_v5n_02.json',
-  metricsFile: 'metricsBC_v5n_02.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5n_02.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5n_03.json',
+  metricsFile: 'metricsBC_v5n_03.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5n_03.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
