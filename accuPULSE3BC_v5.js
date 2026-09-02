@@ -59,11 +59,11 @@ const CONFIG = Object.freeze({
   // assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  // assets: ('BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
-  //   .split(',').map(s => s.trim()).filter(Boolean),
-
-  assets: ('BOOM900,BOOM1000,CRASH900,CRASH1000')
+  assets: ('BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
+
+  // assets: ('BOOM900,BOOM1000,CRASH900,CRASH1000')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
   telegram: {
@@ -139,7 +139,7 @@ const CONFIG = Object.freeze({
   minConfidence: parseFloat('0.95'),   //0.07 fallback if regime lookup fails
   maxVolRegime: parseInt('3', 10),     // ALLOW all regimes (scale stake instead)
   maxHurst: parseFloat('0.70'),
-  bestScore: parseFloat('0.55'),//0.88
+  bestScore: parseFloat('0.82'),//0.88
 
   // ARCA weights
   weights: {
@@ -194,11 +194,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_014.log',
+  logFile: 'accuPULSE3BC_v5_015.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_014.json',
-  metricsFile: 'metricsBC_v5_014.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_014.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_015.json',
+  metricsFile: 'metricsBC_v5_015.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_015.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -237,12 +237,12 @@ const CONFIG = Object.freeze({
   // ── Feature 3: 6-Check Entry Confirmation ─────────────────────────────
   entryConfirmation: {
     requiredChecks: 6,              // Need 4/6 to pass
-    minVolPercentile: 0.20,         // Vol check: at least 20th percentile
+    minVolPercentile: 0.35,         // Vol check: at least 20th percentile
     minBarrierPct: 0.015,           // Barrier check: 1.5% minimum
-    minEv: 0.005,                   // 0.005 EV check: 0.5% net EV
-    minMomentum: 0.000013,            // Momentum check: non-flat (for Crash)
-    minMomentum2: -0.000013,            // Momentum check: non-flat (for Boom)
-    minSurvivalMean: 15,            // Survival check: 15+ ticks
+    minEv: 0.012,                   // 0.005 EV check: 0.5% net EV
+    minMomentum: 0.000020,            // Momentum check: non-flat (for Crash)
+    minMomentum2: -0.000020,            // Momentum check: non-flat (for Boom)
+    minSurvivalMean: 28.5,            // Survival check: 15+ ticks
   },
 
   // ── Daily-Reset + Relaxed Sharpe (fix multi-day decay) ─────────────────
