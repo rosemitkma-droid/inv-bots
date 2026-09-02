@@ -198,11 +198,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5o_1.log',
-  logLevel: 'INFO3BC_v5o_1',
-  stateFile: 'accuPULSE3BC_state_v5o_1.json',
-  metricsFile: 'metricsBC_v5o_1.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5o_1.jsonl',  // Feature 7: Full metrics logging
+  logFile: 'accuPULSE3BC_v5o_01.log',
+  logLevel: 'INFO3BC_v5o_01',
+  stateFile: 'accuPULSE3BC_state_v5o_01.json',
+  metricsFile: 'metricsBC_v5o_01.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5o_01.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -210,8 +210,8 @@ const CONFIG = Object.freeze({
 
   // ── Feature 5: Warm-up Mode Lifecycle ─────────────────────────────────
   warmupConfig: {
-    warmupTrades: 30,        // Trades 0-30
-    balancedTrades: 300,     // Trades 30-300
+    warmupTrades: 3000000,        // Trades 0-30
+    balancedTrades: 3000000,     // Trades 30-300
     warmupMaxOpen: 1,        // Max open during warmup
     balancedMaxOpen: 1,      // Max open during balanced
     optimizedMaxOpen: 1,     // Max open during optimized
@@ -244,14 +244,14 @@ const CONFIG = Object.freeze({
     minVolPercentile: 0.35,         //0.20 Vol check: at least 20th percentile
     minBarrierPct: 0.015,           //0.015 Barrier check: 1.5% minimum
     minEv: 0.005,                   // 0.005 EV check: 0.5% net EV
-    minMomentum: 0.000007,            // Momentum check: non-flat (for Crash)
-    minMomentum2: -0.000007,            // Momentum check: non-flat (for Boom)
+    minMomentum: 0.000013,            // Momentum check: non-flat (for Crash)
+    minMomentum2: -0.000013,            // Momentum check: non-flat (for Boom)
     minSurvivalMean: 20,            //15 Survival check: 15+ ticks
   },
 
   // ── Daily-Reset + Relaxed Sharpe (fix multi-day decay) ─────────────────
   relaxedAssetsConfig: {
-    minTradesForFilter: 300,  // only Sharpe-filter after 200 trades (was 50)
+    minTradesForFilter: 300000,  // only Sharpe-filter after 200 trades (was 50)
     topN: 2,                  // keep 2 of 4 assets (was 3) when filtering
   },
   dailyReset: {
