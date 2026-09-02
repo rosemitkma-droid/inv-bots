@@ -59,7 +59,10 @@ const CONFIG = Object.freeze({
   // assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
+  // assets: ('BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
+
+  assets: ('BOOM1000,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
@@ -191,11 +194,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_012.log',
+  logFile: 'accuPULSE3BC_v5_013.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_012.json',
-  metricsFile: 'metricsBC_v5_012.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_012.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_013.json',
+  metricsFile: 'metricsBC_v5_013.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_013.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -245,7 +248,7 @@ const CONFIG = Object.freeze({
   // ── Daily-Reset + Relaxed Sharpe (fix multi-day decay) ─────────────────
   relaxedAssetsConfig: {
     minTradesForFilter: 300,  // only Sharpe-filter after 200 trades (was 50)
-    topN: 3,                  // keep 3 of 4 assets (was 3) when filtering
+    topN: 2,                  // keep 2 of 4 assets (was 3) when filtering
   },
   dailyReset: {
     enabled: true,
