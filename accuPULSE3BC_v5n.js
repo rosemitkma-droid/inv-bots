@@ -51,7 +51,7 @@ const PROFILE_DEFS = Object.freeze({
     minEv: 0.012,
     minMomentum: 0.000013,
     minMomentum2: -0.0000113,
-    minSurvivalMean: 28.5,
+    minSurvivalMean: 26.0,
     kellyFraction: 0.15,
     maxStakeMultiplier: 1.5,
     tpProfitPct: 0.25,
