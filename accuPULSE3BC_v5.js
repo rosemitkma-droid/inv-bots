@@ -191,11 +191,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5_011.log',
+  logFile: 'accuPULSE3BC_v5_012.log',
   logLevel: 'INFO3BC_v5',
-  stateFile: 'accuPULSE3BC_state_v5_011.json',
-  metricsFile: 'metricsBC_v5_011.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5_011.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5_012.json',
+  metricsFile: 'metricsBC_v5_012.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5_012.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -2491,7 +2491,7 @@ class AccuPULSE3BotV5 {
           minConfidence: 0.05,
           maxVolRegime: 2,
           maxOpen: wc.balancedMaxOpen || 3,
-          useAllAssets: false,
+          useAllAssets: true,
           label: '⚖️ BALANCED (30-300 trades)',
         };
       case 'OPTIMIZED':
@@ -2499,7 +2499,7 @@ class AccuPULSE3BotV5 {
           minConfidence: 0.08,
           maxVolRegime: 1,
           maxOpen: wc.optimizedMaxOpen || 2,
-          useAllAssets: false,
+          useAllAssets: true,
           label: '🎯 OPTIMIZED (300+ trades)',
         };
     }
