@@ -38,7 +38,7 @@ const EventEmitter = require('events');
 // 'conservative' (~90 trades/day, surv 30/score 0.85). Change one string to toggle.
 // Derived from joint sweep of 676 Telegram trades (data/gates_sweep_2026-09-01.csv):
 // aggressive WR 92.5% avg +0.064/trade projected, conservative WR 93.9% +0.023/trade
-const ACTIVE_PROFILE = 'aggressive'; // 'aggressive' | 'conservative'
+const ACTIVE_PROFILE = 'conservative'; // 'aggressive' | 'conservative'
 const PROFILE_DEFS = Object.freeze({
   aggressive: Object.freeze({
     minNetEvRatio: 0.010,
@@ -257,11 +257,11 @@ const _BASE_CONFIG = {
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5n_1.log',
+  logFile: 'accuPULSE3BC_v5n_02.log',
   logLevel: 'INFO3BC_v5n',
-  stateFile: 'accuPULSE3BC_state_v5n_01.json',
-  metricsFile: 'metricsBC_v5n_01.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5n_01.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5n_02.json',
+  metricsFile: 'metricsBC_v5n_02.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5n_02.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
