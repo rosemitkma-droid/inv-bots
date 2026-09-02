@@ -50,7 +50,7 @@ const PROFILE_DEFS = Object.freeze({
     minVolPercentile: 0.35,
     minEv: 0.012,
     minMomentum: 0.000013,
-    minMomentum2: -0.0000113,
+    minMomentum2: -0.000013,
     minSurvivalMean: 26.0,
     kellyFraction: 0.15,
     maxStakeMultiplier: 1.5,
@@ -257,11 +257,11 @@ const _BASE_CONFIG = {
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5n_06.log',
+  logFile: 'accuPULSE3BC_v5n_07.log',
   logLevel: 'INFO3BC_v5n',
-  stateFile: 'accuPULSE3BC_state_v5n_06.json',
-  metricsFile: 'metricsBC_v5n_06.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5n_06.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5n_07.json',
+  metricsFile: 'metricsBC_v5n_07.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5n_07.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -269,8 +269,8 @@ const _BASE_CONFIG = {
 
   // ── Feature 5: Warm-up Mode Lifecycle ─────────────────────────────────
   warmupConfig: {
-    warmupTrades: 30,        // Trades 0-30
-    balancedTrades: 300,     // Trades 30-300
+    warmupTrades: 3000000,        // Trades 0-30
+    balancedTrades: 3000000,     // Trades 30-300
     warmupMaxOpen: 1,        // Max open during warmup
     balancedMaxOpen: 1,      // Max open during balanced
     optimizedMaxOpen: 1,     // Max open during optimized
@@ -310,13 +310,13 @@ const _BASE_CONFIG = {
 
   // ── Daily-Reset + Relaxed Sharpe (fix multi-day decay) ─────────────────
   relaxedAssetsConfig: {
-    minTradesForFilter: 300,  // only Sharpe-filter after 200 trades (was 50)
-    topN: 3,                  // keep 3 of 4 assets (was 3) when filtering
+    minTradesForFilter: 3000000,  // only Sharpe-filter after 200 trades (was 50)
+    topN: 8,                  // keep 8 of 10 assets (was 3) when filtering
   },
   dailyReset: {
     enabled: true,
-    decayRegimeRates: true,   // halve regime win/loss counts on reset (fix multi-day decay)
-    resetEquityPeak: true,    // set equityPeak = lastBalance on new day (avoid permanent dd throttle)
+    decayRegimeRates: false,   // halve regime win/loss counts on reset (fix multi-day decay)
+    resetEquityPeak: false,    // set equityPeak = lastBalance on new day (avoid permanent dd throttle)
   },
 
   // Reconnect
