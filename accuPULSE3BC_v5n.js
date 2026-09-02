@@ -259,9 +259,9 @@ const _BASE_CONFIG = {
   maxTelegramQueue: parseInt('100', 10),
   logFile: 'accuPULSE3BC_v5n_1.log',
   logLevel: 'INFO3BC_v5n',
-  stateFile: 'accuPULSE3BC_state_v5n_1.json',
-  metricsFile: 'metricsBC_v5n_1.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5n_1.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5n_01.json',
+  metricsFile: 'metricsBC_v5n_01.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5n_01.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
