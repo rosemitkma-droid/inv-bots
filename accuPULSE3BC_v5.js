@@ -242,7 +242,7 @@ const CONFIG = Object.freeze({
     minEv: 0.012,                   // 0.005 EV check: 0.5% net EV
     minMomentum: 0.000013,            // Momentum check: non-flat (for Crash)
     minMomentum2: -0.000013,            // Momentum check: non-flat (for Boom)
-    minSurvivalMean: 28.5,            // Survival check: 15+ ticks
+    minSurvivalMean: 26.0,            // Survival check: 15+ ticks
   },
 
   // ── Daily-Reset + Relaxed Sharpe (fix multi-day decay) ─────────────────
