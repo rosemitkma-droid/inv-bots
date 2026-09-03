@@ -80,12 +80,12 @@ const CONFIG = Object.freeze({
   maxOpenTrades: parseInt('1', 10),
 
   // Hazard Model (v4.0 fixes)
-  candidateGrowthRates: [0.01], //[0.05, 0.04, 0.03, 0.02, 0.01]
+  candidateGrowthRates: [0.05, 0.04, 0.03, 0.02, 0.01], //[0.05, 0.04, 0.03, 0.02, 0.01]
   hazardWindow: parseInt('600', 10),
   plannedHoldTicks: parseInt('2', 10), //15
   minBarrierPct: parseFloat('0.015'),
   minEmpiricalSamples: parseInt('150', 10),
-  confidenceZ: parseFloat('1.28'),
+  confidenceZ: parseFloat('2.58'), //1.28 = 80% CI, 1.64 = 90% CI, 1.96 = 95% CI, 2.33 = 98% CI, 2.58 = 99% CI
   evHaircut: parseFloat('0.65'),
   minNetEvRatio: parseFloat('0.001'),
   maxRecentJumpZ: parseFloat('4.0'),
@@ -117,7 +117,7 @@ const CONFIG = Object.freeze({
     // assumption doesn't hold for BC — spikes correlate contract survival).
     // No additional haircut is applied; the LB is the single conservative
     // layer, letting candidates with genuine survival evidence through.
-    confidenceZ: parseFloat('1.28'), //0.67
+    confidenceZ: parseFloat('2.58'), //1.28 = 80% CI, 1.64 = 90% CI, 1.96 = 95% CI, 2.33 = 98% CI, 2.58 = 99% CI
     // Minimum acceptable P(survive N ticks) — needs to cover break-even
     // gross: (1+g)^N - 1. For g=3%, N=15: break-even pHorizon ≈ 0.64.
     // The Wilson LB on n=100 with p≈0.60 gives ≈0.52, which is close.
@@ -143,7 +143,7 @@ const CONFIG = Object.freeze({
   minConfidence: parseFloat('0.95'),   //0.07 fallback if regime lookup fails
   maxVolRegime: parseInt('3', 10),     // ALLOW all regimes (scale stake instead)
   maxHurst: parseFloat('0.70'),
-  bestScore: parseFloat('0.55'),//0.88
+  bestScore: parseFloat('0.82'),//0.88
 
   // ARCA weights
   weights: {
@@ -198,11 +198,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5o_03.log',
+  logFile: 'accuPULSE3BC_v5o_05.log',
   logLevel: 'INFO3BC_v5o',
-  stateFile: 'accuPULSE3BC_state_v5o_03.json',
-  metricsFile: 'metricsBC_v5o_03.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5o_03.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5o_05.json',
+  metricsFile: 'metricsBC_v5o_05.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5o_05.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -241,10 +241,10 @@ const CONFIG = Object.freeze({
   // ── Feature 3: 6-Check Entry Confirmation ─────────────────────────────
   entryConfirmation: {
     requiredChecks: 6,              // Need 4/6 to pass
-    minVolPercentile: 0.35,         //0.20 Vol check: at least 20th percentile
+    minVolPercentile: 0.15,         //0.20 Vol check: at least 20th percentile
     minBarrierPct: 0.015,           //0.015 Barrier check: 1.5% minimum
     minEv: 0.005,                   // 0.005 EV check: 0.5% net EV
-    minMomentum: 0.000013,            // Momentum check: non-flat (for Crash)
+    minMomentum: 0.000007,            // Momentum check: non-flat (for Crash)
     minMomentum2: -0.000007,            // Momentum check: non-flat (for Boom)
     minSurvivalMean: 20,            //15 Survival check: 15+ ticks
   },
@@ -252,7 +252,7 @@ const CONFIG = Object.freeze({
   // ── Daily-Reset + Relaxed Sharpe (fix multi-day decay) ─────────────────
   relaxedAssetsConfig: {
     minTradesForFilter: 300000,  // only Sharpe-filter after 200 trades (was 50)
-    topN: 2,                  // keep 2 of 4 assets (was 3) when filtering
+    topN: 1,                  // keep 2 of 4 assets (was 3) when filtering
   },
   dailyReset: {
     enabled: true,
