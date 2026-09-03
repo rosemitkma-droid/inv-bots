@@ -143,10 +143,10 @@ const CONFIG = Object.freeze({
   currency: 'USD',
 
   // Trade setup
-  stake: 2.00,
+  stake: 0.63,
   durationTicks: 1, // Digit contracts normally 1-10 ticks
-  minStake: 2.00,
-  maxStake: 60.00,
+  minStake: 0.63,
+  maxStake: 15.00,
   assets: ['R_10','R_25','R_50','RDBULL','RDBEAR'],
 
   // Trading frequency / limits — tuned for 20-50/day ultra-light
@@ -162,7 +162,7 @@ const CONFIG = Object.freeze({
   dailyMaxProfit: 0, // 0 disables profit target stop
   dailyMaxTrades: 20000,
   // Circuit breaker: pause after N consecutive losses (re-added)
-  circuitBreakerEnabled: true,
+  circuitBreakerEnabled: false,
   circuitBreakerLosses: 2,
   circuitBreakerCooldownMs: 20 * 60_000,
 
