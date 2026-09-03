@@ -51,7 +51,7 @@ const PROFILE_DEFS = Object.freeze({
     minEv: 0.012,
     minMomentum: 0.000007,
     minMomentum2: -0.000007,
-    minSurvivalMean: 26.0, //26.0
+    minSurvivalMean: 30.0, //26.0
     kellyFraction: 0.15,
     maxStakeMultiplier: 1.5,
     tpProfitPct: 0.25,
@@ -261,11 +261,11 @@ const _BASE_CONFIG = {
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5n_10.log',
+  logFile: 'accuPULSE3BC_v5n_11.log',
   logLevel: 'INFO3BC_v5n',
-  stateFile: 'accuPULSE3BC_state_v5n_10.json',
-  metricsFile: 'metricsBC_v5n_10.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5n_10.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5n_11.json',
+  metricsFile: 'metricsBC_v5n_11.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5n_11.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
