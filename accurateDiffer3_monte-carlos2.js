@@ -143,11 +143,11 @@ const CONFIG = Object.freeze({
   currency: 'USD',
 
   // Trade setup
-  stake: 5.5,
+  stake: 2.00,
   durationTicks: 1, // Digit contracts normally 1-10 ticks
-  minStake: 5.5,
-  maxStake: 150.00,
-  assets: ['R_10','R_25','R_50','R_75','R_100'],
+  minStake: 2.00,
+  maxStake: 60.00,
+  assets: ['R_10','R_25','R_50','RDBULL','RDBEAR'],
 
   // Trading frequency / limits — tuned for 20-50/day ultra-light
   tickWindow: 1000,
@@ -251,8 +251,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'monte-carlos_differnew_1_state.json'),
-  logFile: strEnv('LOG_FILE', 'monte-carlos_differnew_1_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'monte-carlos_differnew_01_state.json'),
+  logFile: strEnv('LOG_FILE', 'monte-carlos_differnew_01_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFOnew').toUpperCase(),
 
   // Telegram
