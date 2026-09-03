@@ -125,7 +125,7 @@ const _BASE_CONFIG = {
   // assets: ('R_10,R_25,R_50,R_75,R_100,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
+  assets: ('BOOM1000,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
@@ -159,9 +159,13 @@ const _BASE_CONFIG = {
     // Primary EV source for BC is `ticks_stayed_in` from ACCU proposals —
     // server-recorded survival history of previous contracts at this exact
     // symbol + growth rate. No fabricated barriers, no abs() log-ret math.
+    // nominalSpikeInterval: {
+    //   BOOM50: 50, BOOM300: 50, BOOM500: 500, BOOM600: 600, BOOM900: 900, BOOM1000: 1000,
+    //   CRASH50: 50, CRASH300: 50, CRASH500: 500, CRASH600: 600, CRASH900: 900, CRASH1000: 1000,
+    // },
     nominalSpikeInterval: {
-      BOOM50: 50, BOOM300: 50, BOOM500: 500, BOOM600: 600, BOOM900: 900, BOOM1000: 1000,
-      CRASH50: 50, CRASH300: 50, CRASH500: 500, CRASH600: 600, CRASH900: 900, CRASH1000: 1000,
+      BOOM1000: 1000,
+      CRASH1000: 1000,
     },
     // Stay samples required before trusting P(reach N). The API returns ~100
     // per refresh; require most of a full refresh before trading.
@@ -257,11 +261,11 @@ const _BASE_CONFIG = {
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5n_08.log',
+  logFile: 'accuPULSE3BC_v5n_09.log',
   logLevel: 'INFO3BC_v5n',
-  stateFile: 'accuPULSE3BC_state_v5n_08.json',
-  metricsFile: 'metricsBC_v5n_08.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5n_08.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5n_09.json',
+  metricsFile: 'metricsBC_v5n_09.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5n_09.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
