@@ -45,13 +45,13 @@ const PROFILE_DEFS = Object.freeze({
     minPHorizon: 0.55,
     minConfidenceByRegime: { 0: 0.12, 1: 0.10, 2: 0.06, 3: 0.03 },
     minConfidence: 0.08,
-    bestScore: 0.82,
+    bestScore: 0.82, //0.82
     entryRequiredChecks: 6,
     minVolPercentile: 0.35,
     minEv: 0.012,
-    minMomentum: 0.000013,
+    minMomentum: 0.000007,
     minMomentum2: -0.000007,
-    minSurvivalMean: 26.0,
+    minSurvivalMean: 26.0, //26.0
     kellyFraction: 0.15,
     maxStakeMultiplier: 1.5,
     tpProfitPct: 0.25,
@@ -143,12 +143,12 @@ const _BASE_CONFIG = {
   maxOpenTrades: parseInt('1', 10),
 
   // Hazard Model (v4.0 fixes)
-  candidateGrowthRates: [0.05, 0.04, 0.03, 0.02], //[0.05, 0.04, 0.03, 0.02, 0.01]
+  candidateGrowthRates: [0.05, 0.04, 0.03, 0.02, 0.01], //[0.05, 0.04, 0.03, 0.02, 0.01]
   hazardWindow: parseInt('600', 10),
   plannedHoldTicks: parseInt('2', 10), //15
   minBarrierPct: parseFloat('0.015'),
   minEmpiricalSamples: parseInt('150', 10),
-  confidenceZ: parseFloat('1.28'),
+  confidenceZ: parseFloat('2.58'), //1.28 = 80% CI, 1.64 = 90% CI, 1.96 = 95% CI, 2.33 = 98% CI, 2.58 = 99% CI
   evHaircut: parseFloat('0.65'),
   minNetEvRatio: parseFloat('0.001'),
   maxRecentJumpZ: parseFloat('4.0'),
@@ -180,7 +180,7 @@ const _BASE_CONFIG = {
     // assumption doesn't hold for BC — spikes correlate contract survival).
     // No additional haircut is applied; the LB is the single conservative
     // layer, letting candidates with genuine survival evidence through.
-    confidenceZ: parseFloat('1.28'), //0.67
+    confidenceZ: parseFloat('2.58'), //1.28 = 80% CI, 1.64 = 90% CI, 1.96 = 95% CI, 2.33 = 98% CI, 2.58 = 99% CI
     // Minimum acceptable P(survive N ticks) — needs to cover break-even
     // gross: (1+g)^N - 1. For g=3%, N=15: break-even pHorizon ≈ 0.64.
     // The Wilson LB on n=100 with p≈0.60 gives ≈0.52, which is close.
@@ -206,7 +206,7 @@ const _BASE_CONFIG = {
   minConfidence: parseFloat('0.95'),   //0.07 fallback if regime lookup fails
   maxVolRegime: parseInt('3', 10),     // ALLOW all regimes (scale stake instead)
   maxHurst: parseFloat('0.70'),
-  bestScore: parseFloat('0.55'),//0.88
+  bestScore: parseFloat('0.81'),//0.88
 
   // ARCA weights
   weights: {
@@ -261,11 +261,11 @@ const _BASE_CONFIG = {
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5n_09.log',
+  logFile: 'accuPULSE3BC_v5n_10.log',
   logLevel: 'INFO3BC_v5n',
-  stateFile: 'accuPULSE3BC_state_v5n_09.json',
-  metricsFile: 'metricsBC_v5n_09.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5n_09.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5n_10.json',
+  metricsFile: 'metricsBC_v5n_10.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5n_10.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -315,7 +315,7 @@ const _BASE_CONFIG = {
   // ── Daily-Reset + Relaxed Sharpe (fix multi-day decay) ─────────────────
   relaxedAssetsConfig: {
     minTradesForFilter: 3000000,  // only Sharpe-filter after 200 trades (was 50)
-    topN: 8,                  // keep 8 of 10 assets (was 3) when filtering
+    topN: 1,                  // keep 8 of 10 assets (was 3) when filtering
   },
   dailyReset: {
     enabled: true,
@@ -1168,15 +1168,15 @@ class EnhancedARCAAnalyzer {
     const _isBoom = _upper.startsWith('BOOM');
     const _isCrash = _upper.startsWith('CRASH');
     if (_isCrash) {
-      _momentumThr = ec.minMomentum ?? 0.00001;
+      _momentumThr = ec.minMomentum ?? 0.000001;
       _momentumOp = '>';
       _momentumGate = _momentumVal > _momentumThr;
     } else if (_isBoom) {
-      _momentumThr = ec.minMomentum2 ?? -0.00001;
+      _momentumThr = ec.minMomentum2 ?? -0.000001;
       _momentumOp = '<';
       _momentumGate = _momentumVal < _momentumThr;
     } else {
-      _momentumThr = ec.minMomentum ?? 0.0001;
+      _momentumThr = ec.minMomentum ?? 0.00001;
       _momentumOp = '|abs|>';
       _momentumGate = Math.abs(_momentumVal) > _momentumThr;
     }
