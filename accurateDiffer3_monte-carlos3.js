@@ -162,7 +162,7 @@ const CONFIG = Object.freeze({
   dailyMaxProfit: 0, // 0 disables profit target stop
   dailyMaxTrades: 20000,
   // Circuit breaker: pause after N consecutive losses (re-added)
-  circuitBreakerEnabled: true,
+  circuitBreakerEnabled: false,
   circuitBreakerLosses: 2,
   circuitBreakerCooldownMs: 20 * 60_000,
 
@@ -200,7 +200,7 @@ const CONFIG = Object.freeze({
   recoveryEnabled: false, // Kelly takes over (was true)
   dangerousRecovery: boolEnv('DANGEROUS_RECOVERY', false), // was true
   recoveryMultipliers: listEnv('RECOVERY_MULTIPLIERS', '1,11.3,150.0').map(Number).filter(Number.isFinite),
-  recoveryMaxStep: intEnv('RECOVERY_MAX_STEP', 1), // capped at 1 (was 2)
+  recoveryMaxStep: intEnv('RECOVERY_MAX_STEP', 3), // capped at 1 (was 2)
 
   // ── Kelly-fractional sizing — ENABLED for 20-50/day (was false) ───
   kellySizingEnabled  : true, // now ON — recovery must be OFF
@@ -251,8 +251,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'monte-carlos_differnew2_1_state.json'),
-  logFile: strEnv('LOG_FILE', 'monte-carlos_differnew2_1_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'monte-carlos_differnew2_01_state.json'),
+  logFile: strEnv('LOG_FILE', 'monte-carlos_differnew2_01_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFOnew').toUpperCase(),
 
   // Telegram
