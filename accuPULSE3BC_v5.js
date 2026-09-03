@@ -198,11 +198,11 @@ const CONFIG = Object.freeze({
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5o_01.log',
-  logLevel: 'INFO3BC_v5o_01',
-  stateFile: 'accuPULSE3BC_state_v5o_01.json',
-  metricsFile: 'metricsBC_v5o_01.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5o_01.jsonl',  // Feature 7: Full metrics logging
+  logFile: 'accuPULSE3BC_v5o_02.log',
+  logLevel: 'INFO3BC_v5o',
+  stateFile: 'accuPULSE3BC_state_v5o_02.json',
+  metricsFile: 'metricsBC_v5o_02.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5o_02.jsonl',  // Feature 7: Full metrics logging
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -245,7 +245,7 @@ const CONFIG = Object.freeze({
     minBarrierPct: 0.015,           //0.015 Barrier check: 1.5% minimum
     minEv: 0.005,                   // 0.005 EV check: 0.5% net EV
     minMomentum: 0.000013,            // Momentum check: non-flat (for Crash)
-    minMomentum2: -0.000013,            // Momentum check: non-flat (for Boom)
+    minMomentum2: -0.000007,            // Momentum check: non-flat (for Boom)
     minSurvivalMean: 20,            //15 Survival check: 15+ ticks
   },
 
