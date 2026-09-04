@@ -91,8 +91,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [MULTIPLIER — isolated from Rise/Fall]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillMul_1-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillMul_1-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillMul_01-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillMul_01-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -131,7 +131,7 @@ const CONFIG = {
 
     // ── Session / daily guards ───────────────────
     SESSION_PROFIT_TARGET: 500000,
-    SESSION_STOP_LOSS: -408,
+    SESSION_STOP_LOSS: -208,
     COOLDOWN_CANDLES: 3,
 
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
@@ -159,15 +159,15 @@ const CONFIG = {
         R_100:   100, //[40,100,200,300,400]
 
         // 1HZ series
-        '1HZ10V':  1000, //[400,1000,2000,3000,4000]
-        '1HZ25V':  400, //[160,400,800,1200,1600]
-        '1HZ50V':  200, //[80,200,400,600,800]
-        '1HZ75V':  100, //[50,100,200,300,500]
-        '1HZ100V': 100, //[40,100,200,300,400]
+        '1HZ10V':  2000, //[400,1000,2000,3000,4000]
+        '1HZ25V':  800, //[160,400,800,1200,1600]
+        '1HZ50V':  400, //[80,200,400,600,800]
+        '1HZ75V':  200, //[50,100,200,300,500]
+        '1HZ100V': 200, //[40,100,200,300,400]
         
         // Step indices
-        stpRNG:  2000, //[750,2000,3500,5500,7500]
-        stpRNG2: 1000, //[400,1000,2000,3000,4000]
+        stpRNG:  3500, //[750,2000,3500,5500,7500]
+        stpRNG2: 2000, //[400,1000,2000,3000,4000]
         // stpRNG3: 1500, //[300,1000,1500,2000,3000]
         // stpRNG4: 1000, //[200,500,1000,1500,2000]
         // stpRNG5: 500, //[100,300,500,700,1000]
@@ -226,22 +226,22 @@ const DEFAULT_ASSET_CONFIG = {
     DURATION_UNIT: 'm',
 
     // Stake Settings
-    INITIAL_STAKE: 1.00,
-    INVESTMENT_AMOUNT: 408,
+    INITIAL_STAKE: 0.35,
+    INVESTMENT_AMOUNT: 208,
 
     // Martingale Settings
-    MARTINGALE_MULTIPLIER: 1.5, //1.48
+    MARTINGALE_MULTIPLIER: 1.48, //1.48
     MAX_MARTINGALE_LEVEL: 1, //1
     AFTER_MAX_LOSS: 'continue', // 'continue' | 'reset' | 'stop' 
-    CONTINUE_EXTRA_LEVELS: 7,
-    EXTRA_LEVEL_MULTIPLIERS: [2.0, 2.0, 2.1, 2.1, 2.2, 2.2], //[2.1, 2.2, 2, 2.3]
+    CONTINUE_EXTRA_LEVELS: 8,
+    EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.1, 2.2, 2.3, 2.3], //[2.1, 2.2, 2, 2.3]
 
     // Auto-Compounding
     AUTO_COMPOUNDING: false,
     COMPOUND_PERCENTAGE: 0.1,
 
     // Risk Management
-    STOP_LOSS: 408,
+    STOP_LOSS: 208,
 };
 
 const ASSET_CONFIGS = {
