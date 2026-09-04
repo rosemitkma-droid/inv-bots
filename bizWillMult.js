@@ -91,8 +91,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [MULTIPLIER — isolated from Rise/Fall]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillMul_001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillMul_001-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillMul_002-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillMul_002-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -155,8 +155,8 @@ const CONFIG = {
         // R_10:    1000, //[400,1000,2000,3000,4000]
         // R_25:    800, //[160,400,800,1200,1600]
         // R_50:    400, //[80,200,400,600,800]
-        R_75:    100, //[50,100,200,300,500]
-        R_100:   100, //[40,100,200,300,400]
+        R_75:    300, //[50,100,200,300,500]
+        R_100:   300, //[40,100,200,300,400]
 
         // 1HZ series
         '1HZ10V':  3000, //[400,1000,2000,3000,4000]
