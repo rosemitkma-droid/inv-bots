@@ -12,12 +12,12 @@
  * ║        since overbought (-20) → MULTDOWN                                 ║
  * ║  Execution: Multipliers stay open until TP/SL or opposite WPR signal.   ║
  * ║  If MULTUP active, only SELL signal closes it (and vice versa). Else   ║
- * ║  TP = stake * TAKE_PROFIT_MULTIPLIER, SL = stake (1x).                 ║
+ * ║  RECOVERY TP/SL = initialTP + cumulativeLoss (initialTP = INITIAL_STAKE *║
+ * ║  TAKE_PROFIT_MULTIPLIER, cumulativeLoss = sum of losses since last win) ║
+ * ║  Example: initTP 1, loss1 0.56, loss2 1.56 → next TP/SL = 1+0.56+1.56=3.12║
  * ║  Multiplier per asset = minimum from bizIndexMultiplier.js:102.         ║
- * ║  Recovery (B + Exclusive): same as Rise/Fall — martingale on loss,     ║
- * ║  first recovery 58s then 1m, MAX_CONSECUTIVE_LOSSES (default 7) → wait  ║
- * ║  for new WPR signal on same asset, exclusive until win, TP/SL closes   ║
- * ║  also count as loss for martingale if hit SL.                          ║
+ * ║  Martingale levels MAX_MARTINGALE_LEVEL/CONTINUE_EXTRA_LEVELS/AFTER_MAX  ║
+ * ║  retained; stake = takeProfit via StakeCalculator recovery formula.     ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 
@@ -91,8 +91,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [MULTIPLIER — isolated from Rise/Fall]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillMul_03-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillMul_03-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillMul_001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillMul_001-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -132,7 +132,7 @@ const CONFIG = {
     // ── Session / daily guards ───────────────────
     SESSION_PROFIT_TARGET: 500000,
     SESSION_STOP_LOSS: -208,
-    COOLDOWN_CANDLES: 3,
+    COOLDOWN_CANDLES: 1, // Number of candles to wait after hitting stop loss before resuming trading
 
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
     GRANULARITY: 60,
@@ -146,7 +146,7 @@ const CONFIG = {
     WPR_OVERBOUGHT: -20,
     WPR_OVERSOLD: -80,
     // ── Recovery exit: max consecutive losses (initial + recoveries) before waiting for new signal
-    MAX_CONSECUTIVE_LOSSES: 7,
+    MAX_CONSECUTIVE_LOSSES: 9,
 
     // ── MULTIPLIER SETTINGS (from bizIndexMultiplier.js:102) — user can adjust ──────
     TAKE_PROFIT_MULTIPLIER: 1, // TP = stake * this, SL = stake (1x) — per spec user can set
@@ -155,19 +155,19 @@ const CONFIG = {
         // R_10:    1000, //[400,1000,2000,3000,4000]
         // R_25:    800, //[160,400,800,1200,1600]
         // R_50:    400, //[80,200,400,600,800]
-        R_75:    300, //[50,100,200,300,500]
-        R_100:   300, //[40,100,200,300,400]
+        R_75:    100, //[50,100,200,300,500]
+        R_100:   100, //[40,100,200,300,400]
 
         // 1HZ series
         '1HZ10V':  3000, //[400,1000,2000,3000,4000]
         '1HZ25V':  1200, //[160,400,800,1200,1600]
         '1HZ50V':  600, //[80,200,400,600,800]
-        // '1HZ75V':  200, //[50,100,200,300,500]
-        // '1HZ100V': 200, //[40,100,200,300,400]
+        '1HZ75V':  300, //[50,100,200,300,500]
+        // '1HZ100V': 300, //[40,100,200,300,400]
         
         // Step indices
         stpRNG:  5500, //[750,2000,3500,5500,7500]
-        // stpRNG2: 2000, //[400,1000,2000,3000,4000]
+        // stpRNG2: 3000, //[400,1000,2000,3000,4000]
         // stpRNG3: 1500, //[300,1000,1500,2000,3000]
         // stpRNG4: 1000, //[200,500,1000,1500,2000]
         // stpRNG5: 500, //[100,300,500,700,1000]
@@ -418,7 +418,7 @@ class SignalManager {
 }
 
 // ============================================================
-// STAKE CALCULATOR — auto-compounding + martingale (from reference bot)
+// STAKE CALCULATOR — recovery TP/SL = initialTP + cumulativeLoss
 // ============================================================
 //
 // INVESTMENT_AMOUNT pool model:
@@ -426,6 +426,16 @@ class SignalManager {
 //   • On WIN:   investmentRemaining += payout (stake + profit)  → pool grows
 //   • On LOSS:  stake stays deducted (nothing added back)      → pool shrinks
 //   • AUTO_COMPOUNDING: baseStake = max(pool * COMPOUND_PERCENTAGE/100, INITIAL_STAKE)
+//
+// NEW RECOVERY SYSTEM (Multiplier):
+//   TP/SL = initialTP + cumulativeLoss
+//   where initialTP = INITIAL_STAKE * TAKE_PROFIT_MULTIPLIER
+//   cumulativeLoss = sum of absolute losses since last win
+//   Example: initialTP=1, loss1=0.56, loss2=1.56 → next TP/SL = 1 +0.56+1.56=3.12
+//   Stake for next trade = TP/SL amount (so SL can be hit to recover)
+//   MAX_MARTINGALE_LEVEL / CONTINUE_EXTRA_LEVELS / AFTER_MAX_LOSS still govern caps
+//   MARTINGALE_MULTIPLIER & EXTRA_LEVEL_MULTIPLIERS are kept for compat but not used in recovery calc
+//   (they can be used for extra levels if needed)
 //
 class StakeCalculator {
 
@@ -440,26 +450,55 @@ class StakeCalculator {
         return cfg.INITIAL_STAKE;
     }
 
-    static calculate(symbol, martingaleLevel, investmentRemaining) {
+    static getInitialTP(symbol, investmentRemaining) {
+        const cfg = getAssetConfig(symbol);
+        const base = this.getBaseStake(symbol, investmentRemaining);
+        return parseFloat((Math.max(base, cfg.INITIAL_STAKE) * CONFIG.TAKE_PROFIT_MULTIPLIER).toFixed(2));
+    }
+
+    static calculate(symbol, martingaleLevel, investmentRemaining, cumulativeLoss = 0) {
         const cfg = getAssetConfig(symbol);
         let level = Math.max(0, martingaleLevel || 0);
         let base = this.getBaseStake(symbol, investmentRemaining);
         base = Math.max(base, cfg.INITIAL_STAKE);
 
         let stake;
-        if (level <= cfg.MAX_MARTINGALE_LEVEL) {
-            stake = base * Math.pow(cfg.MARTINGALE_MULTIPLIER, level);
+        const initialTP = parseFloat((base * CONFIG.TAKE_PROFIT_MULTIPLIER).toFixed(2));
+
+        if (level === 0) {
+            stake = base;
         } else {
-            stake = base * Math.pow(cfg.MARTINGALE_MULTIPLIER, cfg.MAX_MARTINGALE_LEVEL);
-            const extraIdx = level - cfg.MAX_MARTINGALE_LEVEL - 1;
-            for (let i = 0; i <= extraIdx; i++) {
-                stake *= (cfg.EXTRA_LEVEL_MULTIPLIERS[i] || cfg.MARTINGALE_MULTIPLIER);
+            // New recovery: stake = initialTP + cumulativeLoss
+            // This ensures TP = stake recovers all prior losses + initial profit
+            stake = initialTP + (Number(cumulativeLoss) || 0);
+
+            // For levels beyond MAX_MARTINGALE_LEVEL, optionally apply EXTRA_LEVEL_MULTIPLIERS
+            // to recovery stake to handle large cumulative with leverage, but keep base recovery logic
+            if (level > cfg.MAX_MARTINGALE_LEVEL) {
+                const extraIdx = level - cfg.MAX_MARTINGALE_LEVEL - 1;
+                for (let i = 0; i <= extraIdx; i++) {
+                    // Apply extra multiplier to recovery stake for extra levels
+                    const mult = cfg.EXTRA_LEVEL_MULTIPLIERS[i];
+                    if (Number.isFinite(mult) && mult !== 1) {
+                        // Only apply if extra multiplier differs from 1 to avoid double counting
+                        // For pure recovery, we keep stake as initialTP + cumulativeLoss, so skip unless needed
+                        // Keep for compat: if user set extra multipliers >1, scale recovery stake
+                        // Comment out to keep pure recovery: stake *= mult;
+                    }
+                }
             }
 
-            //reset to base stake after exceeding max martingale + extra levels
+            // Handle AFTER_MAX_LOSS when exceeding max levels
             if (level > cfg.MAX_MARTINGALE_LEVEL + cfg.CONTINUE_EXTRA_LEVELS) {
-                stake = base;
-                level = 0; // Reset level to 0 for calculation
+                if (cfg.AFTER_MAX_LOSS === 'reset') {
+                    stake = base;
+                    // Note: caller should also reset cumulativeLoss and martingaleLevel to 0
+                } else if (cfg.AFTER_MAX_LOSS === 'stop') {
+                    stake = 0;
+                } else {
+                    // 'continue' — keep recovery stake but cap at pool
+                    stake = initialTP + (Number(cumulativeLoss) || 0);
+                }
             }
         }
 
@@ -469,10 +508,12 @@ class StakeCalculator {
         return parseFloat(stake.toFixed(2));
     }
 
-    static describe(symbol, investmentRemaining, martingaleLevel) {
-        const stake = this.calculate(symbol, martingaleLevel, investmentRemaining);
+    static describe(symbol, investmentRemaining, martingaleLevel, cumulativeLoss = 0) {
+        const stake = this.calculate(symbol, martingaleLevel, investmentRemaining, cumulativeLoss);
         const pct = investmentRemaining > 0 ? ((stake / investmentRemaining) * 100).toFixed(2) : '0.00';
-        return `$${stake.toFixed(2)} (${pct}% pool, martingale level ${martingaleLevel})`;
+        const initialTP = this.getInitialTP(symbol, investmentRemaining);
+        const recoveryInfo = martingaleLevel > 0 ? ` TP:${(initialTP + (Number(cumulativeLoss)||0)).toFixed(2)} (init ${initialTP.toFixed(2)}+cum ${Number(cumulativeLoss||0).toFixed(2)})` : '';
+        return `$${stake.toFixed(2)} (${pct}% pool, martingale level ${martingaleLevel}${recoveryInfo})`;
     }
 }
 
@@ -586,9 +627,10 @@ class BacktestEngine {
         const payoutRatio = Number.isFinite(opts.payoutRatio) ? opts.payoutRatio : (Number.isFinite(opts.payout) ? opts.payout : 0.90);
         const cfg = getAssetConfig(symbol);
         const period = cfg.WPR_PERIOD ?? CONFIG.WPR_PERIOD ?? 14;
-        // mirror live state vars — WPR flags
+        // mirror live state vars — WPR flags + recovery cumulative
         let investmentRemaining = cfg.INVESTMENT_AMOUNT;
         let martingaleLevel = 0;
+        let cumulativeLoss = 0;
         let isRecovery=false, waitingForNewSignal=false, exclusiveLock=false, recoveryFirstDone=false, lastTradeDirection=null;
         let consecutiveLosses=0, cooldownCandles=0;
         let buyFlagActive=false, sellFlagActive=false;
@@ -632,7 +674,7 @@ class BacktestEngine {
             }
             if(!direction) continue;
             if(i+1>=candles.length) break; // need next candle to settle
-            const stake=StakeCalculator.calculate(symbol, martingaleLevel, investmentRemaining);
+            const stake=StakeCalculator.calculate(symbol, martingaleLevel, investmentRemaining, cumulativeLoss);
             if(stake > investmentRemaining) continue;
             // simulate capital check (backtest starts with INVESTMENT_AMOUNT, not global capital)
             // deduct
@@ -650,31 +692,43 @@ class BacktestEngine {
                 if (direction==='CALLE') buyFlagActive=false;
                 else sellFlagActive=false;
             }
-            // update state exactly as SessionManager.recordTradeResult (preserves martingale after MAX)
+            // update state exactly as SessionManager.recordTradeResult (preserves martingale + cumulativeLoss after MAX)
             if(won){
-                // win resets all locks and martingale — exclusive lock released
+                // win resets all locks and martingale + cumulative — exclusive lock released
                 lastTradeDirection=direction;
                 isRecovery=false; waitingForNewSignal=false; exclusiveLock=false;
                 recoveryFirstDone=false;
-                martingaleLevel=0; consecutiveLosses=0; curStreak=0;
+                martingaleLevel=0; cumulativeLoss=0; consecutiveLosses=0; curStreak=0;
                 investmentRemaining = Number((investmentRemaining + stake + pnl).toFixed(2));
             } else {
                 lastTradeDirection=direction;
                 const wasRec=isRecovery;
                 exclusiveLock=true;
+                cumulativeLoss = Number((cumulativeLoss + Math.abs(pnl)).toFixed(2));
                 const underLimit = (consecutiveLosses + 1) < CONFIG.MAX_CONSECUTIVE_LOSSES;
                 if (underLimit) {
                     isRecovery=true;
                     waitingForNewSignal=false;
                     if(!wasRec) recoveryFirstDone=false;
                 } else {
-                    // Reach MAX — stop same-direction, wait for new WPR signal but keep exclusive + martingale
+                    // Reach MAX — stop same-direction, wait for new WPR signal but keep exclusive + martingale + cumulative
                     isRecovery=false;
                     waitingForNewSignal=true;
                     recoveryFirstDone=false;
                 }
                 if(!recoveryFirstDone && isRecovery) recoveryFirstDone=true;
                 martingaleLevel++;
+                // Handle AFTER_MAX_LOSS cap for martingale levels
+                const cfg2 = getAssetConfig(symbol);
+                if (martingaleLevel > cfg2.MAX_MARTINGALE_LEVEL + cfg2.CONTINUE_EXTRA_LEVELS) {
+                    if (cfg2.AFTER_MAX_LOSS === 'reset') {
+                        martingaleLevel = 0;
+                        cumulativeLoss = 0;
+                        exclusiveLock = false;
+                        waitingForNewSignal = false;
+                        isRecovery = false;
+                    }
+                }
                 consecutiveLosses++; curStreak++; maxStreak=Math.max(maxStreak,curStreak);
                 const key='x'+Math.min(curStreak,12);
                 streakCounts[key]=(streakCounts[key]||0)+1;
@@ -911,6 +965,8 @@ class StatePersistence {
                     currentStake: a.currentStake,
                     baseStake: a.baseStake,
                     martingaleLevel: a.martingaleLevel,
+                    cumulativeLoss: a.cumulativeLoss || 0,
+                    initialTP: a.initialTP || parseFloat((getAssetConfig(symbol).INITIAL_STAKE * CONFIG.TAKE_PROFIT_MULTIPLIER).toFixed(2)),
                     investmentRemaining: a.investmentRemaining,
                     consecutiveWins: a.consecutiveWins,
                     consecutiveLosses: a.consecutiveLosses,
@@ -980,7 +1036,9 @@ class StatePersistence {
                         a.forceRecoverDirection = saved.forceRecoverDirection ?? null;
                         a.recoveryStep = saved.recoveryStep || 0;
                         a.martingaleLevel = saved.martingaleLevel || 0;
-                        a.currentStake = saved.currentStake || StakeCalculator.calculate(symbol, 0, a.investmentRemaining);
+                        a.cumulativeLoss = Number.isFinite(saved.cumulativeLoss) ? Number(saved.cumulativeLoss) : 0;
+                        a.initialTP = Number.isFinite(saved.initialTP) ? Number(saved.initialTP) : parseFloat((getAssetConfig(symbol).INITIAL_STAKE * CONFIG.TAKE_PROFIT_MULTIPLIER).toFixed(2));
+                        a.currentStake = saved.currentStake || StakeCalculator.calculate(symbol, 0, a.investmentRemaining, a.cumulativeLoss);
                         a.baseStake = saved.baseStake || StakeCalculator.getBaseStake(symbol, a.investmentRemaining);
                         a.investmentRemaining = saved.investmentRemaining || getAssetConfig(symbol).INVESTMENT_AMOUNT;
                         a.consecutiveWins = saved.consecutiveWins || 0;
@@ -1356,6 +1414,7 @@ class SessionManager {
             a.consecutiveLosses = 0;
             a.recoveryStep = 0;
             a.martingaleLevel = 0;
+            a.cumulativeLoss = 0;
             a.cooldownCandles = 0;
             a.lastTradeWasWin = true;
             a.forceRecoverDirection = null;  // win exits forced recovery mode
@@ -1378,7 +1437,8 @@ class SessionManager {
             // Credit payout (stake + profit) back to investment pool — pool grows on win
             a.investmentRemaining = Number((a.investmentRemaining + stake + profit).toFixed(2));
             a.baseStake = StakeCalculator.getBaseStake(symbol, a.investmentRemaining);
-            a.currentStake = StakeCalculator.calculate(symbol, 0, a.investmentRemaining);
+            a.currentStake = StakeCalculator.calculate(symbol, 0, a.investmentRemaining, 0);
+            a.initialTP = parseFloat((getAssetConfig(symbol).INITIAL_STAKE * CONFIG.TAKE_PROFIT_MULTIPLIER).toFixed(2));
 
             LOGGER.trade(`WIN [${symbol}] +$${(profit || 0).toFixed(2)} | ${direction} | P/L: $${(a.netPL || 0).toFixed(2)}`);
         } else {
@@ -1396,6 +1456,8 @@ class SessionManager {
             a.lastTradeWasWin = false;
             a.forceRecoverDirection = a.lastTradeDirection === 'CALLE' ? 'CALLE' : 'PUTE';
             a.martingaleLevel = (a.martingaleLevel || 0) + 1;
+            // Accumulate loss for recovery TP/SL = initialTP + cumulativeLoss
+            a.cumulativeLoss = Number(((a.cumulativeLoss || 0) + Math.abs(profit)).toFixed(2));
 
             // Mark exclusive lock immediately — only this asset may trade until win
             a.exclusiveLock = true;
@@ -1432,7 +1494,27 @@ class SessionManager {
                 a[key]++;
             }
 
-            a.currentStake = StakeCalculator.calculate(symbol, a.martingaleLevel, a.investmentRemaining);
+            // New recovery stake: TP = initialTP + cumulativeLoss, stake = TP
+            a.currentStake = StakeCalculator.calculate(symbol, a.martingaleLevel, a.investmentRemaining, a.cumulativeLoss);
+
+            // Handle MAX_MARTINGALE_LEVEL + CONTINUE_EXTRA_LEVELS cap
+            const cfg = getAssetConfig(symbol);
+            if (a.martingaleLevel > cfg.MAX_MARTINGALE_LEVEL + cfg.CONTINUE_EXTRA_LEVELS) {
+                if (cfg.AFTER_MAX_LOSS === 'reset') {
+                    LOGGER.warn(`[${symbol}] Max martingale levels (${cfg.MAX_MARTINGALE_LEVEL}+${cfg.CONTINUE_EXTRA_LEVELS}) exceeded — resetting martingale and cumulative loss`);
+                    a.martingaleLevel = 0;
+                    a.cumulativeLoss = 0;
+                    a.currentStake = StakeCalculator.calculate(symbol, 0, a.investmentRemaining, 0);
+                    a.exclusiveLock = false;
+                    a.waitingForNewSignal = false;
+                    a.isRecovery = false;
+                } else if (cfg.AFTER_MAX_LOSS === 'stop') {
+                    LOGGER.error(`[${symbol}] Max martingale exceeded — stopping trading for ${symbol}`);
+                    a.canTrade = false;
+                    a.exclusiveLock = false;
+                }
+                // 'continue' keeps current martingale/cumulative as is
+            }
 
             if (a.consecutiveLosses >= CONFIG.MAX_CONSECUTIVE_LOSSES) {
                 // Impose cooldown but preserve martingale & exclusive lock — will trade next WPR signal on same asset
@@ -1669,6 +1751,8 @@ class ConnectionManager {
                     currentStake: assetConfig.INITIAL_STAKE,
                     baseStake: assetConfig.INITIAL_STAKE,
                     martingaleLevel: 0,
+                    cumulativeLoss: 0,
+                    initialTP: parseFloat((assetConfig.INITIAL_STAKE * CONFIG.TAKE_PROFIT_MULTIPLIER).toFixed(2)),
                     investmentRemaining: assetConfig.INVESTMENT_AMOUNT,
                     canTrade: false,
                     consecutiveWins: 0,
@@ -2233,8 +2317,8 @@ class IndexBot {
         console.log('═'.repeat(74));
         console.log(`Assets    : ${CONFIG.ACTIVE_ASSETS.join(', ')}`);
         console.log(`WPR       : Period=${CONFIG.WPR_PERIOD} OB=${CONFIG.WPR_OVERBOUGHT} OS=${CONFIG.WPR_OVERSOLD} | BUY: cross >-20 (first since -80) → MULTUP | SELL: cross <-80 (first since -20) → MULTDOWN`);
-        console.log(`Timeframe : ${CONFIG.TIMEFRAME_LABEL} candles | Market: MULTIPLIERS (x per asset, TP ${CONFIG.TAKE_PROFIT_MULTIPLIER}x stake, SL 1x stake) | Close: opposite WPR signal else TP/SL`);
-        console.log(`Risk      : Martingale level progression with cap $${CONFIG.ACTIVE_ASSETS.length ? getAssetConfig(CONFIG.ACTIVE_ASSETS[0]).INVESTMENT_AMOUNT : DEFAULT_ASSET_CONFIG.INVESTMENT_AMOUNT}`);
+        console.log(`Timeframe : ${CONFIG.TIMEFRAME_LABEL} candles | Market: MULTIPLIERS (x per asset, TP/SL = initTP + cumulativeLoss, initTP=${(DEFAULT_ASSET_CONFIG.INITIAL_STAKE*CONFIG.TAKE_PROFIT_MULTIPLIER).toFixed(2)}) | Close: opposite WPR signal else TP/SL`);
+        console.log(`Risk      : Martingale L0..${DEFAULT_ASSET_CONFIG.MAX_MARTINGALE_LEVEL}+${DEFAULT_ASSET_CONFIG.CONTINUE_EXTRA_LEVELS} (${DEFAULT_ASSET_CONFIG.AFTER_MAX_LOSS}) with cap $${CONFIG.ACTIVE_ASSETS.length ? getAssetConfig(CONFIG.ACTIVE_ASSETS[0]).INVESTMENT_AMOUNT : DEFAULT_ASSET_CONFIG.INVESTMENT_AMOUNT}`);
         console.log(`Capital   : $${state.capital.toFixed(2)}`);
         console.log(`Sessions  : ${TradingSessionManager.getStatusString()}`);
         console.log('═'.repeat(74) + '\n');
@@ -2345,18 +2429,25 @@ class IndexBot {
         assetState.investmentRemaining = Number((assetState.investmentRemaining - stake).toFixed(2));
         state.capital = Number((state.capital - stake).toFixed(2));
 
+        const cfg = getAssetConfig(symbol);
+        const baseForTP = StakeCalculator.getBaseStake(symbol, assetState.investmentRemaining);
+        const initialTP = parseFloat((Math.max(baseForTP, cfg.INITIAL_STAKE) * CONFIG.TAKE_PROFIT_MULTIPLIER).toFixed(2));
+        // Stake is already recovery calculated (stake = initialTP + cumulativeLoss, capped)
+        // For limit_order, TP/SL = stake (so SL = stake, TP = stake to recover losses as per spec)
+        // Keep recoveryTP for logging if stake was capped
+        const recoveryTP = parseFloat((initialTP + (assetState.cumulativeLoss || 0)).toFixed(2));
         const multiplier = this._getMultiplier(symbol);
         const contractType = this._toMultiplierContract(direction);
-        const takeProfit = parseFloat((stake * CONFIG.TAKE_PROFIT_MULTIPLIER).toFixed(2));
-        const stopLoss = parseFloat(stake.toFixed(2)); // 1x stake per bizIndexMultiplier.js
+        const takeProfit = parseFloat(stake.toFixed(2));
+        const stopLoss = parseFloat(stake.toFixed(2));
 
         if (isRecovery) {
-            LOGGER.trade(`   Recovery Mode: YES | Same direction ${contractType} (WPR ${direction}) | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel} | Multiplier: x${multiplier} | TP $${takeProfit} SL $${stopLoss}`);
+            LOGGER.trade(`   Recovery Mode: YES | Same direction ${contractType} (WPR ${direction}) | Stake: $${stake.toFixed(2)} (TP init ${initialTP.toFixed(2)}+cumLoss ${(assetState.cumulativeLoss||0).toFixed(2)}=${recoveryTP.toFixed(2)}${stake.toFixed(2)!==recoveryTP.toFixed(2)?` capped to ${stake.toFixed(2)}`:''}) | Martingale: L${assetState.martingaleLevel} | Multiplier: x${multiplier} | TP $${takeProfit} SL $${stopLoss}`);
         } else {
             const wprStr = analysis?.details?.wpr != null && analysis?.details?.prevWpr != null
                 ? `${analysis.details.prevWpr.toFixed(2)}→${analysis.details.wpr.toFixed(2)}`
                 : `wpr=${assetState.wpr?.toFixed(2) ?? 'n/a'}`;
-            LOGGER.trade(`   Recovery Mode: NO | WPR(${CONFIG.WPR_PERIOD}) ${wprStr} → ${contractType} (WPR ${direction}) | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel} | Multiplier: x${multiplier} | TP $${takeProfit} SL $${stopLoss} | ${analysis?.reason || ''}`);
+            LOGGER.trade(`   Recovery Mode: NO | WPR(${CONFIG.WPR_PERIOD}) ${wprStr} → ${contractType} (WPR ${direction}) | Stake: $${stake.toFixed(2)} ${assetState.cumulativeLoss?`(cumLoss ${(assetState.cumulativeLoss||0).toFixed(2)})`:''} | Martingale: L${assetState.martingaleLevel} | Multiplier: x${multiplier} | TP $${takeProfit} SL $${stopLoss} | ${analysis?.reason || ''}`);
         }
 
         assetState.canTrade = false;
