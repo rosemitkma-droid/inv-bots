@@ -87,8 +87,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRF_1-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRF_1-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRF_01-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRF_01-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -128,7 +128,7 @@ const CONFIG = {
     // ── Session / daily guards ───────────────────
     SESSION_PROFIT_TARGET: 500000,
     SESSION_STOP_LOSS: -208,
-    COOLDOWN_CANDLES: 1,
+    COOLDOWN_CANDLES: 0,
 
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
     GRANULARITY: 60,
