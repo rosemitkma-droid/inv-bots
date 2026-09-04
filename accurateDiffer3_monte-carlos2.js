@@ -147,7 +147,7 @@ const CONFIG = Object.freeze({
   durationTicks: 1, // Digit contracts normally 1-10 ticks
   minStake: 0.63,
   maxStake: 15.00,
-  assets: ['R_10','R_25','R_50','RDBULL','RDBEAR'],
+  assets: ['R_10','R_25','R_50','RDBULL','RDBEAR'],// 5 symbols for rotation
 
   // Trading frequency / limits — tuned for 20-50/day ultra-light
   tickWindow: 1000,
@@ -211,7 +211,7 @@ const CONFIG = Object.freeze({
   kellyMinEdgeForScale: 0.004, // slightly relaxed from 0.005 for more Kelly triggers
 
   // ── Per-symbol calibration — RE-ENABLED (was false) ───────────────
-  calibEnabled        : true,  // now ON for adaptive learning across 5 symbols
+  calibEnabled        : false,  // now ON for adaptive learning across 5 symbols
   calibWindow         : 200,
   calibMinTrades      : 40,
   calibDisableGap     : 0.03,   // relaxed to 3pp to avoid flapping (was 0.02)
@@ -251,8 +251,8 @@ const CONFIG = Object.freeze({
   hourlySummary: true,
 
   // Persistence/logging
-  stateFile: strEnv('STATE_FILE', 'monte-carlos_differnew_02_state.json'),
-  logFile: strEnv('LOG_FILE', 'monte-carlos_differnew_02_bot.log'),
+  stateFile: strEnv('STATE_FILE', 'monte-carlos_differnew_03_state.json'),
+  logFile: strEnv('LOG_FILE', 'monte-carlos_differnew_03_bot.log'),
   logLevel: strEnv('LOG_LEVEL', 'INFOnew').toUpperCase(),
 
   // Telegram
