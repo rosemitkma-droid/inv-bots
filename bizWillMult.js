@@ -91,8 +91,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [MULTIPLIER — isolated from Rise/Fall]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillMul_002-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillMul_002-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillMul_003-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillMul_003-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -146,7 +146,7 @@ const CONFIG = {
     WPR_OVERBOUGHT: -20,
     WPR_OVERSOLD: -80,
     // ── Recovery exit: max consecutive losses (initial + recoveries) before waiting for new signal
-    MAX_CONSECUTIVE_LOSSES: 9,
+    MAX_CONSECUTIVE_LOSSES: 11,
 
     // ── MULTIPLIER SETTINGS (from bizIndexMultiplier.js:102) — user can adjust ──────
     TAKE_PROFIT_MULTIPLIER: 1, // TP = stake * this, SL = stake (1x) — per spec user can set
@@ -187,7 +187,7 @@ const CONFIG = {
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
-        'R_10',
+        // 'R_10',
         // 'R_25',
         // 'R_50',
         'R_75',
@@ -196,9 +196,9 @@ const CONFIG = {
         '1HZ25V',
         '1HZ50V',
         '1HZ75V',
-        '1HZ100V',
+        // '1HZ100V',
         'stpRNG',
-        'stpRNG2',
+        // 'stpRNG2',
         // 'stpRNG3',
         // 'stpRNG4',
         // 'stpRNG5'
