@@ -91,8 +91,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [MULTIPLIER — isolated from Rise/Fall]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillMul_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillMul_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillMul_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillMul_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -226,7 +226,7 @@ const DEFAULT_ASSET_CONFIG = {
     DURATION_UNIT: 'm',
 
     // Stake Settings
-    INITIAL_STAKE: 0.35,
+    INITIAL_STAKE: 1.00,
     INVESTMENT_AMOUNT: 208,
 
     // Martingale Settings
