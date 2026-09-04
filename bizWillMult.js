@@ -1183,7 +1183,7 @@ class TelegramService {
         const durationLine = isMultiplier ? '' : `⏱ Duration: ${duration}${(durationUnit || 's').toUpperCase()}\n        `;
 
         const msg = `
-        ${emoji} <b>${type} WILLMULRF TRADE ALERT - ${recoveryStatus}</b>
+        ${emoji} <b>${type} WILLMUL_v1 TRADE ALERT - ${recoveryStatus}</b>
 
         📊 Asset: ${symbol}
         📈 Direction: ${dirLabel} (${direction})
@@ -1212,7 +1212,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `⏰ <b>WILLRF BOT HOURLY SUMMARY</b>`,
+            `⏰ <b>WILLMUL_v1 BOT HOURLY SUMMARY</b>`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '\u{1f7e2}' : '\u{1f534}'} $${h.pnl.toFixed(2)}`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
             `Loss Stats: x2:${today.x2Losses || 0} x3:${today.x3Losses || 0} x4:${today.x4Losses || 0} x5:${today.x5Losses || 0} x6:${today.x6Losses || 0} x7:${today.x7Losses || 0} x8:${today.x8Losses || 0} x9:${today.x9Losses || 0}`,
@@ -1240,7 +1240,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `\u{1f4ca} <b>WILLRF BOT SESSION SUMMARY</b>`,
+            `\u{1f4ca} <b>WILLMUL_v1 BOT SESSION SUMMARY</b>`,
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
             `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
@@ -1262,7 +1262,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `\u{1f916} <b>WILLMULRF MULTIPLIER BOT STARTED</b>`,
+            `\u{1f916} <b>WILLMUL_v1 MULTIPLIER BOT STARTED</b>`,
             `Strategy: Williams %R(${CONFIG.WPR_PERIOD}) cross ${CONFIG.WPR_OVERBOUGHT}/${CONFIG.WPR_OVERSOLD} → MULTUP/MULTDOWN + Same-direction Recovery (exclusive until win)`,
             `Market: MULTIPLIERS — Multiplier per asset (min) TP ${CONFIG.TAKE_PROFIT_MULTIPLIER}x stake, SL 1x stake — close on opposite WPR signal else TP/SL`,
             `Recovery: ${CONFIG.USE_RECOVERY_STRATEGY ? `ENABLED (same direction, max ${CONFIG.MAX_CONSECUTIVE_LOSSES} consec losses → cooldown ${CONFIG.COOLDOWN_CANDLES})` : 'DISABLED'}`,
@@ -1354,7 +1354,7 @@ class SessionManager {
             LOGGER.info(`Day changed: ${state.currentTradeDay} -> ${today}`);
             const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
             TelegramService.sendMessage(
-                `\u{1f319} <b>WILLRF BOT END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
+                `\u{1f319} <b>WILLMUL_v1 BOT END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
             );
             this._resetDailyStats();
             if (!state.session.isActive) {
@@ -2973,7 +2973,7 @@ if (cliArgs.backtest) {
         process.exit(1);
     }
 
-    console.log('\n\u{1f680} Starting WPR BOT v3.0 (Williams %R)...\n');
+    console.log('\n\u{1f680} Starting WPR BOT v1.0 (Williams %R)...\n');
     bot.connection.connect();
     // start Telegram backtest listener in live mode (optional)
     startTelegramBacktestPolling();
