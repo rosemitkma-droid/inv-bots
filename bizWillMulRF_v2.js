@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [MULTIPLIER v2 — isolated]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillMulRF_v2_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillMulRF_v2_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillMulRF_v2_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillMulRF_v2_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -127,7 +127,7 @@ const TIMEFRAMES = {
     '30m': { seconds: 1800, granularity: 1800, label: '30 Minutes' },
     '1h': { seconds: 3600, granularity: 3600, label: '1 Hour' },
 };
-const SELECTED_TIMEFRAME = '15m'; // <— user can change to '1m','5m','15m' etc. (v2 default 15m per spec)
+const SELECTED_TIMEFRAME = '5m'; // <— user can change to '1m','5m','15m' etc. (v2 default 15m per spec)
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================================
