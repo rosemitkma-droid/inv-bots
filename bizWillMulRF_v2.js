@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [MULTIPLIER v2 — isolated]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillMulRF_v2_02-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillMulRF_v2_02-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillMulRF_v2_03-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillMulRF_v2_03-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -1272,6 +1272,15 @@ class TelegramService {
                 analysisDetails = `
         🔶 Multiplier x${details.multiplier} — TP $${details.takeProfit} SL $${details.stopLoss}`;
             }
+            // v2: Append WRP Breakout levels if active (persistent until opposite)
+            const breakout = state.assets[symbol]?.breakout;
+            if (breakout?.active && type === 'OPEN') {
+                const highStr = Number(breakout.highLevel).toFixed(5);
+                const lowStr = Number(breakout.lowLevel).toFixed(5);
+                const trigTime = breakout.triggerCandle ? new Date(breakout.triggerCandle*1000).toISOString().replace('T',' ').split('.')[0] : 'n/a';
+                analysisDetails += `
+        🔷 <b>WRP Breakout Levels (Signal Candle):</b> High ${highStr} Low ${lowStr} (${breakout.type}) @ ${trigTime}`;
+            }
         }
 
         // Profit/Loss details for WIN/LOSS trades
@@ -1313,6 +1322,20 @@ class TelegramService {
         ${analysisDetails}${resultDetails}
         `.trim();
 
+        await this.sendMessage(msg);
+    }
+
+    static async sendBreakoutAlert(symbol, breakoutType, highLevel, lowLevel) {
+        if (!CONFIG.TELEGRAM_ENABLED) return;
+        const a = state.assets[symbol];
+        const breakoutInfo = a?.breakout ? ` High: ${a.breakout.highLevel.toFixed(5)} Low: ${a.breakout.lowLevel.toFixed(5)}` : '';
+        const msg = `🔶 <b>[${symbol}] ${breakoutType} BREAKOUT LEVEL SET</b>\nHigh: ${Number(highLevel).toFixed(5)}\nLow: ${Number(lowLevel).toFixed(5)}${breakoutInfo ? `\nActive: ${a.breakout.highLevel.toFixed(5)}/${a.breakout.lowLevel.toFixed(5)}` : ''}\nTrigger: WPR signal`;
+        await this.sendMessage(msg);
+    }
+
+    static async sendSignalAlert(symbol, signalType, wpr) {
+        if (!CONFIG.TELEGRAM_ENABLED) return;
+        const msg = `📡 <b>[${symbol}] ${signalType}</b>\nWPR: ${Number(wpr).toFixed(2)}\nTime: ${getGMTTime()}`;
         await this.sendMessage(msg);
     }
 
