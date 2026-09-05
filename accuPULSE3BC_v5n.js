@@ -232,7 +232,7 @@ const _BASE_CONFIG = {
   sharpeWindow: parseInt('100', 10),
   maxAssetCorrelation: parseFloat('0.70'),
 
-  // Time-of-Day
+  // Time-of-Day (keys = GMT+1 hours; hour is derived via botHour())
   timeOfDayLimits: {
     0: { maxStake: 0.5, tpMult: 0.8 }, 1: { maxStake: 0.5, tpMult: 0.8 },
     2: { maxStake: 0.5, tpMult: 0.8 }, 3: { maxStake: 0.5, tpMult: 0.8 },
@@ -261,11 +261,14 @@ const _BASE_CONFIG = {
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5n_12.log',
+  logFile: 'accuPULSE3BC_v5n_13.log',
   logLevel: 'INFO3BC_v5n',
-  stateFile: 'accuPULSE3BC_state_v5n_12.json',
-  metricsFile: 'metricsBC_v5n_12.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5n_12.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5n_13.json',
+  metricsFile: 'metricsBC_v5n_13.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5n_13.jsonl',  // Feature 7: Full metrics logging
+  // All wall-clock times below are GMT+1 (see BOT_TZ_OFFSET_HOURS).
+  // eodTimeGmt '00:00' = midnight GMT+1. pauseWindowsGmt entries are
+  // [from, to] pairs in GMT+1 'HH:MM'. timeOfDayLimits keys are GMT+1 hours.
   eodTimeGmt: '00:00',
   eodSendDelaySeconds: parseInt('10', 10),
   hourlySummary: true,
@@ -332,13 +335,34 @@ const _BASE_CONFIG = {
   },
 };
 const CONFIG = Object.freeze(resolveProfile(_BASE_CONFIG, ACTIVE_PROFILE));
+
+// ── Bot Timezone (GMT+1) ────────────────────────────────────────────────
+// ALL bot operations (session score, time-of-day limits, pause windows,
+// regime-hour buckets, daily reset, hourly/EOD summaries, log timestamps)
+// run in GMT+1 irrespective of the server/host timezone.
+// Server clock is only ever read as an absolute instant (Date.now() / epoch)
+// and then shifted by this fixed offset. Tick epochs from Deriv are absolute
+// and are NEVER shifted — only the derived wall-clock hour/date is.
+const BOT_TZ_OFFSET_HOURS = 1;
+const BOT_TZ_OFFSET_MS = BOT_TZ_OFFSET_HOURS * 3600_000;
+const BOT_TZ_LABEL = 'GMT+1';
+function botNow(d = new Date()) {
+  const t = d instanceof Date ? d.getTime() : Number(d);
+  return new Date(t + BOT_TZ_OFFSET_MS);
+}
+function botHour(d = new Date()) { return botNow(d).getUTCHours(); }
+function botMinuteOfDay(d = new Date()) {
+  const b = botNow(d);
+  return b.getUTCHours() * 60 + b.getUTCMinutes();
+}
+function botDateStr(d = new Date()) { return botNow(d).toISOString().slice(0, 10); }
 // ── Logger ──────────────────────────────────────────────────────────────
 const LOG_LEVELS = { ERROR: 0, WARN: 1, INFO: 2, DEBUG: 3 };
 const currentLevel = LOG_LEVELS[CONFIG.logLevel] || LOG_LEVELS.INFO;
 const pad = n => String(n).padStart(2, '0');
 const ts = () => {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+  const d = botNow();
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} ${BOT_TZ_LABEL}`;
 };
 
 function log(level, msg, ...rest) {
@@ -1085,7 +1109,7 @@ class EnhancedARCAAnalyzer {
     const regimeScore = this.getRegimeScore(
       vol?.regime || 1,
       trend?.direction || 'neutral',
-      new Date().getUTCHours()
+      botHour()
     );
 
     // Composite scoring
@@ -1714,7 +1738,7 @@ class EnhancedARCAAnalyzer {
   }
 
   _sessionScore() {
-    const hour = new Date().getUTCHours();
+    const hour = botHour(); // GMT+1 session weights
     const w = {
       0:.55,1:.60,2:.60,3:.65,4:.65,5:.60,6:.55,7:.50,
       8:.45,9:.45,10:.50,11:.55,12:.60,13:.65,14:.70,15:.75,
@@ -2312,8 +2336,10 @@ class EnhancedTradeExecutor extends EventEmitter {
 }
 
 // ── Helper functions ────────────────────────────────────────────────────
-const utcDateStr = (d = new Date()) => d.toISOString().slice(0, 10);
-const utcHour = (d = new Date()) => d.getUTCHours();
+// NOTE: utcDateStr/utcHour are the bot's canonical day/hour buckets and are
+// intentionally in GMT+1 (see BOT_TZ_OFFSET_HOURS). Names kept for compat.
+const utcDateStr = (d = new Date()) => botDateStr(d);
+const utcHour = (d = new Date()) => botHour(d);
 const money = (n, c = CONFIG.currency) => `${n >= 0 ? '+' : ''}${Number(n || 0).toFixed(2)} ${c}`;
 
 // ── Enhanced Statistics Manager ─────────────────────────────────────────
@@ -2705,6 +2731,7 @@ class AccuPULSE3BotV5 {
     log('INFO', `Gates [${this.cfg.profile}]: bestScore=${this.cfg.bestScore} surv>${this.cfg.entryConfirmation.minSurvivalMean} EV>${(this.cfg.entryConfirmation.minEv*100).toFixed(1)}% vol>${this.cfg.entryConfirmation.minVolPercentile} checks=${this.cfg.entryConfirmation.requiredChecks}/6 kelly=${this.cfg.kellyFraction} TP=${(this.cfg.tp_tiers.quick_win.profit_pct*100).toFixed(0)}%`);
     log('INFO', `Assets: ${this.cfg.assets.join(', ')}`);
     log('INFO', `Features: 1-AdaptiveGates 2-6FactorSizing 3-6CheckEntry 4-4TierExit 5-WarmupMode 6-StreakRecovery 7-MetricsLogging`);
+    log('INFO', `Timezone: all bot times in ${BOT_TZ_LABEL} (offset UTC+${BOT_TZ_OFFSET_HOURS}, host-independent). Server now=${new Date().toISOString()} bot-now=${botNow().toISOString().replace('T', ' ').slice(0, 19)} ${BOT_TZ_LABEL}`);
 
     if (!this.cfg.apiToken) {
       log('ERROR', 'API token missing');
@@ -2728,6 +2755,8 @@ class AccuPULSE3BotV5 {
 
   _scheduleSummaries() {
     const now = new Date();
+    // Top-of-hour is the same instant in every zone (offset is whole hours),
+    // so UTC minutes/seconds can be used to align the hourly tick.
     const msToNextHour = ((59 - now.getUTCMinutes()) * 60_000) + ((60 - now.getUTCSeconds()) * 1000) + 50;
     if (this.cfg.hourlySummary) {
       this._hourlyBoot = setTimeout(() => {
@@ -2740,15 +2769,20 @@ class AccuPULSE3BotV5 {
         const m = String(this.cfg.eodTimeGmt || '00:00').match(/^(\d{1,2}):(\d{2})$/);
         return m ? { h: +m[1], min: +m[2] } : { h: 0, min: 0 };
       })();
-      const target = new Date(Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate(),
+      // eodTimeGmt is interpreted as a GMT+1 wall-clock time. Convert that
+      // wall time back to an absolute UTC instant by subtracting the offset.
+      const ref = new Date();
+      const bot = botNow(ref);
+      let target = new Date(Date.UTC(
+        bot.getUTCFullYear(),
+        bot.getUTCMonth(),
+        bot.getUTCDate(),
         h, min,
         this.cfg.eodSendDelaySeconds, 0
-      ));
-      if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
-      const delay = target.getTime() - now.getTime();
+      ) - BOT_TZ_OFFSET_MS);
+      if (target <= ref) target = new Date(target.getTime() + 86_400_000);
+      const delay = target.getTime() - ref.getTime();
+      log('INFO', `EOD scheduled for ${botDateStr(target)} ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')} ${BOT_TZ_LABEL} (in ${(delay / 3600000).toFixed(2)}h)`);
       this._eodBoot = setTimeout(() => {
         this._sendEod('scheduled');
         scheduleNextEod();
@@ -2966,7 +3000,7 @@ class AccuPULSE3BotV5 {
     // Phase 1: Record trade for win-rate grid
     const volRegime = this.exec._lastVolRegime || 'normal';
     const trendDirection = this.exec._lastTrend || 'neutral';
-    const hour = new Date(t.sellTime * 1000).getUTCHours();
+    const hour = botHour(new Date(t.sellTime * 1000));
     this.analyzer.recordTrade(
       t.symbol, t.growthRate, volRegime, trendDirection, hour, t.profit, t.payout
     );
@@ -3070,8 +3104,8 @@ class AccuPULSE3BotV5 {
     const recoveryMult = this.getRecoveryStakeMultiplier();
     let stake = dynamicStake * recoveryMult;
 
-    // Time-of-day limit
-    const hour = new Date().getUTCHours();
+    // Time-of-day limit (GMT+1 hour)
+    const hour = botHour();
     const timeLimits = this._getTimeOfDayLimit(hour);
     const finalStake = Math.min(stake, this.cfg.baseStake * timeLimits.maxStake);
 
@@ -3261,7 +3295,7 @@ class AccuPULSE3BotV5 {
 
       // ── Feature 4: 4-tier exit targets ───────────────────────────────
       const tiers = this.getTieredTargets(stake, best);
-      const hour = new Date().getUTCHours();
+      const hour = botHour(); // GMT+1
       const timeLimits = this._getTimeOfDayLimit(hour);
       const tp = +(stake * Math.max(0.10, Math.min(0.50, best.model.conservativeEV * 4)) * timeLimits.tpMult).toFixed(2);
 
@@ -3405,8 +3439,8 @@ class AccuPULSE3BotV5 {
   }
 
   _isPausedNow() {
-    const now = new Date();
-    const minutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+    // pauseWindowsGmt entries are interpreted as GMT+1 wall-clock times.
+    const minutes = botMinuteOfDay();
     const asMinutes = value => {
       const m = String(value).match(/^(\d{1,2}):(\d{2})$/);
       return m ? +m[1] * 60 + +m[2] : null;
@@ -3435,10 +3469,10 @@ class AccuPULSE3BotV5 {
     const list = this.stats.tradesForHour(date, hour);
     const s = this.stats.stats(list);
     if (!list.length) {
-      telegram.send(`⏰ <b>AccuPULSE3BC_v5n ${date} ${pad(hour)}:00</b> — No trades`);
+      telegram.send(`⏰ <b>AccuPULSE3BC_v5n ${date} ${pad(hour)}:00 ${BOT_TZ_LABEL}</b> — No trades`);
       return;
     }
-    let msg = `⏰ <b>AccuPULSE3BC_v5n ${date} ${pad(hour)}:00</b>\n📊 ${s.count} trades | WR ${s.winRate.toFixed(1)}%\n💰 ${money(s.totalProfit, this.currencyStr())}\n`;
+    let msg = `⏰ <b>AccuPULSE3BC_v5n ${date} ${pad(hour)}:00 ${BOT_TZ_LABEL}</b>\n📊 ${s.count} trades | WR ${s.winRate.toFixed(1)}%\n💰 ${money(s.totalProfit, this.currencyStr())}\n`;
     list.slice(-10).forEach((t, i) => {
       msg += `${i + 1}. ${t.status === 'won' ? '✅' : '❌'} ${t.symbol} ${money(t.profit, this.currencyStr())}\n`;
     });
@@ -3451,7 +3485,7 @@ class AccuPULSE3BotV5 {
     const summary = this.stats.archiveDate(date);
     const ds = summary.stats;
     const rankedAssets = this.stats.getRankedAssets();
-    let msg = `🌙 <b>AccuPULSE3BC_v5n DAILY REPORT — ${date}</b>\n\n`;
+    let msg = `🌙 <b>AccuPULSE3BC_v5n DAILY REPORT — ${date} (${BOT_TZ_LABEL})</b>\n\n`;
     if (ds.count) {
       msg += `📊 ${ds.count} trades | WR ${ds.winRate.toFixed(1)}% | PF ${ds.profitFactor.toFixed(2)}\n💰 Net: ${money(ds.totalProfit, this.currencyStr())}\n`;
     } else {
