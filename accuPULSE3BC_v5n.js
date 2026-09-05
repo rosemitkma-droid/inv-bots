@@ -313,11 +313,11 @@ const _BASE_CONFIG = {
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5n_01.log',
+  logFile: 'accuPULSE3BC_v5n_0001.log',
   logLevel: 'INFO3BC_v5n',
-  stateFile: 'accuPULSE3BC_state_v5n_01.json',
-  metricsFile: 'metricsBC_v5n_01.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5n_01.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5n_0001.json',
+  metricsFile: 'metricsBC_v5n_0001.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5n_0001.jsonl',  // Feature 7: Full metrics logging
   // All wall-clock times below are GMT+1 (see BOT_TZ_OFFSET_HOURS).
   // eodTimeGmt '00:00' = midnight GMT+1. pauseWindowsGmt entries are
   // [from, to] pairs in GMT+1 'HH:MM'. timeOfDayLimits keys are GMT+1 hours.
