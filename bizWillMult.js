@@ -91,8 +91,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [MULTIPLIER — isolated from Rise/Fall]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillMul_006-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillMul_006-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillMul_007-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillMul_007-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -124,7 +124,7 @@ const CONFIG = {
     ACCOUNT_TYPE: 'demo',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
-    // ── Recovery Strategy (from willRF.js) ──────────────
+    // ── Recovery Strategy (from WILLMULT.js) ──────────────
     // When enabled: After a loss, trade immediately on next candle in SAME direction (no analysis)
     // When disabled: After a loss, wait for pattern analysis signal
     USE_RECOVERY_STRATEGY: true,
@@ -215,7 +215,7 @@ const CONFIG = {
 };
 
 // ============================================================
-// PER-ASSET CONFIGURATION (from willRF.js)
+// PER-ASSET CONFIGURATION (from WILLMULT.js)
 // ============================================================
 const DEFAULT_ASSET_CONFIG = {
     // Candle Settings
@@ -1184,7 +1184,7 @@ class TelegramService {
         const durationLine = isMultiplier ? '' : `⏱ Duration: ${duration}${(durationUnit || 's').toUpperCase()}\n        `;
 
         const msg = `
-        ${emoji} <b>${type} WILLMUL_v1 TRADE ALERT - ${recoveryStatus}</b>
+        ${emoji} <b>${type} WILLMULT TRADE ALERT - ${recoveryStatus}</b>
 
         📊 Asset: ${symbol}
         📈 Direction: ${dirLabel} (${direction})
@@ -1213,7 +1213,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `⏰ <b>WILLMUL_v1 BOT HOURLY SUMMARY</b>`,
+            `⏰ <b>WILLMULT BOT HOURLY SUMMARY</b>`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '\u{1f7e2}' : '\u{1f534}'} $${h.pnl.toFixed(2)}`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
             `Loss Stats: x2:${today.x2Losses || 0} x3:${today.x3Losses || 0} x4:${today.x4Losses || 0} x5:${today.x5Losses || 0} x6:${today.x6Losses || 0} x7:${today.x7Losses || 0} x8:${today.x8Losses || 0} x9:${today.x9Losses || 0}`,
@@ -1241,7 +1241,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `\u{1f4ca} <b>WILLMUL_v1 BOT SESSION SUMMARY</b>`,
+            `\u{1f4ca} <b>WILLMULT BOT SESSION SUMMARY</b>`,
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
             `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
@@ -1263,7 +1263,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `\u{1f916} <b>WILLMUL_v1 MULTIPLIER BOT STARTED</b>`,
+            `\u{1f916} <b>WILLMULT MULTIPLIER BOT STARTED</b>`,
             `Strategy: Williams %R(${CONFIG.WPR_PERIOD}) cross ${CONFIG.WPR_OVERBOUGHT}/${CONFIG.WPR_OVERSOLD} → MULTUP/MULTDOWN + Same-direction Recovery (exclusive until win)`,
             `Market: MULTIPLIERS — Multiplier per asset (min) TP ${CONFIG.TAKE_PROFIT_MULTIPLIER}x stake, SL 1x stake — close on opposite WPR signal else TP/SL`,
             `Recovery: ${CONFIG.USE_RECOVERY_STRATEGY ? `ENABLED (same direction, max ${CONFIG.MAX_CONSECUTIVE_LOSSES} consec losses → cooldown ${CONFIG.COOLDOWN_CANDLES})` : 'DISABLED'}`,
@@ -1355,7 +1355,7 @@ class SessionManager {
             LOGGER.info(`Day changed: ${state.currentTradeDay} -> ${today}`);
             const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
             TelegramService.sendMessage(
-                `\u{1f319} <b>WILLMUL_v1 BOT END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
+                `\u{1f319} <b>WILLMULT BOT END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
             );
             this._resetDailyStats();
             if (!state.session.isActive) {
@@ -2257,7 +2257,7 @@ class ConnectionManager {
             this.reconnectAttempts++;
             const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
             LOGGER.info(`Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts})`);
-            TelegramService.sendMessage(`⚠️ <b>WILLRF BOT CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
+            TelegramService.sendMessage(`⚠️ <b>WILLMULT BOT CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
 
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null;
@@ -2267,7 +2267,7 @@ class ConnectionManager {
             }, delay);
         } else {
             LOGGER.error('Max reconnection attempts reached — giving up');
-            TelegramService.sendMessage(`\u{1f6d1} <b>WILLRF BOT STOPPED</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
+            TelegramService.sendMessage(`\u{1f6d1} <b>WILLMULT BOT STOPPED</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -2343,7 +2343,7 @@ class IndexBot {
         TelegramService.startDailyTimer();
         this.startSessionTimeChecker();
 
-        LOGGER.info('WILLRF BOT v1.0 fully started!');
+        LOGGER.info('WILLMULT BOT v1.0 fully started!');
     }
 
     subscribeToCandles(symbol) {
@@ -2761,7 +2761,7 @@ class IndexBot {
         state.tradeStartTime = null;
 
         TelegramService.sendMessage(
-            `⚠️ <b>WILLRF BOT STUCK TRADE RECOVERED [${reason}]</b>\n` +
+            `⚠️ <b>WILLMULT BOT STUCK TRADE RECOVERED [${reason}]</b>\n` +
             `Contract: ${contractId}\n` +
             `⚠️ VERIFY OUTCOME MANUALLY ON DERIV\n` +
             `Capital: $${state.capital.toFixed(2)}`
