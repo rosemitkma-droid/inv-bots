@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [MULTIPLIER v2 — isolated]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillMulRF_v2_1-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillMulRF_v2_1-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillMulRF_v2_01-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillMulRF_v2_01-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -477,21 +477,7 @@ class SignalManager {
         if (!isCrossAbove) return { shouldTrade:false, reason:`No BUY cross: ${prevWpr.toFixed(2)}→${wpr.toFixed(2)}`, details:{wpr,prevWpr} };
         if (!a.buyFlagActive) return { shouldTrade:false, reason:`BUY cross but flag not armed (need oversold -80)`, details:{wpr,prevWpr} };
         if (a.breakout?.active && a.breakout.type==='BUY' && !a.breakout.canBeReplaced) return { shouldTrade:false, reason:`BUY ignored — active BUY breakout exists`, details:{wpr,prevWpr} };
-        // Setup breakout and execute
-        const snap = this._snapshot(a);
-        if (!BreakoutManager.setupBreakoutLevels(symbol, 'UP', 'BUY')) return { shouldTrade:false, reason:`Breakout setup failed`, details:{wpr,prevWpr} };
-        // bot may be null during tests — allow dry-run
-        let execOk = true;
-        if (typeof bot !== 'undefined' && bot?.executeTrade) execOk = bot.executeTrade(symbol, 'UP', false);
-        else if (typeof bot !== 'undefined' && bot?._executeBuy) {
-            const analysis = { direction:'CALLE', reason:`WPR BUY ${prevWpr.toFixed(2)}→${wpr.toFixed(2)}`, details:{wpr,prevWpr} };
-            execOk = !!bot._executeBuy(symbol, 'CALLE', false, analysis);
-        }
-        if (!execOk) { this._restore(a, snap); return { shouldTrade:false, reason:`Order not sent — rollback`, details:{wpr,prevWpr} }; }
-        a.buyFlagActive = false;
-        TelegramService.sendBreakoutAlert(symbol, 'BUY', a.breakout.highLevel, a.breakout.lowLevel);
-        TelegramService.sendSignalAlert(symbol, 'BUY EXECUTED', wpr);
-        return { shouldTrade:true, direction:'CALLE', confidence:1, reason:`WPR BUY ${prevWpr.toFixed(2)}→${wpr.toFixed(2)}`, details:{wpr,prevWpr} };
+        return { shouldTrade:true, direction:'CALLE', confidence:1, reason:`WPR BUY ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} above ${CONFIG.WPR_OVERBOUGHT} (first since oversold)`, details:{wpr,prevWpr, buyFlagActive: a.buyFlagActive, sellFlagActive: a.sellFlagActive} };
     }
 
     static checkSellSignal(symbol) {
@@ -502,19 +488,7 @@ class SignalManager {
         if (!isCrossBelow) return { shouldTrade:false, reason:`No SELL cross: ${prevWpr.toFixed(2)}→${wpr.toFixed(2)}`, details:{wpr,prevWpr} };
         if (!a.sellFlagActive) return { shouldTrade:false, reason:`SELL cross but flag not armed (need overbought -20)`, details:{wpr,prevWpr} };
         if (a.breakout?.active && a.breakout.type==='SELL' && !a.breakout.canBeReplaced) return { shouldTrade:false, reason:`SELL ignored — active SELL breakout exists`, details:{wpr,prevWpr} };
-        const snap = this._snapshot(a);
-        if (!BreakoutManager.setupBreakoutLevels(symbol, 'DOWN', 'SELL')) return { shouldTrade:false, reason:`Breakout setup failed`, details:{wpr,prevWpr} };
-        let execOk = true;
-        if (typeof bot !== 'undefined' && bot?.executeTrade) execOk = bot.executeTrade(symbol, 'DOWN', false);
-        else if (typeof bot !== 'undefined' && bot?._executeBuy) {
-            const analysis = { direction:'PUTE', reason:`WPR SELL ${prevWpr.toFixed(2)}→${wpr.toFixed(2)}`, details:{wpr,prevWpr} };
-            execOk = !!bot._executeBuy(symbol, 'PUTE', false, analysis);
-        }
-        if (!execOk) { this._restore(a, snap); return { shouldTrade:false, reason:`Order not sent — rollback`, details:{wpr,prevWpr} }; }
-        a.sellFlagActive = false;
-        TelegramService.sendBreakoutAlert(symbol, 'SELL', a.breakout.highLevel, a.breakout.lowLevel);
-        TelegramService.sendSignalAlert(symbol, 'SELL EXECUTED', wpr);
-        return { shouldTrade:true, direction:'PUTE', confidence:1, reason:`WPR SELL ${prevWpr.toFixed(2)}→${wpr.toFixed(2)}`, details:{wpr,prevWpr} };
+        return { shouldTrade:true, direction:'PUTE', confidence:1, reason:`WPR SELL ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} below ${CONFIG.WPR_OVERSOLD} (first since overbought)`, details:{wpr,prevWpr, buyFlagActive: a.buyFlagActive, sellFlagActive: a.sellFlagActive} };
     }
 
     static checkReentrySignal(symbol) {
@@ -2915,6 +2889,13 @@ class IndexBot {
             assetState.canTrade = false;
             return;
         }
+        // v2: WPR + breakout — signal must be first-cross and breakout setup from signal candle (candle before trade)
+        // Guard: if waitingForReentry, WPR is blocked (handled in handleOHLC), but double-check
+        if (assetState.waitingForReentry && assetState.breakout?.active) {
+            LOGGER.debug(`[${symbol}] WPR blocked — waiting for breakout re-entry`);
+            assetState.canTrade = false;
+            return;
+        }
         analysis = SignalManager.analyze(symbol);
         assetState.lastAnalysis = analysis;
 
@@ -2925,12 +2906,34 @@ class IndexBot {
         }
 
         direction = analysis.direction;
-        LOGGER.trade(`🎯 [${symbol}] WPR SIGNAL WPR(${wprPeriod}) ${analysis.details.prevWpr?.toFixed(2) ?? ''}→${analysis.details.wpr?.toFixed(2) ?? ''} → ${direction} | ${analysis.reason}`);
+        // v2: plot breakout levels of WPR signal candle (closed[-1] High/Low) — persistent until opposite type
+        const breakoutType = direction === 'CALLE' ? 'BUY' : 'SELL';
+        const breakDir = direction === 'CALLE' ? 'UP' : 'DOWN';
+        const snap = { breakout: { ...assetState.breakout }, inTradeCycle: assetState.inTradeCycle, waitingForReentry: assetState.waitingForReentry, priceReturnedToZone: assetState.priceReturnedToZone };
+        if (!BreakoutManager.setupBreakoutLevels(symbol, breakDir, breakoutType)) {
+            LOGGER.warn(`[${symbol}] Breakout setup failed for ${breakoutType} — aborting trade`);
+            assetState.canTrade = false;
+            return;
+        }
+        LOGGER.trade(`🎯 [${symbol}] WPR SIGNAL WPR(${wprPeriod}) ${analysis.details.prevWpr?.toFixed(2) ?? ''}→${analysis.details.wpr?.toFixed(2) ?? ''} → ${direction} | ${analysis.reason} | Breakout ${breakoutType} High ${assetState.breakout.highLevel.toFixed(5)} Low ${assetState.breakout.lowLevel.toFixed(5)}`);
         // Consume flag — first-cross logic (only first cross since extreme fires)
         if (direction === 'CALLE') assetState.buyFlagActive = false;
         else assetState.sellFlagActive = false;
-
-        this._executeBuy(symbol, direction, false, analysis);
+        // Attempt buy
+        const execOk = this._executeBuy(symbol, direction, false, analysis);
+        if (!execOk) {
+            // Rollback breakout on failed order
+            assetState.breakout = snap.breakout;
+            assetState.inTradeCycle = snap.inTradeCycle;
+            assetState.waitingForReentry = snap.waitingForReentry;
+            assetState.priceReturnedToZone = snap.priceReturnedToZone;
+            LOGGER.warn(`[${symbol}] Order not sent — breakout rollback`);
+            // Re-arm flag
+            if (direction === 'CALLE') assetState.buyFlagActive = true; else assetState.sellFlagActive = true;
+            return;
+        }
+        TelegramService.sendBreakoutAlert(symbol, breakoutType, assetState.breakout.highLevel, assetState.breakout.lowLevel);
+        TelegramService.sendSignalAlert(symbol, `${breakoutType} EXECUTED`, assetState.wpr);
     }
 
     // ── WATCHDOG [RETAINED] ────────────────────────────────────
