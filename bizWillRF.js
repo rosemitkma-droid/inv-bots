@@ -2,18 +2,20 @@
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║   DERIV SYNTHETIC INDICES CALLE/PUTE BOT — v3  "WILLIAMS %R ONLY"        ║
+ * ║   DERIV SYNTHETIC INDICES CALLE/PUTE BOT — v4  "TRUE MULTI-ASSET"        ║
  * ║  STRATEGY:                                                               ║
- * ║  WPR_PERIOD (default 14, configurable via CONFIG.WPR_PERIOD)             ║
+ * ║  WPR_PERIOD (default 7, configurable via CONFIG.WPR_PERIOD)              ║
  * ║  BUY:  WPR crosses above -20 (prev <= -20 → cur > -20) — FIRST cross     ║
  * ║        since coming from oversold (-80) → CALLE (Rise)                   ║
  * ║  SELL: WPR crosses below -80 (prev >= -80 → cur < -80) — FIRST cross     ║
  * ║        since coming from overbought (-20) → PUTE (Fall)                  ║
- * ║  Recovery (B + Exclusive): on loss → same direction, first 58s (finish  ║
- * ║  current candle, no skip), then 1m every candle. If                      ║
- * ║  MAX_CONSECUTIVE_LOSSES (default 2) reached (initial+recoveries) → exit  ║
- * ║  recovery, impose COOLDOWN_CANDLES, wait for new WPR signal. Only        ║
- * ║  recovery asset may trade until win (exclusive).                         ║
+ * ║  MULTI-ASSET: each asset fully independent — own stake, martingale      ║
+ * ║  level, x2/x3.. loss counters, investment pool. One asset's win/loss    ║
+ * ║  never touches another asset. Concurrent positions allowed (1/asset).   ║
+ * ║  RECOVERY (signal-wait): after a loss, WAIT for next valid WPR signal;  ║
+ * ║  trade that signal's direction with multiplied stake. Repeat on each    ║
+ * ║  new signal until a win → stake resets to default. No same-direction,   ║
+ * ║  no 58s immediate trade, no exclusive lock, no cooldown exit.           ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  */
 
@@ -87,8 +89,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRF_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRF_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRF_03-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRF_03-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -120,12 +122,18 @@ const CONFIG = {
     ACCOUNT_TYPE: 'demo',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
-    // ── Recovery Strategy (from willRF.js) ──────────────
-    // When enabled: After a loss, trade immediately on next candle in SAME direction (no analysis)
-    // When disabled: After a loss, wait for pattern analysis signal
+    // ── Recovery Strategy ─────────────────────────────────────
+    // TRUE MULTI-ASSET v4: after a loss, WAIT for a new valid WPR signal,
+    // then trade that signal direction with multiplied stake (no same-direction).
+    // Repeat on every new signal until a win, then reset stake to default.
+    // Each asset is fully independent (own stake/martingale/pool).
+    RECOVERY_WAIT_FOR_SIGNAL: true,
+    // Deprecated legacy flags (kept for state-file compat, no longer used):
+    // USE_RECOVERY_STRATEGY, MAX_CONSECUTIVE_LOSSES, COOLDOWN_CANDLES
     USE_RECOVERY_STRATEGY: true,
 
-    // ── Session / daily guards ───────────────────
+    // ── Session / daily guards (global aggregates = reporting only) ──
+    // Per-asset guards live in DEFAULT_ASSET_CONFIG.SESSION_PROFIT_TARGET/STOP_LOSS.
     SESSION_PROFIT_TARGET: 500000,
     SESSION_STOP_LOSS: -208,
     COOLDOWN_CANDLES: 0,
@@ -142,8 +150,9 @@ const CONFIG = {
     WPR_PERIOD: 7,
     WPR_OVERBOUGHT: -20,
     WPR_OVERSOLD: -80,
-    // ── Recovery exit: max consecutive losses (initial + recoveries) before waiting for new signal
-    MAX_CONSECUTIVE_LOSSES: 3,
+    // Deprecated: MAX_CONSECUTIVE_LOSSES removed — v4 recovers until win
+    // (capped only by CONTINUE_EXTRA_LEVELS / investment pool per asset).
+    MAX_CONSECUTIVE_LOSSES: 9,
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
     USE_TRADING_SESSIONS: true,
@@ -153,24 +162,26 @@ const CONFIG = {
     ],
 
     // ── Position Management ───────────────────────────────────
+    // TRUE MULTI-ASSET: each asset trades independently (max 1 open each).
+    // Total = number of active assets so assets never block each other.
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS: 1,
+    MAX_TOTAL_POSITIONS: 15,
     MAX_TRADES_PER_CYCLE: 1,
 
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
         'R_10',
         // 'R_25',
-        // 'R_50',
-        'R_75',
+        'R_50',
+        // 'R_75',
         'R_100',
         '1HZ10V',
         '1HZ25V',
         '1HZ50V',
-        '1HZ75V',
-        '1HZ100V',
-        'stpRNG',
-        'stpRNG2',
+        // '1HZ75V',
+        // '1HZ100V',
+        // 'stpRNG',
+        // 'stpRNG2',
         // 'stpRNG3',
         // 'stpRNG4',
         // 'stpRNG5'
@@ -214,6 +225,11 @@ const DEFAULT_ASSET_CONFIG = {
 
     // Risk Management
     STOP_LOSS: 208,
+
+    // Per-asset session guards (independent — one asset hitting these
+    // never affects the others; global SESSION_* in CONFIG is report-only)
+    SESSION_PROFIT_TARGET: 500000,
+    SESSION_STOP_LOSS: -208,
 };
 
 const ASSET_CONFIGS = {
@@ -545,7 +561,7 @@ class DerivCandleFetcher {
 }
 
 // ============================================================
-// BACKTEST ENGINE — exact live strategy replay per asset
+// BACKTEST ENGINE — v4 signal-wait replay (mirrors live exactly)
 // ============================================================
 class BacktestEngine {
     static wilsonLowerBound(wins, n, z=1.645) {
@@ -558,28 +574,27 @@ class BacktestEngine {
         const payoutRatio = Number.isFinite(opts.payoutRatio) ? opts.payoutRatio : (Number.isFinite(opts.payout) ? opts.payout : 0.90);
         const cfg = getAssetConfig(symbol);
         const period = cfg.WPR_PERIOD ?? CONFIG.WPR_PERIOD ?? 14;
-        // mirror live state vars — WPR flags
+        // v4: isolated pool, signal ALWAYS required, stake multiplier only.
         let investmentRemaining = cfg.INVESTMENT_AMOUNT;
         let martingaleLevel = 0;
-        let isRecovery=false, waitingForNewSignal=false, exclusiveLock=false, recoveryFirstDone=false, lastTradeDirection=null;
-        let consecutiveLosses=0, cooldownCandles=0;
-        let buyFlagActive=false, sellFlagActive=false;
-        let netPL=0, totalStake=0;
-        const trades=[];
-        const streakCounts={}; let curStreak=0, maxStreak=0;
-        const closed=[];
-        // session guard replica (optional)
-        let sessionActive=true, sessionNetPL=0;
-        for(let i=0;i<candles.length;i++){
-            const c=candles[i];
+        let lastTradeDirection = null;
+        let consecutiveLosses = 0;
+        let buyFlagActive = false, sellFlagActive = false;
+        let netPL = 0, totalStake = 0;
+        const trades = [];
+        const streakCounts = {}; let curStreak = 0, maxStreak = 0;
+        const closed = [];
+        // Per-asset guard replica (independent per asset in backtest too).
+        const assetPT = cfg.SESSION_PROFIT_TARGET ?? CONFIG.SESSION_PROFIT_TARGET;
+        const assetSL = cfg.SESSION_STOP_LOSS ?? CONFIG.SESSION_STOP_LOSS;
+        let assetStopped = false;
+        for (let i = 0; i < candles.length; i++) {
+            const c = candles[i];
             closed.push(c);
-            if(closed.length>50000) closed.shift();
-            // cooldown — keep exclusiveLock during cooldown, only clear isRecovery/waiting via logic below
-            if(cooldownCandles>0){ cooldownCandles--; continue; }
-            // session guard (mirror live SESSION_PROFIT_TARGET / SESSION_STOP_LOSS)
-            if(CONFIG.SESSION_PROFIT_TARGET && sessionNetPL >= CONFIG.SESSION_PROFIT_TARGET) { sessionActive=false; }
-            if(CONFIG.SESSION_STOP_LOSS && sessionNetPL <= CONFIG.SESSION_STOP_LOSS) { sessionActive=false; }
-            if(!sessionActive) continue;
+            if (closed.length > 50000) closed.shift();
+            if (assetStopped) continue;
+            if (Number.isFinite(assetPT) && netPL >= assetPT) { assetStopped = true; continue; }
+            if (Number.isFinite(assetSL) && netPL <= assetSL) { assetStopped = true; continue; }
 
             // ── WPR computation on closed array ──
             const wpr = TechnicalIndicators.calculateWPR(closed, period);
@@ -589,76 +604,42 @@ class BacktestEngine {
                 if (wpr <= CONFIG.WPR_OVERSOLD && !buyFlagActive) buyFlagActive = true;
                 if (wpr >= CONFIG.WPR_OVERBOUGHT && !sellFlagActive) sellFlagActive = true;
             }
-            let direction=null, isRecoveryTrade=false;
-            // Exclusive lock in backtest is per-asset, but we still model same-direction vs signal-wait
-            if(isRecovery && CONFIG.USE_RECOVERY_STRATEGY && lastTradeDirection && !waitingForNewSignal){
-                direction=lastTradeDirection; isRecoveryTrade=true;
-            } else {
-                // If waitingForNewSignal, force WPR signal (not same-direction)
-                if (!Number.isFinite(wpr) || !Number.isFinite(prevWpr)) continue;
-                const buyCross = prevWpr <= CONFIG.WPR_OVERBOUGHT && wpr > CONFIG.WPR_OVERBOUGHT && buyFlagActive;
-                const sellCross = prevWpr >= CONFIG.WPR_OVERSOLD && wpr < CONFIG.WPR_OVERSOLD && sellFlagActive;
-                if (buyCross) { direction='CALLE'; }
-                else if (sellCross) { direction='PUTE'; }
-                else continue;
-            }
-            if(!direction) continue;
-            if(i+1>=candles.length) break; // need next candle to settle
-            const stake=StakeCalculator.calculate(symbol, martingaleLevel, investmentRemaining);
-            if(stake > investmentRemaining) continue;
-            // simulate capital check (backtest starts with INVESTMENT_AMOUNT, not global capital)
-            // deduct
+            // v4: EVERY trade (fresh or recovery) needs a fresh WPR cross.
+            if (!Number.isFinite(wpr) || !Number.isFinite(prevWpr)) continue;
+            const buyCross = prevWpr <= CONFIG.WPR_OVERBOUGHT && wpr > CONFIG.WPR_OVERBOUGHT && buyFlagActive;
+            const sellCross = prevWpr >= CONFIG.WPR_OVERSOLD && wpr < CONFIG.WPR_OVERSOLD && sellFlagActive;
+            let direction = null;
+            if (buyCross) direction = 'CALLE';
+            else if (sellCross) direction = 'PUTE';
+            else continue;
+            const isRecoveryTrade = martingaleLevel > 0;
+            if (i + 1 >= candles.length) break; // need next candle to settle
+            const stake = StakeCalculator.calculate(symbol, martingaleLevel, investmentRemaining);
+            if (stake > investmentRemaining) continue;
+            // deduct from THIS asset's pool only
             investmentRemaining = Number((investmentRemaining - stake).toFixed(2));
             totalStake += stake;
-            const entryClose=c.close;
-            const exitClose=candles[i+1].close;
-            const won = direction==='CALLE' ? exitClose > entryClose : exitClose < entryClose;
+            const entryClose = c.close;
+            const exitClose = candles[i + 1].close;
+            const won = direction === 'CALLE' ? exitClose > entryClose : exitClose < entryClose;
             const pnl = won ? Number((stake * payoutRatio).toFixed(2)) : -stake;
             netPL = Number((netPL + pnl).toFixed(2));
-            sessionNetPL = Number((sessionNetPL + pnl).toFixed(2));
-            trades.push({idx:i, open_time:c.open_time, close_time:candles[i+1].open_time, direction, stake, won, pnl, level:martingaleLevel, isRecovery:isRecoveryTrade, firstDone:recoveryFirstDone});
-            // Consume flag on executed signal (first-cross logic)
-            if (!isRecoveryTrade) {
-                if (direction==='CALLE') buyFlagActive=false;
-                else sellFlagActive=false;
-            }
-            // update state exactly as SessionManager.recordTradeResult (preserves martingale after MAX)
-            if(won){
-                // win resets all locks and martingale — exclusive lock released
-                lastTradeDirection=direction;
-                isRecovery=false; waitingForNewSignal=false; exclusiveLock=false;
-                recoveryFirstDone=false;
-                martingaleLevel=0; consecutiveLosses=0; curStreak=0;
+            trades.push({ idx: i, open_time: c.open_time, close_time: candles[i + 1].open_time, direction, stake, won, pnl, level: martingaleLevel, isRecovery: isRecoveryTrade });
+            // Consume flag on executed signal (first-cross logic) — always, incl. recovery
+            if (direction === 'CALLE') buyFlagActive = false;
+            else sellFlagActive = false;
+            // v4 state update mirrors SessionManager.recordTradeResult
+            if (won) {
+                lastTradeDirection = direction;
+                martingaleLevel = 0; consecutiveLosses = 0; curStreak = 0;
                 investmentRemaining = Number((investmentRemaining + stake + pnl).toFixed(2));
             } else {
-                lastTradeDirection=direction;
-                const wasRec=isRecovery;
-                exclusiveLock=true;
-                const underLimit = (consecutiveLosses + 1) < CONFIG.MAX_CONSECUTIVE_LOSSES;
-                if (underLimit) {
-                    isRecovery=true;
-                    waitingForNewSignal=false;
-                    if(!wasRec) recoveryFirstDone=false;
-                } else {
-                    // Reach MAX — stop same-direction, wait for new WPR signal but keep exclusive + martingale
-                    isRecovery=false;
-                    waitingForNewSignal=true;
-                    recoveryFirstDone=false;
-                }
-                if(!recoveryFirstDone && isRecovery) recoveryFirstDone=true;
+                lastTradeDirection = direction;
                 martingaleLevel++;
-                consecutiveLosses++; curStreak++; maxStreak=Math.max(maxStreak,curStreak);
-                const key='x'+Math.min(curStreak,12);
-                streakCounts[key]=(streakCounts[key]||0)+1;
-                if(consecutiveLosses>=CONFIG.MAX_CONSECUTIVE_LOSSES){
-                    // Preserve martingaleLevel & stake, impose cooldown, keep exclusiveLock
-                    isRecovery=false;
-                    waitingForNewSignal=true;
-                    exclusiveLock=true;
-                    recoveryFirstDone=false;
-                    cooldownCandles=CONFIG.COOLDOWN_CANDLES;
-                }
-                // loss does not credit pool
+                consecutiveLosses++; curStreak++; maxStreak = Math.max(maxStreak, curStreak);
+                const key = 'x' + Math.min(curStreak, 12);
+                streakCounts[key] = (streakCounts[key] || 0) + 1;
+                // loss does not credit pool; no cooldown, no exit — wait for next signal
             }
             // next trade can only be after next candle (i+1) is close, so i++ already ensures
         }
@@ -691,7 +672,7 @@ class BacktestEngine {
         const streakStr = filtered.map(k=> `${k}:${r.streakCounts[k]}`).join(' ') || 'none';
         const xn = r.maxConsecutiveLosses ? `x2..x${r.maxConsecutiveLosses}` : 'x2..xn';
         return [
-            `🧪 BACKTEST — ${r.symbol} (WPR=${r.wprPeriod ?? r.WPR_PERIOD ?? CONFIG.WPR_PERIOD} ${CONFIG.WPR_OVERSOLD}/${CONFIG.WPR_OVERBOUGHT}, ${r.granularity}s, payout ${(r.payoutRatio*100).toFixed(0)}%, stake $${getAssetConfig(r.symbol).INITIAL_STAKE}×${getAssetConfig(r.symbol).MARTINGALE_MULTIPLIER})`,
+            `🧪 BACKTEST v4 signal-wait — ${r.symbol} (WPR=${r.wprPeriod ?? r.WPR_PERIOD ?? CONFIG.WPR_PERIOD} ${CONFIG.WPR_OVERSOLD}/${CONFIG.WPR_OVERBOUGHT}, ${r.granularity}s, payout ${(r.payoutRatio*100).toFixed(0)}%, stake $${getAssetConfig(r.symbol).INITIAL_STAKE}×${getAssetConfig(r.symbol).MARTINGALE_MULTIPLIER}, pool $${getAssetConfig(r.symbol).INVESTMENT_AMOUNT})`,
             `Period: ${r.periodFrom} → ${r.periodTo} (${r.candles} candles)`,
             `Trades: ${r.trades} (${r.wins}W / ${r.losses}L)  WinRate ${r.winRate}% / Loss ${r.lossRate}% (need ≥ ${r.breakevenWinRate}% BE)`,
             `Profit Ratio: ${r.profitRatio}%  Expectancy/trade: ${r.expectancyPerTrade>=0?'+':''}${r.expectancyPerTrade}  Net P/L: $${r.netPL.toFixed(2)} (staked $${r.totalStake.toFixed(2)}, avg $${r.avgStake.toFixed(2)})`,
@@ -864,6 +845,7 @@ class StatePersistence {
                 portfolio: { ...state.portfolio },
                 hourlyStats: { ...state.hourlyStats },
                 currentTradeDay: state.currentTradeDay,
+                stuckTrades: (state.stuckTrades || []).slice(-50),
                 assets: {},
             };
 
@@ -875,15 +857,22 @@ class StatePersistence {
                     candlesLoaded: a.candlesLoaded,
                     lastTradeDirection: a.lastTradeDirection,
                     lastTradeWasWin: a.lastTradeWasWin,
-                    isRecovery: a.isRecovery,
-                    waitingForNewSignal: a.waitingForNewSignal || false,
-                    exclusiveLock: a.exclusiveLock || false,
-                    forceRecoverDirection: a.forceRecoverDirection,
+                    // v4: legacy lock flags forced false on save (compat only)
+                    isRecovery: (a.martingaleLevel || 0) > 0,
+                    waitingForNewSignal: (a.martingaleLevel || 0) > 0,
+                    exclusiveLock: false,
+                    forceRecoverDirection: null,
                     recoveryStep: a.recoveryStep,
                     currentStake: a.currentStake,
                     baseStake: a.baseStake,
                     martingaleLevel: a.martingaleLevel,
                     investmentRemaining: a.investmentRemaining,
+                    stopped: !!a.stopped,
+                    stoppedReason: a.stoppedReason || null,
+                    x2Losses: a.x2Losses || 0, x3Losses: a.x3Losses || 0,
+                    x4Losses: a.x4Losses || 0, x5Losses: a.x5Losses || 0,
+                    x6Losses: a.x6Losses || 0, x7Losses: a.x7Losses || 0,
+                    x8Losses: a.x8Losses || 0, x9Losses: a.x9Losses || 0,
                     consecutiveWins: a.consecutiveWins,
                     consecutiveLosses: a.consecutiveLosses,
                     cooldownCandles: a.cooldownCandles,
@@ -928,11 +917,12 @@ class StatePersistence {
             }
 
             LOGGER.info(`Restoring state from ${ageMins.toFixed(1)} minutes ago`);
-            state.capital = data.capital;
+            // v4: capital is recomputed as sum of pools; ignore saved global.
             state.session = { ...state.session, ...data.session };
             state.portfolio = { ...state.portfolio, ...data.portfolio };
             state.hourlyStats = data.hourlyStats || state.hourlyStats;
             state.currentTradeDay = data.currentTradeDay || TradeHistoryManager.getDateKey();
+            state.stuckTrades = Array.isArray(data.stuckTrades) ? data.stuckTrades.slice(-50) : (state.stuckTrades || []);
 
             if (data.assets) {
                 Object.keys(data.assets).forEach(symbol => {
@@ -945,18 +935,22 @@ class StatePersistence {
                         a.candlesLoaded = false;
                         a.lastTradeDirection = saved.lastTradeDirection || null;
                         a.lastTradeWasWin = saved.lastTradeWasWin ?? null;
-                        a.isRecovery = saved.isRecovery || false;
-                        a.waitingForNewSignal = saved.waitingForNewSignal || false;
-                        a.exclusiveLock = saved.exclusiveLock || false;
-                        a.forceRecoverDirection = saved.forceRecoverDirection ?? null;
-                        a.recoveryStep = saved.recoveryStep || 0;
+                        // v4: derive recovery from martingale; never restore locks.
                         a.martingaleLevel = saved.martingaleLevel || 0;
+                        a.isRecovery = a.martingaleLevel > 0;
+                        a.waitingForNewSignal = a.martingaleLevel > 0;
+                        a.exclusiveLock = false;
+                        a.forceRecoverDirection = null;
+                        a.recoveryStep = saved.recoveryStep || 0;
                         a.currentStake = saved.currentStake || StakeCalculator.calculate(symbol, 0, a.investmentRemaining);
                         a.baseStake = saved.baseStake || StakeCalculator.getBaseStake(symbol, a.investmentRemaining);
                         a.investmentRemaining = saved.investmentRemaining || getAssetConfig(symbol).INVESTMENT_AMOUNT;
+                        a.stopped = saved.stopped || false;
+                        a.stoppedReason = saved.stoppedReason || null;
+                        for (let lv = 2; lv <= 9; lv++) a[`x${lv}Losses`] = saved[`x${lv}Losses`] || 0;
                         a.consecutiveWins = saved.consecutiveWins || 0;
                         a.consecutiveLosses = saved.consecutiveLosses || 0;
-                        a.cooldownCandles = saved.cooldownCandles || 0;
+                        a.cooldownCandles = 0;
 
                         // WPR state
                         a.wpr = Number.isFinite(saved.wpr) ? Number(saved.wpr) : null;
@@ -987,12 +981,13 @@ class StatePersistence {
 
                         const wprTxt = Number.isFinite(a.wpr) ? a.wpr.toFixed(1) : 'n/a';
                         const prevTxt = Number.isFinite(a.prevWpr) ? a.prevWpr.toFixed(1) : 'n/a';
-                        LOGGER.info(`${symbol}: Rec=${a.recoveryStep} Stake=$${(a.currentStake || 0).toFixed(2)} P/L=$${(a.netPL || 0).toFixed(2)} | WPR ${prevTxt}→${wprTxt} BuyArm=${a.buyFlagActive} SellArm=${a.sellFlagActive} | Wins=${a.winsCount} Losses=${a.lossesCount} Trades=${a.tradesCount}`);
+                        LOGGER.info(`${symbol}: L${a.martingaleLevel} Stake=$${(a.currentStake || 0).toFixed(2)} Pool=$${(a.investmentRemaining || 0).toFixed(2)} P/L=$${(a.netPL || 0).toFixed(2)} | WPR ${prevTxt}→${wprTxt} BuyArm=${a.buyFlagActive} SellArm=${a.sellFlagActive} | Wins=${a.winsCount} Losses=${a.lossesCount} Trades=${a.tradesCount}`);
                     }
                 });
             }
 
-            LOGGER.info(`State restored | Capital: $${state.capital.toFixed(2)}`);
+            SessionManager.recalcGlobalCapital();
+            LOGGER.info(`State restored | Pools sum: $${state.capital.toFixed(2)} (independent per asset)`);
             return true;
         } catch (e) { LOGGER.error(`Load state error: ${e.message}`); return false; }
     }
@@ -1037,26 +1032,28 @@ class TelegramService {
         const overall = TradeHistoryManager.getOverallStats();
         const today = TradeHistoryManager.getTodayStats();
 
-        // Build analysis details for OPEN trades
+        // Build analysis details for OPEN trades — v4: EVERY trade has a signal
         let analysisDetails = '';
         if (type === 'OPEN' && details) {
+            const analysis = details.analysis;
+            const wpr = analysis?.details?.wpr;
+            const prevWpr = analysis?.details?.prevWpr;
+            const wprStr = Number.isFinite(wpr) && Number.isFinite(prevWpr) ? `${prevWpr.toFixed(1)}→${wpr.toFixed(1)}` : 'N/A';
             if (details.isRecovery) {
                 analysisDetails = `
-        🔄 <b>RECOVERY MODE: YES</b> (${duration}${(durationUnit||'m').toUpperCase()} full 1m candle, every candle until win)
-        ⚡ Same direction as loss trade (NO pattern analysis)`;
-            } else if (details.analysis) {
-                const analysis = details.analysis;
-                const wpr = analysis?.details?.wpr;
-                const prevWpr = analysis?.details?.prevWpr;
-                const wprStr = Number.isFinite(wpr) && Number.isFinite(prevWpr) ? `${prevWpr.toFixed(1)}→${wpr.toFixed(1)}` : 'N/A';
-                analysisDetails = `
+        🔄 <b>BizWillRF SIGNAL-WAIT RECOVERY L${a?.martingaleLevel ?? 0}</b> (new WPR signal direction, stake multiplier only)
         🧠 <b>WPR(${CONFIG.WPR_PERIOD}) Signal:</b>
+        📊 WPR: ${wprStr} (OB ${CONFIG.WPR_OVERBOUGHT} / OS ${CONFIG.WPR_OVERSOLD})
+        📊 Signal: ${analysis?.direction || direction} (${analysis?.reason || ''})`;
+            } else if (analysis) {
+                analysisDetails = `
+        🧠 <b>BizWillRF WPR(${CONFIG.WPR_PERIOD}) Signal:</b>
         📊 WPR: ${wprStr} (OB ${CONFIG.WPR_OVERBOUGHT} / OS ${CONFIG.WPR_OVERSOLD})
         📊 Signal: ${analysis?.direction || 'N/A'} (${analysis?.reason || ''})`;
             }
         }
 
-        // Profit/Loss details for WIN/LOSS trades
+        // Profit/Loss details for WIN/LOSS trades — per-asset isolation
         let resultDetails = '';
         if (details.profit !== undefined) {
             const profitNum = Number(details.profit) || 0;
@@ -1065,30 +1062,31 @@ class TelegramService {
             resultDetails = `
         ${isWin ? '🟢' : '🔴'} <b>Profit: $${profitNum.toFixed(2)}</b>
 
-        📋 <b>${symbol} Stats:</b>
+        📋 <b>${symbol} Stats (independent):</b>
         W/L: ${a?.winsCount ?? 0}/${a?.lossesCount ?? 0} | P/L: $${(a?.netPL ?? 0).toFixed(2)}
-        🔢 Martingale Level: ${a?.martingaleLevel ?? 0}
+        🔢 Martingale Level: ${a?.martingaleLevel ?? 0} | Pool: $${(a?.investmentRemaining ?? 0).toFixed(2)}
+        📉 ${symbol} x2-x9: ${a?.x2Losses || 0}|${a?.x3Losses || 0}|${a?.x4Losses || 0}|${a?.x5Losses || 0}|${a?.x6Losses || 0}|${a?.x7Losses || 0}|${a?.x8Losses || 0}|${a?.x9Losses || 0}
+        ${isWin ? '✅ Stake reset to default (L0)' : `⏳ Waiting for NEW signal (next L${(a?.martingaleLevel ?? 0)})`}
 
-        📋 <b>Today:</b>
+        📋 <b>Today (all assets):</b>
         Trades: ${today.tradesCount} | W/L: ${today.winsCount || 0}/${today.lossesCount || 0} | P/L: $${(today.netPL || 0).toFixed(2)}
-        📉 x2-x9: ${state.session.x2Losses || 0} | ${state.session.x3Losses || 0} | ${state.session.x4Losses || 0} | ${state.session.x5Losses || 0} | ${state.session.x6Losses || 0} | ${state.session.x7Losses || 0} | ${state.session.x8Losses || 0} | ${state.session.x9Losses || 0}
-        💰 Capital: $${state.capital.toFixed(2)}
+        💰 Pools sum: $${state.capital.toFixed(2)}
 
         📋 <b>Overall:</b>
         Trades: ${overall.tradesCount} | W/L: ${overall.winsCount}/${overall.lossesCount} | P/L: $${(overall.netPL || 0).toFixed(2)}`;
         }
 
-        const recoveryStatus = a?.isRecovery ? '🔄 RECOVERY' : '🎯 NORMAL';
+        const recoveryStatus = (a?.martingaleLevel || 0) > 0 ? `🔄 RECOVERY L${a.martingaleLevel}` : '🎯 NORMAL';
 
         const msg = `
-        ${emoji} <b>${type} WILLRF TRADE ALERT - ${recoveryStatus}</b>
+        ${emoji} <b>${type} BizWillRF TRADE ALERT - ${recoveryStatus}</b>
 
-        📊 Asset: ${symbol}
-        📈 Direction: ${direction === 'CALLE' ? 'RISE 📈' : 'FALL 📉'}
+        📊 Asset: ${symbol} (pool $${(a?.investmentRemaining ?? 0).toFixed(2)})
+        📈 Direction: ${direction === 'CALLE' ? 'RISE 📈' : 'FALL 📉'} (signal direction)
         💵 Stake: $${stake.toFixed(2)}
         ⏱ Duration: ${duration}${(durationUnit || 's').toUpperCase()}
         🔢 Martingale Level: ${a ? a.martingaleLevel : 0}
-        ${type !== 'OPEN' ? `📉 x2-x9: ${state.session.x2Losses} | ${state.session.x3Losses} | ${state.session.x4Losses} | ${state.session.x5Losses} | ${state.session.x6Losses} | ${state.session.x7Losses} | ${state.session.x8Losses} | ${state.session.x9Losses}` : ''}
+        ${type !== 'OPEN' ? `📉 ${symbol} x2-x9: ${a?.x2Losses || 0}|${a?.x3Losses || 0}|${a?.x4Losses || 0}|${a?.x5Losses || 0}|${a?.x6Losses || 0}|${a?.x7Losses || 0}|${a?.x8Losses || 0}|${a?.x9Losses || 0}` : ''}
         ${analysisDetails}${resultDetails}
         `.trim();
 
@@ -1104,18 +1102,17 @@ class TelegramService {
         let assetInfo = '';
         CONFIG.ACTIVE_ASSETS.forEach(sym => {
             const a = state.assets[sym];
-            if (a?.tradesCount > 0) {
-                const normalInfo = a.normalModeActive ? `Nrm:${a.tradesInNormalMode}/${CONFIG.MAX_TRADES_PER_CYCLE}` : '';
-                assetInfo += `\n  ${sym}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L $${(a.netPL || 0).toFixed(2)} Rec:${a.recoveryStep} ${normalInfo}`;
+            if (a) {
+                assetInfo += `\n  ${sym}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L $${(a.netPL || 0).toFixed(2)} L${a.martingaleLevel || 0} pool $${(a.investmentRemaining || 0).toFixed(2)}${a.stopped ? ' STOPPED' : ''}`;
             }
         });
 
         await this.sendMessage([
-            `⏰ <b>WILLRF BOT HOURLY SUMMARY</b>`,
+            `⏰ <b>BizWillRF HOURLY SUMMARY (multi-asset independent)</b>`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '\u{1f7e2}' : '\u{1f534}'} $${h.pnl.toFixed(2)}`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
             `Loss Stats: x2:${today.x2Losses || 0} x3:${today.x3Losses || 0} x4:${today.x4Losses || 0} x5:${today.x5Losses || 0} x6:${today.x6Losses || 0} x7:${today.x7Losses || 0} x8:${today.x8Losses || 0} x9:${today.x9Losses || 0}`,
-            `Capital: $${state.capital.toFixed(2)}`,
+            `Pools sum: $${state.capital.toFixed(2)}`,
             TradingSessionManager.getStatusString(),
             assetInfo ? `\n<b>Per-Asset:</b>${assetInfo}` : '',
         ].join('\n'));
@@ -1132,14 +1129,14 @@ class TelegramService {
         let pairBreakdown = '';
         CONFIG.ACTIVE_ASSETS.forEach(sym => {
             const a = state.assets[sym];
-            if (a?.tradesCount > 0) {
+            if (a) {
                 const pairWr = a.tradesCount > 0 ? ((a.winsCount / a.tradesCount) * 100).toFixed(1) : '0.0';
-                pairBreakdown += `\n  ${sym}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L (${pairWr}%) $${(a.netPL || 0).toFixed(2)}`;
+                pairBreakdown += `\n  ${sym}: ${a.tradesCount}t ${a.winsCount}W/${a.lossesCount}L (${pairWr}%) $${(a.netPL || 0).toFixed(2)} L${a.martingaleLevel || 0} pool $${(a.investmentRemaining || 0).toFixed(2)}`;
             }
         });
 
         await this.sendMessage([
-            `\u{1f4ca} <b>WILLRF BOT SESSION SUMMARY</b>`,
+            `\u{1f4ca} <b>BizWillRF SESSION SUMMARY (independent)</b>`,
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
             `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
@@ -1148,7 +1145,7 @@ class TelegramService {
             `\u{1f4cb} <b>Overall:</b> ${overall.tradesCount} trades | WR: ${wr}% | P/L: $${(overall.netPL || 0).toFixed(2)}`,
             pairBreakdown ? `\n<b>Per-Asset:</b>${pairBreakdown}` : '',
             ``,
-            `\u{1f4b0} Capital: $${state.capital.toFixed(2)}`,
+            `\u{1f4b0} Pools sum: $${state.capital.toFixed(2)}`,
         ].join('\n'));
     }
 
@@ -1156,15 +1153,16 @@ class TelegramService {
         const overall = TradeHistoryManager.getOverallStats();
         let pairInfo = '';
         CONFIG.ACTIVE_ASSETS.forEach(sym => {
-            pairInfo += `\n  ${sym}: ${CONFIG.TIMEFRAME_LABEL} | ${CONFIG.DURATION}${CONFIG.DURATION_UNIT}`;
+            const cfg = getAssetConfig(sym);
+            pairInfo += `\n  ${sym}: ${CONFIG.TIMEFRAME_LABEL} | ${cfg.DURATION}${cfg.DURATION_UNIT} | stake $${cfg.INITIAL_STAKE} | pool $${cfg.INVESTMENT_AMOUNT}`;
         });
 
         await this.sendMessage([
-            `\u{1f916} <b>WILLRF BOT STARTED</b>`,
-            `Strategy: Williams %R(${CONFIG.WPR_PERIOD}) cross ${CONFIG.WPR_OVERBOUGHT}/${CONFIG.WPR_OVERSOLD} → CALLE/PUTE + Same-direction Recovery`,
-            `Recovery: ${CONFIG.USE_RECOVERY_STRATEGY ? `ENABLED (same direction, max ${CONFIG.MAX_CONSECUTIVE_LOSSES} consec losses → cooldown ${CONFIG.COOLDOWN_CANDLES})` : 'DISABLED'}`,
-            `Risk: Martingale progression with cap $${getAssetConfig(CONFIG.ACTIVE_ASSETS[0]).INVESTMENT_AMOUNT}`,
-            `Capital: $${state.capital.toFixed(2)}`,
+            `\u{1f916} <b>BizWillRF STARTED — TRUE MULTI-ASSET</b>`,
+            `Strategy: Williams %R(${CONFIG.WPR_PERIOD}) cross ${CONFIG.WPR_OVERBOUGHT}/${CONFIG.WPR_OVERSOLD} → CALLE/PUTE (signal always required)`,
+            `Recovery: SIGNAL-WAIT — after loss wait for NEW signal, trade its direction with x-multiplier until win → reset to default`,
+            `Independence: own stake/martingale/x2-x9/pool per asset, concurrent (1 open/asset, ${CONFIG.MAX_TOTAL_POSITIONS} total)`,
+            `Pools sum: $${state.capital.toFixed(2)}`,
             TradingSessionManager.getStatusString(),
             ``,
             `\u{1f4ca} Overall: ${overall.tradesCount} trades | P/L: $${(overall.netPL || 0).toFixed(2)}`,
@@ -1204,29 +1202,51 @@ class TelegramService {
 }
 
 // ============================================================
-// SESSION MANAGER  [MODIFIED recordTradeResult]
+// SESSION MANAGER — v4 TRUE MULTI-ASSET (isolated pools, signal-wait)
 // ============================================================
 class SessionManager {
 
     static isSessionActive() { return state.session.isActive; }
 
+    // Global targets are REPORT-ONLY in v4 (never halt other assets).
     static checkSessionTargets() {
         const netPL = state.session?.netPL || 0;
-
         if (netPL >= CONFIG.SESSION_PROFIT_TARGET) {
-            LOGGER.trade(`Session profit target reached: $${netPL.toFixed(2)}`);
-            this.endSession('PROFIT_TARGET');
-            return true;
+            LOGGER.trade(`Global profit milestone: $${netPL.toFixed(2)} (report-only, assets continue)`);
         }
-
         if (netPL <= CONFIG.SESSION_STOP_LOSS) {
-            LOGGER.error(`Session stop-loss reached: $${netPL.toFixed(2)}`);
-            this.endSession('STOP_LOSS');
+            LOGGER.warn(`Global loss milestone: $${netPL.toFixed(2)} (report-only, assets continue)`);
+        }
+        return false;
+    }
+
+    // Per-asset guard — one asset stopping never affects the others.
+    static checkAssetTargets(symbol) {
+        const a = state.assets[symbol];
+        if (!a || a.stopped) return true;
+        const cfg = getAssetConfig(symbol);
+        const pt = cfg.SESSION_PROFIT_TARGET ?? CONFIG.SESSION_PROFIT_TARGET;
+        const sl = cfg.SESSION_STOP_LOSS ?? CONFIG.SESSION_STOP_LOSS;
+        if (Number.isFinite(pt) && a.netPL >= pt) {
+            a.stopped = true; a.stoppedReason = 'PROFIT_TARGET';
+            LOGGER.trade(`[${symbol}] Per-asset profit target $${a.netPL.toFixed(2)} — asset stopped, others continue`);
+            TelegramService.sendMessage(`🏁 <b>[${symbol}] BizWillRF PROFIT TARGET</b>\nP/L: $${a.netPL.toFixed(2)}\nPool: $${a.investmentRemaining.toFixed(2)} — others continue`);
             return true;
         }
-
-        const today = TradeHistoryManager.getTodayStats();
+        if (Number.isFinite(sl) && a.netPL <= sl) {
+            a.stopped = true; a.stoppedReason = 'STOP_LOSS';
+            LOGGER.error(`[${symbol}] Per-asset stop-loss $${a.netPL.toFixed(2)} — asset stopped, others continue`);
+            TelegramService.sendMessage(`🛑 <b>[${symbol}] BizWillRF STOP-LOSS</b>\nP/L: $${a.netPL.toFixed(2)}\nPool: $${a.investmentRemaining.toFixed(2)} — others continue`);
+            return true;
+        }
         return false;
+    }
+
+    static recalcGlobalCapital() {
+        try {
+            const sum = CONFIG.ACTIVE_ASSETS.reduce((s, sym) => s + (Number(state.assets[sym]?.investmentRemaining) || 0), 0);
+            state.capital = Number(sum.toFixed(2));
+        } catch (_) { }
     }
 
     static async endSession(reason) {
@@ -1251,7 +1271,7 @@ class SessionManager {
             LOGGER.info(`Day changed: ${state.currentTradeDay} -> ${today}`);
             const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
             TelegramService.sendMessage(
-                `\u{1f319} <b>WILLRF BOT END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
+                `\u{1f319} <b>BizWillRF BOT END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
             );
             this._resetDailyStats();
             if (!state.session.isActive) {
@@ -1273,6 +1293,7 @@ class SessionManager {
         CONFIG.ACTIVE_ASSETS.forEach(sym => {
             const a = state.assets[sym];
             if (a) {
+                // Day counters reset, but martingale/pool/consecutive losses persist until win.
                 a.tradesCount = 0; a.winsCount = 0; a.lossesCount = 0;
                 a.profit = 0; a.loss = 0; a.netPL = 0;
             }
@@ -1285,8 +1306,9 @@ class SessionManager {
 
         this.checkDayChange();
 
-        // Credit stake + profit back to rolling pool (stake deducted on open, so return full payout)
-        state.capital = Number((state.capital + stake + profit).toFixed(2));
+        // v4: NO global capital deduction/credit per trade.
+        // Each asset owns its pool (deducted on open, payout credited here).
+        // state.capital is a reporting sum only.
 
         const hour = new Date().getUTCHours();
         if (hour !== state.hourlyStats.lastHour) {
@@ -1310,32 +1332,25 @@ class SessionManager {
             a.consecutiveWins++;
             a.consecutiveLosses = 0;
             a.recoveryStep = 0;
+            // WIN resets stake to default — recovery chain ends.
             a.martingaleLevel = 0;
             a.cooldownCandles = 0;
             a.lastTradeWasWin = true;
-            a.forceRecoverDirection = null;  // win exits forced recovery mode
-
-            // Exit all recovery/exclusive locks on win — revert to default 1m duration, keep martingale reset
-            const wasRecovery = a.isRecovery;
-            const wasWaiting = a.waitingForNewSignal;
-            const wasLocked = a.exclusiveLock;
-            if (wasRecovery || wasWaiting || wasLocked) {
-                a.isRecovery = false;
-                a.waitingForNewSignal = false;
-                a.exclusiveLock = false;
-                if (wasRecovery) LOGGER.info(`[${symbol}] Recovery mode EXITED - Win achieved → revert to ${getAssetConfig(symbol).DURATION}${getAssetConfig(symbol).DURATION_UNIT}`);
-                if (wasWaiting) LOGGER.info(`[${symbol}] Waiting-for-signal mode EXITED - Win achieved on exclusive asset`);
-                if (wasLocked) LOGGER.info(`[${symbol}] Exclusive lock RELEASED - Win achieved, other assets may trade again`);
-            }
+            // Clear legacy flags (compat — always false in v4).
+            a.forceRecoverDirection = null;
+            a.isRecovery = false;
+            a.waitingForNewSignal = false;
+            a.exclusiveLock = false;
             a.pendingRecovery = false;
             a.recoveryFirstDone = false;
 
-            // Credit payout (stake + profit) back to investment pool — pool grows on win
+            // Credit payout (stake + profit) back to THIS asset's pool only.
             a.investmentRemaining = Number((a.investmentRemaining + stake + profit).toFixed(2));
             a.baseStake = StakeCalculator.getBaseStake(symbol, a.investmentRemaining);
             a.currentStake = StakeCalculator.calculate(symbol, 0, a.investmentRemaining);
 
-            LOGGER.trade(`WIN [${symbol}] +$${(profit || 0).toFixed(2)} | ${direction} | P/L: $${(a.netPL || 0).toFixed(2)}`);
+            LOGGER.trade(`WIN [${symbol}] +$${(profit || 0).toFixed(2)} | ${direction} | P/L: $${(a.netPL || 0).toFixed(2)} | stake reset to $${a.currentStake.toFixed(2)} (L0)`);
+            this.checkAssetTargets(symbol);
         } else {
             state.session.lossesCount++;
             state.session.loss += Math.abs(profit);
@@ -1349,76 +1364,41 @@ class SessionManager {
             a.consecutiveLosses++;
             a.consecutiveWins = 0;
             a.lastTradeWasWin = false;
-            a.forceRecoverDirection = a.lastTradeDirection === 'CALLE' ? 'CALLE' : 'PUTE';
+            // v4 signal-wait: NO same-direction, NO exclusive lock, NO cooldown.
+            // Only the stake multiplier advances; next trade waits for a fresh WPR signal.
             a.martingaleLevel = (a.martingaleLevel || 0) + 1;
+            a.isRecovery = a.martingaleLevel > 0; // informational only (L>0 = in recovery)
+            a.waitingForNewSignal = true; // informational: waiting for next valid signal
+            a.exclusiveLock = false;
+            a.forceRecoverDirection = null;
+            a.pendingRecovery = false;
+            a.recoveryFirstDone = false;
 
-            // Mark exclusive lock immediately — only this asset may trade until win
-            a.exclusiveLock = true;
-
-            // Enter recovery mode on loss (if recovery strategy is enabled and under limit)
-            const underLimit = a.consecutiveLosses < CONFIG.MAX_CONSECUTIVE_LOSSES;
-            if (CONFIG.USE_RECOVERY_STRATEGY && underLimit) {
-                const wasAlreadyRecovery = a.isRecovery;
-                a.isRecovery = true;
-                a.waitingForNewSignal = false;
-                a.pendingRecovery = false;
-                if (!wasAlreadyRecovery) a.recoveryFirstDone = false;
-                LOGGER.info(`[${symbol}] Recovery mode ENTERED - First recovery 58s (finish current candle), then 1m every candle until win (exclusive asset, ${a.consecutiveLosses}/${CONFIG.MAX_CONSECUTIVE_LOSSES} losses)`);
-            } else if (CONFIG.USE_RECOVERY_STRATEGY && !underLimit) {
-                // At or beyond limit — stop same-direction recovery, wait for new WPR signal but stay exclusive + martingale
-                const wasRecovery = a.isRecovery;
-                a.isRecovery = false;
-                a.waitingForNewSignal = true;
-                a.pendingRecovery = false;
-                a.recoveryFirstDone = false;
-                a.forceRecoverDirection = null;
-                if (wasRecovery) LOGGER.warn(`[${symbol}] ${CONFIG.MAX_CONSECUTIVE_LOSSES} consecutive losses (initial + recoveries) — exiting same-direction recovery, cooling down for ${CONFIG.COOLDOWN_CANDLES} candles, waiting for new WPR signal on same asset (exclusive, martingale L${a.martingaleLevel} preserved)`);
-            }
-
-            // Pause normal mode during recovery
-            if (a.normalModeActive) {
-                a.normalModePaused = true;
-                LOGGER.recovery(`[${symbol}] Normal mode PAUSED for recovery`);
-            }
-
+            // Per-asset x2..x9 loss tracking (this asset only).
             if (a.martingaleLevel >= 2 && a.martingaleLevel <= 9) {
                 const key = `x${a.martingaleLevel}Losses`;
                 state.session[key]++;
-                a[key]++;
+                a[key] = (a[key] || 0) + 1;
             }
 
             a.currentStake = StakeCalculator.calculate(symbol, a.martingaleLevel, a.investmentRemaining);
 
-            if (a.consecutiveLosses >= CONFIG.MAX_CONSECUTIVE_LOSSES) {
-                // Impose cooldown but preserve martingale & exclusive lock — will trade next WPR signal on same asset
-                a.cooldownCandles = CONFIG.COOLDOWN_CANDLES;
-                // Ensure same-direction recovery is off, waiting flag stays on
-                a.isRecovery = false;
-                a.waitingForNewSignal = true;
-                a.exclusiveLock = true;
-                LOGGER.warn(`[${symbol}] COOL-DOWN ${CONFIG.COOLDOWN_CANDLES} candle(s) — Martingale L${a.martingaleLevel} ($${a.currentStake.toFixed(2)}) preserved, exclusive lock held, next trade will be WPR signal on same asset`);
-                TelegramService.sendMessage(
-                    `❄️ <b>[${symbol}] WPR BOT COOL-DOWN ACTIVATED</b>\n` +
-                    `${CONFIG.MAX_CONSECUTIVE_LOSSES} consecutive losses (WPR recovery limit)\n` +
-                    `Pausing ${CONFIG.COOLDOWN_CANDLES} candle(s) — martingale L${a.martingaleLevel} preserved, exclusive lock held\n` +
-                    `Next trade: WPR signal on same asset until win\n` +
-                    `Capital: $${state.capital.toFixed(2)}`
-                );
-            }
-
-            LOGGER.trade(`LOSS [${symbol}] -$${Math.abs(profit || 0).toFixed(2)} | ${direction} | Next Stake: $${(a.currentStake || 0).toFixed(2)} (martingale=${a.martingaleLevel})`);
+            LOGGER.trade(`LOSS [${symbol}] -$${Math.abs(profit || 0).toFixed(2)} | ${direction} | waiting for NEW WPR signal | Next Stake: $${(a.currentStake || 0).toFixed(2)} (martingale L${a.martingaleLevel})`);
+            this.checkAssetTargets(symbol);
         }
 
+        this.recalcGlobalCapital();
         TradeHistoryManager.recordTrade(symbol, profit, a.martingaleLevel);
     }
 }
 
 // ============================================================
-// STATE  [MODIFIED for CANDLE DIRECTION + normal mode]
+// STATE — v4 TRUE MULTI-ASSET (capital = reporting sum of pools)
 // ============================================================
 const state = {
     assets: {},
-    capital: CONFIG.ACTIVE_ASSETS.length ? getAssetConfig(CONFIG.ACTIVE_ASSETS[0]).INVESTMENT_AMOUNT : DEFAULT_ASSET_CONFIG.INVESTMENT_AMOUNT,
+    // Reporting only: sum of all investmentRemaining. Never deducted directly.
+    capital: CONFIG.ACTIVE_ASSETS.reduce((s, sym) => s + (getAssetConfig(sym).INVESTMENT_AMOUNT || 0), 0) || DEFAULT_ASSET_CONFIG.INVESTMENT_AMOUNT,
     accountBalance: 0,
     currentTradeDay: null,
     session: {
@@ -1439,6 +1419,8 @@ const state = {
     pendingTradeInfo: null,
     tradeStartTime: null,
     currentContractId: null,
+    // Audit trail of stuck trades force-recovered with unknown outcome (cap 50).
+    stuckTrades: [],
 };
 
 let tradeHistory = null;
@@ -1616,6 +1598,8 @@ class ConnectionManager {
                     indicatorsReady: false,
                     lastTradeDirection: null,
                     lastTradeWasWin: null,
+                    // v4: isRecovery = martingaleLevel>0 (informational only, no lock).
+                    // Legacy flags kept for state-file compat, always false/managed per new logic.
                     isRecovery: false,
                     waitingForNewSignal: false,
                     exclusiveLock: false,
@@ -1624,14 +1608,20 @@ class ConnectionManager {
                     currentStake: assetConfig.INITIAL_STAKE,
                     baseStake: assetConfig.INITIAL_STAKE,
                     martingaleLevel: 0,
+                    // INDEPENDENT pool — never touched by other assets.
                     investmentRemaining: assetConfig.INVESTMENT_AMOUNT,
                     canTrade: false,
+                    stopped: false,
+                    stoppedReason: null,
                     consecutiveWins: 0,
                     consecutiveLosses: 0,
                     cooldownCandles: 0,
                     activePositions: [],
                     tradesCount: 0, winsCount: 0, lossesCount: 0,
                     profit: 0, loss: 0, netPL: 0,
+                    // Per-asset x2..x9 loss counters (independent).
+                    x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0,
+                    x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0,
 
                     // state
                     inTradeCycle: false,
@@ -1639,7 +1629,7 @@ class ConnectionManager {
                     priceReturnedToZone: false,
                     currentDirection: null,
 
-                    // Normal mode state
+                    // Normal mode state (legacy, unused in v4)
                     normalModeActive: false,
                     tradesInNormalMode: 0,
                     normalModeDirection: null,
@@ -1650,9 +1640,21 @@ class ConnectionManager {
                     // Last analysis for notifications
                     lastAnalysis: null,
                 };
-                LOGGER.info(`Initialized asset: ${symbol} (Stake: $${assetConfig.INITIAL_STAKE}, Duration: ${assetConfig.DURATION}${assetConfig.DURATION_UNIT})`);
+                LOGGER.info(`Initialized asset: ${symbol} (Stake: $${assetConfig.INITIAL_STAKE}, Pool: $${assetConfig.INVESTMENT_AMOUNT}, Duration: ${assetConfig.DURATION}${assetConfig.DURATION_UNIT})`);
+            } else {
+                // Ensure v4 fields exist on resume from older state files.
+                const a = state.assets[symbol];
+                if (a.stopped === undefined) a.stopped = false;
+                for (let lv = 2; lv <= 9; lv++) { if (a[`x${lv}Losses`] === undefined) a[`x${lv}Losses`] = 0; }
+                if (!Number.isFinite(a.investmentRemaining)) a.investmentRemaining = getAssetConfig(symbol).INVESTMENT_AMOUNT;
+                if (!Number.isFinite(a.martingaleLevel)) a.martingaleLevel = 0;
+                // Legacy locks must never survive into v4.
+                a.exclusiveLock = false; a.waitingForNewSignal = a.martingaleLevel > 0;
+                a.isRecovery = a.martingaleLevel > 0; a.cooldownCandles = 0;
+                a.forceRecoverDirection = null; a.pendingRecovery = false; a.recoveryFirstDone = false;
             }
         });
+        SessionManager.recalcGlobalCapital();
     }
 
     cleanup() {
@@ -1715,19 +1717,25 @@ class ConnectionManager {
         if (r.error) {
             LOGGER.error(`Buy error: ${r.error.message}`);
             const reqId = r.echo_req?.req_id;
+            if (bot) bot._clearBuyAckTimeout(reqId);
             if (reqId) {
                 CONFIG.ACTIVE_ASSETS.forEach(sym => {
                     const a = state.assets[sym];
                     if (a?.activePositions) {
                         const i = a.activePositions.findIndex(p => p.reqId === reqId);
                         if (i >= 0) {
-                            a.activePositions.splice(i, 1);
+                            // Refund THIS asset's pool (stake was deducted on open).
+                            const [pos] = a.activePositions.splice(i, 1);
+                            if (pos && Number.isFinite(pos.stake)) {
+                                a.investmentRemaining = Number((a.investmentRemaining + pos.stake).toFixed(2));
+                                SessionManager.recalcGlobalCapital();
+                            }
                             a.canTrade = true;
                         }
                     }
                 });
             }
-            if (bot) bot._forceReleaseTradeLock();
+            if (bot) bot._releaseTradeLockForReq(reqId);
             return;
         }
 
@@ -1735,6 +1743,8 @@ class ConnectionManager {
         LOGGER.trade(`Contract opened: ${contract.contract_id} | Buy Price: $${contract.buy_price}`);
 
         const reqId = r.echo_req.req_id;
+        if (bot) bot._clearBuyAckTimeout(reqId);
+        let matched = false;
         for (const sym of CONFIG.ACTIVE_ASSETS) {
             const a = state.assets[sym];
             if (a?.activePositions) {
@@ -1742,14 +1752,29 @@ class ConnectionManager {
                 if (pos) {
                     pos.contractId = contract.contract_id;
                     pos.buyPrice = contract.buy_price;
-                    state.currentContractId = contract.contract_id;
-                    state.tradeStartTime = Date.now();
-                    state.pendingTradeInfo = { stake: pos.stake, direction: pos.direction, symbol: pos.symbol };
+                    pos.openTime = Date.now();
 
                     bot._startTradeWatchdog(contract.contract_id);
+                    matched = true;
                     break;
                 }
             }
+        }
+
+        if (!matched) {
+            // Late success for a request we already refunded/timed out (or unknown):
+            // a LIVE contract may exist on Deriv with no tracked position — never trade blind.
+            const wasRefunded = bot && bot._refundedReqIds && bot._refundedReqIds.has(String(reqId));
+            LOGGER.error(`Buy success for unknown req ${reqId} → contract ${contract.contract_id} has NO tracked position${wasRefunded ? ' (req was ack-timed-out and refunded)' : ''} — NOT tracking. VERIFY/MANAGE ON DERIV MANUALLY.`);
+            TelegramService.sendMessage(
+                `🚨 <b>BizWillRF UNTRACKED CONTRACT ${contract.contract_id}</b>\n` +
+                `Buy success for unknown req ${reqId} (price $${contract.buy_price})\n` +
+                `Bot is NOT tracking it — manage/close it ON DERIV MANUALLY`
+            );
+            if (wasRefunded && bot) bot._refundedReqIds.delete(String(reqId));
+            // Still subscribe so settlement updates arrive for the loud late-settlement path.
+            this.send({ proposal_open_contract: 1, contract_id: contract.contract_id, subscribe: 1 });
+            return;
         }
 
         this.send({ proposal_open_contract: 1, contract_id: contract.contract_id, subscribe: 1 });
@@ -1758,7 +1783,7 @@ class ConnectionManager {
     handleOpenContract(r) {
         if (r.error) {
             LOGGER.error(`Contract error: ${r.error.message}`);
-            if (bot) bot._forceReleaseTradeLock();
+            if (bot) bot._releaseTradeLockForContract(null);
             return;
         }
 
@@ -1767,6 +1792,28 @@ class ConnectionManager {
         const contractIdStr = String(contractId);
 
         if (r.subscription?.id) this._subscriptionIds.set(contractIdStr, r.subscription.id);
+
+        // Late settlement for a contract we already force-recovered: NEVER
+        // double-count it — the assumed loss stands. Alert loudly for manual reconcile.
+        const stuckIdx = (state.stuckTrades || []).findIndex(s => String(s.contractId) === contractIdStr);
+        if (stuckIdx >= 0) {
+            const entry = state.stuckTrades[stuckIdx];
+            const actualWon = Number(contract.profit) >= 0;
+            LOGGER.error(`LATE SETTLEMENT ${contractIdStr} (${entry.symbol}): actual ${actualWon ? `WIN +$${Number(contract.profit).toFixed(2)}` : `LOSS -$${Math.abs(Number(contract.profit)).toFixed(2)}`} but it was already accounted as assumed LOSS. ` +
+                (actualWon
+                    ? `Manually ADD the $${Number(contract.profit).toFixed(2)} payout to ${entry.symbol}'s pool (or reset that asset) to reconcile.`
+                    : `Matches the assumed loss — no action needed.`));
+            TelegramService.sendMessage(
+                `🚨 <b>BizWillRF LATE SETTLEMENT ${contractIdStr} (${entry.symbol})</b>\n` +
+                `Actual: ${actualWon ? `WIN +$${Number(contract.profit).toFixed(2)}` : `LOSS`} | Accounted: assumed LOSS $${entry.stake.toFixed(2)}\n` +
+                (actualWon
+                    ? `ACTION: manually add $${Number(contract.profit).toFixed(2)} payout to ${entry.symbol}'s pool.\n`
+                    : `Matches assumption — no action needed.\n`) +
+                `Entry kept for audit.`
+            );
+            if (r.subscription?.id) this.send({ forget: r.subscription.id });
+            return;
+        }
 
         if (bot._processedContracts.has(contractIdStr)) {
             if (r.subscription?.id) this.send({ forget: r.subscription.id });
@@ -1801,13 +1848,13 @@ class ConnectionManager {
                 return;
             }
 
-            LOGGER.warn(`Contract ${contractId} settled but still not found after retry — releasing trade lock`);
-            if (bot) bot._forceReleaseTradeLock();
+            LOGGER.warn(`Contract ${contractId} settled but still not found after retry — ignoring (other assets unaffected)`);
+            if (bot) bot._releaseTradeLockForContract(contractId);
             return;
         }
 
         bot._processedContracts.add(contractIdStr);
-        bot._clearAllWatchdogTimers();
+        bot._clearWatchdogFor(contractId);
 
         const a = state.assets[ownerSym];
         const pos = a.activePositions[posIdx];
@@ -1824,45 +1871,38 @@ class ConnectionManager {
         );
 
         a.activePositions.splice(posIdx, 1);
-        state.currentContractId = null;
-        state.tradeStartTime = null;
-        state.pendingTradeInfo = null;
-        bot._tradeLocked = false;
 
         if (r.subscription?.id) this.send({ forget: r.subscription.id });
 
         SessionManager.checkSessionTargets();
         StatePersistence.saveState();
-        // B: Immediate first recovery on settlement (58s) to avoid missing the forming candle
-        if (profit < 0 && a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.cooldownCandles === 0) {
-            setImmediate(() => {
-                try {
-                    if (bot && typeof bot.executeRecoveryTradeImmediate === 'function') {
-                        // Execute only if still recovery and no active position (deduplicate vs OHLC)
-                        if (a.isRecovery && !a.activePositions.length && !bot._tradeLocked) {
-                            const ok = bot.executeRecoveryTradeImmediate(ownerSym);
-                            if (ok) LOGGER.recovery(`[${ownerSym}] First recovery executed on settlement (B:58s)`);
-                        }
-                    }
-                } catch (e) {
-                    LOGGER.error(`[${ownerSym}] Immediate recovery error: ${e.message}`);
-                    if (bot) bot._forceReleaseTradeLock();
-                }
-            });
-        }
-        
+        // v4: NO immediate same-direction recovery. Next trade waits for a new WPR signal (see handleOHLC→executeNextTrade).
     }
 
     // ════════════════════════════════════════════════════════
-    // OHLC HANDLER — candle close triggers trade logic (FIXED)
+    // OHLC HANDLER — ONLY a confirmed candle close may trigger trade logic.
+    // A close is confirmed when the exchange rolls to a NEW candle:
+    //   incoming.open_time > prevForming.open_time (forward only), AND
+    //   incoming.open_time >= prevForming.open_time + granularity
+    // (i.e. a full candle interval elapsed). Ticks for the still-forming
+    // candle only update currentFormingCandle — never WPR, never trades.
     // ════════════════════════════════════════════════════════
     handleOHLC(ohlc) {
         const symbol = ohlc.symbol;
         const a = state.assets[symbol];
         if (!a) return;
 
-        const gran = CONFIG.GRANULARITY;
-        const openTime = ohlc.open_time || Math.floor(ohlc.epoch / gran) * gran;
+        const gran = getAssetConfig(symbol).GRANULARITY || CONFIG.GRANULARITY;
+        const rawOpenTime = ohlc.open_time != null ? Number(ohlc.open_time) : NaN;
+        const tickEpoch = Number(ohlc.epoch);
+        // Prefer exchange open_time; fall back to flooring tick epoch (same formula as history).
+        const openTime = Number.isFinite(rawOpenTime)
+            ? rawOpenTime
+            : (Number.isFinite(tickEpoch) ? Math.floor(tickEpoch / gran) * gran : NaN);
+        if (!Number.isFinite(openTime)) {
+            LOGGER.error(`[${symbol}] Invalid OHLC timing (open_time=${ohlc.open_time} epoch=${ohlc.epoch}) — ignored`);
+            return;
+        }
 
         const incoming = {
             open: parseFloat(ohlc.open), high: parseFloat(ohlc.high),
@@ -1875,11 +1915,55 @@ class ConnectionManager {
             return;
         }
 
-        const isNewCandle = a.currentFormingCandle?.open_time !== undefined &&
-            incoming.open_time !== a.currentFormingCandle.open_time;
+        const prev = a.currentFormingCandle;
 
-        if (isNewCandle) {
-            const closed = { ...a.currentFormingCandle };
+        // No forming candle yet (fresh start / just after history seed) —
+        // this tick STARTS the forming candle. Nothing is closed. Never trade.
+        if (prev == null || prev.open_time === undefined || prev.open_time === null) {
+            a.currentFormingCandle = incoming;
+            const idx0 = a.candles.findIndex(c => c.open_time === incoming.open_time);
+            if (idx0 >= 0) a.candles[idx0] = incoming;
+            else a.candles.push(incoming);
+            LOGGER.debug(`[${symbol}] Forming candle started @${incoming.open_time} — waiting for close, no signal`);
+            return;
+        }
+
+        // Same candle still forming — update OHLC, no close, no WPR, no trade.
+        if (incoming.open_time === prev.open_time) {
+            a.currentFormingCandle = incoming;
+            const idx = a.candles.findIndex(c => c.open_time === incoming.open_time);
+            if (idx >= 0) a.candles[idx] = incoming;
+            else a.candles.push(incoming);
+            if (a.candles.length > CONFIG.MAX_CANDLES_STORED) {
+                a.candles = a.candles.slice(-CONFIG.MAX_CANDLES_STORED);
+            }
+            return;
+        }
+
+        // Out-of-order / late tick for an older candle — ignore, never close.
+        if (incoming.open_time < prev.open_time) {
+            LOGGER.debug(`[${symbol}] Ignored out-of-order tick (tick open_time ${incoming.open_time} < forming ${prev.open_time})`);
+            return;
+        }
+
+        // New candle ahead — CONFIRM the previous candle only if a full
+        // interval elapsed. Guards against a stray tick with a jumped open_time.
+        const expectedNext = prev.open_time + gran;
+        if (incoming.open_time < expectedNext) {
+            LOGGER.debug(`[${symbol}] Ignored unconfirmed rollover (tick open_time ${incoming.open_time} < expected ${expectedNext})`);
+            return;
+        }
+        if (Number.isFinite(tickEpoch) && tickEpoch < expectedNext) {
+            LOGGER.debug(`[${symbol}] Ignored rollover before interval end (tick epoch ${tickEpoch} < ${expectedNext}) — keeping forming candle`);
+            return;
+        }
+        if (incoming.open_time > expectedNext) {
+            LOGGER.warn(`[${symbol}] Gap detected: forming @${prev.open_time} but next tick @${incoming.open_time} (missed ${Math.round((incoming.open_time - expectedNext) / gran)} candle(s)) — closing confirmed candle, gap will backfill on next history sync`);
+        }
+
+        // ── CONFIRMED CLOSE: prev forming candle is now final ──
+        {
+            const closed = { ...prev };
             closed.epoch = closed.open_time + gran;
 
             if (closed.open_time !== a.lastProcessedCandleOpenTime) {
@@ -1922,33 +2006,22 @@ class ConnectionManager {
                     const time = new Date(closed.epoch * 1000).toISOString();
                     LOGGER.candle(`${dir} [${symbol}] CANDLE CLOSED [${time}] O:${closed.open.toFixed(5)} H:${closed.high.toFixed(5)} L:${closed.low.toFixed(5)} C:${closed.close.toFixed(5)} | Total: ${a.closedCandles.length}`);
 
+                    // v4: no cooldown — signal-wait recovery only (cooldown always 0).
                     if (a.cooldownCandles > 0) {
-                        a.cooldownCandles--;
-                        if (a.cooldownCandles === 0) a.forceRecoverDirection = null;
+                        a.cooldownCandles = 0;
+                        a.forceRecoverDirection = null;
                         LOGGER.info(`❄️ [${symbol}] Cool-down: ${a.cooldownCandles} candles remaining`);
                     }
 
                     a.canTrade = true;
 
-                    // Exclusive lock: if any asset is in recovery or waiting-for-signal (post-MAX), only that asset may trade until win
-                    const exclusiveAsset = bot._getExclusiveAsset ? bot._getExclusiveAsset() : (bot._getRecoveryAsset ? bot._getRecoveryAsset() : null);
-                    if (exclusiveAsset && exclusiveAsset !== symbol) {
-                        const ea = state.assets[exclusiveAsset];
-                        const reason = ea?.waitingForNewSignal ? `waiting-for-signal (post-${CONFIG.MAX_CONSECUTIVE_LOSSES} losses, CL=${ea.consecutiveLosses})` : `recovery CL=${ea?.consecutiveLosses ?? 0}`;
-                        LOGGER.info(`[${symbol}] Candle closed but blocked — exclusive lock on ${exclusiveAsset} (${reason}, no skip for ${exclusiveAsset}, wait)`);
-                    } else {
-                        try {
-                            if (a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.lastTradeDirection) {
-                                if (!bot.executeRecoveryTradeImmediate(symbol)) {
-                                    bot.executeNextTrade(symbol, closed);
-                                }
-                            } else {
-                                bot.executeNextTrade(symbol, closed);
-                            }
-                        } catch (err) {
-                            LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
-                            bot._forceReleaseTradeLock();
-                        }
+                    // v4 TRUE MULTI-ASSET: never block on other assets.
+                    // Signal-wait recovery handled inside executeNextTrade.
+                    try {
+                        bot.executeNextTrade(symbol, closed);
+                    } catch (err) {
+                        LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
+                        bot._releaseTradeLockForAsset(symbol);
                     }
                 }
             }
@@ -1971,23 +2044,30 @@ class ConnectionManager {
         const symbol = r.echo_req?.ticks_history;
         if (!symbol || !state.assets[symbol]) return;
 
-        const gran = CONFIG.GRANULARITY;
+        // Same candle-bucketing formula as live handleOHLC: floor(epoch/gran)*gran.
+        // (Deriv history `epoch` is the candle open time; never subtract gran.)
+        const gran = getAssetConfig(symbol).GRANULARITY || CONFIG.GRANULARITY;
         const incomingCandles = (r.candles || []).map(c => ({
             open: parseFloat(c.open), high: parseFloat(c.high),
             low: parseFloat(c.low), close: parseFloat(c.close),
-            epoch: c.epoch, open_time: Math.floor((c.epoch - gran) / gran) * gran,
-        }));
+            epoch: c.epoch, open_time: Math.floor(c.epoch / gran) * gran,
+        })).sort((x, y) => x.open_time - y.open_time);
 
         if (!incomingCandles.length) { LOGGER.warn(`[${symbol}] No candles received`); return; }
 
         const a = state.assets[symbol];
 
-        // FIX: Merge incoming candles with existing instead of replacing
-        // This prevents losing candles that closed during a disconnect
+        // The LAST history entry is the still-forming candle — it must NOT be
+        // treated as closed (no WPR, no signal, no trade on unconfirmed data).
+        const forming = incomingCandles[incomingCandles.length - 1];
+        const closedHistory = incomingCandles.slice(0, -1);
+
+        // FIX: Merge only CONFIRMED candles with existing instead of replacing.
+        // This prevents losing candles that closed during a disconnect.
         const existingEpochs = new Set(a.closedCandles.map(c => c.open_time));
         let addedCount = 0;
 
-        for (const c of incomingCandles) {
+        for (const c of closedHistory) {
             if (!existingEpochs.has(c.open_time)) {
                 a.closedCandles.push(c);
                 existingEpochs.add(c.open_time);
@@ -2002,23 +2082,24 @@ class ConnectionManager {
         }
 
         a.candles = [...incomingCandles];
-        a.currentFormingCandle = null;
+        // Seed the forming candle so the next rollover produces exactly one confirmed close.
+        a.currentFormingCandle = { ...forming };
 
-        const lastCandle = incomingCandles[incomingCandles.length - 1];
-        if (!a.lastProcessedCandleOpenTime || lastCandle.open_time > a.lastProcessedCandleOpenTime) {
-            a.lastProcessedCandleOpenTime = lastCandle.open_time;
+        const lastClosed = a.closedCandles[a.closedCandles.length - 1];
+        if (lastClosed && (!a.lastProcessedCandleOpenTime || lastClosed.open_time > a.lastProcessedCandleOpenTime)) {
+            a.lastProcessedCandleOpenTime = lastClosed.open_time;
         }
 
         a.candlesLoaded = true;
 
-        // ── Seed WPR state from history ──
+        // ── Seed WPR state from CONFIRMED history only ──
         if (a.closedCandles.length >= (getAssetConfig(symbol).WPR_PERIOD ?? CONFIG.WPR_PERIOD ?? 14)) {
             SignalManager.seedWPRState(symbol);
-            LOGGER.info(`[${symbol}] WPR seeded: ${a.prevWpr?.toFixed(2) ?? 'n/a'}→${a.wpr?.toFixed(2) ?? 'n/a'} BuyArm=${a.buyFlagActive} SellArm=${a.sellFlagActive}`);
+            LOGGER.info(`[${symbol}] WPR seeded from ${a.closedCandles.length} confirmed candles (+1 forming @${forming.open_time}): ${a.prevWpr?.toFixed(2) ?? 'n/a'}→${a.wpr?.toFixed(2) ?? 'n/a'} BuyArm=${a.buyFlagActive} SellArm=${a.sellFlagActive}`);
         }
 
         LOGGER.info(
-            `[${symbol}] Loaded ${incomingCandles.length} ${CONFIG.TIMEFRAME_LABEL} candles (${addedCount} new merged, total: ${a.closedCandles.length}) |`
+            `[${symbol}] Loaded ${incomingCandles.length} ${CONFIG.TIMEFRAME_LABEL} candles (${addedCount} new confirmed merged, total confirmed: ${a.closedCandles.length}) |`
         );
     }
 
@@ -2039,7 +2120,7 @@ class ConnectionManager {
             this.reconnectAttempts++;
             const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
             LOGGER.info(`Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts})`);
-            TelegramService.sendMessage(`⚠️ <b>WILLRF BOT CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
+            TelegramService.sendMessage(`⚠️ <b>BizWillRF BOT CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
 
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null;
@@ -2049,7 +2130,7 @@ class ConnectionManager {
             }, delay);
         } else {
             LOGGER.error('Max reconnection attempts reached — giving up');
-            TelegramService.sendMessage(`\u{1f6d1} <b>WILLRF BOT STOPPED</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
+            TelegramService.sendMessage(`\u{1f6d1} <b>BizWillRF BOT STOPPED</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -2081,15 +2162,25 @@ class ConnectionManager {
 }
 
 // ============================================================
-// MAIN BOT CLASS — v3 WPR ONLY (WILLIAMS %R)
+// MAIN BOT CLASS — v4 TRUE MULTI-ASSET + SIGNAL-WAIT RECOVERY
 // ============================================================
 class IndexBot {
 
     constructor() {
         this.connection = new ConnectionManager();
         this._processedContracts = new Set();
-        this._tradeLocked = false;
+        // v4: no global trade lock — concurrency is per-asset (1 open/asset).
+        // _tradeLocked kept as compat getter (true if any position open).
         this.tradeWatchdogMs = 150000;
+        this._watchdogTimers = new Map(); // contractId -> timeout (also 'req:<reqId>' buy-ack timers)
+        // Buy-ack: max wait for a `buy` response before the position is treated
+        // as an orphan (no contractId → no settlement will ever arrive).
+        this.buyAckMs = 30000;
+        // Watchdog re-subscribe attempts before forcing stuck recovery.
+        this.watchdogPolls = 3;
+        this.watchdogPollGapMs = 30000;
+        // reqIds refunded by the buy-ack timeout (late buy success = live untracked contract).
+        this._refundedReqIds = new Set();
         this.timeCheckStarted = false;
         this.sessionTimeCheckerId = null;
         this.statusDisplayIntervalId = null;
@@ -2102,14 +2193,19 @@ class IndexBot {
         }, 1800000);
     }
 
+    get _tradeLocked() {
+        return CONFIG.ACTIVE_ASSETS.some(s => (state.assets[s]?.activePositions?.length || 0) > 0);
+    }
+    set _tradeLocked(_) { /* compat no-op — v4 uses per-asset positions */ }
+
     async start() {
         console.log('\n' + '═'.repeat(74));
-        console.log(' DERIV CALLE/PUTE BOT v3 — WILLIAMS %R ONLY + IMMEDIATE RECOVERY');
+        console.log(' DERIV CALLE/PUTE BOT v4 — TRUE MULTI-ASSET + SIGNAL-WAIT RECOVERY');
         console.log('═'.repeat(74));
-        console.log(`Assets    : ${CONFIG.ACTIVE_ASSETS.join(', ')}`);
+        console.log(`Assets    : ${CONFIG.ACTIVE_ASSETS.join(', ')} (independent pools/stakes)`);
         console.log(`WPR       : Period=${CONFIG.WPR_PERIOD} OB=${CONFIG.WPR_OVERBOUGHT} OS=${CONFIG.WPR_OVERSOLD} | BUY: cross >-20 (first since -80) → CALLE | SELL: cross <-80 (first since -20) → PUTE`);
-        console.log(`Timeframe : ${CONFIG.TIMEFRAME_LABEL} candles | Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} | Recovery B: first 58s (finish current candle), then 1m every candle (exclusive asset) until win or ${CONFIG.MAX_CONSECUTIVE_LOSSES} consec losses`);
-        console.log(`Risk      : Martingale level progression with cap $${CONFIG.ACTIVE_ASSETS.length ? getAssetConfig(CONFIG.ACTIVE_ASSETS[0]).INVESTMENT_AMOUNT : DEFAULT_ASSET_CONFIG.INVESTMENT_AMOUNT}`);
+        console.log(`Timeframe : ${CONFIG.TIMEFRAME_LABEL} candles | Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} | Recovery: wait for NEW signal, stake x-multiplier, reset on win`);
+        console.log(`Risk      : Per-asset martingale pools: ${CONFIG.ACTIVE_ASSETS.map(s => `${s}=$${getAssetConfig(s).INVESTMENT_AMOUNT}`).join(', ')}`);
         console.log(`Capital   : $${state.capital.toFixed(2)}`);
         console.log(`Sessions  : ${TradingSessionManager.getStatusString()}`);
         console.log('═'.repeat(74) + '\n');
@@ -2153,43 +2249,8 @@ class IndexBot {
         this.connection.activeSubscriptions.add(symbol);
     }
 
-    // ── Duration helpers — all trades are full 1m candles (open→close) ──
-    _getRemainingSecondsInCandle() {
-        // Kept for backward compat / logging only — not used for trade duration
-        const gran = CONFIG.GRANULARITY || 60;
-        const nowSec = Math.floor(Date.now() / 1000);
-        const secIntoCandle = nowSec % gran;
-        let remaining = gran - secIntoCandle;
-        if (remaining <= 0) remaining = gran;
-        return Math.max(1, Math.min(gran, remaining));
-    }
-
-    // ── Exclusive helpers — only locked asset may trade until win (covers recovery + post-max signal-wait) ──
-    _getRecoveryAsset() {
-        for (const sym of CONFIG.ACTIVE_ASSETS) {
-            const a = state.assets[sym];
-            if (a && a.isRecovery) return sym;
-        }
-        return null;
-    }
-    _getExclusiveAsset() {
-        for (const sym of CONFIG.ACTIVE_ASSETS) {
-            const a = state.assets[sym];
-            if (a && (a.exclusiveLock || a.isRecovery || a.waitingForNewSignal)) return sym;
-        }
-        return null;
-    }
-    _hasAnyRecovery() { return !!this._getRecoveryAsset(); }
-    _hasExclusiveLock() { return !!this._getExclusiveAsset(); }
-
     _getTradeDuration(symbol) {
-        const a = state.assets[symbol];
         const assetConfig = getAssetConfig(symbol);
-        // B: first recovery after loss = remaining seconds (58s) to finish current candle, no skip
-        if (a && a.isRecovery && !a.recoveryFirstDone) {
-            const rem = this._getRemainingSecondsInCandle();
-            return { duration: rem, durationUnit: 's', remaining: rem };
-        }
         return { duration: assetConfig.DURATION, durationUnit: assetConfig.DURATION_UNIT, remaining: null };
     }
 
@@ -2198,24 +2259,21 @@ class IndexBot {
         if (!assetState) return null;
         const stake = assetState.currentStake;
         if (stake > assetState.investmentRemaining) {
-            LOGGER.error(`[${symbol}] Insufficient investment: stake $${stake} > remaining $${assetState.investmentRemaining.toFixed(2)}`);
+            LOGGER.error(`[${symbol}] Insufficient pool: stake $${stake} > remaining $${assetState.investmentRemaining.toFixed(2)} (L${assetState.martingaleLevel})`);
             assetState.canTrade = false;
             return null;
         }
-        if (stake > state.capital) {
-            LOGGER.error(`[${symbol}] Insufficient balance: stake $${stake} > capital $${state.capital.toFixed(2)}`);
-            assetState.canTrade = false;
-            return null;
-        }
-        // Deduct investment immediately
+        // v4: deduct from THIS asset's pool only; recalc global sum for reporting.
         assetState.investmentRemaining = Number((assetState.investmentRemaining - stake).toFixed(2));
-        state.capital = Number((state.capital - stake).toFixed(2));
+        SessionManager.recalcGlobalCapital();
 
-        const { duration, durationUnit, remaining } = this._getTradeDuration(symbol);
+        const { duration, durationUnit } = this._getTradeDuration(symbol);
 
         if (isRecovery) {
-            const firstTag = !assetState.recoveryFirstDone ? ` (FIRST 58s finish current candle)` : ` (1m)`;
-            LOGGER.trade(`   Recovery Mode: YES | Same direction ${direction} | Stake: $${stake.toFixed(2)} | Martingale: L${assetState.martingaleLevel} | Duration: ${duration}${durationUnit}${remaining ? ` (${remaining}s)` : ''}${firstTag}`);
+            const wprStr = analysis?.details?.wpr != null && analysis?.details?.prevWpr != null
+                ? `${analysis.details.prevWpr.toFixed(2)}→${analysis.details.wpr.toFixed(2)}`
+                : `wpr=${assetState.wpr?.toFixed(2) ?? 'n/a'}`;
+            LOGGER.trade(`   Recovery: SIGNAL-WAIT L${assetState.martingaleLevel} | WPR ${wprStr} → ${direction} (signal direction) | Stake: $${stake.toFixed(2)} | Pool left: $${assetState.investmentRemaining.toFixed(2)} | ${analysis?.reason || ''}`);
         } else {
             const wprStr = analysis?.details?.wpr != null && analysis?.details?.prevWpr != null
                 ? `${analysis.details.prevWpr.toFixed(2)}→${analysis.details.wpr.toFixed(2)}`
@@ -2231,13 +2289,10 @@ class IndexBot {
             entryTime: Date.now(), contractId: null, reqId: null, currentProfit: 0, buyPrice: 0
         };
         assetState.activePositions.push(position);
-        this._tradeLocked = true;
-        state.currentContractId = null;
-        state.pendingTradeInfo = { symbol, stake, direction, time: Date.now() };
 
         TelegramService.sendTradeAlert('OPEN', symbol, direction, stake, duration, durationUnit, {
             isRecovery,
-            analysis: isRecovery ? null : analysis,
+            analysis,
             recoveryDuration: isRecovery ? duration : null,
             recoveryDurationUnit: isRecovery ? durationUnit : null
         });
@@ -2258,66 +2313,84 @@ class IndexBot {
             }
         };
         const reqId = this.connection.send(tradeRequest);
+        if (reqId == null) {
+            // Send failed (WS not open) — no contract exists, refund pool immediately.
+            assetState.activePositions.splice(assetState.activePositions.indexOf(position), 1);
+            assetState.investmentRemaining = Number((assetState.investmentRemaining + stake).toFixed(2));
+            SessionManager.recalcGlobalCapital();
+            assetState.canTrade = true;
+            LOGGER.error(`[${symbol}] Buy NOT sent (WS not open) — pool refunded $${stake.toFixed(2)}, asset freed`);
+            StatePersistence.saveState();
+            return null;
+        }
         position.reqId = reqId;
+        this._startBuyAckTimeout(symbol, reqId);
         StatePersistence.saveState();
         return position;
     }
 
-    // Recovery trade — B: first execution 58s (finish current candle, no skip), subsequent 1m
-    // Called both on settlement (handleOpenContract) and on candle close (handleOHLC)
-    // Returns true if trade executed, false if blocked
-    executeRecoveryTradeImmediate(symbol) {
-        const a = state.assets[symbol];
-        if (!a) return false;
-        if (!CONFIG.USE_RECOVERY_STRATEGY || !a.isRecovery || !a.lastTradeDirection) return false;
-        // Exclusive: only exclusive-locked asset may trade while any asset is locked (recovery or post-MAX wait)
-        const exclusiveAsset = this._getExclusiveAsset ? this._getExclusiveAsset() : this._getRecoveryAsset();
-        if (exclusiveAsset && exclusiveAsset !== symbol) {
-            LOGGER.info(`[${symbol}] Blocked — exclusive lock on ${exclusiveAsset} (recovery)`);
-            return false;
-        }
-        if (a.cooldownCandles > 0) {
-            LOGGER.info(`[${symbol}] Recovery deferred — cool-down ${a.cooldownCandles} candles`);
-            return false;
-        }
-        if (a.activePositions.length >= CONFIG.MAX_OPEN_POSITIONS_PER_ASSET) return false;
-        const totalPositions = CONFIG.ACTIVE_ASSETS.reduce((s, sym) => s + (state.assets[sym]?.activePositions?.length ?? 0), 0);
-        if (totalPositions >= CONFIG.MAX_TOTAL_POSITIONS) {
-            LOGGER.debug(`[${symbol}] Recovery deferred — max total positions ${totalPositions}/${CONFIG.MAX_TOTAL_POSITIONS}`);
-            return false;
-        }
-        if (!state.isAuthorized) {
-            LOGGER.warn(`[${symbol}] Recovery deferred — not authorized`);
-            return false;
-        }
-        if (this._tradeLocked && state.currentContractId) {
-            LOGGER.debug(`[${symbol}] Recovery deferred — trade locked`);
-            return false;
-        }
-        if (state.capital < a.currentStake || a.currentStake > a.investmentRemaining) {
-            LOGGER.warn(`[${symbol}] Recovery cannot execute — insufficient funds`);
-            return false;
-        }
+    // ── Buy-ack timeout: a position with no contractId can never settle ──
+    _startBuyAckTimeout(symbol, reqId) {
+        const key = `req:${reqId}`;
+        const old = this._watchdogTimers.get(key);
+        if (old) clearTimeout(old);
+        const timer = setTimeout(() => {
+            this._watchdogTimers.delete(key);
+            const a = state.assets[symbol];
+            if (!a) return;
+            const i = (a.activePositions || []).findIndex(p => p.reqId === reqId && (p.contractId == null));
+            if (i < 0) return; // buy response arrived in time
+            const [pos] = a.activePositions.splice(i, 1);
+            // No contractId → Deriv holds no position for us in the normal case:
+            // refund pool, free asset, alert (operator verifies no charge on Deriv).
+            if (pos && Number.isFinite(pos.stake)) {
+                a.investmentRemaining = Number((a.investmentRemaining + pos.stake).toFixed(2));
+                SessionManager.recalcGlobalCapital();
+            }
+            a.canTrade = true;
+            this._refundedReqIds.add(String(reqId));
+            if (this._refundedReqIds.size > 200) {
+                this._refundedReqIds = new Set([...this._refundedReqIds].slice(-100));
+            }
+            LOGGER.error(`[${symbol}] Buy ACK timeout (req ${reqId}, ${this.buyAckMs / 1000}s, no contractId) — orphan removed, pool refunded $${(pos?.stake || 0).toFixed(2)}. VERIFY on Deriv that no contract was created.`);
+            TelegramService.sendMessage(
+                `⚠️ <b>[${symbol}] BizWillRF BUY ACK TIMEOUT</b>\n` +
+                `No buy response in ${this.buyAckMs / 1000}s (req ${reqId})\n` +
+                `Orphan removed, pool refunded $${(pos?.stake || 0).toFixed(2)}\n` +
+                `⚠️ VERIFY ON DERIV that no contract was created for this request`
+            );
+            StatePersistence.saveState();
+        }, this.buyAckMs);
+        this._watchdogTimers.set(key, timer);
+    }
 
-        a.pendingRecovery = false;
-        const direction = a.lastTradeDirection;
-        const isFirst = !a.recoveryFirstDone;
-        const durInfo = isFirst ? `${this._getRemainingSecondsInCandle()}s (finish current candle)` : `1m`;
-        LOGGER.trade(`🔄 [${symbol}] RECOVERY ${isFirst ? 'FIRST 58s' : '1m'} — ${direction} DURATION ${durInfo} ${isFirst ? '(B)' : ''}`);
-        const pos = this._executeBuy(symbol, direction, true, null);
-        if (pos) a.recoveryFirstDone = true;
-        return !!pos;
+    _clearBuyAckTimeout(reqId) {
+        if (reqId == null) return;
+        const key = `req:${reqId}`;
+        const t = this._watchdogTimers.get(key);
+        if (t) { clearTimeout(t); this._watchdogTimers.delete(key); }
+    }
+
+    // Legacy stub — v4 never trades same-direction immediate. Always returns false.
+    // Kept so old state/settlement code paths don't crash if called.
+    executeRecoveryTradeImmediate(symbol) {
+        LOGGER.debug(`[${symbol}] executeRecoveryTradeImmediate deprecated in v4 (signal-wait only)`);
+        return false;
     }
 
     // ════════════════════════════════════════════════════════
-    // CORE TRADE LOGIC — consecutive opposite (NO market-mode filter)
-    // Called on every candle close
+    // CORE TRADE LOGIC v4 — WPR signal ALWAYS required.
+    // Recovery = stake multiplier only: after a loss, wait for the next
+    // valid WPR signal and trade ITS direction with L>0 stake. Repeat
+    // until a win resets to L0. Assets never block each other.
+    // Called on every candle close for that symbol only.
     // ════════════════════════════════════════════════════════
     executeNextTrade(symbol, lastClosedCandle) {
         const assetState = state.assets[symbol];
         if (!assetState) return;
         if (!assetState.canTrade) return;
         if (!SessionManager.isSessionActive()) return;
+        if (assetState.stopped) return;
 
         const assetConfig = getAssetConfig(symbol);
 
@@ -2333,134 +2406,216 @@ class IndexBot {
             LOGGER.warn(`[${symbol}] Not authorized yet — cannot place trade`);
             return;
         }
-        if (state.capital < assetState.currentStake) {
-            LOGGER.warn(`[${symbol}] Insufficient capital`);
+        // Per-asset pool check only (never global capital).
+        if (assetState.currentStake > assetState.investmentRemaining) {
+            LOGGER.warn(`[${symbol}] Insufficient pool: need $${assetState.currentStake.toFixed(2)}, have $${assetState.investmentRemaining.toFixed(2)}`);
             return;
         }
-
-        // Exclusive lock: only locked asset may trade until win (recovery + post-MAX signal-wait)
-        const exclusiveAsset = this._getExclusiveAsset ? this._getExclusiveAsset() : this._getRecoveryAsset();
-        if (exclusiveAsset && exclusiveAsset !== symbol) {
-            const ea = state.assets[exclusiveAsset];
-            const reason = ea?.waitingForNewSignal ? `waiting-for-signal (post-${CONFIG.MAX_CONSECUTIVE_LOSSES}, CL=${ea.consecutiveLosses})` : `recovery CL=${ea?.consecutiveLosses ?? 0}`;
-            LOGGER.info(`[${symbol}] Blocked — exclusive lock on ${exclusiveAsset} (${reason}, only ${exclusiveAsset} may trade until win)`);
+        if (SessionManager.checkAssetTargets(symbol)) {
             assetState.canTrade = false;
             return;
         }
 
-        let direction;
-        let analysis = null;
-
-        // Recovery priority: B - first 58s finish current candle, subsequent 1m until win
-        if (CONFIG.USE_RECOVERY_STRATEGY && assetState.isRecovery && assetState.lastTradeDirection) {
-            if (assetState.cooldownCandles > 0) {
-                LOGGER.info(`[${symbol}] In recovery but cool-down ${assetState.cooldownCandles} — skipping`);
-                assetState.canTrade = false;
-                return;
-            }
-            // Delegate to unified recovery executor (handles first s vs subsequent 1m)
-            this.executeRecoveryTradeImmediate(symbol);
-            return;
-        }
-
-        // Normal mode: WPR-only logic
+        // WPR must be ready — both fresh entries and recoveries need a signal.
         const wprPeriod = assetConfig.WPR_PERIOD ?? CONFIG.WPR_PERIOD ?? 14;
         if (!assetState.indicatorsReady || !Number.isFinite(assetState.wpr) || !Number.isFinite(assetState.prevWpr)) {
             LOGGER.info(`[${symbol}] WPR not ready: ${assetState.prevWpr?.toFixed(2) ?? 'n/a'}→${assetState.wpr?.toFixed(2) ?? 'n/a'} (need ${wprPeriod} candles)`);
             assetState.canTrade = false;
             return;
         }
-        // Check cooldown before signal (covers MAX_CONSECUTIVE_LOSSES exit)
-        if (assetState.cooldownCandles > 0) {
-            LOGGER.info(`[${symbol}] Cool-down active ${assetState.cooldownCandles} candles — skipping WPR signal`);
-            assetState.canTrade = false;
-            return;
-        }
-        analysis = SignalManager.analyze(symbol);
+        const analysis = SignalManager.analyze(symbol);
         assetState.lastAnalysis = analysis;
 
         if (!analysis.shouldTrade) {
-            LOGGER.info(`[${symbol}] No trade — ${analysis.reason}`);
+            LOGGER.info(`[${symbol}] No trade — ${analysis.reason}${assetState.martingaleLevel > 0 ? ` (waiting for signal to recover L${assetState.martingaleLevel})` : ''}`);
             assetState.canTrade = false;
             return;
         }
 
-        direction = analysis.direction;
-        LOGGER.trade(`🎯 [${symbol}] WPR SIGNAL WPR(${wprPeriod}) ${analysis.details.prevWpr?.toFixed(2) ?? ''}→${analysis.details.wpr?.toFixed(2) ?? ''} → ${direction} | ${analysis.reason}`);
+        const direction = analysis.direction;
+        const isRecovery = assetState.martingaleLevel > 0;
+        if (isRecovery) {
+            LOGGER.trade(`🔄 [${symbol}] RECOVERY SIGNAL L${assetState.martingaleLevel} WPR(${wprPeriod}) ${analysis.details.prevWpr?.toFixed(2) ?? ''}→${analysis.details.wpr?.toFixed(2) ?? ''} → ${direction} (signal direction, NOT same-direction) | ${analysis.reason}`);
+        } else {
+            LOGGER.trade(`🎯 [${symbol}] WPR SIGNAL WPR(${wprPeriod}) ${analysis.details.prevWpr?.toFixed(2) ?? ''}→${analysis.details.wpr?.toFixed(2) ?? ''} → ${direction} | ${analysis.reason}`);
+        }
         // Consume flag — first-cross logic (only first cross since extreme fires)
         if (direction === 'CALLE') assetState.buyFlagActive = false;
         else assetState.sellFlagActive = false;
 
-        this._executeBuy(symbol, direction, false, analysis);
+        this._executeBuy(symbol, direction, isRecovery, analysis);
     }
 
-    // ── WATCHDOG [RETAINED] ────────────────────────────────────
+    // ── WATCHDOG v4 — per-contract timers (concurrent-safe) ─────
+    // Fires at tradeWatchdogMs, then re-subscribes up to `watchdogPolls`
+    // times before forcing stuck recovery (never gives up on 1 attempt).
     _startTradeWatchdog(contractId) {
-        this._clearAllWatchdogTimers();
+        this._clearWatchdogFor(contractId);
+        const key = String(contractId);
 
-        state.tradeWatchdogTimer = setTimeout(() => {
-            if (!state.currentContractId) return;
+        const attempt = (n) => {
+            const stillOpen = CONFIG.ACTIVE_ASSETS.some(sym =>
+                (state.assets[sym]?.activePositions || []).some(p => String(p.contractId) === key));
+            if (!stillOpen) { this._watchdogTimers.delete(key); return; }
 
-            LOGGER.warn(`WATCHDOG fired for contract ${contractId}`);
+            if (n === 0) LOGGER.warn(`WATCHDOG fired for contract ${contractId}`);
 
             if (state.isConnected && state.isAuthorized) {
-                this.connection.send({ forget_all: 'proposal_open_contract' });
                 this.connection.send({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 });
 
-                state.tradeWatchdogPollTimer = setTimeout(() => {
-                    if (!state.currentContractId) return;
-                    LOGGER.error(`WATCHDOG: Poll timeout — forcing recovery`);
-                    this._recoverStuckTrade('watchdog-timeout');
-                }, 30000);
+                if (n + 1 < this.watchdogPolls) {
+                    const poll = setTimeout(() => {
+                        this._watchdogTimers.delete(key + ':poll');
+                        attempt(n + 1);
+                    }, this.watchdogPollGapMs);
+                    this._watchdogTimers.set(key + ':poll', poll);
+                } else {
+                    const last = setTimeout(() => {
+                        this._watchdogTimers.delete(key + ':poll');
+                        const so = CONFIG.ACTIVE_ASSETS.some(sym =>
+                            (state.assets[sym]?.activePositions || []).some(p => String(p.contractId) === key));
+                        if (!so) return;
+                        LOGGER.error(`WATCHDOG: ${this.watchdogPolls} polls exhausted for ${contractId} — forcing recovery`);
+                        this._recoverStuckTrade(`watchdog-timeout-${contractId}`, contractId);
+                    }, this.watchdogPollGapMs);
+                    this._watchdogTimers.set(key + ':poll', last);
+                }
             } else {
-                this._recoverStuckTrade('watchdog-offline');
+                this._recoverStuckTrade('watchdog-offline', contractId);
             }
-        }, this.tradeWatchdogMs);
+        };
+
+        const timer = setTimeout(() => attempt(0), this.tradeWatchdogMs);
+        this._watchdogTimers.set(key, timer);
     }
 
-    _clearAllWatchdogTimers() {
+    _clearWatchdogFor(contractId) {
+        if (contractId == null) return;
+        const key = String(contractId);
+        for (const k of [key, key + ':poll']) {
+            const t = this._watchdogTimers.get(k);
+            if (t) { clearTimeout(t); this._watchdogTimers.delete(k); }
+        }
+        // Legacy single-timer compat
         if (state.tradeWatchdogTimer) { clearTimeout(state.tradeWatchdogTimer); state.tradeWatchdogTimer = null; }
         if (state.tradeWatchdogPollTimer) { clearTimeout(state.tradeWatchdogPollTimer); state.tradeWatchdogPollTimer = null; }
     }
 
-    _forceReleaseTradeLock() {
-        this._clearAllWatchdogTimers();
-        this._tradeLocked = false;
-        state.currentContractId = null;
-        state.tradeStartTime = null;
-        state.pendingTradeInfo = null;
-        CONFIG.ACTIVE_ASSETS.forEach(sym => {
-            const a = state.assets[sym];
-            if (a) a.canTrade = true;
-        });
-        LOGGER.warn('Trade lock force-released');
+    _clearAllWatchdogTimers() {
+        for (const t of this._watchdogTimers.values()) { try { clearTimeout(t); } catch (_) { } }
+        this._watchdogTimers.clear();
+        if (state.tradeWatchdogTimer) { clearTimeout(state.tradeWatchdogTimer); state.tradeWatchdogTimer = null; }
+        if (state.tradeWatchdogPollTimer) { clearTimeout(state.tradeWatchdogPollTimer); state.tradeWatchdogPollTimer = null; }
     }
 
-    _recoverStuckTrade(reason) {
-        LOGGER.warn(`Stuck trade recovery: ${reason}`);
-        this._clearAllWatchdogTimers();
+    // v4 lock helpers — per-asset / per-contract, never global.
+    _releaseTradeLockForAsset(symbol) {
+        const a = state.assets[symbol];
+        if (a) a.canTrade = true;
+        LOGGER.warn(`[${symbol}] Trade lock released (per-asset, others unaffected)`);
+    }
 
-        const contractId = state.currentContractId;
-        if (contractId) this._processedContracts.add(String(contractId));
-
+    _releaseTradeLockForContract(contractId) {
+        if (contractId != null) this._clearWatchdogFor(contractId);
         CONFIG.ACTIVE_ASSETS.forEach(sym => {
             const a = state.assets[sym];
-            if (a?.activePositions) {
-                const i = a.activePositions.findIndex(p => p.contractId === contractId);
-                if (i >= 0) { a.activePositions.splice(i, 1); LOGGER.info(`Removed stuck position from ${sym}`); }
-            }
+            if (a && a.activePositions.length === 0) a.canTrade = true;
         });
+    }
 
-        this._tradeLocked = false;
-        state.currentContractId = null;
-        state.pendingTradeInfo = null;
-        state.tradeStartTime = null;
+    _releaseTradeLockForReq(reqId) {
+        if (reqId != null) {
+            CONFIG.ACTIVE_ASSETS.forEach(sym => {
+                const a = state.assets[sym];
+                if (a && !(a.activePositions || []).some(p => p.reqId === reqId)) a.canTrade = true;
+            });
+        }
+    }
 
+    _forceReleaseTradeLock() {
+        // Compat stub — releases per-asset canTrade without touching other assets' pools.
+        CONFIG.ACTIVE_ASSETS.forEach(sym => {
+            const a = state.assets[sym];
+            if (a && a.activePositions.length === 0) a.canTrade = true;
+        });
+        LOGGER.warn('Trade lock force-released (v4 per-asset no-op)');
+    }
+
+    // Stuck recovery — outcome UNKNOWN. Conservative assumed-LOSS so the
+    // martingale chain stays mathematically correct:
+    //   • pool: NOT refunded (stake was already deducted at open — same as a real loss)
+    //   • martingaleLevel/consecutiveLosses/xN/history: incremented via recordTradeResult
+    //   • next trade waits for a fresh WPR signal with the multiplied stake
+    // If the contract actually WON on Deriv, the pool is understated by the
+    // payout — the audit entry + Telegram alert carry the exact reconcile info.
+    _recoverStuckTrade(reason, contractId = null) {
+        LOGGER.warn(`Stuck trade recovery: ${reason}`);
+        if (contractId != null) this._clearWatchdogFor(contractId);
+        else this._clearAllWatchdogTimers();
+
+        // Stop Deriv pushing stale updates for a contract we no longer track.
+        if (contractId != null) {
+            const subId = this.connection && this.connection._subscriptionIds
+                ? this.connection._subscriptionIds.get(String(contractId))
+                : null;
+            if (subId != null && this.connection) {
+                try { this.connection.send({ forget: subId }); } catch (_) { }
+                this.connection._subscriptionIds.delete(String(contractId));
+            }
+        }
+
+        if (contractId) this._processedContracts.add(String(contractId));
+
+        if (contractId != null) {
+            let ownerSym = null, pos = null;
+            CONFIG.ACTIVE_ASSETS.forEach(sym => {
+                const a = state.assets[sym];
+                if (a?.activePositions && !pos) {
+                    const i = a.activePositions.findIndex(p => String(p.contractId) === String(contractId));
+                    if (i >= 0) { ownerSym = sym; pos = a.activePositions[i]; a.activePositions.splice(i, 1); }
+                }
+            });
+            if (!pos) {
+                LOGGER.warn(`Stuck recovery ${contractId}: position already gone — nothing to assume, audit only`);
+                CONFIG.ACTIVE_ASSETS.forEach(sym => {
+                    const a = state.assets[sym];
+                    if (a && a.activePositions.length === 0) a.canTrade = true;
+                });
+                StatePersistence.saveState();
+                return;
+            }
+            const a = state.assets[ownerSym];
+            // Model exactly like a real loss with this stake (pool untouched — already deducted).
+            SessionManager.recordTradeResult(ownerSym, -pos.stake, pos.direction, pos.stake);
+            a.canTrade = true;
+            const entry = {
+                contractId: String(contractId), symbol: ownerSym,
+                stake: pos.stake, direction: pos.direction,
+                duration: pos.duration, durationUnit: pos.durationUnit,
+                reason, assumedLoss: true, time: Date.now(),
+            };
+            state.stuckTrades.push(entry);
+            if (state.stuckTrades.length > 50) state.stuckTrades = state.stuckTrades.slice(-50);
+            LOGGER.error(`[${ownerSym}] STUCK ${contractId} assumed LOSS -$${pos.stake.toFixed(2)} ${pos.direction} → L${a.martingaleLevel} next $${a.currentStake.toFixed(2)}. If it actually WON on Deriv, add the payout back to ${ownerSym}'s pool manually.`);
+        } else {
+            // Legacy path: release empty assets only, never wipe other assets.
+            CONFIG.ACTIVE_ASSETS.forEach(sym => {
+                const a = state.assets[sym];
+                if (a && a.activePositions.length === 0) a.canTrade = true;
+            });
+        }
+
+        SessionManager.recalcGlobalCapital();
+        const last = contractId != null ? state.stuckTrades[state.stuckTrades.length - 1] : null;
         TelegramService.sendMessage(
-            `⚠️ <b>WILLRF BOT STUCK TRADE RECOVERED [${reason}]</b>\n` +
-            `Contract: ${contractId}\n` +
-            `⚠️ VERIFY OUTCOME MANUALLY ON DERIV\n` +
-            `Capital: $${state.capital.toFixed(2)}`
+            `⚠️ <b>BizWillRF BOT STUCK TRADE [${reason}]</b>\n` +
+            (last
+                ? `Contract: ${last.contractId} (${last.symbol} ${last.direction} $${last.stake.toFixed(2)})\n` +
+                  `Accounted as assumed LOSS → ${last.symbol} now L${state.assets[last.symbol]?.martingaleLevel ?? '?'} (next $${(state.assets[last.symbol]?.currentStake || 0).toFixed(2)})\n`
+                : `Contract: ${contractId}\n`) +
+            `⚠️ Outcome UNKNOWN — VERIFY ON DERIV.\n` +
+            `If it WON, manually add the payout to that asset's pool (or let the next win reset the chain).\n` +
+            `Pools sum: $${state.capital.toFixed(2)}`
         );
 
         StatePersistence.saveState();
@@ -2496,12 +2651,12 @@ class IndexBot {
             if (a) {
                 pairStatuses[sym] = {
                     recoveryStep: a.recoveryStep,
-                    isRecovery: a.isRecovery,
-                    waitingForNewSignal: a.waitingForNewSignal || false,
-                    exclusiveLock: a.exclusiveLock || false,
+                    isRecovery: (a.martingaleLevel || 0) > 0,
+                    martingaleLevel: a.martingaleLevel || 0,
+                    stopped: !!a.stopped,
                     currentStake: a.currentStake,
+                    pool: a.investmentRemaining,
                     activePositions: a.activePositions.length,
-                    cooldownCandles: a.cooldownCandles,
                     consecutiveLosses: a.consecutiveLosses,
                     wpr: a.wpr,
                     prevWpr: a.prevWpr,
@@ -2509,8 +2664,7 @@ class IndexBot {
                     lastDirection: a.lastTradeDirection,
                     buyFlag: a.buyFlagActive,
                     sellFlag: a.sellFlagActive,
-                    normalMode: a.normalModeActive,
-                    normalTrades: a.tradesInNormalMode,
+                    x2: a.x2Losses || 0, x3: a.x3Losses || 0, x4: a.x4Losses || 0,
                 };
             }
         });
@@ -2683,44 +2837,42 @@ if (cliArgs.backtest) {
         process.exit(1);
     }
 
-    console.log('\n\u{1f680} Starting WPR BOT v3.0 (Williams %R)...\n');
+    console.log('\n\u{1f680} Starting WPR BOT v4.0 TRUE MULTI-ASSET (Williams %R)...\n');
     bot.connection.connect();
     // start Telegram backtest listener in live mode (optional)
     startTelegramBacktestPolling();
 
-    // ── Status display every 60s ──────────────────────────────────
+    // ── Status display every 60s (v4 per-asset) ─────────────────────
     const statusInterval = setInterval(() => {
         if (!state.isAuthorized) return;
 
         const status = bot.getStatus();
 
-        if (state.currentContractId && state.tradeStartTime) {
-            const elapsed = Date.now() - state.tradeStartTime;
-            if (elapsed > 420000) {
-                LOGGER.error(`SAFETY: Trade stuck ${Math.round(elapsed / 1000)}s — forcing recovery`);
-                bot._recoverStuckTrade('safety-timeout');
-            }
-        }
-
-        if (bot._tradeLocked && status.totalPositions === 0) {
-            LOGGER.warn('Trade lock stuck with no open positions — auto-releasing');
-            bot._tradeLocked = false;
-        }
+        // v4 safety: per-position stuck check (entryTime per position, 7min)
+        CONFIG.ACTIVE_ASSETS.forEach(sym => {
+            const a = state.assets[sym];
+            (a?.activePositions || []).forEach(pos => {
+                const elapsed = Date.now() - (pos.entryTime || pos.openTime || Date.now());
+                if (elapsed > 420000 && pos.contractId) {
+                    LOGGER.error(`SAFETY: [${sym}] Trade ${pos.contractId} stuck ${Math.round(elapsed / 1000)}s — forcing recovery`);
+                    bot._recoverStuckTrade(`safety-timeout-${pos.contractId}`, pos.contractId);
+                }
+            });
+        });
 
         let pairLines = '';
         CONFIG.ACTIVE_ASSETS.forEach(sym => {
             const p = status.pairs[sym];
             if (p) {
                 const wpr = p.wpr != null ? `WPR:${p.wpr.toFixed(1)}` : 'WPR:n/a';
-                const cdwn = p.cooldownCandles > 0 ? `❄️CD:${p.cooldownCandles}` : '';
-                const rec = p.isRecovery ? '🔄REC' : (p.waitingForNewSignal ? '⏳WAIT' : '');
-                const lock = p.exclusiveLock ? '🔒EXCL' : '';
+                const rec = p.isRecovery ? `🔄L${p.martingaleLevel}` : '🎯L0';
+                const stop = p.stopped ? '⛔STOP' : '';
 
-                pairLines += `\n  ${sym}: ${wpr} ${p.buyFlag ? '\u{1f7e2}BF' : ''} ${p.sellFlag ? '\u{1f534}SF' : ''} ${rec}${lock} Rec${p.recoveryStep} $${(p.currentStake || 0).toFixed(2)} | ${p.trades}t ${p.wins}W/${p.losses}L $${(p.netPL || 0).toFixed(2)} | Pos:${p.activePositions} ${cdwn} CL:${p.consecutiveLosses}/${CONFIG.MAX_CONSECUTIVE_LOSSES}`;
+                pairLines += `\n  ${sym}: ${wpr} ${p.buyFlag ? '🟢BF' : ''} ${p.sellFlag ? '🔴SF' : ''} ${rec}${stop} $${(p.currentStake || 0).toFixed(2)} pool $${(p.pool || 0).toFixed(2)} | ${p.trades}t ${p.wins}W/${p.losses}L $${(p.netPL || 0).toFixed(2)} | Pos:${p.activePositions} CL:${p.consecutiveLosses} x2:${p.x2 || 0} x3:${p.x3 || 0} x4:${p.x4 || 0}`;
             }
         });
 
-        console.log(`\n\u{1f4ca} ${getGMTTime()} | Session: ${status.session.trades}t ${status.session.winRate} $${(status.session.netPL || 0).toFixed(2)} | Capital: $${status.capital.toFixed(2)}`);
+        console.log(`\n📊 ${getGMTTime()} | Session: ${status.session.trades}t ${status.session.winRate} $${(status.session.netPL || 0).toFixed(2)} | Pools sum: $${status.capital.toFixed(2)}`);
         console.log(`\u{1f4cb} Overall: ${status.overall.tradesCount}t | P/L: $${(status.overall.netPL || 0).toFixed(2)} | Days: ${TradeHistoryManager.getAllDays().length}`);
         console.log(`\u{1f555} ${TradingSessionManager.getStatusString()}`);
         console.log(`\u{1f4c8} Assets:${pairLines}`);
