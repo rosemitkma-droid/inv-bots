@@ -82,8 +82,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizArbitrage_trend3_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_trend3_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizArbitrage_trend3_001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizArbitrage_trend3_001-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -154,19 +154,19 @@ const CONFIG = {
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
         'R_10',
-        'R_25',
-        'R_50',
-        'R_75',
-        'R_100',
+        // 'R_25',
+        // 'R_50',
+        // 'R_75',
+        // 'R_100',
         '1HZ10V',
-        '1HZ25V',
-        '1HZ50V',
+        // '1HZ25V',
+        // '1HZ50V',
         '1HZ75V',
         '1HZ100V',
-        'stpRNG',
-        'stpRNG2',
-        'stpRNG3',
-        'stpRNG4',
+        // 'stpRNG',
+        // 'stpRNG2',
+        // 'stpRNG3',
+        // 'stpRNG4',
         'stpRNG5'
     ],
 
