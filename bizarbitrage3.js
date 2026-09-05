@@ -226,49 +226,49 @@ const DEFAULT_ASSET_CONFIG = {
 const ASSET_CONFIGS = {
     // Per-asset consecutive count override example:
     'R_10': {
-        PATTERN_CONSECUTIVE_COUNT: 6
-    },
-    'R_25': {
         PATTERN_CONSECUTIVE_COUNT: 8
     },
-    'R_50': {
-        PATTERN_CONSECUTIVE_COUNT: 8
-    },
-    'R_75': {
-        PATTERN_CONSECUTIVE_COUNT: 8
-    },
-    'R_100': {
-        PATTERN_CONSECUTIVE_COUNT: 8
-    },
+    // 'R_25': {
+    //     PATTERN_CONSECUTIVE_COUNT: 8
+    // },
+    // 'R_50': {
+    //     PATTERN_CONSECUTIVE_COUNT: 8
+    // },
+    // 'R_75': {
+    //     PATTERN_CONSECUTIVE_COUNT: 8
+    // },
+    // 'R_100': {
+    //     PATTERN_CONSECUTIVE_COUNT: 8
+    // },
     '1HZ10V': {
-        PATTERN_CONSECUTIVE_COUNT: 6
-    },
-    '1HZ25V': {
-        PATTERN_CONSECUTIVE_COUNT: 11
-    },
-    '1HZ50V': {
         PATTERN_CONSECUTIVE_COUNT: 8
     },
+    // '1HZ25V': {
+    //     PATTERN_CONSECUTIVE_COUNT: 11
+    // },
+    // '1HZ50V': {
+    //     PATTERN_CONSECUTIVE_COUNT: 8
+    // },
     '1HZ75V': {
-        PATTERN_CONSECUTIVE_COUNT: 6
+        PATTERN_CONSECUTIVE_COUNT: 8
     },
     '1HZ100V': {
-        PATTERN_CONSECUTIVE_COUNT: 7
+        PATTERN_CONSECUTIVE_COUNT: 9
     },
-    'stpRNG': {
-        PATTERN_CONSECUTIVE_COUNT: 10
-    },
-    'stpRNG2': {
-        PATTERN_CONSECUTIVE_COUNT: 10
-    },
-    'stpRNG3': {
-        PATTERN_CONSECUTIVE_COUNT: 8
-    },
-    'stpRNG4': {
-        PATTERN_CONSECUTIVE_COUNT: 8
-    },
+    // 'stpRNG': {
+    //     PATTERN_CONSECUTIVE_COUNT: 10
+    // },
+    // 'stpRNG2': {
+    //     PATTERN_CONSECUTIVE_COUNT: 10
+    // },
+    // 'stpRNG3': {
+    //     PATTERN_CONSECUTIVE_COUNT: 8
+    // },
+    // 'stpRNG4': {
+    //     PATTERN_CONSECUTIVE_COUNT: 8
+    // },
     'stpRNG5': {
-        PATTERN_CONSECUTIVE_COUNT: 7
+        PATTERN_CONSECUTIVE_COUNT: 9
     },
 };
 
