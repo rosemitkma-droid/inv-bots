@@ -91,8 +91,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [MULTIPLIER — isolated from Rise/Fall]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillMul_004-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillMul_004-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillMul_005-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillMul_005-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -132,7 +132,7 @@ const CONFIG = {
     // ── Session / daily guards ───────────────────
     SESSION_PROFIT_TARGET: 500000,
     SESSION_STOP_LOSS: -208,
-    COOLDOWN_CANDLES: 1, // Number of candles to wait after hitting stop loss before resuming trading
+    COOLDOWN_CANDLES: 1000, // Number of candles to wait after hitting stop loss before resuming trading
 
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
     GRANULARITY: 60,
@@ -155,7 +155,7 @@ const CONFIG = {
         // R_10:    1000, //[400,1000,2000,3000,4000]
         // R_25:    800, //[160,400,800,1200,1600]
         // R_50:    400, //[80,200,400,600,800]
-        // R_75:    300, //[50,100,200,300,500]
+        R_75:    300, //[50,100,200,300,500]
         R_100:   300, //[40,100,200,300,400]
 
         // 1HZ series
@@ -174,15 +174,16 @@ const CONFIG = {
     },
 
     // ── Trading Sessions (synthetics trade 24/7) ─────────────
-    USE_TRADING_SESSIONS: true,
+    USE_TRADING_SESSIONS: false,
     SESSIONS: [
         { name: 'LONDON_OPEN', start: 1, end: 17 },
         { name: 'NY_OPEN', start: 12, end: 23 },
     ],
 
     // ── Position Management ───────────────────────────────────
+    // v2 multi-asset independent: per-asset stake/recovery/losses separate
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS: 1,
+    MAX_TOTAL_POSITIONS: 10,
     MAX_TRADES_PER_CYCLE: 1,
 
     // ── Active Index Assets ───────────────────────────────────
@@ -190,7 +191,7 @@ const CONFIG = {
         // 'R_10',
         // 'R_25',
         // 'R_50',
-        // 'R_75',
+        'R_75',
         'R_100',
         // '1HZ10V',
         // '1HZ25V',
@@ -233,7 +234,7 @@ const DEFAULT_ASSET_CONFIG = {
     MARTINGALE_MULTIPLIER: 1.48, //1.48
     MAX_MARTINGALE_LEVEL: 1, //1
     AFTER_MAX_LOSS: 'continue', // 'continue' | 'reset' | 'stop' 
-    CONTINUE_EXTRA_LEVELS: 8,
+    CONTINUE_EXTRA_LEVELS: 9,
     EXTRA_LEVEL_MULTIPLIERS: [2.1, 2.2, 2, 2.1, 2.2, 2.3, 2.3], //[2.1, 2.2, 2, 2.3]
 
     // Auto-Compounding
@@ -1867,21 +1868,37 @@ class ConnectionManager {
 
     handleBuyResponse(r) {
         if (r.error) {
-            LOGGER.error(`Buy error: ${r.error.message}`);
+            const errMsg = r.error.message || JSON.stringify(r.error);
+            const reqParams = r.echo_req?.parameters || r.echo_req;
+            LOGGER.error(`Buy error: ${errMsg} | reqId ${r.echo_req?.req_id} params ${JSON.stringify(reqParams)}`);
             const reqId = r.echo_req?.req_id;
+            let failedSym = null, failedPos = null;
             if (reqId) {
                 CONFIG.ACTIVE_ASSETS.forEach(sym => {
                     const a = state.assets[sym];
                     if (a?.activePositions) {
                         const i = a.activePositions.findIndex(p => p.reqId === reqId);
                         if (i >= 0) {
+                            failedPos = a.activePositions[i];
+                            failedSym = sym;
                             a.activePositions.splice(i, 1);
                             a.canTrade = true;
+                            a.buyFailCount = (a.buyFailCount || 0) + 1;
+                            a.lastBuyErrorAt = Date.now();
+                            a.lastBuyErrorMsg = errMsg;
+                            LOGGER.warn(`[${sym}] Pending buy removed after error — keep isRecovery=${a.isRecovery} exclusiveLock=${a.exclusiveLock} for retry next candle (fail #${a.buyFailCount})`);
                         }
                     }
                 });
             }
-            if (bot) bot._forceReleaseTradeLock();
+            // Per-asset lock release — keep recovery for retry next candle
+            if (bot) {
+                // Release global lock but keep per-asset recovery flag for independent assets
+                bot._tradeLocked = false;
+                state.currentContractId = null;
+                state.pendingTradeInfo = null;
+            }
+            // For independent assets, do not clear other assets' locks
             return;
         }
 
@@ -1988,13 +2005,13 @@ class ConnectionManager {
         SessionManager.checkSessionTargets();
         StatePersistence.saveState();
 
-        // ── Multiplier reversal: if opposite signal closed position, immediately open opposite trade with same signal ──
+        // ── Multiplier reversal: if opposite signal closed position, immediately open opposite trade with same signal (per-asset independent) ──
         if (a.pendingReversal && !a.activePositions.length) {
             const rev = a.pendingReversal;
             a.pendingReversal = null;
             StatePersistence.saveState();
-            // Check session and capital before reversal entry
-            if (SessionManager.isSessionActive() && state.isAuthorized && !bot._tradeLocked) {
+            // Check session and capital before reversal entry — per-asset allow even if other asset has global lock
+            if (SessionManager.isSessionActive() && state.isAuthorized && (!bot._tradeLocked || state.pendingTradeInfo?.symbol !== ownerSym)) {
                 // Bypass cooldown for reversal — this is the awaited new entry after MAX or normal reversal
                 const prevCooldown = a.cooldownCandles;
                 if (prevCooldown > 0) {
@@ -2006,7 +2023,7 @@ class ConnectionManager {
                 LOGGER.trade(`🔄 [${ownerSym}] REVERSAL ENTRY ${rev.contractType} (WPR ${rev.direction}) triggered by opposite signal close | Stake $${a.currentStake.toFixed(2)} L${a.martingaleLevel} | ${rev.reason}`);
                 setImmediate(() => {
                     try {
-                        if (!a.activePositions.length && !bot._tradeLocked && SessionManager.isSessionActive()) {
+                        if (!a.activePositions.length && (!bot._tradeLocked || state.pendingTradeInfo?.symbol !== ownerSym) && SessionManager.isSessionActive()) {
                             // Use stored analysis for new trade
                             const revAnalysis = rev.analysis || { direction: rev.direction, reason: rev.reason, details: { wpr: rev.wpr, prevWpr: rev.prevWpr } };
                             bot._executeBuy(ownerSym, rev.direction, false, revAnalysis);
@@ -2024,13 +2041,13 @@ class ConnectionManager {
             return;
         }
 
-        // B: Immediate first recovery on settlement (58s) to avoid missing the forming candle — Rise/Fall path, for multipliers just immediate same-direction
+        // B: Immediate first recovery on settlement — per-asset independent, allow other assets' locks
         if (profit < 0 && a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.cooldownCandles === 0) {
             setImmediate(() => {
                 try {
                     if (bot && typeof bot.executeRecoveryTradeImmediate === 'function') {
-                        // Execute only if still recovery and no active position (deduplicate vs OHLC)
-                        if (a.isRecovery && !a.activePositions.length && !bot._tradeLocked) {
+                        // Execute only if still recovery and no active position (deduplicate vs OHLC) — per-asset
+                        if (a.isRecovery && !a.activePositions.length && (!bot._tradeLocked || state.pendingTradeInfo?.symbol !== ownerSym)) {
                             const ok = bot.executeRecoveryTradeImmediate(ownerSym);
                             if (ok) LOGGER.recovery(`[${ownerSym}] First recovery executed on settlement`);
                         }
@@ -2137,26 +2154,18 @@ class ConnectionManager {
                         // Do not attempt to open new trade while multiplier position is open
                     } else {
                         a.canTrade = true;
-
-                        // Exclusive lock: if any asset is in recovery or waiting-for-signal (post-MAX), only that asset may trade until win
-                        const exclusiveAsset = bot._getExclusiveAsset ? bot._getExclusiveAsset() : (bot._getRecoveryAsset ? bot._getRecoveryAsset() : null);
-                        if (exclusiveAsset && exclusiveAsset !== symbol) {
-                            const ea = state.assets[exclusiveAsset];
-                            const reason = ea?.waitingForNewSignal ? `waiting-for-signal (post-${CONFIG.MAX_CONSECUTIVE_LOSSES} losses, CL=${ea.consecutiveLosses})` : `recovery CL=${ea?.consecutiveLosses ?? 0}`;
-                            LOGGER.info(`[${symbol}] Candle closed but blocked — exclusive lock on ${exclusiveAsset} (${reason}, no skip for ${exclusiveAsset}, wait)`);
-                        } else {
-                            try {
-                                if (a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.lastTradeDirection) {
-                                    if (!bot.executeRecoveryTradeImmediate(symbol)) {
-                                        bot.executeNextTrade(symbol, closed);
-                                    }
-                                } else {
+                        // v2 independent: per-asset recovery, no global exclusive lock — each asset trades on its own WPR signal
+                        try {
+                            if (a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.lastTradeDirection) {
+                                if (!bot.executeRecoveryTradeImmediate(symbol)) {
                                     bot.executeNextTrade(symbol, closed);
                                 }
-                            } catch (err) {
-                                LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
-                                bot._forceReleaseTradeLock();
+                            } else {
+                                bot.executeNextTrade(symbol, closed);
                             }
+                        } catch (err) {
+                            LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
+                            bot._forceReleaseTradeLock();
                         }
                     }
                 }
@@ -2425,6 +2434,21 @@ class IndexBot {
             assetState.canTrade = false;
             return null;
         }
+        // Guard: prevent duplicate pending buy for same asset (independent assets)
+        if (assetState.activePositions.length > 0) {
+            const hasPending = assetState.activePositions.some(p => !p.contractId);
+            if (hasPending) { LOGGER.warn(`[${symbol}] Buy in-flight (pending contractId) — skip duplicate`); assetState.canTrade = false; return null; }
+            LOGGER.warn(`[${symbol}] Position already open — skip new buy until closed`); return null;
+        }
+        if (this._tradeLocked && state.pendingTradeInfo) {
+            const pendingSym = state.pendingTradeInfo.symbol;
+            const pendingAge = Date.now() - (state.pendingTradeInfo.time || 0);
+            if (pendingSym === symbol && pendingAge < 15000) {
+                LOGGER.debug(`[${symbol}] Global trade lock in-flight for same asset — skip`);
+                return null;
+            }
+            // For independent assets, allow other asset to trade even if one asset's buy is pending, as long as total positions < max
+        }
         // Deduct investment immediately
         assetState.investmentRemaining = Number((assetState.investmentRemaining - stake).toFixed(2));
         state.capital = Number((state.capital - stake).toFixed(2));
@@ -2498,12 +2522,8 @@ class IndexBot {
         const a = state.assets[symbol];
         if (!a) return false;
         if (!CONFIG.USE_RECOVERY_STRATEGY || !a.isRecovery || !a.lastTradeDirection) return false;
-        // Exclusive: only exclusive-locked asset may trade while any asset is locked (recovery or post-MAX wait)
-        const exclusiveAsset = this._getExclusiveAsset ? this._getExclusiveAsset() : this._getRecoveryAsset();
-        if (exclusiveAsset && exclusiveAsset !== symbol) {
-            LOGGER.info(`[${symbol}] Blocked — exclusive lock on ${exclusiveAsset} (recovery)`);
-            return false;
-        }
+        // v2 independent: no global exclusive lock for recovery — per-asset only
+        // Keep for backward compat but disabled for multi-asset
         if (a.cooldownCandles > 0) {
             LOGGER.info(`[${symbol}] Recovery deferred — cool-down ${a.cooldownCandles} candles`);
             return false;
@@ -2518,8 +2538,9 @@ class IndexBot {
             LOGGER.warn(`[${symbol}] Recovery deferred — not authorized`);
             return false;
         }
-        if (this._tradeLocked && state.currentContractId) {
-            LOGGER.debug(`[${symbol}] Recovery deferred — trade locked`);
+        // v2 independent: only block if same asset is locked, allow other assets
+        if (this._tradeLocked && state.pendingTradeInfo && state.pendingTradeInfo.symbol === symbol) {
+            LOGGER.debug(`[${symbol}] Recovery deferred — trade locked for same asset`);
             return false;
         }
         if (state.capital < a.currentStake || a.currentStake > a.investmentRemaining) {
@@ -2628,15 +2649,8 @@ class IndexBot {
             return;
         }
 
-        // Exclusive lock: only locked asset may trade until win (recovery + post-MAX signal-wait)
-        const exclusiveAsset = this._getExclusiveAsset ? this._getExclusiveAsset() : this._getRecoveryAsset();
-        if (exclusiveAsset && exclusiveAsset !== symbol) {
-            const ea = state.assets[exclusiveAsset];
-            const reason = ea?.waitingForNewSignal ? `waiting-for-signal (post-${CONFIG.MAX_CONSECUTIVE_LOSSES}, CL=${ea.consecutiveLosses})` : `recovery CL=${ea?.consecutiveLosses ?? 0}`;
-            LOGGER.info(`[${symbol}] Blocked — exclusive lock on ${exclusiveAsset} (${reason}, only ${exclusiveAsset} may trade until win)`);
-            assetState.canTrade = false;
-            return;
-        }
+        // v2 independent: per-asset recovery, no global exclusive lock — each asset trades on its own signal/losses
+        // (kept _getExclusiveAsset for compat but not used to block)
 
         let direction;
         let analysis = null;
