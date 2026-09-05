@@ -5,7 +5,7 @@
  * ║   DERIV SYNTHETIC INDICES MULTIPLIER BOT — v4  "WILLIAMS %R + BREAKOUT"  ║
  * ║  MARKET: MULTIPLIERS (MULTUP/MULTDOWN) — v3 base + Persistent Breakout  ║
  * ║  STRATEGY:                                                               ║
- * ║  WPR_PERIOD 7 (configurable)  5m Timeframe (configurable)               ║
+ * ║  WPR_PERIOD 7 (configurable)  15m Timeframe (configurable)              ║
  * ║  BUY:  WPR crosses above -20 (prev ≤-20 → cur >-20) — FIRST since -80   ║
  * ║        → MULTUP, mark prev candle High/Low as breakout levels           ║
  * ║  SELL: WPR crosses below -80 (prev ≥-80 → cur <-80) — FIRST since -20   ║
@@ -90,8 +90,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [MULTIPLIER v2 — isolated]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillMulRF_v2-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillMulRF_v2-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillMulRF_v2_1-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillMulRF_v2_1-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -127,7 +127,7 @@ const TIMEFRAMES = {
     '30m': { seconds: 1800, granularity: 1800, label: '30 Minutes' },
     '1h': { seconds: 3600, granularity: 3600, label: '1 Hour' },
 };
-const SELECTED_TIMEFRAME = '5m'; // <— user can change to '1m','5m','15m' etc.
+const SELECTED_TIMEFRAME = '15m'; // <— user can change to '1m','5m','15m' etc. (v2 default 15m per spec)
 const TIMEFRAME_CONFIG = TIMEFRAMES[SELECTED_TIMEFRAME];
 
 // ============================================================
@@ -147,7 +147,7 @@ const CONFIG = {
 
     // ── Session / daily guards ───────────────────
     SESSION_PROFIT_TARGET: 500000,
-    SESSION_STOP_LOSS: -308,
+    SESSION_STOP_LOSS: -208,
     COOLDOWN_CANDLES: 1, // Number of candles to wait after hitting stop loss before resuming trading
 
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
@@ -181,11 +181,11 @@ const CONFIG = {
         '1HZ10V':  2000, //[400,1000,2000,3000,4000]
         '1HZ25V':  8000, //[160,400,800,1200,1600]
         '1HZ50V':  400, //[80,200,400,600,800]
-        '1HZ75V':  200, //[50,100,200,300,500]
+        // '1HZ75V':  200, //[50,100,200,300,500]
         // '1HZ100V': 300, //[40,100,200,300,400]
         
         // Step indices
-        stpRNG:  3500, //[750,2000,3500,5500,7500]
+        // stpRNG:  3500, //[750,2000,3500,5500,7500]
         // stpRNG2: 3000, //[400,1000,2000,3000,4000]
         // stpRNG3: 1500, //[300,1000,1500,2000,3000]
         // stpRNG4: 1000, //[200,500,1000,1500,2000]
@@ -200,8 +200,9 @@ const CONFIG = {
     ],
 
     // ── Position Management ───────────────────────────────────
+    // v2 breakout: every asset trades independently — no global exclusive lock
     MAX_OPEN_POSITIONS_PER_ASSET: 1,
-    MAX_TOTAL_POSITIONS: 1,
+    MAX_TOTAL_POSITIONS: 10,
     MAX_TRADES_PER_CYCLE: 1,
 
     // ── Active Index Assets ───────────────────────────────────
@@ -214,9 +215,9 @@ const CONFIG = {
         '1HZ10V',
         '1HZ25V',
         '1HZ50V',
-        '1HZ75V',
-        '1HZ100V',
-        'stpRNG',
+        // '1HZ75V',
+        // '1HZ100V',
+        // 'stpRNG',
         // 'stpRNG2',
         // 'stpRNG3',
         // 'stpRNG4',
@@ -332,10 +333,12 @@ class BreakoutManager {
         if (!Number.isFinite(highLevel) || !Number.isFinite(lowLevel) || highLevel <= lowLevel) {
             LOGGER.warn(`${symbol}: Invalid breakout levels`); return false;
         }
+        // Persistent until opposite type: keep active, reset re-entry zone flag
         a.breakout = { active: true, type: breakoutType, highLevel, lowLevel, triggerCandle: prevCandle.open_time ?? prevCandle.epoch, canBeReplaced: false };
         a.inTradeCycle = true;
         a.waitingForReentry = false;
-        LOGGER.breakout(`${symbol} ${breakoutType} BREAKOUT SET: High ${highLevel.toFixed(5)} Low ${lowLevel.toFixed(5)}`);
+        a.priceReturnedToZone = false;
+        LOGGER.breakout(`${symbol} ${breakoutType} BREAKOUT SET: High ${highLevel.toFixed(5)} Low ${lowLevel.toFixed(5)} (persistent until opposite)`);
         return true;
     }
 
@@ -2377,24 +2380,22 @@ class ConnectionManager {
                             const reentry = SignalManager.checkReentrySignal(symbol);
                             if (reentry) {
                                 a.canTrade = true;
-                                const exclusiveAsset = bot._getExclusiveAsset ? bot._getExclusiveAsset() : (bot._getRecoveryAsset ? bot._getRecoveryAsset() : null);
-                                if (exclusiveAsset && exclusiveAsset !== symbol) {
-                                    LOGGER.info(`[${symbol}] Re-entry blocked — exclusive lock on ${exclusiveAsset}`);
-                                    a.canTrade = false;
-                                } else {
-                                    try {
-                                        const dirInternal = reentry === 'UP' ? 'CALLE' : 'PUTE';
-                                        const contractType = reentry === 'UP' ? 'MULTUP' : 'MULTDOWN';
-                                        // For re-entry, use current stake (recovery stake if in recovery, else base)
-                                        // Take profit for re-entry should be recovery TP if in recovery
-                                        const analysis = { direction: dirInternal, reason: `Breakout re-entry ${reentry} close beyond level`, details: { wpr: a.wpr, prevWpr: a.prevWpr, breakout: { ...a.breakout } } };
-                                        // Setup breakout remains same, but we need to mark that price returned to zone already handled
-                                        LOGGER.signal(`[${symbol}] Re-entry ${reentry} — executing ${contractType}`);
-                                        bot._executeBuy(symbol, dirInternal, false, analysis);
-                                    } catch (err) {
-                                        LOGGER.error(`[${symbol}] Re-entry error: ${err.message}`);
-                                        bot._forceReleaseTradeLock();
-                                    }
+                                // v2: assets trade independently — no global exclusive lock for re-entry
+                                try {
+                                    const dirInternal = reentry === 'UP' ? 'CALLE' : 'PUTE';
+                                    const contractType = reentry === 'UP' ? 'MULTUP' : 'MULTDOWN';
+                                    const analysis = { direction: dirInternal, reason: `Breakout re-entry ${reentry} close beyond level`, details: { wpr: a.wpr, prevWpr: a.prevWpr, breakout: { ...a.breakout } } };
+                                    LOGGER.signal(`[${symbol}] Re-entry ${reentry} — executing ${contractType} (independent asset)`);
+                                    // Re-entry uses recovery stake if prior trade was partial win/loss (cumulativeLoss >0)
+                                    const isRecoveryReentry = (a.cumulativeLoss || 0) > 0 || a.martingaleLevel > 0;
+                                    // Mark breakout re-entry as new trade cycle
+                                    a.inTradeCycle = true;
+                                    a.waitingForReentry = false;
+                                    a.priceReturnedToZone = false;
+                                    bot._executeBuy(symbol, dirInternal, isRecoveryReentry, analysis);
+                                } catch (err) {
+                                    LOGGER.error(`[${symbol}] Re-entry error: ${err.message}`);
+                                    bot._forceReleaseTradeLock();
                                 }
                             } else {
                                 // No re-entry yet, check if price returned to zone is logged, else wait
@@ -2404,24 +2405,18 @@ class ConnectionManager {
                             }
                         } else {
                             a.canTrade = true;
-                            const exclusiveAsset = bot._getExclusiveAsset ? bot._getExclusiveAsset() : (bot._getRecoveryAsset ? bot._getRecoveryAsset() : null);
-                            if (exclusiveAsset && exclusiveAsset !== symbol) {
-                                const ea = state.assets[exclusiveAsset];
-                                const reason = ea?.waitingForNewSignal ? `waiting-for-signal (post-${CONFIG.MAX_CONSECUTIVE_LOSSES} losses, CL=${ea.consecutiveLosses})` : `recovery CL=${ea?.consecutiveLosses ?? 0}`;
-                                LOGGER.info(`[${symbol}] Candle closed but blocked — exclusive lock on ${exclusiveAsset} (${reason}, no skip for ${exclusiveAsset}, wait)`);
-                            } else {
-                                try {
-                                    if (a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.lastTradeDirection) {
-                                        if (!bot.executeRecoveryTradeImmediate(symbol)) {
-                                            bot.executeNextTrade(symbol, closed);
-                                        }
-                                    } else {
+                            // v2: independent assets — no exclusive lock, each asset's stake/TP/SL/losses separate
+                            try {
+                                if (a.isRecovery && CONFIG.USE_RECOVERY_STRATEGY && a.lastTradeDirection) {
+                                    if (!bot.executeRecoveryTradeImmediate(symbol)) {
                                         bot.executeNextTrade(symbol, closed);
                                     }
-                                } catch (err) {
-                                    LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
-                                    bot._forceReleaseTradeLock();
+                                } else {
+                                    bot.executeNextTrade(symbol, closed);
                                 }
+                            } catch (err) {
+                                LOGGER.error(`[${symbol}] Trade execution error: ${err.message}`);
+                                bot._forceReleaseTradeLock();
                             }
                         }
                     }
@@ -2764,12 +2759,7 @@ class IndexBot {
         const a = state.assets[symbol];
         if (!a) return false;
         if (!CONFIG.USE_RECOVERY_STRATEGY || !a.isRecovery || !a.lastTradeDirection) return false;
-        // Exclusive: only exclusive-locked asset may trade while any asset is locked (recovery or post-MAX wait)
-        const exclusiveAsset = this._getExclusiveAsset ? this._getExclusiveAsset() : this._getRecoveryAsset();
-        if (exclusiveAsset && exclusiveAsset !== symbol) {
-            LOGGER.info(`[${symbol}] Blocked — exclusive lock on ${exclusiveAsset} (recovery)`);
-            return false;
-        }
+        // v2: independent assets — no global exclusive check for recovery
         if (a.cooldownCandles > 0) {
             LOGGER.info(`[${symbol}] Recovery deferred — cool-down ${a.cooldownCandles} candles`);
             return false;
@@ -2894,15 +2884,8 @@ class IndexBot {
             return;
         }
 
-        // Exclusive lock: only locked asset may trade until win (recovery + post-MAX signal-wait)
-        const exclusiveAsset = this._getExclusiveAsset ? this._getExclusiveAsset() : this._getRecoveryAsset();
-        if (exclusiveAsset && exclusiveAsset !== symbol) {
-            const ea = state.assets[exclusiveAsset];
-            const reason = ea?.waitingForNewSignal ? `waiting-for-signal (post-${CONFIG.MAX_CONSECUTIVE_LOSSES}, CL=${ea.consecutiveLosses})` : `recovery CL=${ea?.consecutiveLosses ?? 0}`;
-            LOGGER.info(`[${symbol}] Blocked — exclusive lock on ${exclusiveAsset} (${reason}, only ${exclusiveAsset} may trade until win)`);
-            assetState.canTrade = false;
-            return;
-        }
+        // v2: assets trade independently — no global exclusive lock (per-asset stake/TP/SL/losses separate)
+        // Note: _getExclusiveAsset still exists for compat but not used to block other assets
 
         let direction;
         let analysis = null;
