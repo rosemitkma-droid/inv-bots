@@ -125,7 +125,7 @@ const _BASE_CONFIG = {
   // assets: ('R_10,R_25,R_50,R_75,R_100,BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
   //   .split(',').map(s => s.trim()).filter(Boolean),
   // assets: ('R_10,R_25,R_50,R_75,R_100').split(',').map(s => s.trim()).filter(Boolean),
-  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
+  assets: ('R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // Telegram
@@ -314,11 +314,11 @@ const _BASE_CONFIG = {
   barrierRefreshMs: parseInt('45000', 10),
   tradeWatchdogMs: parseInt('120000', 10),
   maxTelegramQueue: parseInt('100', 10),
-  logFile: 'accuPULSE3BC_v5n_0003.log',
+  logFile: 'accuPULSE3BC_v5n_0004.log',
   logLevel: 'INFO3BC_v5n',
-  stateFile: 'accuPULSE3BC_state_v5n_0003.json',
-  metricsFile: 'metricsBC_v5n_0003.json',
-  metricsFileV5: 'accuPULSE3BC_analysis_v5n_0003.jsonl',  // Feature 7: Full metrics logging
+  stateFile: 'accuPULSE3BC_state_v5n_0004.json',
+  metricsFile: 'metricsBC_v5n_0004.json',
+  metricsFileV5: 'accuPULSE3BC_analysis_v5n_0004.jsonl',  // Feature 7: Full metrics logging
   // All wall-clock times below are GMT+1 (see BOT_TZ_OFFSET_HOURS).
   // eodTimeGmt '00:00' = midnight GMT+1. pauseWindowsGmt entries are
   // [from, to] pairs in GMT+1 'HH:MM'. timeOfDayLimits keys are GMT+1 hours.
