@@ -2,14 +2,15 @@
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║   DERIV SYNTHETIC INDICES CALLE/PUTE BOT — v3  "CROSS + CANDLE FILTER"   ║
- * ║  STRATEGY (v3 entry — every valid cross + confirmation-candle filter):  ║
+ * ║   DERIV SYNTHETIC INDICES CALLE/PUTE BOT — v3  "CROSS + CANDLE + HAMMER" ║
+ * ║  STRATEGY (v3 entry — every valid cross + reversal candle pattern):     ║
  * ║  BUY:  WPR crosses above -80 (prev <= -80 → cur > -80) AND the          ║
- * ║        confirmation candle (the candle closing above -80) is BEARISH    ║
- * ║        (close < open) → CALLE (Rise)                                    ║
+ * ║        confirmation candle is a BEARISH HAMMER reversal                  ║
+ * ║        (close < open, long lower shadow — hammer shape) → CALLE (Rise)  ║
  * ║  SELL: WPR crosses below -20 (prev >= -20 → cur < -20) AND the          ║
- * ║        confirmation candle (the candle closing below -20) is BULLISH    ║
- * ║        (close > open) → PUTE (Fall). Doji (close == open) = no trade.   ║
+ * ║        confirmation candle is a BULLISH HANGING MAN reversal            ║
+ * ║        (close > open, long lower shadow — hanging-man shape) → PUTE.    ║
+ * ║        Doji or non-pattern candle = no trade.                           ║
  * ║  MULTI-ASSET: each asset fully independent — own stake, martingale      ║
  * ║  level, x2/x3.. loss counters, investment pool. One asset's win/loss    ║
  * ║  never touches another asset. Concurrent positions allowed (1/asset).   ║
@@ -90,8 +91,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRFv3-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRFv3-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRFv3_01-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRFv3_01-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -151,6 +152,17 @@ const CONFIG = {
     WPR_PERIOD: 7,
     WPR_OVERBOUGHT: -20,
     WPR_OVERSOLD: -80,
+
+    // ── Reversal Candle Pattern Settings (Hammer / Hanging Man) ─
+    // Both share the classic single-candle pin-bar shape:
+    //   • small body near the high, very long lower shadow, tiny upper shadow.
+    // Shape is identical — "Hammer" (for CALLE buys) and "Hanging Man" (for
+    // PUTE sells) differ only by WPR context and required candle colour.
+    HAMMER_LOWER_RATIO: 2.0,       // lowerShadow >= this × body
+    HAMMER_MAX_UPPER_BODY_RATIO: 0.5, // upperShadow <= this × body (if body tiny, also capped by range)
+    HAMMER_MAX_UPPER_RANGE_RATIO: 0.15, // upperShadow <= this × full range (handles doji-like tiny bodies)
+    HAMMER_MAX_BODY_RANGE_RATIO: 0.35, // body <= this × full range
+    HAMMER_MIN_RANGE_TICKS: 0,    // if >0, skip candles with range < ticks × point (0 = off)
     // Deprecated: MAX_CONSECUTIVE_LOSSES removed — v4 recovers until win
     // (capped only by CONTINUE_EXTRA_LEVELS / investment pool per asset).
     MAX_CONSECUTIVE_LOSSES: 9,
@@ -286,6 +298,70 @@ class TechnicalIndicators {
         }
         return values;
     }
+
+    /**
+     * Hammer / Hanging-Man shape detector (single-candle pin-bar).
+     * Both patterns share identical geometry — small body at the top of the
+     * range, very long lower shadow, negligible upper shadow. The names
+     * differ only by trade context (WPR oversold→CALLE vs overbought→PUTE)
+     * and the colour filter applied by the caller.
+     * Returns { isHammer, details } where details explains the check.
+     */
+    static isHammerLike(candle) {
+        const o = Number(candle?.open);
+        const h = Number(candle?.high);
+        const l = Number(candle?.low);
+        const c = Number(candle?.close);
+        if (![o, h, l, c].every(Number.isFinite)) return { ok: false, reason: 'invalid OHLC' };
+        if (h < l || h < Math.max(o, c) || l > Math.min(o, c)) return { ok: false, reason: 'inconsistent OHLC' };
+        const range = h - l;
+        if (!Number.isFinite(range) || range <= 0) return { ok: false, reason: 'zero range' };
+        if (CONFIG.HAMMER_MIN_RANGE_TICKS > 0 && range < CONFIG.HAMMER_MIN_RANGE_TICKS) {
+            return { ok: false, reason: `range ${range.toFixed(5)} < min ${CONFIG.HAMMER_MIN_RANGE_TICKS}` };
+        }
+        const body = Math.abs(c - o);
+        const upper = h - Math.max(o, c);
+        const lower = Math.min(o, c) - l;
+        // Avoid divide-by-zero for perfect doji: treat tiny body with range cap.
+        const bodyForRatio = body < (range * 0.01) ? (range * 0.01) : body;
+        const lowerRatio = lower / bodyForRatio;
+        const bodyRangeRatio = body / range;
+        const upperRangeRatio = upper / range;
+        // Conditions:
+        // 1) lower shadow is dominant
+        if (lower < CONFIG.HAMMER_LOWER_RATIO * bodyForRatio) {
+            return { ok: false, reason: `lower shadow too short (${lower.toFixed(5)} < ${CONFIG.HAMMER_LOWER_RATIO}×body ${bodyForRatio.toFixed(5)})`, details: { body, upper, lower, range } };
+        }
+        // 2) body is small vs whole range
+        if (bodyRangeRatio > CONFIG.HAMMER_MAX_BODY_RANGE_RATIO) {
+            return { ok: false, reason: `body too large vs range (${(bodyRangeRatio * 100).toFixed(1)}% > ${(CONFIG.HAMMER_MAX_BODY_RANGE_RATIO * 100).toFixed(0)}%)`, details: { body, upper, lower, range } };
+        }
+        // 3) upper shadow is tiny: must satisfy BOTH a body-relative and a range-relative cap
+        //    (range cap handles the doji edge where body≈0 would otherwise pass any body-relative test)
+        const upperOkBody = upper <= CONFIG.HAMMER_MAX_UPPER_BODY_RATIO * bodyForRatio;
+        const upperOkRange = upper <= CONFIG.HAMMER_MAX_UPPER_RANGE_RATIO * range;
+        if (!upperOkBody && !upperOkRange) {
+            return { ok: false, reason: `upper shadow too long (${upper.toFixed(5)} > ${CONFIG.HAMMER_MAX_UPPER_BODY_RATIO}×body and > ${(CONFIG.HAMMER_MAX_UPPER_RANGE_RATIO * 100).toFixed(0)}% range)`, details: { body, upper, lower, range } };
+        }
+        // Also require body not too far from the top: lower shadow must place the body in the upper half.
+        // This is already implied by the long lower shadow, but add explicit check: body top within upper 40% of range.
+        const bodyTop = Math.max(o, c);
+        const topDist = h - bodyTop;
+        if (topDist > CONFIG.HAMMER_MAX_UPPER_RANGE_RATIO * range && topDist > CONFIG.HAMMER_MAX_UPPER_BODY_RATIO * bodyForRatio) {
+            return { ok: false, reason: `body not near high (top gap ${topDist.toFixed(5)})`, details: { body, upper, lower, range } };
+        }
+        return { ok: true, reason: `hammer-like: body ${body.toFixed(5)} (${(bodyRangeRatio * 100).toFixed(1)}% range), lower ${lower.toFixed(5)} (${lowerRatio.toFixed(1)}×), upper ${upper.toFixed(5)} (${(upperRangeRatio * 100).toFixed(1)}% range)`, details: { body, upper, lower, range, lowerRatio, bodyRangeRatio, upperRangeRatio } };
+    }
+
+    static isHammer(candle) {
+        // Hammer (for CALLE buys): same geometry, must be bearish — colour checked by SignalManager.
+        return this.isHammerLike(candle);
+    }
+
+    static isHangingMan(candle) {
+        // Hanging Man (for PUTE sells): identical geometry — colour checked by SignalManager.
+        return this.isHammerLike(candle);
+    }
 }
 
 // ============================================================
@@ -322,7 +398,7 @@ class SignalManager {
 
     /**
      * Check BUY signal v3: WPR crosses above oversold (-80) AND the
-     * confirmation candle (the candle closing above -80) is BEARISH.
+     * confirmation candle is a BEARISH Hammer reversal.
      * Returns {shouldTrade, direction, reason, details}
      */
     static checkBuySignal(symbol, confirmingCandle = null) {
@@ -338,25 +414,31 @@ class SignalManager {
         }
         const co = Number(confirmingCandle?.open);
         const cc = Number(confirmingCandle?.close);
-        if (!Number.isFinite(co) || !Number.isFinite(cc)) {
+        const ch = Number(confirmingCandle?.high);
+        const cl = Number(confirmingCandle?.low);
+        if (![co, cc, ch, cl].every(Number.isFinite)) {
             return { shouldTrade: false, reason: `BUY cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} but confirmation candle unavailable — no trade`, details: { wpr, prevWpr } };
         }
         if (!(cc < co)) {
             const kind = cc > co ? 'BULLISH' : 'DOJI';
-            return { shouldTrade: false, reason: `BUY cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} rejected — confirmation candle is ${kind} (need BEARISH close<open)`, details: { wpr, prevWpr, candleOpen: co, candleClose: cc } };
+            return { shouldTrade: false, reason: `BUY cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} rejected — confirmation candle is ${kind} (need BEARISH Hammer close<open)`, details: { wpr, prevWpr, candleOpen: co, candleClose: cc } };
+        }
+        const pat = TechnicalIndicators.isHammer(confirmingCandle);
+        if (!pat.ok) {
+            return { shouldTrade: false, reason: `BUY cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} rejected — confirmation candle is bearish but NOT a Hammer: ${pat.reason}`, details: { wpr, prevWpr, candleOpen: co, candleClose: cc, candleHigh: ch, candleLow: cl, pattern: pat } };
         }
         return {
             shouldTrade: true,
             direction: 'CALLE',
             confidence: 1,
-            reason: `WPR v3 BUY cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} above oversold ${CONFIG.WPR_OVERSOLD} + BEARISH confirmation (O:${co.toFixed(5)} C:${cc.toFixed(5)})`,
-            details: { wpr, prevWpr, candleOpen: co, candleClose: cc }
+            reason: `WPR v3 BUY cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} above oversold ${CONFIG.WPR_OVERSOLD} + BEARISH Hammer (O:${co.toFixed(5)} C:${cc.toFixed(5)} H:${ch.toFixed(5)} L:${cl.toFixed(5)} — ${pat.reason})`,
+            details: { wpr, prevWpr, candleOpen: co, candleClose: cc, candleHigh: ch, candleLow: cl, pattern: pat }
         };
     }
 
     /**
      * Check SELL signal v3: WPR crosses below overbought (-20) AND the
-     * confirmation candle (the candle closing below -20) is BULLISH.
+     * confirmation candle is a BULLISH Hanging Man reversal.
      */
     static checkSellSignal(symbol, confirmingCandle = null) {
         const a = state.assets[symbol];
@@ -371,19 +453,25 @@ class SignalManager {
         }
         const co = Number(confirmingCandle?.open);
         const cc = Number(confirmingCandle?.close);
-        if (!Number.isFinite(co) || !Number.isFinite(cc)) {
+        const ch = Number(confirmingCandle?.high);
+        const cl = Number(confirmingCandle?.low);
+        if (![co, cc, ch, cl].every(Number.isFinite)) {
             return { shouldTrade: false, reason: `SELL cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} but confirmation candle unavailable — no trade`, details: { wpr, prevWpr } };
         }
         if (!(cc > co)) {
             const kind = cc < co ? 'BEARISH' : 'DOJI';
-            return { shouldTrade: false, reason: `SELL cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} rejected — confirmation candle is ${kind} (need BULLISH close>open)`, details: { wpr, prevWpr, candleOpen: co, candleClose: cc } };
+            return { shouldTrade: false, reason: `SELL cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} rejected — confirmation candle is ${kind} (need BULLISH Hanging Man close>open)`, details: { wpr, prevWpr, candleOpen: co, candleClose: cc } };
+        }
+        const pat = TechnicalIndicators.isHangingMan(confirmingCandle);
+        if (!pat.ok) {
+            return { shouldTrade: false, reason: `SELL cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} rejected — confirmation candle is bullish but NOT a Hanging Man: ${pat.reason}`, details: { wpr, prevWpr, candleOpen: co, candleClose: cc, candleHigh: ch, candleLow: cl, pattern: pat } };
         }
         return {
             shouldTrade: true,
             direction: 'PUTE',
             confidence: 1,
-            reason: `WPR v3 SELL cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} below overbought ${CONFIG.WPR_OVERBOUGHT} + BULLISH confirmation (O:${co.toFixed(5)} C:${cc.toFixed(5)})`,
-            details: { wpr, prevWpr, candleOpen: co, candleClose: cc }
+            reason: `WPR v3 SELL cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} below overbought ${CONFIG.WPR_OVERBOUGHT} + BULLISH Hanging Man (O:${co.toFixed(5)} C:${cc.toFixed(5)} H:${ch.toFixed(5)} L:${cl.toFixed(5)} — ${pat.reason})`,
+            details: { wpr, prevWpr, candleOpen: co, candleClose: cc, candleHigh: ch, candleLow: cl, pattern: pat }
         };
     }
 
@@ -392,14 +480,21 @@ class SignalManager {
         if (buySig.shouldTrade) return buySig;
         const sellSig = this.checkSellSignal(symbol, confirmingCandle);
         if (sellSig.shouldTrade) return sellSig;
-        // Prefer more informative reason — a detected-but-filtered cross beats "no cross".
-        const sellCrossed = /SELL cross/.test(sellSig.reason || '');
+        // Prefer a detected-but-filtered cross over a generic "No ... cross".
+        // A filtered cross is any reason that is NOT the plain "No BUY/SELL cross" prefix.
+        const buyHadCross = buySig.reason && !buySig.reason.startsWith('No BUY cross') && !buySig.reason.startsWith('WPR not ready');
+        const sellHadCross = sellSig.reason && !sellSig.reason.startsWith('No SELL cross') && !sellSig.reason.startsWith('WPR not ready');
         const a = state.assets[symbol];
+        let reason;
+        if (buyHadCross && !sellHadCross) reason = buySig.reason;
+        else if (sellHadCross && !buyHadCross) reason = sellSig.reason;
+        else if (buyHadCross && sellHadCross) reason = `${buySig.reason} | ${sellSig.reason}`;
+        else reason = buySig.reason || sellSig.reason || `No WPR v3 signal wpr=${a?.wpr?.toFixed(2) ?? 'n/a'} prev=${a?.prevWpr?.toFixed(2) ?? 'n/a'}`;
         return {
             shouldTrade: false,
             direction: null,
             confidence: 0,
-            reason: (sellCrossed ? sellSig.reason : buySig.reason) || sellSig.reason || `No WPR v3 signal wpr=${a?.wpr?.toFixed(2) ?? 'n/a'} prev=${a?.prevWpr?.toFixed(2) ?? 'n/a'}`,
+            reason,
             details: { wpr: a?.wpr, prevWpr: a?.prevWpr }
         };
     }
@@ -599,11 +694,12 @@ class BacktestEngine {
             // ── WPR computation on closed array (v2: no flag arming; v3 candle filter below) ──
             const wpr = TechnicalIndicators.calculateWPR(closed, period);
             const prevWpr = closed.length >= 2 ? TechnicalIndicators.calculateWPR(closed.slice(0, -1), period) : null;
-            // v3: EVERY valid confirmed-candle cross + candle filter trades.
-            // BUY needs a BEARISH confirming candle, SELL a BULLISH one (doji = skip).
+            // v3: EVERY valid confirmed-candle cross + candle filter + pattern trades.
+            // BUY needs a BEARISH Hammer, SELL a BULLISH Hanging Man (doji/wrong shape = skip).
             if (!Number.isFinite(wpr) || !Number.isFinite(prevWpr)) continue;
-            const buyCross = prevWpr <= CONFIG.WPR_OVERSOLD && wpr > CONFIG.WPR_OVERSOLD && c.close < c.open;
-            const sellCross = prevWpr >= CONFIG.WPR_OVERBOUGHT && wpr < CONFIG.WPR_OVERBOUGHT && c.close > c.open;
+            const pat = TechnicalIndicators.isHammerLike(c);
+            const buyCross = prevWpr <= CONFIG.WPR_OVERSOLD && wpr > CONFIG.WPR_OVERSOLD && c.close < c.open && pat.ok;
+            const sellCross = prevWpr >= CONFIG.WPR_OVERBOUGHT && wpr < CONFIG.WPR_OVERBOUGHT && c.close > c.open && pat.ok;
             let direction = null;
             if (buyCross) direction = 'CALLE';
             else if (sellCross) direction = 'PUTE';
@@ -1153,7 +1249,7 @@ class TelegramService {
 
         await this.sendMessage([
             `🤖 <b>BizWillRFv3 STARTED — CROSS+CANDLE MULTI-ASSET</b>`,
-            `Strategy v3: Williams %R(${CONFIG.WPR_PERIOD}) cross ABOVE ${CONFIG.WPR_OVERSOLD} + BEARISH candle → CALLE | cross BELOW ${CONFIG.WPR_OVERBOUGHT} + BULLISH candle → PUTE (every valid cross + candle filter)`,
+            `Strategy v3: Williams %R(${CONFIG.WPR_PERIOD}) cross ABOVE ${CONFIG.WPR_OVERSOLD} + BEARISH Hammer → CALLE | cross BELOW ${CONFIG.WPR_OVERBOUGHT} + BULLISH Hanging Man → PUTE`,
             `Recovery: SIGNAL-WAIT — after loss wait for NEW signal, trade its direction with x-multiplier until win → reset to default`,
             `Independence: own stake/martingale/x2-x9/pool per asset, concurrent (1 open/asset, ${CONFIG.MAX_TOTAL_POSITIONS} total)`,
             `Pools sum: $${state.capital.toFixed(2)}`,
@@ -2197,7 +2293,7 @@ class IndexBot {
         console.log(' DERIV CALLE/PUTE BOT v3 — CROSS+CANDLE FILTER + SIGNAL-WAIT RECOVERY');
         console.log('═'.repeat(74));
         console.log(`Assets    : ${CONFIG.ACTIVE_ASSETS.join(', ')} (independent pools/stakes)`);
-        console.log(`WPR v3    : Period=${CONFIG.WPR_PERIOD} OB=${CONFIG.WPR_OVERBOUGHT} OS=${CONFIG.WPR_OVERSOLD} | BUY: cross ABOVE -80 + BEARISH candle → CALLE | SELL: cross BELOW -20 + BULLISH candle → PUTE`);
+        console.log(`WPR v3    : Period=${CONFIG.WPR_PERIOD} OB=${CONFIG.WPR_OVERBOUGHT} OS=${CONFIG.WPR_OVERSOLD} | BUY: cross ABOVE -80 + BEARISH Hammer → CALLE | SELL: cross BELOW -20 + BULLISH Hanging Man → PUTE`);
         console.log(`Timeframe : ${CONFIG.TIMEFRAME_LABEL} candles | Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} | Recovery: wait for NEW signal, stake x-multiplier, reset on win`);
         console.log(`Risk      : Per-asset martingale pools: ${CONFIG.ACTIVE_ASSETS.map(s => `${s}=$${getAssetConfig(s).INVESTMENT_AMOUNT}`).join(', ')}`);
         console.log(`Capital   : $${state.capital.toFixed(2)}`);
