@@ -106,9 +106,9 @@ const CONFIG = Object.freeze({
 
   // ── Trade parameters (memoryless, non-signal) ──
   stake              : parseFloat('1.00'),   // flat stake per trade
-  takeProfitMultiple : parseFloat('1.50'),   // sell when payout ≥ stake × this
-  tickCapFraction    : parseFloat('0.20'),   //0.55 tick-cap = frac × live ticks_stayed_in median
-  growthRate         : parseFloat('0.02'),   // one of {0.01, 0.02, 0.03, 0.04, 0.05}
+  takeProfitMultiple : parseFloat('2.50'),   // sell when payout ≥ stake × this
+  tickCapFraction    : parseFloat('1.20'),   //0.55 tick-cap = frac × live ticks_stayed_in median
+  growthRate         : parseFloat('0.01'),   // one of {0.01, 0.02, 0.03, 0.04, 0.05}
 
   // ── Rate-limited entry ──
   perSymbolCooldownMs : parseInt('8000',  10),   // between trades on the same symbol
@@ -122,7 +122,7 @@ const CONFIG = Object.freeze({
   stopLossPerContract : parseFloat('0'),         // 0 = disabled (rely on knockout)
 
   // ── Instruments (BOOM + CRASH families, run both) ──
-  assets: ('BOOM50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH50,CRASH500,CRASH600,CRASH900,CRASH1000')
+  assets: ('BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Telegram (existing hardcoded values) ──
@@ -155,9 +155,9 @@ const CONFIG = Object.freeze({
   hourlySummary      : true,
 
   // ── Logging / state ──
-  logFile           : 'accuHOLD_01.log',
+  logFile           : 'accuHOLD_04.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD_state_01.json',
+  stateFile         : 'accuHOLD_state_04.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
