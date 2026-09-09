@@ -82,7 +82,7 @@ const CONFIG = Object.freeze({
   // ── Calibration v2 (relaxed) ──────────────────────────────────────
   calibrationMinIntervals: 50,                          // was 200 — now 50
   calibrationBuckets: [0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.5,3,4,6,Infinity],
-  calibrationP: 0.05,                                   // was 0.01 — now 0.05
+  calibrationP: 0.01,                                   // was 0.01 — now 0.05
   wilsonZ: 1.96,
   historyCap: 80000,
   deepBackfillBatch: 1000,
@@ -90,7 +90,7 @@ const CONFIG = Object.freeze({
 
   // ── Trading v2 — per-spike, hold derived from mean + EV search (adaptive) ─
   stake: 1,
-  growthRate: 0.01,
+  growthRate: 0.02, // 0.02
   minBarrierPct: 0.00001,
   maxOpenTrades: 2,                // allow 2 concurrent (10 assets, hold 5-15 ticks)
   tradeCooldownMs: 800,
@@ -112,8 +112,8 @@ const CONFIG = Object.freeze({
 
   reconnect: { initialDelayMs:1000, maxDelayMs:60000, backoffFactor:2, jitterMs:750 },
   watchdogMs: 90000,
-  stateFile: 'hazardBot_v2_01_state.json',
-  logFile: 'hazardBot_v2_01.log',
+  stateFile: 'hazardBot_v2_02_state.json',
+  logFile: 'hazardBot_v2_02.log',
   logLevel: 'INFO',
   telegram: {
     enabled: true,
