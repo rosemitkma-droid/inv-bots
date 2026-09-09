@@ -95,7 +95,7 @@ const CONFIG = Object.freeze({
   martingaleMultiplier: 2.1,                 // multiply on each loss (e.g. 2.1 = ×2.1)
   martingaleSteps: 8,                        // max consecutive martingale doubles before reset to base
   martingaleMaxStake: 100,                   // hard cap to avoid insane stake
-  growthRate: 0.02, // 0.02
+  growthRate: 0.01, // 0.02
   minBarrierPct: 0.000006,
   maxOpenTrades: 1,                // allow 2 concurrent (10 assets, hold 5-15 ticks)
   tradeCooldownMs: 800,
@@ -104,7 +104,7 @@ const CONFIG = Object.freeze({
   entryDelayFrac: 0.30,            // fallback entryAfter = round(mean * entryDelayFrac)
   holdFrac: 0.18,                  // fallback hold base = round(mean * holdFrac)
   holdMin: 5,
-  holdMax: 20,                     // was 25 — allow longer holds for low-freq
+  holdMax: 60,                     // was 25 — allow longer holds for low-freq
   entryDelayMin: 3,
   entryDelayMax: 40,               // was 15 — low-freq needs 30-40
 
@@ -117,8 +117,8 @@ const CONFIG = Object.freeze({
 
   reconnect: { initialDelayMs:1000, maxDelayMs:60000, backoffFactor:2, jitterMs:750 },
   watchdogMs: 90000,
-  stateFile: 'hazardBot_v2_001_state.json',
-  logFile: 'hazardBot_v2_001.log',
+  stateFile: 'hazardBot_v2_002_state.json',
+  logFile: 'hazardBot_v2_002.log',
   logLevel: 'INFO',
   telegram: {
     enabled: true,
