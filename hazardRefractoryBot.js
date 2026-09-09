@@ -79,7 +79,7 @@ const CONFIG = Object.freeze({
     spikeDirection: 'auto',
   },
 
-  // ── Calibration v2 (relaxed) ──────────────────────────────────────
+  // ── Calibration v1 (relaxed) ──────────────────────────────────────
   calibrationMinIntervals: 5,                          // was 200 — now 50
   calibrationBuckets: [0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.5,3,4,6,Infinity],
   calibrationP: 0.01,                                   // was 0.01 — now 0.05
@@ -88,9 +88,9 @@ const CONFIG = Object.freeze({
   deepBackfillBatch: 1000,
   deepBackfillTarget: 5000,
 
-  // ── Trading v2 — per-spike, hold derived from mean + EV search (adaptive) ─
+  // ── Trading v1 — per-spike, hold derived from mean + EV search (adaptive) ─
   stake: 1,
-  growthRate: 0.02, // 0.02
+  growthRate: 0.01, // 0.02
   minBarrierPct: 0.000006,
   maxOpenTrades: 1,                // allow 2 concurrent (10 assets, hold 5-15 ticks)
   tradeCooldownMs: 800,
@@ -99,7 +99,7 @@ const CONFIG = Object.freeze({
   entryDelayFrac: 0.30,            // fallback entryAfter = round(mean * entryDelayFrac)
   holdFrac: 0.18,                  // fallback hold base = round(mean * holdFrac)
   holdMin: 5,
-  holdMax: 20,                     // was 25 — allow longer holds for low-freq
+  holdMax: 60,                     // was 25 — allow longer holds for low-freq
   entryDelayMin: 3,
   entryDelayMax: 40,               // was 15 — low-freq needs 30-40
 
@@ -112,8 +112,8 @@ const CONFIG = Object.freeze({
 
   reconnect: { initialDelayMs:1000, maxDelayMs:60000, backoffFactor:2, jitterMs:750 },
   watchdogMs: 90000,
-  stateFile: 'hazardBot_01_state.json',
-  logFile: 'hazardBot_01.log',
+  stateFile: 'hazardBot_02_state.json',
+  logFile: 'hazardBot_02.log',
   logLevel: 'INFO',
   telegram: {
     enabled: true,
