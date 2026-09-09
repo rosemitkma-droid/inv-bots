@@ -94,7 +94,7 @@ const CONFIG = Object.freeze({
   martingaleEnabled: true,                   // master switch
   martingaleMultiplier: 2.1,                 // multiply on each loss (e.g. 2.1 = ×2.1)
   martingaleSteps: 8,                        // max consecutive martingale doubles before reset to base
-  martingaleMaxStake: 100,                   // hard cap to avoid insane stake
+  martingaleMaxStake: 200,                   // hard cap to avoid insane stake
   growthRate: 0.01, // 0.02
   minBarrierPct: 0.000006,
   maxOpenTrades: 1,                // allow 2 concurrent (10 assets, hold 5-15 ticks)
