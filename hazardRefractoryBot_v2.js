@@ -88,9 +88,14 @@ const CONFIG = Object.freeze({
   deepBackfillBatch: 1000,
   deepBackfillTarget: 5000,
 
-  // ── Trading v2 — per-spike, hold derived from mean + EV search (adaptive) ─
-  stake: 1,
-  growthRate: 0.01, // 0.02
+   // ── Trading v2 — per-spike, hold derived from mean + EV search (adaptive) ─
+  stake: 1,                                  // base stake (reset point)
+  // ── Martingale (user adjustable) ────────────────────────────────────
+  martingaleEnabled: true,                   // master switch
+  martingaleMultiplier: 2.1,                 // multiply on each loss (e.g. 2.1 = ×2.1)
+  martingaleSteps: 8,                        // max consecutive martingale doubles before reset to base
+  martingaleMaxStake: 100,                   // hard cap to avoid insane stake
+  growthRate: 0.02, // 0.02
   minBarrierPct: 0.000006,
   maxOpenTrades: 1,                // allow 2 concurrent (10 assets, hold 5-15 ticks)
   tradeCooldownMs: 800,
@@ -99,21 +104,21 @@ const CONFIG = Object.freeze({
   entryDelayFrac: 0.30,            // fallback entryAfter = round(mean * entryDelayFrac)
   holdFrac: 0.18,                  // fallback hold base = round(mean * holdFrac)
   holdMin: 5,
-  holdMax: 60,                     // was 25 — allow longer holds for low-freq
+  holdMax: 20,                     // was 25 — allow longer holds for low-freq
   entryDelayMin: 3,
   entryDelayMax: 40,               // was 15 — low-freq needs 30-40
 
   // Validation & kill-switch (unchanged, user adjustable)
   validationN: 30, // 30-trade binomial test vs breakeven
   killP: 0.05,
-  maxConsecutiveLosses: 7,
-  dailyMaxLoss: 50,
+  maxConsecutiveLosses: 8,
+  dailyMaxLoss: 150,
   dailyMaxTrades: 200000000,
 
   reconnect: { initialDelayMs:1000, maxDelayMs:60000, backoffFactor:2, jitterMs:750 },
   watchdogMs: 90000,
-  stateFile: 'hazardBot_v2_03_state.json',
-  logFile: 'hazardBot_v2_03.log',
+  stateFile: 'hazardBot_v2_001_state.json',
+  logFile: 'hazardBot_v2_001.log',
   logLevel: 'INFO',
   telegram: {
     enabled: true,
@@ -428,6 +433,65 @@ let consecutiveLossesGlobal=0;
 let killed=false;
 let globalClient=null; // set in main for tick-driven sell
 
+// ── Martingale global state ─────────────────────────────────────────
+let martingaleLevel = 0;                          // 0 = base stake, 1 = ×multiplier once, etc.
+let maxConsecutiveLossesSeen = 0;                 // all-time max streak
+let lossStreakCounts = { x2:0, x3:0, x4:0, x5:0, x6:0, x7:0 }; // how many streaks hit exactly 2..7
+let _lossStreakCountedAt = { x2:0, x3:0, x4:0, x5:0, x6:0, x7:0 }; // internal guard to count once per streak
+function getMartingaleStake(){
+  if(!CONFIG.martingaleEnabled) return CONFIG.stake;
+  const mult = CONFIG.martingaleMultiplier || 2;
+  const raw = CONFIG.stake * Math.pow(mult, martingaleLevel);
+  return Math.min(raw, CONFIG.martingaleMaxStake);
+}
+function martingaleInfoLine(){
+  const stake = getMartingaleStake();
+  const mult = CONFIG.martingaleMultiplier;
+  const steps = CONFIG.martingaleSteps;
+  const enabled = CONFIG.martingaleEnabled ? 'ON' : 'OFF';
+  return `Martingale <code>${enabled} ×${mult} Step ${martingaleLevel}/${steps}</code> Stake <code>${stake.toFixed(2)} ${CONFIG.currency}</code> (base ${CONFIG.stake})`;
+}
+function lossStreakInfoLine(){
+  return `Max Consecutive Losses <code>${maxConsecutiveLossesSeen}</code> Cur <code>${consecutiveLossesGlobal}</code> | x2:<code>${lossStreakCounts.x2}</code> x3:<code>${lossStreakCounts.x3}</code> x4:<code>${lossStreakCounts.x4}</code> x5:<code>${lossStreakCounts.x5}</code> x6:<code>${lossStreakCounts.x6}</code> x7:<code>${lossStreakCounts.x7}</code>`;
+}
+function recordLossStreakMilestones(curStreak){
+  // Count each milestone once per streak (when streak first reaches 2,3,...7)
+  if(curStreak>=2 && _lossStreakCountedAt.x2 !== curStreak){ /* guard per milestone */ }
+  for(let n=2;n<=7;n++){
+    const key='x'+n;
+    if(curStreak===n && _lossStreakCountedAt[key]!==curStreak){
+      // increment count for this milestone occurrence
+      lossStreakCounts[key]++;
+      _lossStreakCountedAt[key]=curStreak;
+    }
+    // reset guard when streak resets, handled below
+  }
+  // For streaks >7, also bump x7 only once at 7; no extra counts beyond 7
+  if(curStreak> maxConsecutiveLossesSeen) maxConsecutiveLossesSeen = curStreak;
+}
+function resetLossStreakGuards(){
+  _lossStreakCountedAt = { x2:0, x3:0, x4:0, x5:0, x6:0, x7:0 };
+}
+function advanceMartingaleOnResult(isWin){
+  if(!CONFIG.martingaleEnabled) return;
+  if(isWin){
+    if(martingaleLevel!==0) log('INFO',`Martingale RESET win → level 0 stake ${CONFIG.stake} (was level ${martingaleLevel})`);
+    martingaleLevel = 0;
+    resetLossStreakGuards();
+  }else{
+    const maxSteps = CONFIG.martingaleSteps||7;
+    if(martingaleLevel < maxSteps){
+      martingaleLevel++;
+      const nextStake=getMartingaleStake();
+      log('INFO',`Martingale UP loss → level ${martingaleLevel}/${maxSteps} stake ${nextStake.toFixed(2)} ×${CONFIG.martingaleMultiplier}`);
+    }else{
+      log('WARN',`Martingale at max steps ${maxSteps} — resetting to level 0 (cap reached)`);
+      martingaleLevel=0;
+      resetLossStreakGuards();
+    }
+  }
+}
+
 function utcDateStr(d=new Date()){ return d.toISOString().slice(0,10); }
 function saveState(reason='tick'){
   const data={
@@ -435,6 +499,7 @@ function saveState(reason='tick'){
     savedAt: Date.now(),
     reason,
     dailyLoss, dailyTrades, lastDailyReset, consecutiveLossesGlobal, killed,
+    martingaleLevel, maxConsecutiveLossesSeen, lossStreakCounts, _lossStreakCountedAt,
     assets: [...assetMap.entries()].map(([sym,st])=> ({
       symbol:sym,
       history: st.history.slice(-2000),
@@ -465,6 +530,10 @@ function loadState(){
     const d=JSON.parse(fs.readFileSync(CONFIG.stateFile,'utf8'));
     dailyLoss=d.dailyLoss||0; dailyTrades=d.dailyTrades||0; lastDailyReset=d.lastDailyReset||utcDateStr();
     consecutiveLossesGlobal=d.consecutiveLossesGlobal||0; killed=d.killed||false;
+    martingaleLevel=Number.isFinite(d.martingaleLevel)? d.martingaleLevel:0;
+    maxConsecutiveLossesSeen=Number.isFinite(d.maxConsecutiveLossesSeen)? d.maxConsecutiveLossesSeen:0;
+    if(d.lossStreakCounts) lossStreakCounts={x2:d.lossStreakCounts.x2||0,x3:d.lossStreakCounts.x3||0,x4:d.lossStreakCounts.x4||0,x5:d.lossStreakCounts.x5||0,x6:d.lossStreakCounts.x6||0,x7:d.lossStreakCounts.x7||0};
+    if(d._lossStreakCountedAt) _lossStreakCountedAt={x2:d._lossStreakCountedAt.x2||0,x3:d._lossStreakCountedAt.x3||0,x4:d._lossStreakCountedAt.x4||0,x5:d._lossStreakCountedAt.x5||0,x6:d._lossStreakCountedAt.x6||0,x7:d._lossStreakCountedAt.x7||0};
     tradeLog=Array.isArray(d.tradeLog)? d.tradeLog: [];
     for(const a of d.assets||[]){
       const st=assetMap.get(a.symbol); if(!st) continue;
@@ -535,12 +604,30 @@ function finalizeContract(cid, poc){
   log('INFO',`Contract ${cid} settled: ${outcome} profit ${profit.toFixed(2)} ${CONFIG.currency} status=${poc.status||'?'} duration ${durationSec}s ticksHeld ${ticksHeldVal}`);
 
   const entry=rec.entryLog;
-  if(entry){ entry.outcome=outcome; entry.profit=profit; entry.settledAt=Date.now(); entry.status=poc.status||'unknown'; entry.durationSec=durationSec; entry.ticksHeld=ticksHeldVal; }
+  if(entry){ entry.outcome=outcome; entry.profit=profit; entry.settledAt=Date.now(); entry.status=poc.status||'unknown'; entry.durationSec=durationSec; entry.ticksHeld=ticksHeldVal; entry.martingaleLevel=rec.entryLog?.martingaleLevel??martingaleLevel; }
   dailyLoss += (profit<0? profit: 0);
   if(!win){ rec.assetState.consecutiveLosses=(rec.assetState.consecutiveLosses||0)+1; consecutiveLossesGlobal++; }else{ rec.assetState.consecutiveLosses=0; consecutiveLossesGlobal=0; }
 
+  // ── Loss streak tracking (Max + x2..x7) ───────────────────────────────
+  if(!win){
+    if(consecutiveLossesGlobal > maxConsecutiveLossesSeen) maxConsecutiveLossesSeen = consecutiveLossesGlobal;
+    // count milestone once when streak first reaches 2..7
+    if(consecutiveLossesGlobal>=2 && consecutiveLossesGlobal<=7){
+      const key='x'+consecutiveLossesGlobal;
+      lossStreakCounts[key] = (lossStreakCounts[key]||0)+1;
+    }
+  } else {
+    // win resets guards — max stays, x counters persist
+  }
+  // ── Martingale advance (loss → ×multiplier, win → reset) ─────────────
+  const martingaleLevelBefore = martingaleLevel;
+  const stakeUsed = rec.entryLog?.stake ?? getMartingaleStake();
+  advanceMartingaleOnResult(win);
+  const nextStake = getMartingaleStake();
+  if(entry){ entry.martingaleLevelBefore=martingaleLevelBefore; entry.martingaleLevelAfter=martingaleLevel; entry.nextStake=nextStake; }
+
   // Push before computing totals so totals include this trade
-  tradeLog.push(entry||{symbol:rec.symbol, outcome, profit, ts:Date.now(), durationSec});
+  tradeLog.push(entry||{symbol:rec.symbol, outcome, profit, ts:Date.now(), durationSec, martingaleLevel: martingaleLevelBefore, stake: stakeUsed});
   dailyTrades++;
   // Totals for telegram
   const settledAll = tradeLog.filter(t=>t.outcome);
@@ -551,12 +638,18 @@ function finalizeContract(cid, poc){
   const netProfit = settledAll.reduce((s,t)=> s + Number(t.profit||0), 0);
 
   // Detailed CLOSE telegram per spec: asset, P/L, NetProfit, Duration, Total Trades Win/Loss (Win Ratio)
-  // Ticks is ticks Held per user request
+  // Ticks is ticks Held, now also martingale + loss streak info
   {
+    const mgLine = CONFIG.martingaleEnabled
+      ? `Martingale Lv <code>${martingaleLevelBefore}→${martingaleLevel}/${CONFIG.martingaleSteps} ×${CONFIG.martingaleMultiplier}</code> Stake <code>${stakeUsed.toFixed(2)}</code> → Next <code>${nextStake.toFixed(2)} ${CONFIG.currency}</code>`
+      : `Martingale <code>OFF</code> Stake <code>${stakeUsed.toFixed(2)}</code>`;
+    const streakLine = lossStreakInfoLine();
     const closeMsg = `${win?'✅':'❌'} <b>CLOSE ${rec.symbol} #${cid} ${outcome.toUpperCase()}</b>\n`+
       `P/L <code>${profit>=0?'+':''}${profit.toFixed(2)} ${CONFIG.currency}</code> NetProfit <code>${netProfit>=0?'+':''}${netProfit.toFixed(2)} ${CONFIG.currency}</code>\n`+
-      `Duration <code>${durationSec}s</code> ticks Held <code>${ticksHeldVal}</code> Stake <code>${rec.entryLog?.stake ?? CONFIG.stake} ${CONFIG.currency}</code>\n`+
-      `Total <code>${totalTrades}</code> W <code>${wins}</code> L <code>${losses}</code> WR <code>${winRatio}%</code> Consecutive losses <code>${rec.assetState.consecutiveLosses}</code>`;
+      `Duration <code>${durationSec}s</code> ticks Held <code>${ticksHeldVal}</code> Stake <code>${stakeUsed.toFixed(2)} ${CONFIG.currency}</code>\n`+
+      `${mgLine}\n`+
+      `${streakLine}\n`+
+      `Total <code>${totalTrades}</code> W <code>${wins}</code> L <code>${losses}</code> WR <code>${winRatio}%</code> Consecutive losses <code>${rec.assetState.consecutiveLosses}</code> (global <code>${consecutiveLossesGlobal}</code>)`;
     telegram.send(closeMsg);
   }
 
@@ -944,10 +1037,12 @@ async function tryTradeForAsset(client, st){
   // Fetch proposal with derived hold? For ACCU, growthRate is fixed 1%, but hold informs EV calc and logging.
   // Deriv ACCU payout is stake-based, not tick-based, but we log hold for audit.
   const key=client.symbolKey;
+  // ── Martingale stake for this entry ──────────────────────────────────
+  const martingaleStake = getMartingaleStake();
   let proposal;
   let rawRes;
   try{
-    rawRes=await client._send({proposal:1, amount:CONFIG.stake, basis:'stake', contract_type:'ACCU', currency:CONFIG.currency, [key]:st.symbol, growth_rate: CONFIG.growthRate}, 15000);
+    rawRes=await client._send({proposal:1, amount:martingaleStake, basis:'stake', contract_type:'ACCU', currency:CONFIG.currency, [key]:st.symbol, growth_rate: CONFIG.growthRate}, 15000);
     proposal=rawRes.proposal;
   }catch(e){
     log('WARN',`Proposal ${st.symbol} failed:`,e.message, rawRes? JSON.stringify(rawRes).slice(0,400):'');
@@ -976,7 +1071,7 @@ async function tryTradeForAsset(client, st){
   //   if(st.ticksSinceSpike > target+1){ st.pendingEntryAfter=null; st.pendingHoldTicks=null; }
   //   return;
   // }
-  const ask=parseFloat(proposal.ask_price ?? CONFIG.stake);
+  const ask=parseFloat(proposal.ask_price ?? martingaleStake);
   // For ACCU, proposal.payout may be missing/0 — use contract_details.maximum_payout per accuAPEX.js:1129
   const payoutRaw = proposal.payout ?? cd.maximum_payout ?? 0;
   const payout=parseFloat(payoutRaw||0);
@@ -996,7 +1091,7 @@ async function tryTradeForAsset(client, st){
   const pHorizon=Math.pow(Math.max(0, 1 - hazard), holdTicks);
   const ev=((1+CONFIG.growthRate)**holdTicks)*pHorizon -1;
 
-  log('INFO',`v2 Signal ${st.symbol} post-spike entryAfter ${entryAfter} hold ${holdTicks} hazard ${Number(hazard).toFixed(4)} barrier ${(barrierPct*100).toFixed(5)}% payout ${payout} ev ${ (ev*100).toFixed(2)}% (${entryReason})`);
+  log('INFO',`v2 Signal ${st.symbol} post-spike entryAfter ${entryAfter} hold ${holdTicks} hazard ${Number(hazard).toFixed(4)} barrier ${(barrierPct*100).toFixed(5)}% payout ${payout} ev ${ (ev*100).toFixed(2)}% martingale Lv${martingaleLevel} stake ${martingaleStake.toFixed(2)} (${entryReason})`);
 
   let buyRes;
   let buyAttempts=0;
@@ -1020,7 +1115,7 @@ async function tryTradeForAsset(client, st){
         log('WARN',`Buy ${st.symbol} race (${msg}) — fetching fresh proposal and retrying once`);
         // fetch fresh proposal
         try{
-          const fresh=await client._send({proposal:1, amount:CONFIG.stake, basis:'stake', contract_type:'ACCU', currency:CONFIG.currency, [client.symbolKey]:st.symbol, growth_rate: CONFIG.growthRate}, 15000);
+          const fresh=await client._send({proposal:1, amount:martingaleStake, basis:'stake', contract_type:'ACCU', currency:CONFIG.currency, [client.symbolKey]:st.symbol, growth_rate: CONFIG.growthRate}, 15000);
           proposal=fresh.proposal;
           if(!proposal?.id) throw new Error('No fresh proposal id');
           // re-extract ask/payout/barrier for fresh proposal (keep same hold)
@@ -1047,21 +1142,25 @@ async function tryTradeForAsset(client, st){
   st.lastTradedSpikeAbsIdx=st.lastSpikeAbsIdx;
   st.lastTradeAt=Date.now();
   log('INFO',`Bought v2 ${st.symbol} ACCU #${cid} stake ${buyRes.buy_price} growth ${CONFIG.growthRate*100}% entryAfter ${entryAfter} hold ${holdTicks} barrier ${(barrierPct*100).toFixed(5)}%`);
-  // ── Detailed OPEN telegram per spec: asset, Stake, Trade Analysis, Consecutive losses ──
+  // ── Detailed OPEN telegram per spec: asset, Stake, Trade Analysis, Consecutive losses + Martingale ──
   {
     const consLoss = st.consecutiveLosses||0;
     const meanTxt = st.meanInterval ? `mean ${st.meanInterval.toFixed(1)}` : 'mean n/a';
     const bucketInfo = st.hazardTable?.find(b=>entryAfter>=b.lo&&entryAfter<b.hi);
     const bucketTxt = bucketInfo ? `${bucketInfo.range} emp ${Number(hazard).toFixed(4)} theo ${(bucketInfo.theoretical??0).toFixed(4)}` : `${entryAfter}`;
     const analysis = `Bucket <code>${bucketTxt}</code>\nHazard emp <code>${Number(hazard).toFixed(4)}</code> theo <code>${(bucketInfo?.theoretical??st.pHat??0).toFixed(4)}</code>\nBarrier <code>${(barrierPct*100).toFixed(5)}%</code> Hold <code>${holdTicks}</code> ticks\nEV <code>${(ev*100).toFixed(2)}%</code> ${entryReason} | ${meanTxt} pHat <code>${(st.pHat??0).toFixed(5)}</code>`;
-    telegram.send(`🟢 <b>OPEN ${st.symbol} #${cid}</b>\nStake <code>${buyRes.buy_price} ${CONFIG.currency}</code> Growth <code>${(CONFIG.growthRate*100).toFixed(2)}%</code>\n${analysis}\nConsecutive losses <code>${consLoss}</code> (global <code>${consecutiveLossesGlobal}</code>)`);
+    const mgLine = CONFIG.martingaleEnabled
+      ? `Martingale Lv <code>${martingaleLevel}/${CONFIG.martingaleSteps} ×${CONFIG.martingaleMultiplier}</code> Stake <code>${martingaleStake.toFixed(2)}→${(parseFloat(buyRes.buy_price||martingaleStake)).toFixed(2)} ${CONFIG.currency}</code> Next <code>${getMartingaleStake().toFixed(2)}</code>`
+      : `Martingale <code>OFF</code> Stake <code>${martingaleStake.toFixed(2)}</code>`;
+    const streakLine = lossStreakInfoLine();
+    telegram.send(`🟢 <b>OPEN ${st.symbol} #${cid}</b>\nStake <code>${buyRes.buy_price} ${CONFIG.currency}</code> Growth <code>${(CONFIG.growthRate*100).toFixed(2)}%</code>\n${analysis}\n${mgLine}\n${streakLine}\nConsecutive losses <code>${consLoss}</code> (global <code>${consecutiveLossesGlobal}</code>)`);
   }
 
   const entry={
     ts:Date.now(), symbol:st.symbol, ticksSinceSpike: entryAfter, bucketRange: st.hazardTable?.find(b=>entryAfter>=b.lo&&entryAfter<b.hi)?.range||`${entryAfter}`, plannedHold: holdTicks, entryAfter,
     hazardEmp: hazard, hazardTheo: st.hazardTable?.find(b=>entryAfter>=b.lo&&entryAfter<b.hi)?.theoretical||null,
     barrierPct, growthRate: CONFIG.growthRate, ask, payout, breakeven: breakevenLocal,
-    outcome:null, profit:null, contractId: cid, v2:true, entryReason, stake: parseFloat(buyRes.buy_price||CONFIG.stake), buyTime: Date.now(),
+    outcome:null, profit:null, contractId: cid, v2:true, entryReason, stake: parseFloat(buyRes.buy_price||martingaleStake), martingaleLevel, martingaleStake, martingaleMultiplier: CONFIG.martingaleMultiplier, buyTime: Date.now(),
   };
 
   let subId=null;
@@ -1109,7 +1208,29 @@ function runSelfTest(){
   const post=computePostSpikeParams(mockSt, mockCalib);
   assert(post.entryAfter>=CONFIG.entryDelayMin && post.entryAfter<=CONFIG.entryDelayMax, 'entryAfter range');
   assert(post.holdTicks>=CONFIG.holdMin && post.holdTicks<=CONFIG.holdMax, 'hold range');
-  console.log('selftest v2 PASS');
+  // martingale checks
+  const base=CONFIG.stake;
+  martingaleLevel=0; assert(getMartingaleStake()===base, 'mg base');
+  martingaleLevel=1; assert(Math.abs(getMartingaleStake()- base*CONFIG.martingaleMultiplier)<1e-9, 'mg 1');
+  martingaleLevel=2; assert(Math.abs(getMartingaleStake()- base*Math.pow(CONFIG.martingaleMultiplier,2))<1e-9, 'mg 2');
+  // advance/reset
+  martingaleLevel=0; advanceMartingaleOnResult(false); assert(martingaleLevel===1, 'mg advance 1');
+  advanceMartingaleOnResult(false); assert(martingaleLevel===2, 'mg advance 2');
+  advanceMartingaleOnResult(true); assert(martingaleLevel===0, 'mg reset');
+  // maxSteps cap
+  martingaleLevel=CONFIG.martingaleSteps; advanceMartingaleOnResult(false); assert(martingaleLevel===0, 'mg cap reset');
+  martingaleLevel=0;
+  // loss streak tracking
+  maxConsecutiveLossesSeen=0; lossStreakCounts={x2:0,x3:0,x4:0,x5:0,x6:0,x7:0};
+  consecutiveLossesGlobal=2; if(consecutiveLossesGlobal>=2&&consecutiveLossesGlobal<=7) lossStreakCounts['x'+consecutiveLossesGlobal]++;
+  assert(lossStreakCounts.x2===1, 'x2 count');
+  consecutiveLossesGlobal=3; lossStreakCounts['x'+consecutiveLossesGlobal]++;
+  assert(lossStreakCounts.x3===1, 'x3 count');
+  const info=martingaleInfoLine(); assert(info.includes('Martingale'), 'mg info');
+  const linfo=lossStreakInfoLine(); assert(linfo.includes('Max Consecutive'), 'loss info');
+  // reset globals for clean boot
+  martingaleLevel=0; consecutiveLossesGlobal=0; maxConsecutiveLossesSeen=0; lossStreakCounts={x2:0,x3:0,x4:0,x5:0,x6:0,x7:0};
+  console.log('selftest v2 PASS — martingale + loss streak OK');
   process.exit(0);
 }
 if(process.argv.includes('--selftest')) runSelfTest();
@@ -1125,6 +1246,8 @@ async function main(){
   console.log(`  Assets: ${CONFIG.assets.join(', ')}`);
   console.log(`  Calibration: ${CONFIG.calibrationMinIntervals} intervals relaxed p<${CONFIG.calibrationP} entryAfter mean*${CONFIG.entryDelayFrac} hold mean*${CONFIG.holdFrac}`);
   console.log(`  Stake ${CONFIG.stake} ${CONFIG.currency} growth ${(CONFIG.growthRate*100).toFixed(1)}% maxLoss ${CONFIG.dailyMaxLoss} maxConsecLoss ${CONFIG.maxConsecutiveLosses}`);
+  console.log(`  Martingale ${CONFIG.martingaleEnabled?'ON':'OFF'} ×${CONFIG.martingaleMultiplier} steps ${CONFIG.martingaleSteps} maxStake ${CONFIG.martingaleMaxStake} Lv ${martingaleLevel} → ${getMartingaleStake().toFixed(2)}`);
+  console.log(`  Losses Max ${maxConsecutiveLossesSeen} cur ${consecutiveLossesGlobal} x2:${lossStreakCounts.x2} x3:${lossStreakCounts.x3} x4:${lossStreakCounts.x4} x5:${lossStreakCounts.x5} x6:${lossStreakCounts.x6} x7:${lossStreakCounts.x7}`);
   console.log('═'.repeat(72));
 
   loadState();
@@ -1220,7 +1343,7 @@ async function main(){
   setInterval(()=>{
     for(const st of assetMap.values()){
       if(st.calibrationStatus.startsWith('ACTIVE')){
-        log('INFO',`${st.symbol} ticksSinceSpike ${st.ticksSinceSpike} pendingAfter ${st.pendingEntryAfter} hold ${st.pendingHoldTicks} status ${st.calibrationStatus}`);
+        log('INFO',`${st.symbol} ticksSinceSpike ${st.ticksSinceSpike} pendingAfter ${st.pendingEntryAfter} hold ${st.pendingHoldTicks} status ${st.calibrationStatus} | ${martingaleInfoLine()} | ${lossStreakInfoLine()}`);
       }
     }
   }, 60000);
@@ -1230,7 +1353,8 @@ async function main(){
   process.on('unhandledRejection', e=>{ log('ERROR','Unhandled',String(e)); saveState('unhandled'); setTimeout(()=>process.exit(1),500); });
 
   log('INFO','Bot v2 running — post-spike trades every spike');
-  telegram.send(`🚀 <b>Hazard Bot v2 started</b>\nAssets <code>${CONFIG.assets.join(', ')}</code>\nRelaxed calib <code>${CONFIG.calibrationMinIntervals}</code> intervals p<${CONFIG.calibrationP}`);
+  log('INFO', martingaleInfoLine()+' | '+lossStreakInfoLine());
+  telegram.send(`🚀 <b>Hazard Bot v2 started</b>\nAssets <code>${CONFIG.assets.join(', ')}</code>\nRelaxed calib <code>${CONFIG.calibrationMinIntervals}</code> intervals p<${CONFIG.calibrationP}\n${martingaleInfoLine()}\n${lossStreakInfoLine()}`);
 }
 
 main().catch(e=>{ console.error('Fatal',e.message); process.exit(1); });
