@@ -90,7 +90,7 @@ const CONFIG = Object.freeze({
 
   // ── Trading v2 — per-spike, hold derived from mean + EV search (adaptive) ─
   stake: 1,
-  growthRate: 0.02, // 0.02
+  growthRate: 0.01, // 0.02
   minBarrierPct: 0.000006,
   maxOpenTrades: 1,                // allow 2 concurrent (10 assets, hold 5-15 ticks)
   tradeCooldownMs: 800,
@@ -99,7 +99,7 @@ const CONFIG = Object.freeze({
   entryDelayFrac: 0.30,            // fallback entryAfter = round(mean * entryDelayFrac)
   holdFrac: 0.18,                  // fallback hold base = round(mean * holdFrac)
   holdMin: 5,
-  holdMax: 20,                     // was 25 — allow longer holds for low-freq
+  holdMax: 60,                     // was 25 — allow longer holds for low-freq
   entryDelayMin: 3,
   entryDelayMax: 40,               // was 15 — low-freq needs 30-40
 
