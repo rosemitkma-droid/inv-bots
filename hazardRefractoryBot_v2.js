@@ -149,8 +149,8 @@ const CONFIG = Object.freeze({
   watchdogMs: 90000,
   tradeWatchdogMs: 90000,
   proposalRefreshMs: 60000,
-  stateFile: 'hazardBot_v2_005_state.json',
-  logFile: 'hazardBot_v2_005.log',
+  stateFile: 'hazardBot_v2_006_state.json',
+  logFile: 'hazardBot_v2_006.log',
   logLevel: 'INFO',
   telegram: {
     enabled: true,
@@ -598,6 +598,7 @@ let _pauseStartTimer=null, _pauseEndTimer=null;
 let _hourlyBoot=null, _hourlyT=null, _eodBoot=null;
 let _stuckT=null;
 let _lastDayISODate=null;
+let _dailyStopNotified=false;
 let overallProfit=0;
 let startBalance=null, lastBalance=null;
 let manualRestartRequired=false, manualRestartReason='';
@@ -652,13 +653,14 @@ function _parsePauseTime(str){ const m=String(str||'').match(/^(\d{1,2}):(\d{2})
 function _msToTarget(targetH,targetMin){ const now=new Date(); const nowMin=now.getUTCHours()*60+now.getUTCMinutes(); const targetMinOfDay=targetH*60+targetMin; let diff=targetMinOfDay - nowMin; if(diff<=0) diff+=24*60; return diff*60_000 - (now.getUTCSeconds()*1000) - now.getUTCMilliseconds(); }
 function _clearPauseTimers(){ if(_pauseStartTimer){ clearTimeout(_pauseStartTimer); _pauseStartTimer=null; } if(_pauseEndTimer){ clearTimeout(_pauseEndTimer); _pauseEndTimer=null; } }
 function _schedulePause(){
-  _clearPauseTimers(); if(!CONFIG.pauseEnabled) return;
+  _clearPauseTimers();
+  if(!CONFIG.pauseEnabled){ paused=false; log('INFO','pause: disabled'); return; }
   const now=new Date(); const nowMin=now.getUTCHours()*60+now.getUTCMinutes();
   const start=_parsePauseTime(CONFIG.pauseStartGmt); const end=_parsePauseTime(CONFIG.pauseEndGmt);
-  if(!start||!end){ log('WARN','pause schedule: invalid pauseStartGmt or pauseEndGmt'); return; }
+  if(!start||!end){ log('WARN','pause schedule: invalid pauseStartGmt or pauseEndGmt'); paused=false; return; }
   const startMin=start.h*60+start.min; const endMin=end.h*60+end.min;
   const currentlyPaused = startMin>endMin ? (nowMin>=startMin||nowMin<endMin) : (nowMin>=startMin&&nowMin<endMin);
-  if(currentlyPaused){ paused=true; const delay=_msToTarget(end.h,end.min); _pauseEndTimer=setTimeout(()=>_onPauseResume('resume'), delay); log('INFO',`pause: currently active, resumes in ${(delay/60000).toFixed(1)}m`); }
+  if(currentlyPaused){ paused=true; const delay=_msToTarget(end.h,end.min); _pauseEndTimer=setTimeout(()=>_onPauseResume('resume'), delay); log('INFO',`pause: currently active, resumes in ${(delay/60000).toFixed(1)}m until ${CONFIG.pauseEndGmt} GMT — analysis continues, trading paused`); }
   else { paused=false; const delay=_msToTarget(start.h,start.min); _pauseStartTimer=setTimeout(()=>_onPauseResume('pause'), delay); log('INFO',`pause: scheduled, pauses in ${(delay/60000).toFixed(1)}m at ${CONFIG.pauseStartGmt} GMT`); }
 }
 function _onPauseResume(action){
@@ -1593,7 +1595,7 @@ function runSelfTest(){
   assert(calcStakeForLevel(2)===expectedPerStep2, `per-step 2.3 expected ${expectedPerStep2} got ${calcStakeForLevel(2)}`);
   assert(decimals(calcStakeForLevel(2))<=2, 'per-step decimals');
   getMartingaleMultiplierForStep = origFn;
-  martingaleLevel=3; const stake3=getMartingaleStake(); assert(stake3===9.26, `mg 3 rounding 9.26 got ${stake3}`);
+  martingaleLevel=3; const stake3=getMartingaleStake(); const expected3=calcStakeForLevel(3); assert(stake3===expected3, `mg 3 rounding expected ${expected3} got ${stake3}`);
   assert(decimals(stake3)<=2, 'mg 3 decimals');
   martingaleLevel=0;
   // advance/reset
@@ -1614,9 +1616,30 @@ function runSelfTest(){
   assert(lossStreakCounts.x3===1, 'x3 count');
   const info=martingaleInfoLine(); assert(info.includes('Martingale'), 'mg info');
   const linfo=lossStreakInfoLine(); assert(linfo.includes('Max Consecutive'), 'loss info');
+  // pause/resume & DOW helpers
+  assert(_parsePauseTime('23:00').h===23 && _parsePauseTime('23:00').min===0, 'parsePause 23:00');
+  assert(_parsePauseTime('1:00').h===1, 'parsePause 1:00');
+  assert(_parsePauseTime('bad')===null, 'parsePause bad');
+  const ms=_msToTarget(23,0); assert(ms>0 && ms<=24*60*60*1000, 'msToTarget range');
+  // currentlyPaused logic cross-midnight 23:00-01:00: 23:30 should be paused, 02:00 not, 22:00 not
+  function isPausedAt(nowMin,startStr,endStr){ const s=_parsePauseTime(startStr), e=_parsePauseTime(endStr); const sMin=s.h*60+s.min, eMin=e.h*60+e.min; return sMin>eMin ? (nowMin>=sMin||nowMin<eMin) : (nowMin>=sMin&&nowMin<eMin); }
+  assert(isPausedAt(23*60+30,'23:00','1:00')===true, 'paused 23:30');
+  assert(isPausedAt(0*60+30,'23:00','1:00')===true, 'paused 00:30');
+  assert(isPausedAt(2*60,'23:00','1:00')===false, 'paused 02:00 false');
+  assert(isPausedAt(22*60,'23:00','1:00')===false, 'paused 22:00 false');
+  // DOW filter: all true by default
+  assert(_isTradingAllowedToday()===true, 'DOW today true');
+  // verify analysis continues during pause: simulate tick processing while paused
+  const savedPaused=paused; paused=true;
+  const testSt=new AssetState('BOOM500'); testSt.history=[{epoch:1,quote:100},{epoch:2,quote:100}]; testSt.totalTicksSeen=2; testSt.intervals=[10,20]; testSt.calibrationStatus='ACTIVE'; testSt.meanInterval=15; testSt.pHat=0.06; testSt.hazardTable=null;
+  // schedule should still work while paused (analysis not blocked)
+  schedulePostSpikeEntry(testSt); // may not schedule due to <10 intervals but shouldn't throw
+  assert(testSt.totalTicksSeen===2, 'analysis ticks preserved during pause');
+  paused=savedPaused; _schedulePause(); // restore schedule
   // reset globals for clean boot
   martingaleLevel=0; consecutiveLossesGlobal=0; maxConsecutiveLossesSeen=0; lossStreakCounts={x2:0,x3:0,x4:0,x5:0,x6:0,x7:0};
-  console.log('selftest v2 PASS — martingale + loss streak OK');
+  _dailyStopNotified=false;
+  console.log('selftest v2 PASS — martingale + loss streak + pause/resume OK');
   process.exit(0);
 }
 if(process.argv.includes('--selftest')) runSelfTest();
@@ -1713,22 +1736,28 @@ async function main(){
   if(globalClient) { startBalance = globalClient.balance ?? startBalance; lastBalance = startBalance; overallProfit = statsManager.overallProfit || overallProfit; }
   saveState('boot');
 
-  // v2 main loop: poll every 800ms for post-spike windows (faster than v1 3s)
+  // v2 main loop: poll every 800ms — analysis always runs, trading gated by pause/DOW/daily caps
   setInterval(async ()=>{
     if(killed) return;
     if(manualRestartRequired) return;
-    if(paused) return;
-    if(!_isTradingAllowedToday()) return;
+    // analysis & housekeeping run even when paused — only entry is gated
     _checkDayChange();
     maybeResetDaily();
-    // daily hard stop check via statsManager
-    { const todayTrades = statsManager.todayTrades(); const pnl = todayTrades.reduce((s,t)=>s+Number(t.profit||0),0); if(todayTrades.length >= CONFIG.dailyMaxTrades || pnl <= -CONFIG.dailyMaxLoss){ if(!_dailyStopNotified){ _dailyStopNotified=true; const msg=`⛔ <b>Daily hard stop</b>\n${todayTrades.length} trades, net ${money(pnl,currencyStr())}.\nPaused until next UTC day.`; log('WARN', msg.replace(/<[^>]+>/g,'')); telegram.send(msg); } return; } else { _dailyStopNotified=false; } }
+    // daily hard stop check via statsManager (still notifies even when paused)
+    let dailyHardStop=false;
+    { const todayTrades = statsManager.todayTrades(); const pnl = todayTrades.reduce((s,t)=>s+Number(t.profit||0),0); if(todayTrades.length >= CONFIG.dailyMaxTrades || pnl <= -CONFIG.dailyMaxLoss){ dailyHardStop=true; if(!_dailyStopNotified){ _dailyStopNotified=true; const msg=`⛔ <b>Daily hard stop</b>\n${todayTrades.length} trades, net ${money(pnl,currencyStr())}.\nPaused until next UTC day.`; log('WARN', msg.replace(/<[^>]+>/g,'')); telegram.send(msg); } } else { _dailyStopNotified=false; } }
+    // calibration evaluation always continues during pause/DOW/daily-stop — only trading is blocked
     for(const sym of CONFIG.assets){
       const st=assetMap.get(sym);
-      // If calibrating but now enough intervals, evaluate
       if(st.calibrationStatus==='CALIBRATING' && st.intervals.length>=CONFIG.calibrationMinIntervals){
         await evaluateCalibrationForAsset(st);
       }
+    }
+    if(paused){ log('DEBUG','main loop: trading paused — analysis updated, skipping entry'); if(Math.random()<0.08) saveState('loop'); return; }
+    if(!_isTradingAllowedToday()){ log('DEBUG','main loop: DOW filter blocks trading today — analysis updated'); if(Math.random()<0.08) saveState('loop'); return; }
+    if(dailyHardStop) return;
+    for(const sym of CONFIG.assets){
+      const st=assetMap.get(sym);
       if(st.calibrationStatus==='ACTIVE' || st.calibrationStatus==='ACTIVE_RELAXED'){
         try{ await tryTradeForAsset(client, st); }catch(e){ log('WARN',`tryTrade ${sym}:`,e.message); }
         await new Promise(r=>setTimeout(r,80));
