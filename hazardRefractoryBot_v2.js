@@ -88,7 +88,7 @@ const CONFIG = Object.freeze({
   accountType: 'demo',
   currency: 'USD',
 
-  assets: ['BOOM900','BOOM1000','CRASH900','CRASH1000'],
+  assets: ['BOOM500','BOOM600','BOOM900','BOOM1000','CRASH500','CRASH600','CRASH900','CRASH1000'],
 
   detection: {
     baselineWindow: 2000,
@@ -149,8 +149,8 @@ const CONFIG = Object.freeze({
   watchdogMs: 90000,
   tradeWatchdogMs: 90000,
   proposalRefreshMs: 60000,
-  stateFile: 'hazardBot_v2_004_state.json',
-  logFile: 'hazardBot_v2_004.log',
+  stateFile: 'hazardBot_v2_005_state.json',
+  logFile: 'hazardBot_v2_005.log',
   logLevel: 'INFO',
   telegram: {
     enabled: true,
