@@ -131,8 +131,8 @@ const CONFIG = Object.freeze({
   // On every loss: next stake = base stake × (multiplier ^ step).
   // On win: reset to base stake (step = 0).
   // WARNING: ×2.10 ^8 on negative-expectancy ACCU has high ruin risk.
-  martingaleMultiplier : parseFloat('2.10'), // e.g. 2.10 means stake ×2.10 after each loss
-  martingaleSteps      : parseInt('8', 10),  // max consecutive martingale multiplications (0 = disabled)
+  martingaleMultiplier : parseFloat('3.10'), // e.g. 2.10 means stake ×2.10 after each loss
+  martingaleSteps      : parseInt('7', 10),  // max consecutive martingale multiplications (0 = disabled)
   martingaleMaxStake   : parseFloat('500'),  // cap to bound ruin (null to disable)
 
   // ── Rate-limited entry ──
@@ -142,8 +142,8 @@ const CONFIG = Object.freeze({
 
   // ── Risk controls ──
   maxConsecutiveLosses : parseInt('8', 10),      // pause + require manual restart
-  dailyMaxLoss        : parseFloat('150'),         // demo-appropriate cap
-  dailyMaxTrades      : parseInt('120000', 10),      // daily cap
+  dailyMaxLoss        : parseFloat('350'),         // demo-appropriate cap
+  dailyMaxTrades      : parseInt('1200000', 10),      // daily cap
   stopLossPerContract : parseFloat('0'),         // 0 = disabled (rely on knockout)
 
   // ── Instruments — 10 symbols (fast + slow) per user #1 ──
@@ -203,9 +203,9 @@ const CONFIG = Object.freeze({
   }),
 
   // ── Logging / state — FRESH per user #4 ──
-  logFile           : 'accuHOLD3_01.log',
+  logFile           : 'accuHOLD3_02.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD3_state_01.json', // fresh start, v2 state ignored
+  stateFile         : 'accuHOLD3_state_02.json', // fresh start, v2 state ignored
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
