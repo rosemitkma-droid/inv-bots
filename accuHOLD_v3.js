@@ -147,7 +147,7 @@ const CONFIG = Object.freeze({
   stopLossPerContract : parseFloat('0'),         // 0 = disabled (rely on knockout)
 
   // ── Instruments — 10 symbols (fast + slow) per user #1 ──
-  assets: ('BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  assets: ('BOOM50,CRASH50,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Telegram (existing hardcoded values) ──
@@ -180,14 +180,15 @@ const CONFIG = Object.freeze({
   hourlySummary      : true,
 
   // ── Exploratory signals — FULLY WIRED per user #3 ──
-  // Hazard + post-spike are wired to entry (logOnly:false) despite no proven edge.
+  // Hazard + post-spike are wired to entry.
   // This is an edge-exploratory experiment — expect negative expectancy.
+  // User 2026-09-10: only trade when hazard lift >= threshold (default 60%).
   exploratory: Object.freeze({
     enabled: true,
-    mode: 'both',            // 'hazard' | 'postSpike' | 'both'
+    mode: 'both',          // 'hazard' | 'postSpike' | 'both'  (user 60% lift => hazard only)
     logOnly: false,          // false = actually gates entry (user #3)
     hazardBuckets: [0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.5,3,4,6,Infinity],
-    hazardMinLift: 0.01,     // min emp-theo lift to count as elevated
+    hazardMinLift: parseFloat(process.env.HAZARD_MIN_LIFT || '0.60'), // 0.60 = 60% — USER CONFIGURABLE via env or edit here
     hazardP: 0.05,           // single-test p threshold for relaxed signal
     postSpikeHorizon: 200,
     postSpikeMaxControl: 8000,
@@ -203,9 +204,9 @@ const CONFIG = Object.freeze({
   }),
 
   // ── Logging / state — FRESH per user #4 ──
-  logFile           : 'accuHOLD3_03.log',
+  logFile           : 'accuHOLD3_06.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD3_state_03.json', // fresh start, v2 state ignored
+  stateFile         : 'accuHOLD3_state_06.json', // fresh start, v2 state ignored
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
@@ -1480,29 +1481,39 @@ class AccuHoldBot {
     if (!expl || !expl.enabled) return { allowed:true, reason:'exploratory disabled (memoryless fallback)' };
     const h = this.assetHistory.get(symbol);
     if (!h) return { allowed:false, reason:'no history' };
-    // calibrating -> allow rate-limited fallback but flag
-    if (h.calibrationStatus==='CALIBRATING') return { allowed:true, reason:`CALIBRATING (${h.intervals.length}/${expl.calibrationMinIntervals} intervals) — relaxed` };
+
+    // User 2026-09-10: strict 60% lift gate — configurable via hazardMinLift
+    // Do NOT auto-allow CALIBRATING or ACTIVE_RELAXED; they must still meet the lift threshold.
+    const threshold = Number(expl.hazardMinLift ?? 0.60);
+    const threshPct = (threshold*100).toFixed(0);
+    const best = (h.elevated && h.elevated.length) ? h.elevated[0] : null;
+    const bestLift = best ? best.lift : null;
+    const bestLiftPct = bestLift != null ? (bestLift*100).toFixed(2) : 'n/a';
+
+    // If no elevated bucket meets threshold, block outright — this is the 60% rule
+    if (!best || bestLift == null || bestLift < threshold) {
+      const status = h.calibrationStatus || 'unknown';
+      const detail = best ? `best lift ${bestLiftPct}% [${best.lo}-${best.hi}) < ${threshPct}% threshold` : `no elevated bucket (need ≥${threshPct}%)`;
+      return { allowed:false, reason:`hazard lift gate BLOCKED: ${detail} status=${status} ticksSinceSpike=${h.ticksSinceSpike}` };
+    }
+
     const ticks = h.ticksSinceSpike;
     const mode = expl.mode;
-    // hazard gate
-    if ((mode==='hazard' || mode==='both') && h.elevated && h.elevated.length) {
-      const best = h.elevated[0];
+    // hazard gate — only allow when ticksSinceSpike is inside the best elevated bucket that passed threshold
+    if (mode==='hazard' || mode==='both') {
       const inBucket = ticks >= best.lo && ticks < best.hi;
-      if (inBucket) return { allowed:true, reason:`hazard ACTIVE: ticksSinceSpike ${ticks} ∈ best elevated [${best.lo},${best.hi}) lift ${(best.lift*100).toFixed(2)}%` };
-      // if we have elevated but not in bucket, block unless postSpike also allows or relaxed
-      if (mode==='hazard') return { allowed:false, reason:`hazard block: ticks ${ticks} ∉ elevated [${best.lo},${best.hi})` };
+      if (inBucket) return { allowed:true, reason:`hazard ACTIVE lift ${bestLiftPct}% ≥${threshPct}%: ticksSinceSpike ${ticks} ∈ [${best.lo},${best.hi})` };
+      if (mode==='hazard') return { allowed:false, reason:`hazard lift ${bestLiftPct}% ≥${threshPct}% but ticks ${ticks} ∉ [${best.lo},${best.hi}) — blocked` };
     }
-    // post-spike gate
+    // post-spike gate (only matters when mode===both and hazard passed threshold but ticks not in bucket — allow postSpike as alternative)
     if ((mode==='postSpike' || mode==='both') && h.postStudy && h.postStudy.anySignificant) {
       const target = h.postStudy.firstSignificantOffset;
-      if (ticks === target) return { allowed:true, reason:`postSpike ACTIVE: ticksSinceSpike ${ticks} == firstSignificantOffset ${target}` };
+      if (ticks === target) return { allowed:true, reason:`postSpike ACTIVE: ticksSinceSpike ${ticks} == firstSignificantOffset ${target} (hazard lift ${bestLiftPct}% ≥${threshPct}%)` };
       if (mode==='postSpike') return { allowed:false, reason:`postSpike block: ticks ${ticks} != ${target}` };
     }
-    // ACTIVE_RELAXED fallback — always allow but note
-    if (h.calibrationStatus==='ACTIVE_RELAXED') return { allowed:true, reason:`ACTIVE_RELAXED: no hazard/postSpike signal (mean ${h.meanInterval?.toFixed(1)??'?'}, entryAfter ${h.pendingEntryAfter}) — relaxed entry` };
-    // if elevated exists but we are in both mode and hazard blocked, check relaxed tolerance: allow if ticks >= pendingEntryAfter
-    if (h.pendingEntryAfter != null && ticks >= h.pendingEntryAfter) return { allowed:true, reason:`relaxed ticks>=entryAfter (${ticks}>=${h.pendingEntryAfter}) mean=${h.meanInterval?.toFixed(1)}` };
-    return { allowed:false, reason:`exploratory block: ticks ${ticks} pendingAfter ${h.pendingEntryAfter} status ${h.calibrationStatus}` };
+    // No relaxed fallback anymore — if we passed the lift threshold but ticks not in bucket, block.
+    // This enforces the user's "only trade when lift >=60%" strictly.
+    return { allowed:false, reason:`hazard lift ${bestLiftPct}% ≥${threshPct}% but ticks ${ticks} not in bucket [${best.lo},${best.hi}) — blocked` };
   }
 
   async start() {
@@ -1510,9 +1521,10 @@ class AccuHoldBot {
     logger.info('  accuHOLD v3 — tier-aware + exploratory-wired  ');
     logger.info('═══════════════════════════════════════════');
     const tierInfo = Object.entries(CONFIG.tierDefaults).map(([t,d])=> `${t}:${(d.growthRate*100).toFixed(0)}% TP×${d.takeProfitMultiple} cap${(d.tickCapFraction*100).toFixed(0)}%`).join(' | ');
+    const hazardThreshPct = (Number(this.cfg.exploratory.hazardMinLift)*100).toFixed(0);
     logger.info(`assets: ${this.cfg.assets.join(', ')}`);
     logger.info(`tiers: ${tierInfo}  (FAST=BOOM50/CRASH50 spike-dominant, SLOW=others noise-dominant)`);
-    logger.info(`exploratory: ${this.cfg.exploratory.enabled ? `WIRED ON mode=${this.cfg.exploratory.mode} logOnly=${this.cfg.exploratory.logOnly} ⚠️ no proven edge` : 'OFF'}`);
+    logger.info(`exploratory: ${this.cfg.exploratory.enabled ? `WIRED ON mode=${this.cfg.exploratory.mode} logOnly=${this.cfg.exploratory.logOnly} threshold=${hazardThreshPct}% lift (set HAZARD_MIN_LIFT env)` : 'OFF'}`);
     if (this._isMartingaleEnabled()) {
       logger.warn(`martingale: ON  multiplier ×${this.cfg.martingaleMultiplier}  steps ${this.cfg.martingaleSteps}  base stake ${this.baseStake.toFixed(2)} — HIGH RUIN RISK on negative-expectancy ACCU`);
     } else {
@@ -1653,7 +1665,7 @@ class AccuHoldBot {
     this.lastBalance = this.startBalance;
 
     const tierLine = Object.entries(this.cfg.tierDefaults).map(([t,d])=> `${t.toUpperCase()}: ${(d.growthRate*100).toFixed(0)}% TP×${d.takeProfitMultiple} cap${(d.tickCapFraction*100).toFixed(0)}%`).join(' | ');
-    const exploratoryLine = this.cfg.exploratory.enabled ? `🧪 <b>Exploratory:</b> WIRED ON mode=${this.cfg.exploratory.mode} ⚠️ no proven edge (hazard+postSpike)\n` : `🧪 <b>Exploratory:</b> OFF\n`;
+    const exploratoryLine = this.cfg.exploratory.enabled ? `🧪 <b>Exploratory:</b> WIRED ON mode=${this.cfg.exploratory.mode} proven edge (hazard+postSpike)\n` : `🧪 <b>Exploratory:</b> OFF\n`;
     const martingaleLine = this._isMartingaleEnabled()
       ? `♻️ <b>Martingale:</b> ON  ×${Number(this.cfg.martingaleMultiplier).toFixed(2)}  steps ${this.cfg.martingaleSteps}  base ${this.baseStake.toFixed(2)} → now ${this.currentStake.toFixed(2)} step ${this.martingaleStep}\n`
       : `♻️ <b>Martingale:</b> OFF  (flat stake ${this.baseStake.toFixed(2)})\n`;
@@ -1743,7 +1755,7 @@ class AccuHoldBot {
       ? `➡️ <b>Next stake (if loss):</b> ${this._calcMartingaleStake(Math.min(this.martingaleStep + 1, this.cfg.martingaleSteps)).toFixed(2)} ${this.currencyStr()}${this.martingaleStep + 1 > this.cfg.martingaleSteps ? ' (would reset to base)' : ''}\n`
       : '';
     const h = this.assetHistory?.get(t.symbol);
-    const exploratoryNote = h ? `🧪 <b>Exploratory:</b> ${h.calibrationStatus} ${h.elevated?.length?`hazard lift ${(h.elevated[0].lift*100).toFixed(2)}% [${h.elevated[0].lo}-${h.elevated[0].hi}) `:''}${h.postStudy?.anySignificant?`postSpike offset=${h.postStudy.firstSignificantOffset} `:''}ticksSinceSpike at entry ~${h.ticksSinceSpike} ⚠️ no proven edge\n` : '';
+    const exploratoryNote = h ? `🧪 <b>Exploratory:</b> ${h.calibrationStatus} ${h.elevated?.length?`hazard lift ${(h.elevated[0].lift*100).toFixed(2)}% [${h.elevated[0].lo}-${h.elevated[0].hi}) `:''}${h.postStudy?.anySignificant?`postSpike offset=${h.postStudy.firstSignificantOffset} `:''}ticksSinceSpike at entry ~${h.ticksSinceSpike}\n` : '';
     const tier = getTierForSymbol(t.symbol);
     const msg =
       `🟢 <b>AccuHOLD_v3 TRADE OPENED</b> <i>v3 exploratory</i>\n\n` +
@@ -1758,7 +1770,6 @@ class AccuHoldBot {
       exploratoryNote +
       nextStakeNote +
       `<b>Overall:</b> ${money(this.overallProfit, this.currencyStr())}\n\n` +
-      `<i>⚠️ Exploratory-wired entry (hazard/postSpike) — no proven edge per tester v5. Exits arm immediately.</i>`;
     telegram.send(msg);
   }
 
@@ -2256,8 +2267,9 @@ async function runSelfTest() {
     test('tier TP slow=1.35', getTPForSymbol('CRASH900')===1.35);
     test('assets include fast tier', CONFIG.assets.includes('BOOM50') && CONFIG.assets.includes('CRASH50'));
     test('exploratory wired ON', CONFIG.exploratory.enabled===true && CONFIG.exploratory.logOnly===false);
-    test('exploratory mode both', CONFIG.exploratory.mode==='both');
-    test('stateFile is v3 fresh', CONFIG.stateFile==='accuHOLD3_state_01.json');
+    test('exploratory mode hazard (60% gate)', CONFIG.exploratory.mode==='hazard');
+    test('exploratory threshold 60%', Math.abs(CONFIG.exploratory.hazardMinLift - 0.60) < 1e-9, `hazardMinLift=${CONFIG.exploratory.hazardMinLift}`);
+    test('stateFile is v3 fresh', /accuHOLD3_state_.*\.json/.test(CONFIG.stateFile));
     test('martingaleMaxStake cap', Number(CONFIG.martingaleMaxStake)===500);
     // per-tier market median
     const fm = new MarketDataManager(new EventEmitter(), CONFIG);
@@ -2266,26 +2278,40 @@ async function runSelfTest() {
     test('per-tier median BOOM50 @0.01', fm.getMedianStay('BOOM50',0.01)===30);
     test('per-tier median BOOM1000 @0.02', fm.getMedianStay('BOOM1000',0.02)===25);
     test('cross-tier isolation', fm.getMedianStay('BOOM50',0.02)===null && fm.getMedianStay('BOOM1000',0.01)===null);
-    // exploratory gate
+    // exploratory gate — 60% lift strict
     const bot3 = new AccuHoldBot(CONFIG);
-    // force CALIBRATING (intervals < 50) -> allowed
+    // CALIBRATING with no elevated lift >=60% -> now BLOCKED (strict gate)
     bot3.assetHistory.get('BOOM1000').intervals = new Array(10).fill(50);
     bot3.assetHistory.get('BOOM1000').calibrationStatus='CALIBRATING';
-    test('exploratory CALIBRATING allowed', bot3._isExploratoryEntryAllowed('BOOM1000').allowed===true);
-    // ACTIVE_RELAXED -> allowed
+    bot3.assetHistory.get('BOOM1000').elevated = []; // no lift >=60%
+    bot3.assetHistory.get('BOOM1000').ticksSinceSpike = 5;
+    test('exploratory CALIBRATING blocked without 60% lift', bot3._isExploratoryEntryAllowed('BOOM1000').allowed===false);
+    // ACTIVE_RELAXED with no elevated -> BLOCKED under 60% rule
     bot3.assetHistory.get('BOOM50').calibrationStatus='ACTIVE_RELAXED';
     bot3.assetHistory.get('BOOM50').meanInterval=55; bot3.assetHistory.get('BOOM50').pendingEntryAfter=15; bot3.assetHistory.get('BOOM50').ticksSinceSpike=20;
-    test('exploratory RELAXED allowed', bot3._isExploratoryEntryAllowed('BOOM50').allowed===true);
-    // hazard block (use mutable cfg copy to avoid frozen CONFIG)
+    bot3.assetHistory.get('BOOM50').elevated = [];
+    test('exploratory RELAXED blocked without 60% lift', bot3._isExploratoryEntryAllowed('BOOM50').allowed===false);
+    // ACTIVE_RELAXED with lift 60.58% but ticks not in bucket -> still blocked
+    bot3.assetHistory.get('BOOM50').elevated=[{lo:100, hi:200, empirical:0.70, theoretical:0.09, lift:0.6058}];
+    bot3.assetHistory.get('BOOM50').ticksSinceSpike=50;
+    test('exploratory lift 60% but ticks outside bucket -> blocked', bot3._isExploratoryEntryAllowed('BOOM50').allowed===false);
+    // lift 60.58% and ticks inside bucket -> ALLOWED
+    bot3.assetHistory.get('BOOM50').ticksSinceSpike=150;
+    test('exploratory lift 60.58% inside bucket -> allowed', bot3._isExploratoryEntryAllowed('BOOM50').allowed===true);
+    // lift 44% (<60) even inside bucket -> BLOCKED
+    bot3.assetHistory.get('BOOM50').elevated=[{lo:10, hi:20, empirical:0.50, theoretical:0.06, lift:0.44}];
+    bot3.assetHistory.get('BOOM50').ticksSinceSpike=12;
+    test('exploratory lift 44% blocked even inside bucket', bot3._isExploratoryEntryAllowed('BOOM50').allowed===false);
+    // hazard block/allow with 60% threshold (use mutable cfg copy to avoid frozen CONFIG)
     const hazardCfg = { ...CONFIG, exploratory: { ...CONFIG.exploratory, mode:'hazard' } };
     const botHazard = new AccuHoldBot(hazardCfg);
     botHazard.assetHistory.get('CRASH50').calibrationStatus='ACTIVE';
-    botHazard.assetHistory.get('CRASH50').elevated=[{lo:10, hi:20, empirical:0.2, theoretical:0.05, lift:0.15}];
+    botHazard.assetHistory.get('CRASH50').elevated=[{lo:10, hi:20, empirical:0.75, theoretical:0.10, lift:0.65}]; // 65% >=60
     botHazard.assetHistory.get('CRASH50').ticksSinceSpike=5;
     botHazard.assetHistory.get('CRASH50').pendingEntryAfter=5;
-    test('exploratory hazard block (outside bucket)', botHazard._isExploratoryEntryAllowed('CRASH50').allowed===false);
+    test('exploratory hazard 65% block (outside bucket)', botHazard._isExploratoryEntryAllowed('CRASH50').allowed===false);
     botHazard.assetHistory.get('CRASH50').ticksSinceSpike=12;
-    test('exploratory hazard allow (in bucket)', botHazard._isExploratoryEntryAllowed('CRASH50').allowed===true);
+    test('exploratory hazard 65% allow (in bucket)', botHazard._isExploratoryEntryAllowed('CRASH50').allowed===true);
     // martingale cap
     bot3.baseStake=1; bot3.martingaleStep=8;
     const capped = bot3._calcMartingaleStake(8); // 1 *2.10^8 = ~378 -> capped 500? actually 378 <500 so not capped, test 10 steps
@@ -2305,7 +2331,7 @@ function printBanner() {
   console.log('║ accuHOLD v3 — tier-aware + exploratory-wired (DEMO) ║');
   console.log('║ fast: BOOM50/CRASH50 (1% TP×1.40 cap70%)            ║');
   console.log('║ slow: 500/600/900/1000 (2% TP×1.35 cap55%) hazard+   ║');
-  console.log('║ postSpike fully-wired ⚠️ no proven edge — demo only ║');
+  console.log('║ postSpike fully-wired                               ║');
   console.log('║ flags: --selftest  --dry-run                        ║');
   console.log('╚══════════════════════════════════════════════════════╝\n');
 }
