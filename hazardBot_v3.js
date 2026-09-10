@@ -114,15 +114,15 @@ const CONFIG = Object.freeze({
   // Per-step multipliers: step 1 uses martingaleMultiplier, step 2 uses martingaleMultiplier2, etc.
   // If a per-step value is not set, it falls back to martingaleMultiplier.
   martingaleEnabled: true,
-  martingaleMultiplier: 2.5,
-  martingaleMultiplier2: 3.5,
+  martingaleMultiplier: 3.0,
+  martingaleMultiplier2: 4.0,
   martingaleMultiplier3: 4.2,
   martingaleMultiplier4: 4.2,
   martingaleMultiplier5: 4.2,
-  martingaleMultiplier6: 4.2,
+  martingaleMultiplier6: undefined,
   martingaleMultiplier7: undefined,
   martingaleMultiplier8: undefined,
-  martingaleSteps: 6,
+  martingaleSteps: 5,
   martingaleMaxStake: 200,
   growthRate: 0.02,
   minBarrierPct: 0.000001, // 0.00001
@@ -141,16 +141,16 @@ const CONFIG = Object.freeze({
   // Validation & kill-switch
   validationN: 30,
   killP: 0.05,
-  maxConsecutiveLosses: 6,
-  dailyMaxLoss: 850,
+  maxConsecutiveLosses: 5,
+  dailyMaxLoss: 250,
   dailyMaxTrades: 200000000,
 
   reconnect: { initialDelayMs:1000, maxDelayMs:60000, backoffFactor:2, jitterMs:750 },
   watchdogMs: 90000,
   tradeWatchdogMs: 90000,
   proposalRefreshMs: 60000,
-  stateFile: 'hazardBot_v3_07_state.json',
-  logFile: 'hazardBot_v3_07.log',
+  stateFile: 'hazardBot_v3_08_state.json',
+  logFile: 'hazardBot_v3_08.log',
   logLevel: 'INFO',
   telegram: {
     enabled: true,
