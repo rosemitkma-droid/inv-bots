@@ -88,7 +88,7 @@ const CONFIG = Object.freeze({
   accountType: 'demo',
   currency: 'USD',
 
-  assets: ['BOOM500','BOOM600','BOOM900','BOOM1000','CRASH500','CRASH600','CRASH900','CRASH1000'],
+  assets: ['BOOM900','BOOM1000','CRASH900','CRASH1000'],
 
   detection: {
     baselineWindow: 2000,
