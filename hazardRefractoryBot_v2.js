@@ -136,7 +136,7 @@ const CONFIG = Object.freeze({
   holdMin: 5,
   holdMax: 60,
   entryDelayMin: 3,
-  entryDelayMax: 40,
+  entryDelayMax: 5, //40
 
   // Validation & kill-switch
   validationN: 30,
@@ -149,8 +149,8 @@ const CONFIG = Object.freeze({
   watchdogMs: 90000,
   tradeWatchdogMs: 90000,
   proposalRefreshMs: 60000,
-  stateFile: 'hazardBot_v2_008_state.json',
-  logFile: 'hazardBot_v2_008.log',
+  stateFile: 'hazardBot_v2_009_state.json',
+  logFile: 'hazardBot_v2_009.log',
   logLevel: 'INFO',
   telegram: {
     enabled: true,
