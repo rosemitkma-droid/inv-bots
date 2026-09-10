@@ -149,8 +149,8 @@ const CONFIG = Object.freeze({
   watchdogMs: 90000,
   tradeWatchdogMs: 90000,
   proposalRefreshMs: 60000,
-  stateFile: 'hazardBot_v3_06_state.json',
-  logFile: 'hazardBot_v3_06.log',
+  stateFile: 'hazardBot_v3_07_state.json',
+  logFile: 'hazardBot_v3_07.log',
   logLevel: 'INFO',
   telegram: {
     enabled: true,
@@ -713,9 +713,74 @@ function _sendEod(reason='manual'){
 }
 function _clearWatchdog(){ if(watchdogTimer){ clearInterval(watchdogTimer); watchdogTimer=null; } }
 function _clearStuckSweep(){ if(_stuckT){ clearInterval(_stuckT); _stuckT=null; } }
-function _startStuckSweep(){ _clearStuckSweep(); _stuckT=setInterval(()=>{ const now=Date.now(); for(const [cid,rec] of openContracts){ if(now - (rec.lastUpdate||0) <= 180000) continue; if(rec._selling) continue; const staleSec=((now-rec.lastUpdate)/1000).toFixed(0); log('WARN',`stuck #${cid} — no update for ${staleSec}s, reconciling`); (async()=>{ try{ const r=await rec.client._send({proposal_open_contract:1, contract_id:cid},12000); const poc=r.proposal_open_contract; if(poc && poc.is_sold){ finalizeContract(cid,poc); } else { // try re-subscribe first
+// ── Ghost-contract helpers (ported from accuHOLD_v2 fix) ─────────────────
+function isAlreadyClosedError(msg){
+  return /not found among your open positions|ContractNotFound|InvalidContract/i.test(String(msg||''));
+}
+function dropGhostContract(cid, reason){
+  if(settledIds.has(cid)) return false;
+  const rec=openContracts.get(cid);
+  if(!rec) return false;
+  settledIds.add(cid);
+  log('WARN',`ghost #${cid} — already closed on server [${reason}] — dropping stale local entry & freeing slot`);
+  // Preserve audit: mark entry as unknown but do NOT count as win/loss
+  if(rec.entryLog){
+    rec.entryLog.outcome='unknown';
+    rec.entryLog.profit=0;
+    rec.entryLog.status='unknown';
+    rec.entryLog.exitReason=reason;
+    rec.entryLog.settledAt=Date.now();
+    rec.entryLog.ticksHeld = rec.ticksHeld ?? rec.entryLog.plannedHold ?? 0;
+    // push for audit, but statsManager will exclude 'unknown' from WR/profit
+    tradeLog.push(rec.entryLog);
+    try{
+      statsManager.record({
+        contractId: cid, symbol: rec.symbol,
+        growthRate: rec.entryLog.growthRate ?? CONFIG.growthRate,
+        stake: rec.entryLog.stake ?? getMartingaleStake(),
+        profit: 0, status: 'unknown',
+        sellPrice: 0,
+        buyTime: rec.entryLog.buyTime ? rec.entryLog.buyTime/1000 : Date.now()/1000,
+        sellTime: Date.now()/1000,
+        ticksHeld: rec.entryLog.ticksHeld ?? 0,
+        tickCapTicks: rec.entryLog.plannedHold ?? null,
+        exitReason: reason,
+        martingaleLevel: rec.entryLog.martingaleLevel ?? martingaleLevel,
+        martingaleMultiplier: rec.entryLog.martingaleMultiplier ?? CONFIG.martingaleMultiplier,
+        martingaleStep: martingaleLevel
+      });
+      overallProfit = statsManager.overallProfit;
+    }catch(_){}
+  }
+  if(rec.subId){ try{ rec.client.forget(rec.subId).catch(()=>{});}catch(_){} }
+  openContracts.delete(cid);
+  saveState('ghost-drop:'+cid);
+  try{ telegram.send(`⚠️ <b>Hazard_v3 ghost dropped</b> #${cid} <code>${rec.symbol}</code> — ${reason}\nFreed slot, trading resumes.`);}catch(_){}
+  return true;
+}
+async function reconcilePortfolio(client){
+  try{
+    const portfolio = await client.portfolio().catch(()=>null);
+    if(!Array.isArray(portfolio)) return;
+    const liveIds = new Set(portfolio.map(c=> c.contract_id));
+    for(const [cid, rec] of [...openContracts.entries()]){
+      if(!liveIds.has(cid)){
+        // not in portfolio → already settled server-side, drop ghost
+        log('INFO',`reconcile: #${cid} not in portfolio — treating as ghost`);
+        dropGhostContract(cid, 'reconcile-missing-from-portfolio');
+      }
+    }
+  }catch(e){ log('WARN','reconcile portfolio failed:', e.message); }
+}
+function _startStuckSweep(){ _clearStuckSweep(); _stuckT=setInterval(()=>{ const now=Date.now(); for(const [cid,rec] of openContracts){ if(now - (rec.lastUpdate||0) <= 180000) continue; if(rec._selling) continue; const staleSec=((now-rec.lastUpdate)/1000).toFixed(0); log('WARN',`stuck #${cid} — no update for ${staleSec}s, reconciling`); (async()=>{ try{ const r=await rec.client._send({proposal_open_contract:1, contract_id:cid},12000); const poc=r.proposal_open_contract; if(poc && poc.is_sold){ finalizeContract(cid,poc); return; } else if(poc && poc.is_sold===false && poc.status==='open'){ // still open → try re-subscribe
     try{ const sid=await rec.client.subscribe({proposal_open_contract:1, contract_id:cid}, msg=>{ const p=msg.proposal_open_contract; if(!p) return; const rr=openContracts.get(cid); if(rr) rr.lastUpdate=Date.now(); if(p.is_sold||['won','lost','sold','expired','cancelled'].includes(p.status)) finalizeContract(cid,p); }); rec.subId=sid; rec.lastUpdate=Date.now(); }catch(e){ log('WARN',`stuck re-sub ${cid} failed:`,e.message); }
-  } }catch(e){ log('WARN',`stuck POC fetch #${cid}:`,e.message); } })().catch(e=>log('ERROR',`stuck reconcile #${cid} failed:`,e.message)); } },30000); }
+  } else if(!poc){ // POC returned nothing — check portfolio
+    const live = await rec.client.portfolio().catch(()=>null);
+    if(Array.isArray(live) && !live.find(c=> c.contract_id===cid)) dropGhostContract(cid, 'stuck-POC-empty-not-in-portfolio');
+  } }catch(e){
+    if(isAlreadyClosedError(e.message)) dropGhostContract(cid, 'stuck-POC-closed:'+e.message);
+    else log('WARN',`stuck POC fetch #${cid}:`,e.message);
+  } })().catch(e=>log('ERROR',`stuck reconcile #${cid} failed:`,e.message)); } },30000); }
  // set in main for tick-driven sell
 
 // ── Martingale global state ─────────────────────────────────────────
@@ -883,11 +948,25 @@ function startWatchdog(client){
         const staleSec=((now-rec.lastUpdate)/1000).toFixed(0);
         log('WARN',`watchdog: #${cid} stream quiet ${staleSec}s — re-subscribing`);
         try{
-          const pocRes = await client._send({proposal_open_contract:1, contract_id: cid}, 10000).catch(()=>null);
+          let pocRes=null, pocErr=null;
+          try{ pocRes = await client._send({proposal_open_contract:1, contract_id: cid}, 10000); }catch(e){ pocErr=e; }
+          if(pocErr){
+            if(isAlreadyClosedError(pocErr.message)){ dropGhostContract(cid, 'watchdog-POC-closed:'+pocErr.message); continue; }
+            log('WARN',`watchdog POC fetch #${cid}:`,pocErr.message);
+          }
           const poc = pocRes?.proposal_open_contract;
           if(poc && (poc.is_sold || ['won','lost','sold','expired','cancelled'].includes(poc.status))){
             finalizeContract(cid, poc);
             continue;
+          }
+          if(pocErr && !poc){
+            // POC failed but not closed — still try portfolio check
+            const live = await client.portfolio().catch(()=>null);
+            if(Array.isArray(live) && !live.find(c=> c.contract_id===cid)){ dropGhostContract(cid, 'watchdog-POC-fail-not-in-portfolio'); continue; }
+          }
+          if(!poc && !pocErr){
+            const live = await client.portfolio().catch(()=>null);
+            if(Array.isArray(live) && !live.find(c=> c.contract_id===cid)){ dropGhostContract(cid, 'watchdog-empty-not-in-portfolio'); continue; }
           }
           // re-attach stream and let normal exit logic run
           try{
@@ -903,10 +982,27 @@ function startWatchdog(client){
     }
   }, ms/2);
   client.on('close', ()=>{ /* keep openContracts for reconcile */ });
+  // also reconcile portfolio on auth/reconnect
+  client.on('authorized', ()=>{ reconcilePortfolio(client).catch(e=>log('WARN','reconcile on auth:',e.message)); });
+  client.on('open', ()=>{ /* portfolio reconcile happens after authorized */ });
 }
 function finalizeContract(cid, poc){
   if(settledIds.has(cid)) return;
   const rec=openContracts.get(cid); if(!rec) return;
+  // Ghost/unknown contracts must not affect streaks/martingale (idempotent guard handled via settledIds)
+  if(poc.status==='unknown'){
+    settledIds.add(cid);
+    log('INFO',`Contract ${cid} settled: unknown (ghost) profit 0 — no streak/martingale change`);
+    if(rec.entryLog){ rec.entryLog.outcome='unknown'; rec.entryLog.profit=0; rec.entryLog.status='unknown'; rec.entryLog.settledAt=Date.now(); rec.entryLog.exitReason=poc.exitReason||'unknown'; tradeLog.push(rec.entryLog); }
+    try{
+      statsManager.record({ contractId: cid, symbol: rec.symbol, growthRate: rec.entryLog?.growthRate ?? CONFIG.growthRate, stake: rec.entryLog?.stake ?? getMartingaleStake(), profit: 0, status: 'unknown', sellPrice: 0, buyTime: rec.entryLog?.buyTime ? rec.entryLog.buyTime/1000 : Date.now()/1000, sellTime: Date.now()/1000, ticksHeld: rec.ticksHeld ?? rec.entryLog?.plannedHold ?? 0, tickCapTicks: rec.entryLog?.plannedHold ?? null, exitReason: poc.exitReason||'unknown', martingaleLevel: rec.entryLog?.martingaleLevel ?? martingaleLevel });
+      overallProfit = statsManager.overallProfit;
+    }catch(_){}
+    if(rec.subId) rec.client.forget(rec.subId).catch(()=>{});
+    openContracts.delete(cid);
+    saveState('settle-unknown');
+    return;
+  }
   settledIds.add(cid);
   const profit=Number(poc.profit ?? 0);
   const outcome= poc.status==='won' || profit>0 ? 'won' : 'lost';
@@ -1295,9 +1391,31 @@ function processNewTicksForAsset(st, newTicks){
             }
           }, 2000);
         }catch(e){
-          log('WARN',`Timed sell #${cid} failed:`,e.message);
+          const msg=String(e.message||'');
+          if(isAlreadyClosedError(msg)){
+            log('WARN',`Timed sell #${cid} — already closed on server (${msg}) — dropping ghost`);
+            rec._selling = false;
+            dropGhostContract(cid, 'timed-sell-already-closed:'+msg);
+            return;
+          }
+          // retry only if truly open; schedule portfolio check via watchdog
+          if(/CannotBeSoldAtEntryTick|entry tick/i.test(msg)){
+            log('INFO',`Timed sell #${cid} deferred (entry-tick) — will retry next tick`);
+            rec._selling = false;
+            rec.lastUpdate = Date.now();
+            return;
+          }
+          log('WARN',`Timed sell #${cid} failed:`,msg);
           rec._selling = false;
-          // retry next tick
+          // retry next tick — but also check if still in portfolio to avoid infinite ghost loop
+          try{
+            const live = await rec.client.portfolio().catch(()=>null);
+            if(Array.isArray(live) && !live.find(c=> c.contract_id===cid)){
+              log('WARN',`Timed sell #${cid} not in portfolio after failure — dropping ghost`);
+              dropGhostContract(cid, 'timed-sell-fail-not-in-portfolio:'+msg);
+              return;
+            }
+          }catch(_){}
           rec.lastUpdate = Date.now() - CONFIG.watchdogMs + 5000; // force watchdog check
         }
       })();
