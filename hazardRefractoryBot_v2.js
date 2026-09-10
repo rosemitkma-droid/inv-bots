@@ -149,8 +149,8 @@ const CONFIG = Object.freeze({
   watchdogMs: 90000,
   tradeWatchdogMs: 90000,
   proposalRefreshMs: 60000,
-  stateFile: 'hazardBot_v2_009_state.json',
-  logFile: 'hazardBot_v2_009.log',
+  stateFile: 'hazardBot_v2_012_state.json',
+  logFile: 'hazardBot_v2_012.log',
   logLevel: 'INFO',
   telegram: {
     enabled: true,
@@ -665,13 +665,13 @@ function _schedulePause(){
 }
 function _onPauseResume(action){
   _clearPauseTimers();
-  if(action==='pause'){ paused=true; log('INFO',`TRADING PAUSED at ${CONFIG.pauseStartGmt} GMT until ${CONFIG.pauseEndGmt} GMT`); telegram.send(`⏸️ <b>TRADING PAUSED</b>\nPaused from <b>${CONFIG.pauseStartGmt}</b> to <b>${CONFIG.pauseEndGmt}</b> GMT.`); const end=_parsePauseTime(CONFIG.pauseEndGmt); if(end) _pauseEndTimer=setTimeout(()=>_onPauseResume('resume'), _msToTarget(end.h,end.min)); }
-  else { paused=false; log('INFO',`TRADING RESUMED at ${CONFIG.pauseEndGmt} GMT`); telegram.send(`▶️ <b>TRADING RESUMED</b>\nOverall: ${money(overallProfit,currencyStr())}`); const start=_parsePauseTime(CONFIG.pauseStartGmt); if(start) _pauseStartTimer=setTimeout(()=>_onPauseResume('pause'), _msToTarget(start.h,start.min)); }
+  if(action==='pause'){ paused=true; log('INFO',`TRADING PAUSED at ${CONFIG.pauseStartGmt} GMT until ${CONFIG.pauseEndGmt} GMT`); telegram.send(`⏸️ <b>HazardBot_v2 TRADING PAUSED</b>\nPaused from <b>${CONFIG.pauseStartGmt}</b> to <b>${CONFIG.pauseEndGmt}</b> GMT.`); const end=_parsePauseTime(CONFIG.pauseEndGmt); if(end) _pauseEndTimer=setTimeout(()=>_onPauseResume('resume'), _msToTarget(end.h,end.min)); }
+  else { paused=false; log('INFO',`TRADING RESUMED at ${CONFIG.pauseEndGmt} GMT`); telegram.send(`▶️ <b>HazardBot_v2 TRADING RESUMED</b>\nOverall: ${money(overallProfit,currencyStr())}`); const start=_parsePauseTime(CONFIG.pauseStartGmt); if(start) _pauseStartTimer=setTimeout(()=>_onPauseResume('pause'), _msToTarget(start.h,start.min)); }
 }
 function _isTradingAllowedToday(){ const dow=new Date().getUTCDay(); const arr=[CONFIG.tradeSunday,CONFIG.tradeMonday,CONFIG.tradeTuesday,CONFIG.tradeWednesday,CONFIG.tradeThursday,CONFIG.tradeFriday,CONFIG.tradeSaturday]; return !!arr[dow]; }
 function _checkDayChange(){
   const today=utcDateStr(); if(_lastDayISODate && _lastDayISODate!==today){ log('INFO',`new day detected: ${_lastDayISODate} → ${today}`); // keep martingale, reset daily counters if needed
-    telegram.send(`📅 <b>New trade day: ${today}</b>\nOverall: ${money(overallProfit,currencyStr())}\n♻️ Martingale: ${_martingaleLabel()} · Stake ${getMartingaleStake().toFixed(2)} ${currencyStr()}`); }
+    telegram.send(`📅 <b>HazardBot_v2 New trade day: ${today}</b>\nOverall: ${money(overallProfit,currencyStr())}\n♻️ Martingale: ${_martingaleLabel()} · Stake ${getMartingaleStake().toFixed(2)} ${currencyStr()}`); }
   _lastDayISODate=today;
 }
 function _nextUtcMidnight(){ const d=new Date(); return new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()+1)).getTime(); }
@@ -691,8 +691,8 @@ function _sendHourly(){
   const list=statsManager.tradesForHour(date,hour); const s=statsManager.stats(list);
   const martingaleInfo=_isMartingaleEnabled()? `♻️ Martingale: ${_martingaleLabel()} · base ${CONFIG.stake.toFixed(2)} → now ${getMartingaleStake().toFixed(2)} ${currencyStr()}\n` : `♻️ Martingale: OFF\n`;
   const lossInfo=`📉 Loss streak: ${consecutiveLossesGlobal} · max ${statsManager.maxLossStreak} · ${statsManager.lossStreakLine()}\n`;
-  if(!list.length){ telegram.send(`⏰ <b>${date} ${pad(hour)}:00</b> — No trades\n${martingaleInfo}${lossInfo}💼 Overall: ${money(overallProfit,currencyStr())}`); return; }
-  let msg=`⏰ <b>${date} ${pad(hour)}:00</b>\n\n📊 ${s.count} trades (✅${s.wins} ❌${s.losses})\n📈 WR: ${s.winRate.toFixed(1)}%\n💰 P/L: <b>${money(s.totalProfit,currencyStr())}</b>\n💼 Overall: <b>${money(overallProfit,currencyStr())}</b>\n${martingaleInfo}${lossInfo}\n`;
+  if(!list.length){ telegram.send(`⏰ HazardBot_v2<b>${date} ${pad(hour)}:00</b> — No trades\n${martingaleInfo}${lossInfo}💼 Overall: ${money(overallProfit,currencyStr())}`); return; }
+  let msg=`⏰ HazardBot_v2 <b>${date} ${pad(hour)}:00</b>\n\n📊 ${s.count} trades (✅${s.wins} ❌${s.losses})\n📈 WR: ${s.winRate.toFixed(1)}%\n💰 P/L: <b>${money(s.totalProfit,currencyStr())}</b>\n💼 Overall: <b>${money(overallProfit,currencyStr())}</b>\n${martingaleInfo}${lossInfo}\n`;
   list.slice(-15).forEach((t,i)=>{ const exit=(t.exitReason||'').split(':')[0]; const mgTag=t.martingaleLevel!=null&&t.martingaleLevel>0?` MG×${Number(t.martingaleMultiplier||1).toFixed(2)}`:''; msg+=`${i+1}. ${t.status==='won'?'✅':'❌'} #${t.contractId} ${t.symbol} ticks=${t.ticksHeld??'?'} exit=${exit}${mgTag} ${money(t.profit,currencyStr())}\n`; });
   telegram.send(msg);
 }
@@ -701,7 +701,7 @@ function _sendEod(reason='manual'){
   if(statsManager.isEodSent(date)&&reason==='scheduled') return;
   const summary=statsManager.archiveDate(date); const ds=summary.stats;
   const balStart=startBalance??0, balNow=lastBalance??balStart; const balDelta=balNow-balStart;
-  let msg=`🌙 <b>DAILY REPORT — ${date}</b>\n\n`;
+  let msg=`🌙 <b>HazardBot_v2 DAILY REPORT — ${date}</b>\n\n`;
   if(ds.count) msg+=`📊 ${ds.count} trades (✅${ds.wins} ❌${ds.losses}) | WR ${ds.winRate.toFixed(1)}%\n💰 Net: <b>${money(ds.totalProfit,currencyStr())}</b> | PF ${ds.profitFactor===Infinity?'∞':ds.profitFactor.toFixed(2)}\n`;
   else msg+=`No trades.\n`;
   msg+=`\n💼 ${balStart.toFixed(2)} → ${balNow.toFixed(2)} (${balDelta>=0?'+':''}${balDelta.toFixed(2)})\n`;
@@ -988,7 +988,7 @@ function finalizeContract(cid, poc){
     const todayDate = utcDateStr(today);
     const todayStats = statsManager.stats(statsManager.todayTrades(todayDate));
     const msg =
-      `${emoji} <b>TRADE ${label}</b>\n\n`+
+      `${emoji} <b>HazardBot_v2 TRADE ${label}</b>\n\n`+
       `<b>Contract:</b> #${cid} · <b>Symbol:</b> <code>${rec.symbol}</code>\n`+
       `<b>Growth:</b> ${(rec.entryLog?.growthRate? rec.entryLog.growthRate*100: CONFIG.growthRate*100).toFixed(2)}% · <b>Stake:</b> ${Number(stakeUsed).toFixed(2)} ${currencyStr()}\n`+
       `<b>Sell:</b> ${Number(sellPrice||0).toFixed(2)} ${currencyStr()}\n`+
@@ -1024,15 +1024,15 @@ function runValidationSweep(){
   log('INFO',`Validation last${CONFIG.validationN}: wins ${wins}/${lastN.length} WR ${(wins/lastN.length).toFixed(3)} vs breakeven ${breakevenMean.toFixed(3)} pTwo ${pTwo.toFixed(4)} ${unfavorable?'unfavorable':''}`);
   for(const t of lastN) t.validationP=pTwo;
   if(unfavorable && pOne < CONFIG.killP){
-    const msg=`🛑 <b>Kill-switch: realized WR inconsistent</b>\nLast${CONFIG.validationN}: <code>${wins}/${lastN.length} ${(wins/lastN.length).toFixed(3)}</code> vs breakeven <code>${breakevenMean.toFixed(3)}</code> pOne <code>${pOne.toFixed(4)}</code>`;
+    const msg=`🛑 <b>HazardBot_v2 Kill-switch: realized WR inconsistent</b>\nLast${CONFIG.validationN}: <code>${wins}/${lastN.length} ${(wins/lastN.length).toFixed(3)}</code> vs breakeven <code>${breakevenMean.toFixed(3)}</code> pOne <code>${pOne.toFixed(4)}</code>`;
     log('ERROR',msg.replace(/<[^>]+>/g,'')); telegram.send(msg); enterPaused('validation p<0.05 unfavorable');
   }
 }
 function checkKillSwitch(){
   if(killed) return;
-  if(consecutiveLossesGlobal >= CONFIG.maxConsecutiveLosses){ const msg=`🛑 <b>Kill-switch: ${consecutiveLossesGlobal} consecutive losses</b> (limit ${CONFIG.maxConsecutiveLosses})`; log('ERROR',msg.replace(/<[^>]+>/g,'')); telegram.send(msg); enterPaused(`consecutive losses ${consecutiveLossesGlobal}`); return; }
-  if(dailyLoss <= -Math.abs(CONFIG.dailyMaxLoss)){ const msg=`🛑 <b>Kill-switch: daily loss ${dailyLoss.toFixed(2)} ${CONFIG.currency}</b> (limit -${CONFIG.dailyMaxLoss})`; log('ERROR',msg.replace(/<[^>]+>/g,'')); telegram.send(msg); enterPaused(`daily loss ${dailyLoss.toFixed(2)}`); return; }
-  if(dailyTrades >= CONFIG.dailyMaxTrades){ const msg=`🛑 <b>Kill-switch: daily trades ${dailyTrades}</b>`; log('ERROR',msg.replace(/<[^>]+>/g,'')); telegram.send(msg); enterPaused('daily trades limit'); return; }
+  if(consecutiveLossesGlobal >= CONFIG.maxConsecutiveLosses){ const msg=`🛑 <b>HazardBot_v2 Kill-switch: ${consecutiveLossesGlobal} consecutive losses</b> (limit ${CONFIG.maxConsecutiveLosses})`; log('ERROR',msg.replace(/<[^>]+>/g,'')); telegram.send(msg); enterPaused(`consecutive losses ${consecutiveLossesGlobal}`); return; }
+  if(dailyLoss <= -Math.abs(CONFIG.dailyMaxLoss)){ const msg=`🛑 <b>HazardBot_v2 Kill-switch: daily loss ${dailyLoss.toFixed(2)} ${CONFIG.currency}</b> (limit -${CONFIG.dailyMaxLoss})`; log('ERROR',msg.replace(/<[^>]+>/g,'')); telegram.send(msg); enterPaused(`daily loss ${dailyLoss.toFixed(2)}`); return; }
+  if(dailyTrades >= CONFIG.dailyMaxTrades){ const msg=`🛑 <b>HazardBot_v2 Kill-switch: daily trades ${dailyTrades}</b>`; log('ERROR',msg.replace(/<[^>]+>/g,'')); telegram.send(msg); enterPaused('daily trades limit'); return; }
 }
 function enterPaused(reason){
   killed=true;
@@ -1200,7 +1200,7 @@ async function evaluateCalibrationForAsset(st){
     st.lastCalibrationAt=Date.now();
     const post=computePostSpikeParams(st,res);
     st.pendingEntryAfter=post.entryAfter; st.pendingHoldTicks=post.holdTicks; st.pendingEntryReason=post.reason;
-    const msg=`✅ <b>Calibration ACTIVE ${st.symbol} (strict)</b>\nIntervals <code>${st.intervals.length}</code> mean <code>${res.mean.toFixed(1)}</code> CV <code>${res.disp.cv.toFixed(3)}</code>\nχ² p <code>${res.chi.pValue.toFixed(4)}</code> KS p <code>${res.ks.pValue.toFixed(4)}</code>\nElevated <code>${res.elevatedIdx.map(i=>res.hazard[i].range).join(', ')}</code>\nPost-spike entry <code>${post.entryAfter}</code> hold <code>${post.holdTicks}</code> (${post.reason})`;
+    const msg=`✅ <b>HazardBot_v2 Calibration ACTIVE ${st.symbol} (strict)</b>\nIntervals <code>${st.intervals.length}</code> mean <code>${res.mean.toFixed(1)}</code> CV <code>${res.disp.cv.toFixed(3)}</code>\nχ² p <code>${res.chi.pValue.toFixed(4)}</code> KS p <code>${res.ks.pValue.toFixed(4)}</code>\nElevated <code>${res.elevatedIdx.map(i=>res.hazard[i].range).join(', ')}</code>\nPost-spike entry <code>${post.entryAfter}</code> hold <code>${post.holdTicks}</code> (${post.reason})`;
     log('INFO',`CALIBRATION STRICT ACTIVE ${st.symbol} entryAfter ${post.entryAfter} hold ${post.holdTicks}`);
     telegram.send(msg);
     saveState('calibActive:'+st.symbol);
@@ -1209,7 +1209,7 @@ async function evaluateCalibrationForAsset(st){
     st.lastCalibrationAt=Date.now();
     const post=computePostSpikeParams(st,res);
     st.pendingEntryAfter=post.entryAfter; st.pendingHoldTicks=post.holdTicks; st.pendingEntryReason=post.reason;
-    const msg=`✅ <b>Calibration ACTIVE (relaxed) ${st.symbol}</b>\nIntervals <code>${st.intervals.length}</code> mean <code>${res.mean.toFixed(1)}</code>\nχ² p <code>${res.chi.pValue.toFixed(4)}</code> KS p <code>${res.ks.pValue.toFixed(4)}</code> (relaxed OR gate)\nElevated <code>${res.elevatedIdx.map(i=>res.hazard[i].range).join(', ')}</code>\nPost-spike entry <code>${post.entryAfter}</code> hold <code>${post.holdTicks}</code>`;
+    const msg=`✅ <b>HazardBot_v2 Calibration ACTIVE (relaxed) ${st.symbol}</b>\nIntervals <code>${st.intervals.length}</code> mean <code>${res.mean.toFixed(1)}</code>\nχ² p <code>${res.chi.pValue.toFixed(4)}</code> KS p <code>${res.ks.pValue.toFixed(4)}</code> (relaxed OR gate)\nElevated <code>${res.elevatedIdx.map(i=>res.hazard[i].range).join(', ')}</code>\nPost-spike entry <code>${post.entryAfter}</code> hold <code>${post.holdTicks}</code>`;
     log('INFO',`CALIBRATION RELAXED ACTIVE ${st.symbol} entryAfter ${post.entryAfter} hold ${post.holdTicks}`);
     telegram.send(msg);
     saveState('calibRelaxed:'+st.symbol);
@@ -1219,7 +1219,7 @@ async function evaluateCalibrationForAsset(st){
     st.calibrationStatus='ACTIVE_RELAXED';
     st.lastCalibrationAt=Date.now();
     st.pendingEntryAfter=post.entryAfter; st.pendingHoldTicks=post.holdTicks; st.pendingEntryReason=post.reason;
-    const msg=`⚠️ <b>Calibration NO EDGE → RELAXED ${st.symbol}</b>\nIntervals <code>${st.intervals.length}</code> mean <code>${res.mean.toFixed(1)}</code>\nχ² p <code>${res.chi.pValue.toFixed(4)}</code> KS p <code>${res.ks.pValue.toFixed(4)}</code>\nNo relaxed elevated bucket — using mean-derived entry <code>${post.entryAfter}</code> hold <code>${post.holdTicks}</code>\nWill trade post-spike anyway (v2 less restrictive).`;
+    const msg=`⚠️ <b>HazardBot_v2 Calibration NO EDGE → RELAXED ${st.symbol}</b>\nIntervals <code>${st.intervals.length}</code> mean <code>${res.mean.toFixed(1)}</code>\nχ² p <code>${res.chi.pValue.toFixed(4)}</code> KS p <code>${res.ks.pValue.toFixed(4)}</code>\nNo relaxed elevated bucket — using mean-derived entry <code>${post.entryAfter}</code> hold <code>${post.holdTicks}</code>\nWill trade post-spike anyway (v2 less restrictive).`;
     log('WARN',`CALIBRATION RELAXED (no edge) ${st.symbol} entryAfter ${post.entryAfter} hold ${post.holdTicks}`);
     telegram.send(msg);
     saveState('calibRelaxedNoEdge:'+st.symbol);
@@ -1489,7 +1489,7 @@ async function tryTradeForAsset(client, st){
       // non-race or second failure
       const level = isRace ? 'WARN' : 'ERROR';
       log(level,`Buy ${st.symbol} failed:`,msg);
-      if(!isRace) telegram.send(`❌ <b>Buy failed ${st.symbol}</b> ${msg.slice(0,120)}`);
+      if(!isRace) telegram.send(`❌ <b>HazardBot_v2 Buy failed ${st.symbol}</b> ${msg.slice(0,120)}`);
       return;
     }
   }
@@ -1512,7 +1512,7 @@ async function tryTradeForAsset(client, st){
     const bucketInfo = st.hazardTable?.find(b=>entryAfter>=b.lo&&entryAfter<b.hi);
     const bucketTxt = bucketInfo ? `${bucketInfo.range} emp ${Number(hazard).toFixed(4)} theo ${(bucketInfo.theoretical??0).toFixed(4)}` : `${entryAfter}`;
     const msg =
-      `🟢 <b>TRADE OPENED</b>\n\n`+
+      `🟢 <b>HazardBot_v2 TRADE OPENED</b>\n\n`+
       `<b>Contract:</b> #${cid}\n`+
       `<b>Symbol:</b> <code>${st.symbol}</code>\n`+
       `<b>Growth Rate:</b> ${(CONFIG.growthRate*100).toFixed(2)}%\n`+
@@ -1719,7 +1719,7 @@ async function main(){
         await evaluateCalibrationForAsset(st);
       }else{
         log('INFO',`${sym} CALIBRATING ${st.intervals.length}/${CONFIG.calibrationMinIntervals}`);
-        telegram.send(`🔄 <b>v2 Calibrating ${sym}</b> intervals <code>${st.intervals.length}/${CONFIG.calibrationMinIntervals}</code>`);
+        telegram.send(`🔄 <b>HazardBot_v2 Calibrating ${sym}</b> intervals <code>${st.intervals.length}/${CONFIG.calibrationMinIntervals}</code>`);
       }
       // v2: schedule initial entry if already ACTIVE
       if(st.calibrationStatus.startsWith('ACTIVE') && st.intervals.length){
@@ -1745,7 +1745,7 @@ async function main(){
     maybeResetDaily();
     // daily hard stop check via statsManager (still notifies even when paused)
     let dailyHardStop=false;
-    { const todayTrades = statsManager.todayTrades(); const pnl = todayTrades.reduce((s,t)=>s+Number(t.profit||0),0); if(todayTrades.length >= CONFIG.dailyMaxTrades || pnl <= -CONFIG.dailyMaxLoss){ dailyHardStop=true; if(!_dailyStopNotified){ _dailyStopNotified=true; const msg=`⛔ <b>Daily hard stop</b>\n${todayTrades.length} trades, net ${money(pnl,currencyStr())}.\nPaused until next UTC day.`; log('WARN', msg.replace(/<[^>]+>/g,'')); telegram.send(msg); } } else { _dailyStopNotified=false; } }
+    { const todayTrades = statsManager.todayTrades(); const pnl = todayTrades.reduce((s,t)=>s+Number(t.profit||0),0); if(todayTrades.length >= CONFIG.dailyMaxTrades || pnl <= -CONFIG.dailyMaxLoss){ dailyHardStop=true; if(!_dailyStopNotified){ _dailyStopNotified=true; const msg=`⛔ <b>HazardBot_v2 Daily hard stop</b>\n${todayTrades.length} trades, net ${money(pnl,currencyStr())}.\nPaused until next UTC day.`; log('WARN', msg.replace(/<[^>]+>/g,'')); telegram.send(msg); } } else { _dailyStopNotified=false; } }
     // calibration evaluation always continues during pause/DOW/daily-stop — only trading is blocked
     for(const sym of CONFIG.assets){
       const st=assetMap.get(sym);
@@ -1788,7 +1788,7 @@ async function main(){
     const pauseLine = CONFIG.pauseEnabled ? `⏸️ <b>Pause:</b> ${CONFIG.pauseStartGmt}–${CONFIG.pauseEndGmt} GMT\n` : '';
     const dowLine = `📅 <b>DOW:</b> ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].filter((_,i)=> [CONFIG.tradeSunday,CONFIG.tradeMonday,CONFIG.tradeTuesday,CONFIG.tradeWednesday,CONFIG.tradeThursday,CONFIG.tradeFriday,CONFIG.tradeSaturday][i]).join(', ') || 'none'}\n`;
     telegram.send(
-      `<b>hazardRefractoryBot v2 — Online</b>\n\n`+
+      `<b>HazardBot_v2 — Online</b>\n\n`+
       `<b>Account:</b> ${globalClient?.accountInfo?.loginid || globalClient?._account?.account_id || 'n/a'} (${globalClient?.accountInfo?.isVirtual? '🟡 DEMO':'DEMO'})\n`+
       `<b>Balance:</b> ${Number(bal).toFixed(2)} ${currency}\n`+
       `<b>Assets:</b> ${CONFIG.assets.join(', ')}\n`+
