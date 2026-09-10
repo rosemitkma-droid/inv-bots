@@ -123,15 +123,15 @@ const CONFIG = Object.freeze({
     slow: { tickCapFraction: 0.55, takeProfitMultiple: 1.35, growthRate: 0.02 }, // BOOM/CRASH 500/600/900/1000
   }),
   symbolTiers: Object.freeze({
-    // fast: ['BOOM50','CRASH50'],
+    fast: ['BOOM50','CRASH50'],
     slow: ['BOOM500','BOOM600','BOOM900','BOOM1000','CRASH500','CRASH600','CRASH900','CRASH1000'],
   }),
 
   // ── Martingale (kept per user #2) ───────────────────────────────
   // On every loss: next stake = base stake × (multiplier ^ step).
   // On win: reset to base stake (step = 0).
-  // WARNING: ×2.10 ^8 on negative-expectancy ACCU has high ruin risk.
-  martingaleMultiplier : parseFloat('3.10'), // e.g. 2.10 means stake ×2.10 after each loss
+  // WARNING: ×3.10 ^8 on negative-expectancy ACCU has high ruin risk.
+  martingaleMultiplier : parseFloat('3.10'), // e.g. 3.10 means stake ×3.10 after each loss
   martingaleSteps      : parseInt('7', 10),  // max consecutive martingale multiplications (0 = disabled)
   martingaleMaxStake   : parseFloat('500'),  // cap to bound ruin (null to disable)
 
@@ -141,9 +141,9 @@ const CONFIG = Object.freeze({
   maxOpenTrades       : parseInt('1',     10),   // concurrent open contracts across the bot
 
   // ── Risk controls ──
-  maxConsecutiveLosses : parseInt('8', 10),      // pause + require manual restart
-  dailyMaxLoss        : parseFloat('350'),         // demo-appropriate cap
-  dailyMaxTrades      : parseInt('1200000', 10),      // daily cap
+  maxConsecutiveLosses : parseInt('7', 10),      // pause + require manual restart
+  dailyMaxLoss        : parseFloat('500'),         // demo-appropriate cap
+  dailyMaxTrades      : parseInt('120000', 10),      // daily cap
   stopLossPerContract : parseFloat('0'),         // 0 = disabled (rely on knockout)
 
   // ── Instruments — 10 symbols (fast + slow) per user #1 ──
@@ -203,9 +203,9 @@ const CONFIG = Object.freeze({
   }),
 
   // ── Logging / state — FRESH per user #4 ──
-  logFile           : 'accuHOLD3_02.log',
+  logFile           : 'accuHOLD3_03.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD3_state_02.json', // fresh start, v2 state ignored
+  stateFile         : 'accuHOLD3_state_03.json', // fresh start, v2 state ignored
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
@@ -815,8 +815,14 @@ class TradeExecutor extends EventEmitter {
     }
   }
 
-  async _attachContractStream(info) {
-    if (this._subscriptions.has(info.contractId)) return;
+  async _attachContractStream(info, force = false) {
+    if (this._subscriptions.has(info.contractId) && !force) return;
+    // force=true: forget old sub first so watchdog can re-establish
+    if (force && this._subscriptions.has(info.contractId)) {
+      const old = this._subscriptions.get(info.contractId);
+      this._subscriptions.delete(info.contractId);
+      try { await this.client.forget(old); } catch (_) {}
+    }
     try {
       const subId = await this.client.subscribe(
         { proposal_open_contract: 1, contract_id: info.contractId },
@@ -824,8 +830,10 @@ class TradeExecutor extends EventEmitter {
       );
       this._subscriptions.set(info.contractId, subId);
       info._subscriptionId = subId;
+      logger.info(`stream attached #${info.contractId} subId=${subId}${force ? ' (forced)' : ''}`);
     } catch (e) {
       logger.warn(`attach stream #${info.contractId}:`, e.message);
+      throw e;
     }
   }
 
@@ -931,6 +939,7 @@ class TradeExecutor extends EventEmitter {
       }
       info.peakProfit = Math.max(info.peakProfit ?? 0, profit);
       info.lastUpdateAt = Date.now();
+      info._watchdogAttempts = 0;
     }
     if (c.bid_price != null) info.lastBid = parseFloat(c.bid_price);
 
@@ -1096,20 +1105,74 @@ class TradeExecutor extends EventEmitter {
   }
 
   async _reconcileStuck(cid, info) {
+    if (this._selling.has(cid)) return;
     this._selling.add(cid);
     try {
-      // Ask the server for the authoritative state first; if it's already
-      // settled, route through the normal update path (idempotent).
+      // 1) Authoritative POC fetch
       try {
         const res = await this.client._send({ proposal_open_contract: 1, contract_id: cid }, 12000);
         const oc = res?.proposal_open_contract;
-        if (oc && (oc.status !== 'open' || oc.is_sold)) {
-          this._onUpdate({ proposal_open_contract: oc }, info);
+        if (oc) {
+          // if server says not open anymore, finalize via _onUpdate
+          if (oc.status !== 'open' || oc.is_sold || TERMINAL_STATUSES.has(oc.status)) {
+            logger.warn(`reconcileStuck #${cid}: server status=${oc.status} is_sold=${oc.is_sold} — finalizing`);
+            this._onUpdate({ proposal_open_contract: oc }, info);
+            return;
+          }
+          // still open but stale — log age and attempt sell if very old
+          const ageSec = ((Date.now() - (info.lastUpdateAt || 0)) / 1000).toFixed(0);
+          logger.warn(`reconcileStuck #${cid}: still open after ${ageSec}s stale, profit=${oc.profit ?? '?'} ticks=${oc.tick_count ?? '?'} — attempting market sell`);
+        } else {
+          logger.warn(`reconcileStuck #${cid}: POC returned no oc — checking portfolio`);
+        }
+      } catch (e) {
+        const msg = String(e.message || '');
+        if (/ContractNotFound|InvalidContract/i.test(msg)) {
+          logger.warn(`reconcileStuck #${cid}: POC ContractNotFound — checking portfolio`);
+        } else {
+          logger.debug(`stuck POC fetch #${cid}:`, e.message);
+        }
+      }
+
+      // 2) Portfolio check — if contract not in portfolio, it's settled server-side but we missed the terminal message
+      try {
+        const portfolio = await this.client.portfolio();
+        const found = portfolio.find(c => String(c.contract_id) === String(cid));
+        if (!found) {
+          logger.warn(`reconcileStuck #${cid}: not in portfolio — forcing settle as unknown (missed terminal)`);
+          // Try one more POC with longer timeout, else force-settle unknown so slot frees
+          try {
+            const res2 = await this.client._send({ proposal_open_contract: 1, contract_id: cid }, 8000);
+            const oc2 = res2?.proposal_open_contract;
+            if (oc2 && TERMINAL_STATUSES.has(oc2.status)) { this._onUpdate({ proposal_open_contract: oc2 }, info); return; }
+          } catch (_) {}
+          this._finalizeContract(cid, { profit: 0, status: 'unknown', sellPrice: 0, sellTime: Date.now()/1000, currentSpot: info.entrySpot||0, exitReason: 'stuck-not-in-portfolio' });
           return;
         }
-      } catch (e) { logger.debug(`stuck POC fetch #${cid}:`, e.message); }
+      } catch (e) { logger.debug(`reconcile portfolio check #${cid}:`, e.message); }
 
-      await this.sell(cid, 0, info);
+      // 3) Track watchdog attempts — after 3 fails, force sell, after 5 force-settle unknown
+      info._watchdogAttempts = (info._watchdogAttempts || 0) + 1;
+      const attempts = info._watchdogAttempts;
+      logger.warn(`reconcileStuck #${cid}: attempt ${attempts} — selling`);
+      try {
+        await this.sell(cid, 0, info);
+        info._watchdogAttempts = 0;
+        return;
+      } catch (e) {
+        const msg = String(e.message || '');
+        if (/not found among your open positions/i.test(msg)) {
+          // already handled in sell(), but keep fallback
+          return;
+        }
+        if (attempts >= 5) {
+          logger.error(`reconcileStuck #${cid}: sell failed ${attempts} times (${msg}) — force-settling unknown to free slot`);
+          this._finalizeContract(cid, { profit: 0, status: 'unknown', sellPrice: 0, sellTime: Date.now()/1000, currentSpot: info.entrySpot||0, exitReason: `stuck-force-unknown-after-${attempts}` });
+          telegram.send(`⚠️ <b>Stuck contract force-closed</b> #${cid} ${info.symbol} after ${attempts} watchdog attempts<br/>Last profit=${info.lastBid ?? '?'} — freed slot as <b>unknown</b>.`);
+          return;
+        }
+        throw e;
+      }
     } finally {
       this._selling.delete(cid);
     }
@@ -1883,25 +1946,33 @@ class AccuHoldBot {
   //     no longer open OR the re-subscribe path is exhausted.
   _startWatchdog() {
     this._clearWatchdog();
+    // Run at half the watchdog interval, but do NOT optimistically bump lastUpdateAt.
+    // That bump was masking stuck contracts from the 180s stuck-sweep (see pm2 log #12411833379).
     this._watchdogT = setInterval(() => {
       const now = Date.now();
       for (const info of this.exec.openTrades()) {
-        if (now - info.lastUpdateAt > this.cfg.tradeWatchdogMs) {
-          const staleSec = ((now - info.lastUpdateAt) / 1000).toFixed(0);
-          logger.warn(`watchdog: #${info.contractId} stream quiet ${staleSec}s — re-subscribing`);
-          this.exec._attachContractStream(info)
-            .then(() => info.lastUpdateAt = Date.now())
-            .catch(() => this.exec._reconcileStuck(info.contractId, info)
-              .catch(e => logger.error(`watchdog reconcile #${info.contractId} failed:`, e.message)));
+        if (this.exec._selling.has(info.contractId)) continue;
+        const staleMs = now - (info.lastUpdateAt || 0);
+        if (staleMs > this.cfg.tradeWatchdogMs) {
+          const staleSec = (staleMs / 1000).toFixed(0);
+          const attempts = (info._watchdogAttempts || 0) + 1;
+          logger.warn(`watchdog: #${info.contractId} ${info.symbol} stream quiet ${staleSec}s (attempt ${attempts}) — authoritative reconcile`);
+          // Do authoritative reconcile immediately (POC fetch + portfolio check + sell with backoff)
+          // and also force re-subscribe in parallel — but NEVER bump lastUpdateAt here.
+          this.exec._reconcileStuck(info.contractId, info)
+            .catch(e => logger.error(`watchdog reconcile #${info.contractId} failed:`, e.message));
+          // Best-effort forced re-subscribe for when contract is still open and stream just died
+          this.exec._attachContractStream(info, true).catch(e => logger.debug(`watchdog forced resub #${info.contractId}:`, e.message));
         }
       }
     }, this.cfg.tradeWatchdogMs / 2);
   }
   _clearWatchdog() { if (this._watchdogT) { clearInterval(this._watchdogT); this._watchdogT = null; } }
 
-  // ── Stuck-contract sweep (separate, longer cadence) ──────────────
+  // ── Stuck-contract sweep (separate, longer cadence — now redundant with watchdog but kept as backup) ──
   _startStuckSweep() {
     this._clearStuckSweep();
+    // 30s sweep, but threshold 180s — watchdog now handles 90s cases, this is final backup
     this._stuckT = setInterval(() => this.exec.checkStuckContracts(180000), 30000);
   }
   _clearStuckSweep() { if (this._stuckT) { clearInterval(this._stuckT); this._stuckT = null; } }
