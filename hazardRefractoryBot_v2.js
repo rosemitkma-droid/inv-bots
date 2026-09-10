@@ -149,8 +149,8 @@ const CONFIG = Object.freeze({
   watchdogMs: 90000,
   tradeWatchdogMs: 90000,
   proposalRefreshMs: 60000,
-  stateFile: 'hazardBot_v2_007_state.json',
-  logFile: 'hazardBot_v2_007.log',
+  stateFile: 'hazardBot_v2_008_state.json',
+  logFile: 'hazardBot_v2_008.log',
   logLevel: 'INFO',
   telegram: {
     enabled: true,
