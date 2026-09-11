@@ -112,7 +112,7 @@ const CONFIG = Object.freeze({
   // ── Trade parameters (memoryless, non-signal) ──
   stake              : parseFloat('1.00'),   // base stake per trade (reset value for martingale)
   takeProfitMultiple : parseFloat('1.01'),   //1.50 sell when payout ≥ stake × this
-  tickCapFraction    : parseFloat('1.20'),   //0.55 tick-cap = frac × live ticks_stayed_in median
+  tickCapFraction    : parseFloat('1.01'),   //0.55 tick-cap = frac × live ticks_stayed_in median
   growthRate         : parseFloat('0.01'),   // one of {0.01, 0.02, 0.03, 0.04, 0.05}
 
   // ── Martingale ──────────────────────────────────────────────────
@@ -120,7 +120,7 @@ const CONFIG = Object.freeze({
   // On win: reset to base stake (step = 0).
   // User-configurable multiplier and max steps.
   // Set steps = 0 or multiplier <= 1.0 to disable martingale (flat stake).
-  martingaleMultiplier : parseFloat('2.10'), //2.10 e.g. 2.10 means stake ×2.10 after each loss
+  martingaleMultiplier : parseFloat('21.00'), //2.10 e.g. 2.10 means stake ×2.10 after each loss
   martingaleSteps      : parseInt('3', 10),  // max consecutive martingale multiplications (0 = disabled)
 
   // ── Rate-limited entry ──
@@ -171,9 +171,9 @@ const CONFIG = Object.freeze({
   hourlySummary      : true,
 
   // ── Logging / state ──
-  logFile           : 'accuHOLD_v2_001.log',
+  logFile           : 'accuHOLD_v2_002.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD_v2_state_001.json',
+  stateFile         : 'accuHOLD_v2_state_002.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
