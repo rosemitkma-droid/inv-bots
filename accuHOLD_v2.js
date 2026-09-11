@@ -110,8 +110,8 @@ const CONFIG = Object.freeze({
   accountType: 'demo',   // 'demo' | 'real' — keep demo for testing
 
   // ── Trade parameters (memoryless, non-signal) ──
-  stake              : parseFloat('1.00'),   // base stake per trade (reset value for martingale)
-  takeProfitMultiple : parseFloat('1.50'),   // sell when payout ≥ stake × this
+  stake              : parseFloat('20.00'),   // base stake per trade (reset value for martingale)
+  takeProfitMultiple : parseFloat('1.01'),   //1.50 sell when payout ≥ stake × this
   tickCapFraction    : parseFloat('1.20'),   //0.55 tick-cap = frac × live ticks_stayed_in median
   growthRate         : parseFloat('0.01'),   // one of {0.01, 0.02, 0.03, 0.04, 0.05}
 
@@ -120,8 +120,8 @@ const CONFIG = Object.freeze({
   // On win: reset to base stake (step = 0).
   // User-configurable multiplier and max steps.
   // Set steps = 0 or multiplier <= 1.0 to disable martingale (flat stake).
-  martingaleMultiplier : parseFloat('2.10'), // e.g. 2.10 means stake ×2.10 after each loss
-  martingaleSteps      : parseInt('8', 10),  // max consecutive martingale multiplications (0 = disabled)
+  martingaleMultiplier : parseFloat('2.00'), //2.10 e.g. 2.10 means stake ×2.10 after each loss
+  martingaleSteps      : parseInt('2', 10),  // max consecutive martingale multiplications (0 = disabled)
 
   // ── Rate-limited entry ──
   perSymbolCooldownMs : parseInt('8000',  10),   // between trades on the same symbol
@@ -129,13 +129,16 @@ const CONFIG = Object.freeze({
   maxOpenTrades       : parseInt('1',     10),   // concurrent open contracts across the bot
 
   // ── Risk controls ──
-  maxConsecutiveLosses : parseInt('8', 10),      // pause + require manual restart
+  maxConsecutiveLosses : parseInt('2', 10),      // pause + require manual restart
   dailyMaxLoss        : parseFloat('150'),         // demo-appropriate cap
   dailyMaxTrades      : parseInt('120000', 10),      // daily cap
   stopLossPerContract : parseFloat('0'),         // 0 = disabled (rely on knockout)
 
   // ── Instruments (BOOM + CRASH families, run both) ──
-  assets: ('BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  // assets: ('BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  //   .split(',').map(s => s.trim()).filter(Boolean),
+
+  assets: ('R_10,R_25,R_50,R_75,R_100')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Telegram (existing hardcoded values) ──
@@ -168,9 +171,9 @@ const CONFIG = Object.freeze({
   hourlySummary      : true,
 
   // ── Logging / state ──
-  logFile           : 'accuHOLD2_01.log',
+  logFile           : 'accuHOLD2_001.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD2_state_01.json',
+  stateFile         : 'accuHOLD2_state_001.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
