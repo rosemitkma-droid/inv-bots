@@ -120,8 +120,8 @@ const CONFIG = Object.freeze({
   // On win: reset to base stake (step = 0).
   // User-configurable multiplier and max steps.
   // Set steps = 0 or multiplier <= 1.0 to disable martingale (flat stake).
-  martingaleMultiplier : parseFloat('21.00'), //2.10 e.g. 2.10 means stake ×2.10 after each loss
-  martingaleSteps      : parseInt('3', 10),  // max consecutive martingale multiplications (0 = disabled)
+  martingaleMultiplier : parseFloat('101.00'), //2.10 e.g. 2.10 means stake ×2.10 after each loss
+  martingaleSteps      : parseInt('1', 10),  // max consecutive martingale multiplications (0 = disabled)
 
   // ── Rate-limited entry ──
   perSymbolCooldownMs : parseInt('8000',  10),   // between trades on the same symbol
@@ -129,7 +129,7 @@ const CONFIG = Object.freeze({
   maxOpenTrades       : parseInt('1',     10),   // concurrent open contracts across the bot
 
   // ── Risk controls ──
-  maxConsecutiveLosses : parseInt('3', 10),      // pause + require manual restart
+  maxConsecutiveLosses : parseInt('2', 10),      // pause + require manual restart
   dailyMaxLoss        : parseFloat('450'),         // demo-appropriate cap
   dailyMaxTrades      : parseInt('120000', 10),      // daily cap
   stopLossPerContract : parseFloat('0'),         // 0 = disabled (rely on knockout)
@@ -171,9 +171,9 @@ const CONFIG = Object.freeze({
   hourlySummary      : true,
 
   // ── Logging / state ──
-  logFile           : 'accuHOLD_v2_002.log',
+  logFile           : 'accuHOLD_v2_003.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD_v2_state_002.json',
+  stateFile         : 'accuHOLD_v2_state_003.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
