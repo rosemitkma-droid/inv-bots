@@ -185,7 +185,7 @@ const CONFIG = Object.freeze({
   // User 2026-09-10: only trade when hazard lift >= threshold (default 60%).
   exploratory: Object.freeze({
     enabled: true,
-    mode: 'both',          // 'hazard' | 'postSpike' | 'both'  (user 60% lift => hazard only)
+    mode: 'hazard',          // 'hazard' | 'postSpike' | 'both'  (user 60% lift => hazard only)
     logOnly: false,          // false = actually gates entry (user #3)
     hazardBuckets: [0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.5,3,4,6,Infinity],
     hazardMinLift: parseFloat(process.env.HAZARD_MIN_LIFT || '0.60'), // 0.60 = 60% — USER CONFIGURABLE via env or edit here
@@ -204,9 +204,9 @@ const CONFIG = Object.freeze({
   }),
 
   // ── Logging / state — FRESH per user #4 ──
-  logFile           : 'accuHOLD3_06.log',
+  logFile           : 'accuHOLD3_07.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD3_state_06.json', // fresh start, v2 state ignored
+  stateFile         : 'accuHOLD3_state_07.json', // fresh start, v2 state ignored
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
@@ -1456,7 +1456,37 @@ class AccuHoldBot {
       }
     } catch(e){ logger.debug(`exploratory update ${symbol}:`, e.message); }
   }
-  _updateAllExploratory() { for(const s of this.cfg.assets) this._updateExploratoryForSymbol(s); }
+  _updateAllExploratory() {
+    for(const s of this.cfg.assets) this._updateExploratoryForSymbol(s);
+    this._exploratoryUpdateCount = (this._exploratoryUpdateCount||0)+1;
+    // INFO summary every 6 cycles (~30s) so user sees analysis is running, even when gate blocks
+    if (this._exploratoryUpdateCount % 6 === 0) {
+      const threshPct = (Number(this.cfg.exploratory.hazardMinLift)*100).toFixed(0);
+      const lines = [];
+      for (const sym of this.cfg.assets) {
+        const h = this.assetHistory.get(sym);
+        if (!h) continue;
+        const best = h.elevated && h.elevated.length ? h.elevated[0] : null;
+        const lift = best ? (best.lift*100).toFixed(1)+'%' : '—';
+        const bucket = best ? `[${best.lo}-${best.hi})` : '—';
+        const status = h.calibrationStatus || '?';
+        const intervals = h.intervals ? h.intervals.length : 0;
+        const ticks = h.ticksSinceSpike ?? '?';
+        const prices = h.prices ? h.prices.length : 0;
+        lines.push(`${sym} ${status} ints=${intervals} prices=${prices} ticksSince=${ticks} bestLift=${lift} ${bucket} thresh=${threshPct}%`);
+      }
+      logger.info(`exploratory analysis #${this._exploratoryUpdateCount}: ${lines.join(' | ')}`);
+      // also debug the hazard table for top candidate if any
+      const top = this.cfg.assets.map(s=> [s, this.assetHistory.get(s)]).filter(([_,h])=> h && h.elevated && h.elevated.length).sort((a,b)=> b[1].elevated[0].lift - a[1].elevated[0].lift)[0];
+      if (top) {
+        const [sym, h] = top;
+        logger.info(`  top hazard candidate: ${sym} lift ${(h.elevated[0].lift*100).toFixed(2)}% ${h.elevated[0].lo}-${h.elevated[0].hi} ticksSince=${h.ticksSinceSpike}`);
+      } else {
+        logger.info(`  no hazard bucket ≥${threshPct}% yet — gate will block all entries (lower HAZARD_MIN_LIFT to trade more)`);
+      }
+    }
+  }
+  _exploratoryUpdateCount = 0;
   async _subscribeTicks() {
     for (const sym of this.cfg.assets) {
       if (this._tickSubs.has(sym)) continue;
@@ -1466,11 +1496,43 @@ class AccuHoldBot {
           const price = parseFloat(tick.quote); const epoch = tick.epoch;
           const h = this.assetHistory.get(sym); if (!h) return;
           h.prices.push(price); h.times.push(epoch); h.lastUpdate = Date.now();
+          // cap live history to avoid unbounded growth (keep last historyCap)
+          if (h.prices.length > this.cfg.exploratory.historyCap) {
+            const trim = h.prices.length - this.cfg.exploratory.historyCap;
+            h.prices.splice(0, trim); h.times.splice(0, trim);
+          }
         });
         this._tickSubs.set(sym, subId);
         logger.info(`exploratory ticks subscribed: ${sym} subId=${subId}`);
-      } catch(e){ logger.warn(`tick sub ${sym} failed:`, e.message); }
+      } catch(e){
+        const msg = String(e.message||'');
+        if (/already subscribed/i.test(msg)) {
+          logger.info(`exploratory ticks ${sym}: already subscribed (keep-alive) — reusing keep-alive stream`);
+          // mark as subscribed so we don't retry; history for this symbol will be fed
+          // by keep-alive's ticks:BOOM50 subscription — patch its callback to also feed history
+          // DerivClient keeps keep-alive sub in _keepAliveSubId with noop; we replace its handler
+          try {
+            const keepId = this.client._keepAliveSubId;
+            if (keepId && this.client._subs.has(keepId)) {
+              const h = this.assetHistory.get(sym);
+              this.client._subs.set(keepId, (msg2)=>{
+                const tick = msg2.tick; if (!tick) return;
+                const price = parseFloat(tick.quote); const epoch = tick.epoch;
+                if (h) { h.prices.push(price); h.times.push(epoch); h.lastUpdate = Date.now(); }
+              });
+              this._tickSubs.set(sym, keepId);
+              logger.info(`exploratory ticks ${sym}: hijacked keep-alive subId=${keepId} to feed history`);
+            } else {
+              // no keep-alive to hijack — just mark as subscribed to avoid loop
+              this._tickSubs.set(sym, 'keep-alive-shared');
+            }
+          } catch(_){}
+        } else {
+          logger.warn(`tick sub ${sym} failed:`, e.message);
+        }
+      }
     }
+    if (this._tickSubs.size) logger.info(`exploratory tick subs ready: ${this._tickSubs.size}/${this.cfg.assets.length}`);
   }
   async _unsubscribeTicks() {
     for (const [sym, subId] of this._tickSubs) { try{ await this.client.forget(subId);}catch(_){} }
@@ -1693,12 +1755,18 @@ class AccuHoldBot {
 
     // Subscribe ticks for exploratory signals + backfill
     if (this.cfg.exploratory.enabled) {
+      // Fix keep-alive conflict: exploratory needs ticks for all 10 symbols, but DerivClient
+      // already holds a keep-alive ticks:BOOM50 that Deriv rejects as "already subscribed".
+      // Stop keep-alive first so exploratory can own all tick subs.
+      try { this.client._stopKeepAlive(); } catch(_){}
       try { await this._subscribeTicks(); } catch(e){ logger.warn('tick subs:', e.message); }
-      // periodic exploratory recompute (hazard + postSpike) every 5s
+      // periodic exploratory recompute (hazard + postSpike) every 5s — with INFO summary
       if (this._exploratoryT) clearInterval(this._exploratoryT);
       this._exploratoryT = setInterval(()=> this._updateAllExploratory(), 5000);
       // initial deep backfill if history empty (lightweight: use Deriv ticks_history via client)
-      this._backfillHistory().catch(e=> logger.debug('backfill:', e.message));
+      this._backfillHistory().catch(e=> logger.warn('backfill failed:', e.message));
+      // immediate recompute after backfill kicked
+      setTimeout(()=> this._updateAllExploratory(), 6000);
     }
 
     // Reconcile any contracts that were open across the disconnect.
@@ -1716,18 +1784,38 @@ class AccuHoldBot {
   }
 
   async _backfillHistory() {
-    // Lightweight backfill: fetch last 5000 ticks per symbol via ticks_history
     for (const sym of this.cfg.assets) {
       const h = this.assetHistory.get(sym);
       if (h && h.prices.length > 500) continue;
       try {
-        const res = await this.client._send({ ticks_history: sym, count: 5000, end: 'latest', style: 'ticks' }, 15000);
-        const prices = (res.history?.prices||[]).map(Number);
-        const times = res.history?.times||[];
-        if (prices.length) { h.prices = prices; h.times = times; this._updateExploratoryForSymbol(sym); logger.info(`backfill ${sym}: ${prices.length} ticks, spikes=${h.spikeIndices.length} mean=${h.meanInterval?.toFixed(1)??'?'}`); }
-      } catch(e){ logger.debug(`backfill ${sym}:`, e.message); }
-      await new Promise(r=>setTimeout(r, 400));
+        const allPrices = []; const allTimes = [];
+        let end = 'latest';
+        let remaining = 5000;
+        for (let batch=0; batch<5 && remaining>0; batch++) {
+          const count = Math.min(1000, remaining);
+          const res = await this.client._send({ ticks_history: sym, count, end, style: 'ticks' }, 15000);
+          const prices = (res.history?.prices||[]).map(Number);
+          const times = res.history?.times||[];
+          if (!prices.length) break;
+          allPrices.unshift(...prices);
+          allTimes.unshift(...times);
+          remaining -= prices.length;
+          if (prices.length < count) break;
+          end = String(times[0] - 1);
+          await new Promise(r=>setTimeout(r, 250));
+        }
+        if (allPrices.length) {
+          h.prices = allPrices; h.times = allTimes;
+          this._updateExploratoryForSymbol(sym);
+          const bestLift = h.elevated && h.elevated.length ? (h.elevated[0].lift*100).toFixed(1)+'%' : '—';
+          logger.info(`backfill ${sym}: ${allPrices.length} ticks, spikes=${h.spikeIndices.length} mean=${h.meanInterval?.toFixed(1)??'?'} bestLift=${bestLift} status=${h.calibrationStatus}`);
+        } else {
+          logger.warn(`backfill ${sym}: no ticks returned`);
+        }
+      } catch(e){ logger.warn(`backfill ${sym} failed:`, e.message); }
+      await new Promise(r=>setTimeout(r, 350));
     }
+    setTimeout(()=> this._updateAllExploratory(), 1000);
   }
 
   async _onDisconnected() {
@@ -1903,6 +1991,7 @@ class AccuHoldBot {
 
       // Candidates: per-symbol cooldown + tier-aware median + exploratory gate
       const candidates = [];
+      const blockedReasons = [];
       for (const sym of this.cfg.assets) {
         if (this.market._unsupportedSymbols.has(sym)) continue;
         const last = this.lastEntryBySymbol.get(sym) || 0;
@@ -1911,10 +2000,23 @@ class AccuHoldBot {
         const median = this.market.getMedianStay(sym, g);
         const tier = getTierForSymbol(sym);
         const gate = this._isExploratoryEntryAllowed(sym);
-        if (!gate.allowed) { logger.debug(`gate block ${sym}: ${gate.reason}`); continue; }
+        if (!gate.allowed) { blockedReasons.push(`${sym}: ${gate.reason}`); continue; }
         candidates.push({ sym, median, tier, gate, growthRate:g });
       }
-      if (!candidates.length) return;
+      if (!candidates.length) {
+        // Throttled INFO so user sees why no trades — every 10th call (~30s) we dump the full gate table
+        this._gateBlockCount = (this._gateBlockCount||0)+1;
+        if (this._gateBlockCount % 10 === 0) {
+          const threshPct = (Number(this.cfg.exploratory.hazardMinLift)*100).toFixed(0);
+          logger.info(`gate BLOCKED all ${this.cfg.assets.length} symbols (threshold ${threshPct}%): ${blockedReasons.join(' | ')}`);
+        } else {
+          // still log at debug for verbose
+          for (const r of blockedReasons) logger.debug(`gate block: ${r}`);
+        }
+        return;
+      }
+      // reset block counter when we do have candidates
+      this._gateBlockCount = 0;
 
       // Round-robin across tiers: longest-since-touched first, prefer alternating tiers
       candidates.sort((a, b) => (this.lastEntryBySymbol.get(a.sym) || 0) - (this.lastEntryBySymbol.get(b.sym) || 0));
