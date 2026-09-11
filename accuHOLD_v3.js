@@ -204,9 +204,9 @@ const CONFIG = Object.freeze({
   }),
 
   // ── Logging / state — FRESH per user #4 ──
-  logFile           : 'accuHOLD3_07.log',
+  logFile           : 'accuHOLD3_08.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD3_state_07.json', // fresh start, v2 state ignored
+  stateFile         : 'accuHOLD3_state_08.json', // fresh start, v2 state ignored
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
@@ -1858,6 +1858,7 @@ class AccuHoldBot {
       exploratoryNote +
       nextStakeNote +
       `<b>Overall:</b> ${money(this.overallProfit, this.currencyStr())}\n\n` +
+      `<i>⚠️ Exploratory-wired entry (hazard lift ${(h?.elevated?.[0]?.lift*100 ?? 0).toFixed(2)}% ≥${(Number(this.cfg.exploratory.hazardMinLift)*100).toFixed(0)}% threshold)</i>`;
     telegram.send(msg);
   }
 
