@@ -59,10 +59,10 @@ const CONFIG = Object.freeze({
 
   // ── Single asset — change via env SINGLE_ASSET or edit here ────────
   asset:         strEnv('SINGLE_ASSET', 'R_50'),
-  stake:         numEnv('STAKE', 1.00),
+  stake:         numEnv('STAKE', 0.62),
   durationTicks: intEnv('DURATION_TICKS', 1),
-  minStake:      1.00,
-  maxStake:      150,
+  minStake:      0.62,
+  maxStake:      750,
 
   // ── Speed / throttle ───────────────────────────────────────────────
   tradeCooldownMs: intEnv('TRADE_COOLDOWN_MS', 800), // min gap between buys
@@ -80,8 +80,8 @@ const CONFIG = Object.freeze({
   dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0),   // 0 = off
   dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 0),   // 0 = off
 
-  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_05.json'),
-  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_05.log'),
+  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_06.json'),
+  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_06.log'),
   logLevel:  strEnv('LOG_LEVEL',  'INFO').toUpperCase(),
 
   telegram: {
