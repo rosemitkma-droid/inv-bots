@@ -58,7 +58,7 @@ const CONFIG = Object.freeze({
   currency:   'USD',
 
   // ── Single asset — change via env SINGLE_ASSET or edit here ────────
-  asset:         strEnv('SINGLE_ASSET', 'R_100'),
+  asset:         strEnv('SINGLE_ASSET', 'R_50'),
   stake:         numEnv('STAKE', 0.62),
   durationTicks: intEnv('DURATION_TICKS', 1),
   minStake:      0.62,
