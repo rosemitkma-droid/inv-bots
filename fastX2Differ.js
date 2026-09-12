@@ -70,8 +70,8 @@ const CONFIG = Object.freeze({
   tradeWatchdogMs: intEnv('WATCHDOG_MS', 20000),
 
   // ── Martingale (optional) ────────────────────────────────────────
-  martingaleEnabled:  boolEnv('MARTINGALE_ENABLED', true),
-  martingaleStep:     numEnv('MARTINGALE_STEP', 2.1),           // multiplier per loss, e.g. 2.1
+  martingaleEnabled:  boolEnv('MARTINGALE_ENABLED', false),
+  martingaleStep:     numEnv('MARTINGALE_STEP', 11.0),           // multiplier per loss, e.g. 2.1
   martingaleFilter:   intEnv('MARTINGALE_FILTER', 0),           // losses before multiplier starts (0=immediate, 1=after 1 loss, 2=after 2 losses…)
   martingaleMaxSteps: intEnv('MARTINGALE_MAX_STEPS', 7),        // cap exponent on the *scaled* steps (0 = uncapped)
   martingaleMaxStake: numEnv('MARTINGALE_MAX_STAKE', 150),      // hard cap (also limited by maxStake)
@@ -80,8 +80,8 @@ const CONFIG = Object.freeze({
   dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0),   // 0 = off
   dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 0),   // 0 = off
 
-  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_01.json'),
-  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_01.log'),
+  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_02.json'),
+  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_02.log'),
   logLevel:  strEnv('LOG_LEVEL',  'INFO').toUpperCase(),
 
   telegram: {
@@ -341,10 +341,11 @@ class TradeExecutor extends EventEmitter{
   count(){ return this.open.size; }
 }
 
-// ── 8. STATS (minimal + consecutive-loss tracking x2..x7) ────────────
+// ── 8. STATS (minimal + consecutive-loss tracking x2..x7 + WR) ──────
 class StatisticsManager{
   constructor(saved=null){
     this.trades=[]; this.overallProfit=0; this.todayCount=0; this._todayStr=null;
+    this.wins=0; this.losses=0; this.unknowns=0;
     this.currentLossStreak=0; this.maxLossStreak=0;
     this.lossStreakEvents={ x2:0, x3:0, x4:0, x5:0, x6:0, x7:0 };
     if(saved) this.load(saved);
@@ -352,6 +353,13 @@ class StatisticsManager{
   load(s){
     if(Array.isArray(s.trades)) this.trades=s.trades;
     this.overallProfit=Number(s.overallProfit||0);
+    // recover wins/losses if missing (backwards compat: derive from trades)
+    if(Number.isFinite(s.wins) && Number.isFinite(s.losses)){
+      this.wins=Number(s.wins); this.losses=Number(s.losses); this.unknowns=Number(s.unknowns||0);
+    } else if(Array.isArray(s.trades)){
+      let w=0,l=0,u=0; for(const t of s.trades){ if(t.status==='won') w++; else if(t.status==='lost') l++; else if(t.status==='unknown') u++; }
+      this.wins=w; this.losses=l; this.unknowns=u;
+    } else { this.wins=0; this.losses=0; this.unknowns=0; }
     this.currentLossStreak=Number(s.currentLossStreak||0);
     this.maxLossStreak=Number(s.maxLossStreak||0);
     this.lossStreakEvents={
@@ -367,10 +375,15 @@ class StatisticsManager{
     return {
       trades:this.trades.slice(-3000),
       overallProfit:this.overallProfit,
+      wins:this.wins, losses:this.losses, unknowns:this.unknowns,
       currentLossStreak:this.currentLossStreak,
       maxLossStreak:this.maxLossStreak,
       lossStreakEvents:{ ...this.lossStreakEvents },
     };
+  }
+  winRate(){
+    const decided=this.wins+this.losses;
+    return decided ? (this.wins/decided*100) : 0;
   }
   record(t){
     const d=new Date((t.sellTime||t.buyTime||Date.now()/1000)*1000); const date=d.toISOString().slice(0,10);
@@ -378,6 +391,9 @@ class StatisticsManager{
     this.todayCount++;
     const rec={...t,date,timestamp:Date.now()};
     this.trades.push(rec); this.overallProfit+=Number(rec.profit||0);
+    if(t.status==='won') this.wins+=1;
+    else if(t.status==='lost') this.losses+=1;
+    else if(t.status==='unknown') this.unknowns+=1;
     // ── consecutive-loss tracking (x2..x7) — fast, no heavy compute ──
     if(t.status==='lost'){
       this.currentLossStreak+=1;
@@ -461,6 +477,9 @@ class TradingBot{
     await this.market.loadSymbols();
     const mg = this.cfg.martingaleEnabled ? `🧮 Martingale: <b>ON</b> step ${this.cfg.martingaleStep} filter ${this.cfg.martingaleFilter} (maxSteps ${this.cfg.martingaleMaxSteps}, cap ${this.cfg.martingaleMaxStake})` : `🧮 Martingale: <b>OFF</b>`;
     const st = `❌ Streak: cur ${this.stats.currentLossStreak} | max ${this.stats.maxLossStreak} | x2=${this.stats.lossStreakEvents.x2} x3=${this.stats.lossStreakEvents.x3} x4=${this.stats.lossStreakEvents.x4} x5=${this.stats.lossStreakEvents.x5} x6=${this.stats.lossStreakEvents.x6} x7=${this.stats.lossStreakEvents.x7}`;
+    const wr = this.stats.winRate().toFixed(1);
+    const total = this.stats.wins + this.stats.losses + this.stats.unknowns;
+    const wrLine = `📊 Trades: ${total} (✅${this.stats.wins} ❌${this.stats.losses}${this.stats.unknowns?` ❓${this.stats.unknowns}`:''}) | WR ${wr}%`;
     telegram.send(
       `🤖 <b>FAST x2Differ</b>\n`+
       `👤 <code>${htmlEscape(info.loginid||'?')}</code> ${info.isVirtual?'🟡 DEMO':'🔴 REAL'}\n`+
@@ -469,6 +488,7 @@ class TradingBot{
       `💵 Base stake: ${CONFIG.stake.toFixed(2)} | next: ${this._getStake().toFixed(2)} | cooldown ${CONFIG.tradeCooldownMs}ms\n`+
       `${mg}\n`+
       `${st}\n`+
+      `${wrLine}\n`+
       `💼 Overall: ${money(this.stats.overallProfit,this.currency())}\n`+
       `🕒 ${utcTs()}`
     );
@@ -540,16 +560,20 @@ class TradingBot{
     this._clearWatchdog();
     const won=t.status==='won';
     const e=this.stats.lossStreakEvents;
-    const streakLine=`Losses: x2=${e.x2} x3=${e.x3} x4=${e.x4} x5=${e.x5} x6=${e.x6} x7=${e.x7} (Max: ${this.stats.maxLossStreak})`;
-    const mgLine=this.cfg.martingaleEnabled ? `🧮 Martingale next: ${this._getStake().toFixed(2)} (step ${this.cfg.martingaleStep} filter ${this.cfg.martingaleFilter})` : '';
+    const total = this.stats.wins + this.stats.losses + this.stats.unknowns;
+    const wr = this.stats.winRate().toFixed(1);
+    const tradesLine = `📊 Trades: ${total} (W:${this.stats.wins} L:${this.stats.losses}${this.stats.unknowns?` ❓${this.stats.unknowns}`:''}) | WR ${wr}%`;
+    const streakLine=`x2=${e.x2} x3=${e.x3} x4=${e.x4} x5=${e.x5} x6=${e.x6} x7=${e.x7} (Max: ${this.stats.maxLossStreak})`;
+    const mgLine=this.cfg.martingaleEnabled ? `🧮 Martingale: ${this._getStake().toFixed(2)} (mul: ${this.cfg.martingaleStep} filter: ${this.cfg.martingaleFilter})` : '';
     telegram.send(
       `${won?'✅ WIN':'❌ LOSS'} <b>#${t.contractId}</b> ${t.symbol} differs ${t.digit} | ${money(profit,this.currency())}\n`+
+      `${tradesLine}\n`+
       `📅 Today: ${this._todayTrades} trades P/L ${money(this._todayPL,this.currency())} | Overall ${money(this.stats.overallProfit,this.currency())}\n`+
       `${streakLine}\n`+
       `${mgLine}\n`+
       `🕒 ${utcTs()}`
     );
-    logger.info(`${won?'WIN':'LOSS'} #${t.contractId} P/L=${profit.toFixed(2)} | ${streakLine} | overall=${this.stats.overallProfit.toFixed(2)}`);
+    logger.info(`${won?'WIN':'LOSS'} #${t.contractId} P/L=${profit.toFixed(2)} | ${tradesLine} | ${streakLine} | overall=${this.stats.overallProfit.toFixed(2)}`);
     this._save('after-trade');
   }
 
@@ -572,7 +596,7 @@ class TradingBot{
   }
 
   _save(reason){ try{ const f=this.cfg.stateFile, tmp=f+'.tmp'; fs.writeFileSync(tmp,JSON.stringify({ version:1, savedAt:new Date().toISOString(), reason, startBalance:this.startBalance, lastBalance:this.lastBalance, stats:this.stats.serialize() },null,2)); fs.renameSync(tmp,f); }catch(e){ logger.warn('save fail:',e.message);} }
-  _loadState(){ const f=this.cfg.stateFile; if(!fs.existsSync(f)) return; try{ const d=JSON.parse(fs.readFileSync(f,'utf8')); this.startBalance=d.startBalance??null; this.lastBalance=d.lastBalance??null; this.stats=new StatisticsManager(d.stats||d); const e=this.stats.lossStreakEvents; logger.info(`state restored overall=${this.stats.overallProfit.toFixed(2)} streak cur=${this.stats.currentLossStreak} max=${this.stats.maxLossStreak} x2=${e.x2} x3=${e.x3} x4=${e.x4} x5=${e.x5} x6=${e.x6} x7=${e.x7}`);}catch(e){ logger.warn('load state:',e.message);} }
+  _loadState(){ const f=this.cfg.stateFile; if(!fs.existsSync(f)) return; try{ const d=JSON.parse(fs.readFileSync(f,'utf8')); this.startBalance=d.startBalance??null; this.lastBalance=d.lastBalance??null; this.stats=new StatisticsManager(d.stats||d); const e=this.stats.lossStreakEvents; const wr=this.stats.winRate().toFixed(1); const tot=this.stats.wins+this.stats.losses+this.stats.unknowns; logger.info(`state restored overall=${this.stats.overallProfit.toFixed(2)} trades ${tot} (✅${this.stats.wins} ❌${this.stats.losses}) WR ${wr}% streak cur=${this.stats.currentLossStreak} max=${this.stats.maxLossStreak} x2=${e.x2} x3=${e.x3} x4=${e.x4} x5=${e.x5} x6=${e.x6} x7=${e.x7}`);}catch(e){ logger.warn('load state:',e.message);} }
   currency(){ return this.client.currency||this.cfg.currency; }
   stop(sig){ if(this.stopped) return; this.stopped=true; logger.info(`stopping ${sig}`); telegram.send(`🛑 <b>FAST x2Differ stopped</b> ${htmlEscape(sig)} | Overall ${money(this.stats.overallProfit,this.currency())}`); this._clearWatchdog(); this._save('shutdown'); this.client.stop(); setTimeout(()=>process.exit(0),2000); }
 }
