@@ -58,11 +58,11 @@ const CONFIG = Object.freeze({
   currency:   'USD',
 
   // ── Single asset — change via env SINGLE_ASSET or edit here ────────
-  asset:         strEnv('SINGLE_ASSET', 'R_50'),
+  asset:         strEnv('SINGLE_ASSET', 'R_25'),
   stake:         numEnv('STAKE', 0.62),
   durationTicks: intEnv('DURATION_TICKS', 1),
   minStake:      0.62,
-  maxStake:      750,
+  maxStake:      1000,
 
   // ── Speed / throttle ───────────────────────────────────────────────
   tradeCooldownMs: intEnv('TRADE_COOLDOWN_MS', 800), // min gap between buys
@@ -74,14 +74,14 @@ const CONFIG = Object.freeze({
   martingaleStep:     numEnv('MARTINGALE_STEP', 11.3),           // multiplier per loss, e.g. 2.1
   martingaleFilter:   intEnv('MARTINGALE_FILTER', 0),           // losses before multiplier starts (0=immediate, 1=after 1 loss, 2=after 2 losses…)
   martingaleMaxSteps: intEnv('MARTINGALE_MAX_STEPS', 4),        // cap exponent on the *scaled* steps (0 = uncapped)
-  martingaleMaxStake: numEnv('MARTINGALE_MAX_STAKE', 750),      // hard cap (also limited by maxStake)
+  martingaleMaxStake: numEnv('MARTINGALE_MAX_STAKE', 1000),      // hard cap (also limited by maxStake)
   // ── Safety (lightweight, does not slow hot path) ──────────────────
   dailyMaxLoss:   numEnv('DAILY_MAX_LOSS', 2000),  // 0 = off
   dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0),   // 0 = off
   dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 0),   // 0 = off
 
-  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_06.json'),
-  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_06.log'),
+  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_07.json'),
+  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_07.log'),
   logLevel:  strEnv('LOG_LEVEL',  'INFO').toUpperCase(),
 
   telegram: {
