@@ -69,6 +69,12 @@ const CONFIG = Object.freeze({
   maxOpenTrades:   1,
   tradeWatchdogMs: intEnv('WATCHDOG_MS', 20000),
 
+  // ── Martingale (optional) ────────────────────────────────────────
+  martingaleEnabled:  boolEnv('MARTINGALE_ENABLED', true),
+  martingaleStep:     numEnv('MARTINGALE_STEP', 2.1),           // multiplier per loss, e.g. 2.1
+  martingaleFilter:   intEnv('MARTINGALE_FILTER', 0),           // losses before multiplier starts (0=immediate, 1=after 1 loss, 2=after 2 losses…)
+  martingaleMaxSteps: intEnv('MARTINGALE_MAX_STEPS', 7),        // cap exponent on the *scaled* steps (0 = uncapped)
+  martingaleMaxStake: numEnv('MARTINGALE_MAX_STAKE', 150),      // hard cap (also limited by maxStake)
   // ── Safety (lightweight, does not slow hot path) ──────────────────
   dailyMaxLoss:   numEnv('DAILY_MAX_LOSS', 2000),  // 0 = off
   dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0),   // 0 = off
@@ -335,17 +341,57 @@ class TradeExecutor extends EventEmitter{
   count(){ return this.open.size; }
 }
 
-// ── 8. STATS (minimal) ─────────────────────────────────────────────────
+// ── 8. STATS (minimal + consecutive-loss tracking x2..x7) ────────────
 class StatisticsManager{
-  constructor(saved=null){ this.trades=[]; this.overallProfit=0; this.todayCount=0; this._todayStr=null; if(saved) this.load(saved); }
-  load(s){ if(Array.isArray(s.trades)) this.trades=s.trades; this.overallProfit=Number(s.overallProfit||0); }
-  serialize(){ return { trades:this.trades.slice(-3000), overallProfit:this.overallProfit }; }
+  constructor(saved=null){
+    this.trades=[]; this.overallProfit=0; this.todayCount=0; this._todayStr=null;
+    this.currentLossStreak=0; this.maxLossStreak=0;
+    this.lossStreakEvents={ x2:0, x3:0, x4:0, x5:0, x6:0, x7:0 };
+    if(saved) this.load(saved);
+  }
+  load(s){
+    if(Array.isArray(s.trades)) this.trades=s.trades;
+    this.overallProfit=Number(s.overallProfit||0);
+    this.currentLossStreak=Number(s.currentLossStreak||0);
+    this.maxLossStreak=Number(s.maxLossStreak||0);
+    this.lossStreakEvents={
+      x2:Number(s.lossStreakEvents?.x2||0),
+      x3:Number(s.lossStreakEvents?.x3||0),
+      x4:Number(s.lossStreakEvents?.x4||0),
+      x5:Number(s.lossStreakEvents?.x5||0),
+      x6:Number(s.lossStreakEvents?.x6||0),
+      x7:Number(s.lossStreakEvents?.x7||0),
+    };
+  }
+  serialize(){
+    return {
+      trades:this.trades.slice(-3000),
+      overallProfit:this.overallProfit,
+      currentLossStreak:this.currentLossStreak,
+      maxLossStreak:this.maxLossStreak,
+      lossStreakEvents:{ ...this.lossStreakEvents },
+    };
+  }
   record(t){
     const d=new Date((t.sellTime||t.buyTime||Date.now()/1000)*1000); const date=d.toISOString().slice(0,10);
     if(this._todayStr!==date){ this._todayStr=date; this.todayCount=0; }
     this.todayCount++;
     const rec={...t,date,timestamp:Date.now()};
-    this.trades.push(rec); this.overallProfit+=Number(rec.profit||0); return rec;
+    this.trades.push(rec); this.overallProfit+=Number(rec.profit||0);
+    // ── consecutive-loss tracking (x2..x7) — fast, no heavy compute ──
+    if(t.status==='lost'){
+      this.currentLossStreak+=1;
+      this.maxLossStreak=Math.max(this.maxLossStreak,this.currentLossStreak);
+      if(this.currentLossStreak===2) this.lossStreakEvents.x2+=1;
+      if(this.currentLossStreak===3) this.lossStreakEvents.x3+=1;
+      if(this.currentLossStreak===4) this.lossStreakEvents.x4+=1;
+      if(this.currentLossStreak===5) this.lossStreakEvents.x5+=1;
+      if(this.currentLossStreak===6) this.lossStreakEvents.x6+=1;
+      if(this.currentLossStreak===7) this.lossStreakEvents.x7+=1;
+    } else if(t.status==='won'){
+      this.currentLossStreak=0;
+    } // 'unknown' does not affect streak
+    return rec;
   }
 }
 
@@ -363,9 +409,35 @@ class TradingBot{
     this._dayStartStr=null; this._dayStartBal=null; this._todayPL=0; this._todayTrades=0;
   }
 
+  // ── Martingale stake: base * step^effectiveLosses, capped ─────────
+  // filter = losses to absorb at base before scaling starts
+  // effective = max(0, lossStreak - filter)
+  _getStake(){
+    const base = Number(this.cfg.stake);
+    if(!this.cfg.martingaleEnabled) return Math.max(this.cfg.minStake, Math.min(this.cfg.maxStake, base));
+    const step = Number(this.cfg.martingaleStep);
+    if(!Number.isFinite(step) || step <= 1) return Math.max(this.cfg.minStake, Math.min(this.cfg.maxStake, base));
+    const n = this.stats.currentLossStreak || 0;
+    const filter = Math.max(0, Number(this.cfg.martingaleFilter) || 0);
+    const effective = Math.max(0, n - filter);
+    const cap = this.cfg.martingaleMaxSteps > 0 ? Math.min(effective, this.cfg.martingaleMaxSteps) : effective;
+    let stake = effective === 0 ? base : base * Math.pow(step, cap);
+    const hardCap = Math.min(this.cfg.maxStake, this.cfg.martingaleMaxStake || this.cfg.maxStake);
+    stake = Math.max(this.cfg.minStake, Math.min(hardCap, Number(stake.toFixed(2))));
+    const bal = this.lastBalance ?? this.client.balance ?? Infinity;
+    if(Number.isFinite(bal) && stake > bal) stake = Math.max(this.cfg.minStake, Math.min(hardCap, bal));
+    return stake;
+  }
+  _martingaleLabel(){
+    if(!this.cfg.martingaleEnabled) return 'OFF';
+    const f = Math.max(0, Number(this.cfg.martingaleFilter)||0);
+    return `ON step=${this.cfg.martingaleStep} filter=${f} maxSteps=${this.cfg.martingaleMaxSteps} cap=${this.cfg.martingaleMaxStake}`;
+  }
+
   async start(){
     logger.info('===== Digit Differ FAST bot starting =====');
     logger.info(`asset=${this.cfg.asset} stake=${this.cfg.stake} duration=${this.cfg.durationTicks}t cooldown=${this.cfg.tradeCooldownMs}ms`);
+    logger.info(`martingale=${this._martingaleLabel()} | streak x2..x7 tracking ON`);
     if(!this.cfg.apiToken){ logger.error('API token missing'); process.exit(1); }
     this._loadState();
     this.client.on('authorized',i=>this._onAuth(i));
@@ -387,12 +459,16 @@ class TradingBot{
     this._todayPL=0; this._todayTrades=0;
     logger.info(`start balance ${this.startBalance} ${this.currency()}`);
     await this.market.loadSymbols();
+    const mg = this.cfg.martingaleEnabled ? `🧮 Martingale: <b>ON</b> step ${this.cfg.martingaleStep} filter ${this.cfg.martingaleFilter} (maxSteps ${this.cfg.martingaleMaxSteps}, cap ${this.cfg.martingaleMaxStake})` : `🧮 Martingale: <b>OFF</b>`;
+    const st = `❌ Streak: cur ${this.stats.currentLossStreak} | max ${this.stats.maxLossStreak} | x2=${this.stats.lossStreakEvents.x2} x3=${this.stats.lossStreakEvents.x3} x4=${this.stats.lossStreakEvents.x4} x5=${this.stats.lossStreakEvents.x5} x6=${this.stats.lossStreakEvents.x6} x7=${this.stats.lossStreakEvents.x7}`;
     telegram.send(
       `🤖 <b>FAST x2Differ</b>\n`+
       `👤 <code>${htmlEscape(info.loginid||'?')}</code> ${info.isVirtual?'🟡 DEMO':'🔴 REAL'}\n`+
       `💰 ${Number(this.client.balance??0).toFixed(2)} ${this.currency()}\n`+
       `📊 Asset: <code>${CONFIG.asset}</code> | DIGITDIFF differs last digit | ${CONFIG.durationTicks}t\n`+
-      `💵 Stake: ${CONFIG.stake.toFixed(2)} | cooldown ${CONFIG.tradeCooldownMs}ms\n`+
+      `💵 Base stake: ${CONFIG.stake.toFixed(2)} | next: ${this._getStake().toFixed(2)} | cooldown ${CONFIG.tradeCooldownMs}ms\n`+
+      `${mg}\n`+
+      `${st}\n`+
       `💼 Overall: ${money(this.stats.overallProfit,this.currency())}\n`+
       `🕒 ${utcTs()}`
     );
@@ -418,41 +494,62 @@ class TradingBot{
     const today=new Date().toISOString().slice(0,10);
     if(this._dayStartStr!==today){ this._dayStartStr=today; this._dayStartBal=this.lastBalance??this.client.balance??0; this._todayPL=0; this._todayTrades=0; }
 
+    const stake = this._getStake();
+    if(!Number.isFinite(stake) || stake < this.cfg.minStake){
+      logger.debug(`stake ${stake} invalid — skipping`);
+      return;
+    }
+    const bal = this.lastBalance ?? this.client.balance;
+    if(Number.isFinite(bal) && stake > bal && bal >= this.cfg.minStake){
+      logger.warn(`stake ${stake.toFixed(2)} > balance ${bal.toFixed(2)} — skipping`);
+      return;
+    }
     this._buying=true;
     try{
-      const trade=await this.exec.buy(symbol,digit,CONFIG.stake);
+      const trade=await this.exec.buy(symbol,digit,stake);
       this.lastTradeAt=Date.now();
       this._todayTrades++;
+      if(this.cfg.martingaleEnabled && this.stats.currentLossStreak>0){
+        const f = Math.max(0, Number(this.cfg.martingaleFilter)||0);
+        const eff = Math.max(0, this.stats.currentLossStreak - f);
+        const capped = this.cfg.martingaleMaxSteps>0 ? Math.min(eff, this.cfg.martingaleMaxSteps) : eff;
+        logger.info(`martingale stake=${stake.toFixed(2)} (base ${this.cfg.stake} × ${this.cfg.martingaleStep}^${capped} | streak ${this.stats.currentLossStreak} filter ${f} eff ${eff})`);
+      }
       this._startWatchdog(trade.contractId);
     }catch(e){
-      // Don't spam on common benign errors
       const m=String(e.message||'');
-      if(!/AlreadySubscribed|Not connected|timeout/i.test(m)) logger.error(`buy fail d${digit}:`,m);
+      if(!/AlreadySubscribed|Not connected|timeout/i.test(m)) logger.error(`buy fail d${digit} stake=${stake}:`,m);
     }finally{ this._buying=false; }
   }
 
   _onOpen(t){
     this._startWatchdog(t.contractId);
+    const mgInfo = this.cfg.martingaleEnabled ? ` | MG x${this.stats.currentLossStreak}` : '';
     telegram.send(
-      `🟢 <b>Fast x2Differ TRADE OPEN</b> #${t.contractId} <code>${t.symbol}</code> differs <b>${t.digit}</b>\n`+
-      `💵 ${t.stake.toFixed(2)} → payout ${t.payout.toFixed(2)} ${this.currency()} | ${t.durationTicks}t\n`+
+      `🟢 <b>Fast x2Differ TRADE OPEN</b> #${t.contractId} <code>${t.symbol}</code> differs <b>${t.digit}</b>${mgInfo}\n`+
+      `💵 ${t.stake.toFixed(2)} → payout ${t.payout.toFixed(2)} ${this.currency()} | ${t.durationTicks}t | next stake ${this._getStake().toFixed(2)}\n`+
       `🕒 ${utcTs()}`
     );
   }
   _onResult(t){
     const rec=this.stats.record(t);
     const profit=Number(t.profit||0);
-    // Balance: buy deducts stake, profit already = payout-stake on win
     if(t.balanceAfter!=null) this.lastBalance=Number(t.balanceAfter)+profit+Number(t.stake||0);
     else this.lastBalance=(this.lastBalance??this.client.balance??0)+profit;
     this._todayPL+=profit;
     this._clearWatchdog();
     const won=t.status==='won';
+    const e=this.stats.lossStreakEvents;
+    const streakLine=`Losses: x2=${e.x2} x3=${e.x3} x4=${e.x4} x5=${e.x5} x6=${e.x6} x7=${e.x7} (Max: ${this.stats.maxLossStreak})`;
+    const mgLine=this.cfg.martingaleEnabled ? `🧮 Martingale next: ${this._getStake().toFixed(2)} (step ${this.cfg.martingaleStep} filter ${this.cfg.martingaleFilter})` : '';
     telegram.send(
-      `🟢 <b>Fast x2Differ TRADE RESULT</b> #${t.contractId} ${t.symbol} differs ${t.digit} | ${money(profit,this.currency())}\n`+
+      `${won?'✅ WIN':'❌ LOSS'} <b>#${t.contractId}</b> ${t.symbol} differs ${t.digit} | ${money(profit,this.currency())}\n`+
       `📅 Today: ${this._todayTrades} trades P/L ${money(this._todayPL,this.currency())} | Overall ${money(this.stats.overallProfit,this.currency())}\n`+
+      `${streakLine}\n`+
+      `${mgLine}\n`+
       `🕒 ${utcTs()}`
     );
+    logger.info(`${won?'WIN':'LOSS'} #${t.contractId} P/L=${profit.toFixed(2)} | ${streakLine} | overall=${this.stats.overallProfit.toFixed(2)}`);
     this._save('after-trade');
   }
 
@@ -475,7 +572,7 @@ class TradingBot{
   }
 
   _save(reason){ try{ const f=this.cfg.stateFile, tmp=f+'.tmp'; fs.writeFileSync(tmp,JSON.stringify({ version:1, savedAt:new Date().toISOString(), reason, startBalance:this.startBalance, lastBalance:this.lastBalance, stats:this.stats.serialize() },null,2)); fs.renameSync(tmp,f); }catch(e){ logger.warn('save fail:',e.message);} }
-  _loadState(){ const f=this.cfg.stateFile; if(!fs.existsSync(f)) return; try{ const d=JSON.parse(fs.readFileSync(f,'utf8')); this.startBalance=d.startBalance??null; this.lastBalance=d.lastBalance??null; this.stats=new StatisticsManager(d.stats||d); logger.info(`state restored overall=${this.stats.overallProfit.toFixed(2)}`);}catch(e){ logger.warn('load state:',e.message);} }
+  _loadState(){ const f=this.cfg.stateFile; if(!fs.existsSync(f)) return; try{ const d=JSON.parse(fs.readFileSync(f,'utf8')); this.startBalance=d.startBalance??null; this.lastBalance=d.lastBalance??null; this.stats=new StatisticsManager(d.stats||d); const e=this.stats.lossStreakEvents; logger.info(`state restored overall=${this.stats.overallProfit.toFixed(2)} streak cur=${this.stats.currentLossStreak} max=${this.stats.maxLossStreak} x2=${e.x2} x3=${e.x3} x4=${e.x4} x5=${e.x5} x6=${e.x6} x7=${e.x7}`);}catch(e){ logger.warn('load state:',e.message);} }
   currency(){ return this.client.currency||this.cfg.currency; }
   stop(sig){ if(this.stopped) return; this.stopped=true; logger.info(`stopping ${sig}`); telegram.send(`🛑 <b>FAST x2Differ stopped</b> ${htmlEscape(sig)} | Overall ${money(this.stats.overallProfit,this.currency())}`); this._clearWatchdog(); this._save('shutdown'); this.client.stop(); setTimeout(()=>process.exit(0),2000); }
 }
@@ -487,6 +584,7 @@ async function main(){
   if(!CONFIG.apiToken){ console.error('DERIV_API_TOKEN missing'); process.exit(1); }
   console.log(CONFIG.telegram.enabled?'✅ Telegram: ON':'ℹ️ Telegram: OFF');
   console.log(`   asset=${CONFIG.asset} stake=${CONFIG.stake} duration=${CONFIG.durationTicks}t cooldown=${CONFIG.tradeCooldownMs}ms`);
+  console.log(`   martingale=${CONFIG.martingaleEnabled ? `ON step=${CONFIG.martingaleStep} filter=${CONFIG.martingaleFilter} maxSteps=${CONFIG.martingaleMaxSteps} cap=${CONFIG.martingaleMaxStake}` : 'OFF'}`);
   const bot=new TradingBot(); await bot.start();
 }
 main().catch(e=>{ console.error('fatal:',e); process.exit(1); });
