@@ -2960,7 +2960,7 @@ if (cliArgs.backtest) {
                 const rec = p.isRecovery ? `🔄L${p.martingaleLevel}` : '🎯L0';
                 const stop = p.stopped ? '⛔STOP' : '';
 
-                pairLines += `\n  ${sym}: ${wpr} ${p.buyFlag ? '🟢BF' : ''} ${p.sellFlag ? '🔴SF' : ''} ${rec}${stop} $${(p.currentStake || 0).toFixed(2)} pool $${(p.pool || 0).toFixed(2)} | ${p.trades}t ${p.wins}W/${p.losses}L $${(p.netPL || 0).toFixed(2)} | Pos:${p.activePositions} CL:${p.consecutiveLosses} x2:${p.x2 || 0} x3:${p.x3 || 0} x4:${p.x4 || 0}`;
+                pairLines += `\n  ${sym}: ${wpr} ${p.buyFlag ? '🟢BF' : ''} ${p.sellFlag ? '🔴SF' : ''} ${rec}${stop} $${(p.currentStake || 0).toFixed(2)} pool $${(p.pool || 0).toFixed(2)} | ${p.trades}t ${p.wins}W/${p.losses}L $${(p.netPL || 0).toFixed(2)} | Pos:${p.activePositions} CL:${p.consecutiveLosses} x2:${p.x2 || 0} x3:${p.x3 || 0} x4:${p.x4 || 0} x5:${p.x5 || 0} x6:${p.x6 || 0} x7:${p.x7 || 0} x8:${p.x8 || 0} x9:${p.x9 || 0}`;
             }
         });
 
