@@ -58,7 +58,7 @@ const CONFIG = Object.freeze({
   currency:   'USD',
 
   // ── Single asset — change via env SINGLE_ASSET or edit here ────────
-  asset:         strEnv('SINGLE_ASSET', 'R_100'),
+  asset:         strEnv('SINGLE_ASSET', 'R_50'),
   stake:         numEnv('STAKE', 1.00),
   durationTicks: intEnv('DURATION_TICKS', 1),
   minStake:      1.00,
@@ -72,9 +72,9 @@ const CONFIG = Object.freeze({
   // ── Martingale (optional) ────────────────────────────────────────
   martingaleEnabled:  boolEnv('MARTINGALE_ENABLED', true),
   martingaleStep:     numEnv('MARTINGALE_STEP', 11.3),           // multiplier per loss, e.g. 2.1
-  martingaleFilter:   intEnv('MARTINGALE_FILTER', 1),           // losses before multiplier starts (0=immediate, 1=after 1 loss, 2=after 2 losses…)
-  martingaleMaxSteps: intEnv('MARTINGALE_MAX_STEPS', 3),        // cap exponent on the *scaled* steps (0 = uncapped)
-  martingaleMaxStake: numEnv('MARTINGALE_MAX_STAKE', 150),      // hard cap (also limited by maxStake)
+  martingaleFilter:   intEnv('MARTINGALE_FILTER', 0),           // losses before multiplier starts (0=immediate, 1=after 1 loss, 2=after 2 losses…)
+  martingaleMaxSteps: intEnv('MARTINGALE_MAX_STEPS', 4),        // cap exponent on the *scaled* steps (0 = uncapped)
+  martingaleMaxStake: numEnv('MARTINGALE_MAX_STAKE', 750),      // hard cap (also limited by maxStake)
   // ── Safety (lightweight, does not slow hot path) ──────────────────
   dailyMaxLoss:   numEnv('DAILY_MAX_LOSS', 2000),  // 0 = off
   dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0),   // 0 = off
