@@ -170,7 +170,7 @@ const CONFIG = Object.freeze({
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Open-contract stream watchdog ──
-  tradeWatchdogMs  : parseInt('90000', 10),
+  tradeWatchdogMs  : parseInt('2000', 10),//90000' check for open-contract stream ticks every 90s
   proposalRefreshMs: parseInt('60000', 10),   // refresh barrier + ticks_stayed_in cache
 
   // ── Scheduled pause/resume (GMT) ──
@@ -216,9 +216,9 @@ const CONFIG = Object.freeze({
   }),
 
   // ── Logging / state — FRESH v4 spike ──
-  logFile           : 'accuHOLD4_spike_02.log',
+  logFile           : 'accuHOLD4_spike_03.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD4_spike_state_02.json',
+  stateFile         : 'accuHOLD4_spike_state_03.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
