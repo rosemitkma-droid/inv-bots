@@ -87,8 +87,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRFv2FX_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2FX_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRFv2FX_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2FX_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -120,6 +120,14 @@ const CONFIG = {
     ACCOUNT_TYPE: 'demo',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
+    // ── Backtest historical-data scope (v5-style max backfill) ──────────
+    // Ported from deriv_structure_tester_v5.js: with no --days / --from / --to
+    // the backtester fetches candle history until Deriv stops serving it.
+    MAX_CANDLES_FETCH_TARGET: 1000000,  // soft target for a single backtest fetch
+    MAX_CANDLES_FETCH_HARD: 1200000,    // absolute guard against runaway loops
+    CANDLE_FETCH_MAX_BATCH: 1000,       // candles per ticks_history call (server cap)
+    CANDLE_FETCH_DELAY_MS: 350,         // rate-limit between paginated batches
+
     // ── Recovery Strategy ─────────────────────────────────────
     // TRUE MULTI-ASSET v4: after a loss, WAIT for a new valid WPR signal,
     // then trade that signal direction with multiplied stake (no same-direction).
@@ -137,8 +145,8 @@ const CONFIG = {
     COOLDOWN_CANDLES: 0,
 
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
-    GRANULARITY: 300,
-    TIMEFRAME_LABEL: '5m',
+    GRANULARITY: 900,
+    TIMEFRAME_LABEL: '15m',
     CANDLES_TO_LOAD: 100,
     MAX_CANDLES_STORED: 100,
     DURATION: 15,
@@ -169,7 +177,7 @@ const CONFIG = {
     // ── Active Index Assets ───────────────────────────────────
     ACTIVE_ASSETS: [
         // 'frxEURUSD',    // Euro/Dollar — most liquid, tightest spread
-        // 'frxGBPUSD',    // Cable — high volatility, good signals
+        'frxGBPUSD',    // Cable — high volatility, good signals
         // 'frxUSDJPY',    // Dollar/Yen — excellent trending behavior
         // 'frxUSDCHF',    // Dollar/Swiss — safe haven dynamics
         // 'frxAUDUSD',    // Aussie — commodity-linked, clear trends
@@ -177,7 +185,15 @@ const CONFIG = {
         // 'frxEURGBP',    // Euro/Cable — range-bound, good for reversals
         // 'frxEURJPY',    // Euro/Yen — high volatility cross
         'frxXAUUSD',    // Gold — commodity-linked, clear trends
-
+        // 'frxXAUEUR',    // Gold/Euro — commodity-linked, clear trends
+        // 'frxNZDUSD',    // NZD/Dollar — most liquid, tightest spread
+        'frxNZDJPY',    // NZD/JPY — most liquid, tightest spread
+            'frxNZDCAD',    // NZD/CAD — most liquid, tightest spread
+            // 'frxGBPNZD',    // GBP/NZD — high volatility, good signals
+            // 'frxGBPCHF',    // GBP/CHF — high volatility, good signals
+            'frxGBPCAD',    // GBP/CAD — high volatility, good signals
+            'frxGBPJPY',    // GBP/JPY — high volatility, good signals
+            // 'frxEURNZD',    // EUR/NZD — high volatility, good signals
     ],
 
     // ── Misc ──────────────────────────────────────────────────
@@ -194,8 +210,8 @@ const CONFIG = {
 // ============================================================
 const DEFAULT_ASSET_CONFIG = {
     // Candle Settings
-    GRANULARITY: 300,
-    TIMEFRAME_LABEL: '5m',
+    GRANULARITY: 900,
+    TIMEFRAME_LABEL: '15m',
 
     // Trade Duration
     DURATION: 15,
@@ -433,15 +449,81 @@ class StakeCalculator {
 }
 
 // ============================================================
-// DERIV CANDLE FETCHER — paginates beyond 1000 limit via end epoch
+// DERIV CANDLE FETCHER — MAX-HISTORY BACKFILL (ported from
+// deriv_structure_tester_v5.js): PAT/OTP session + deep backward
+// pagination, fetching candles until Deriv stops serving history.
 // ============================================================
 class DerivCandleFetcher {
     constructor(appId, logger) {
         this.appId = appId || '1089';
         this.logger = logger || LOGGER;
-        // Use public app_id 1089 for history fetch — custom app_id (33usl...) may 401 on anonymous WS
+        // Public app_id 1089 is the anonymous fallback feed — custom app_id (33usl...)
+        // may 401 on anonymous WS.
         this.wsUrl = `wss://ws.derivws.com/websockets/v3?app_id=1089`;
         this.fallbackUrl = `wss://ws.derivws.com/websockets/v3?app_id=${appId || CONFIG.APP_ID}`;
+        // PAT/OTP authenticated session (identical to v5 resolveConnection) — gives
+        // the deepest available history for the backtest.
+        this._isPat = RestClient.isPat(CONFIG.API_TOKEN);
+        this._rest = this._isPat ? new RestClient('https://api.derivws.com', CONFIG.APP_ID, CONFIG.API_TOKEN) : null;
+        this._otpUrl = null;
+    }
+
+    /**
+     * Resolve the OTP session WebSocket URL for the configured PAT token
+     * (new Deriv Options API) — same flow as deriv_structure_tester_v5.js.
+     */
+    async _resolveOtpUrl() {
+        if (this._otpUrl) return this._otpUrl;
+        if (!this._rest) throw new Error('No PAT rest client available');
+        const accRes = await this._rest.get('/trading/v1/options/accounts');
+        if (accRes.status !== 200) {
+            const msg = accRes.body?.errors?.[0]?.message || accRes.body?.message || JSON.stringify(accRes.body);
+            throw new Error(`Account list failed (${accRes.status}): ${msg}`);
+        }
+        const accounts = Array.isArray(accRes.body?.data) ? accRes.body.data : [];
+        if (!accounts.length) throw new Error('No Options accounts found for this token');
+        const desired = (CONFIG.ACCOUNT_TYPE || 'demo').toLowerCase();
+        const acct = accounts.find(a => (a.account_type || '').toLowerCase() === desired) || accounts[0];
+        const otpRes = await this._rest.post(`/trading/v1/options/accounts/${encodeURIComponent(acct.account_id)}/otp`);
+        if (otpRes.status !== 200) throw new Error(`OTP failed (${otpRes.status}): ${JSON.stringify(otpRes.body)}`);
+        const wsUrl = otpRes.body?.data?.url;
+        if (!wsUrl || !/^wss?:/i.test(wsUrl)) throw new Error('OTP response missing data.url');
+        this._otpUrl = wsUrl;
+        return wsUrl;
+    }
+
+    _connectTo(url) {
+        return new Promise((resolve, reject) => {
+            const w = new WebSocket(url, { handshakeTimeout: 15000 });
+            let opened = false;
+            const t = setTimeout(() => { if (!opened) { try { w.terminate(); } catch {} reject(new Error('WS connect timeout')); } }, 15000);
+            w.on('open', () => { clearTimeout(t); opened = true; resolve(w); });
+            w.on('error', e => { clearTimeout(t); if (!opened) reject(e); });
+            w.on('unexpected-response', (_req,res)=> { clearTimeout(t); reject(new Error(`Unexpected server response: ${res.statusCode}`)); try{res.destroy();}catch{} });
+        });
+    }
+
+    /**
+     * Prefer the PAT/OTP session (deepest history), else the public app_id
+     * feed, else fall back to the custom app_id feed.
+     */
+    async _connect() {
+        let url = null;
+        if (this._isPat && this._rest) {
+            try {
+                url = await this._resolveOtpUrl();
+                this.logger.info('Backtest fetcher connected via PAT/OTP session (deepest history available)');
+            } catch (e) {
+                this.logger.warn(`PAT/OTP resolution failed: ${e.message} — falling back to public feed`);
+            }
+        }
+        if (!url) url = this.wsUrl;
+        try {
+            return await this._connectTo(url);
+        } catch (e) {
+            this.logger.warn(`Fetcher connect ${this.wsUrl} failed: ${e.message} — trying fallback`);
+            try { return await this._connectTo(this.fallbackUrl); } catch (e2) { this.logger.error(`Fetcher connect failed: ${e2.message}`); throw e2; }
+        }
     }
     async fetchCandles(symbol, opts = {}) {
         const granularity = opts.granularity || getAssetConfig(symbol).GRANULARITY || CONFIG.GRANULARITY || 60;
@@ -452,30 +534,22 @@ class DerivCandleFetcher {
             if (Number.isFinite(fromSec) && Number.isFinite(toSec) && toSec > fromSec) {
                 want = Math.ceil((toSec - fromSec) / granularity);
             }
-        } else if (opts.days) {
+        } else if (opts.days && Number(opts.days) > 0) {
             want = Math.ceil(Number(opts.days) * 86400 / granularity);
         } else if (!want) {
-            want = 30 * 1440; // default 30 days of 1m
+            // DEFAULT: fetch as much historical data as Deriv will serve (v5-style max backfill).
+            want = CONFIG.MAX_CANDLES_FETCH_TARGET || 1000000;
         }
-        want = Math.max(1, Math.min(want, 500000));
+        want = Math.max(1, Math.min(want, CONFIG.MAX_CANDLES_FETCH_HARD || 1200000));
         let end = opts.to ? Math.floor(new Date(opts.to).getTime() / 1000) : 'latest';
         const startEpoch = opts.from ? Math.floor(new Date(opts.from).getTime() / 1000) : null;
         const all = [];
         let guard = 0;
-        const maxGuard = Math.ceil(want / 1000) + 5;
+        const maxBatch = Math.max(1, Math.min(CONFIG.CANDLE_FETCH_MAX_BATCH || 1000, 1000));
+        const delayMs = CONFIG.CANDLE_FETCH_DELAY_MS ?? 350;
+        const maxGuard = Math.ceil(want / maxBatch) + 5;
         let ws = null;
-        const connectTo = (url) => new Promise((resolve, reject) => {
-            const w = new WebSocket(url, { handshakeTimeout: 15000 });
-            let opened = false;
-            const t = setTimeout(() => { if (!opened) { try { w.terminate(); } catch {} reject(new Error('WS connect timeout')); } }, 15000);
-            w.on('open', () => { clearTimeout(t); opened = true; resolve(w); });
-            w.on('error', e => { clearTimeout(t); if (!opened) reject(e); });
-            w.on('unexpected-response', (_req,res)=> { clearTimeout(t); reject(new Error(`Unexpected server response: ${res.statusCode}`)); try{res.destroy();}catch{} });
-        });
-        try { ws = await connectTo(this.wsUrl); } catch (e) {
-            this.logger.warn(`Fetcher connect ${this.wsUrl} failed: ${e.message} — trying fallback`);
-            try { ws = await connectTo(this.fallbackUrl); } catch (e2) { this.logger.error(`Fetcher connect failed: ${e2.message}`); throw e2; }
-        }
+        try { ws = await this._connect(); } catch (e) { this.logger.error(`Fetcher connect failed: ${e.message}`); throw e; }
         const send = (req) => new Promise((resolve, reject) => {
             const id = Date.now() + Math.floor(Math.random()*1000);
             req.req_id = id;
@@ -490,10 +564,15 @@ class DerivCandleFetcher {
             ws.on('message', onMsg);
             try { ws.send(JSON.stringify(req)); } catch (e) { clearTimeout(timer); ws.off('message', onMsg); reject(e); }
         });
+        const seenTimes = new Set();
+        let earliestEpoch = null;
         try {
+            // v5-style deep pagination: walk backwards via end = earliestEpoch-1 and
+            // keep requesting until Deriv returns an empty/short batch (history
+            // exhausted) or stops honoring the pagination boundary.
             while (all.length < want && guard < maxGuard) {
                 guard++;
-                const batch = Math.min(1000, want - all.length);
+                const batch = Math.max(1, Math.min(maxBatch, want - all.length));
                 const req = { ticks_history: symbol, style: 'candles', granularity, count: batch, end, adjust_start_time: 1 };
                 if (startEpoch) req.start = startEpoch;
                 let r;
@@ -503,22 +582,42 @@ class DerivCandleFetcher {
                     open: parseFloat(c.open), high: parseFloat(c.high), low: parseFloat(c.low), close: parseFloat(c.close),
                     epoch: c.epoch, open_time: c.epoch - (c.epoch % granularity)
                 })).filter(c => Number.isFinite(c.open) && Number.isFinite(c.close));
-                if (!candles.length) break;
-                // prepend chronologically (Deriv returns oldest first? ensure order)
+                if (!candles.length) {
+                    this.logger.info(`(${symbol}) server returned 0 more candles — Deriv history exhausted at ${all.length}`);
+                    break;
+                }
                 candles.sort((a,b)=>a.open_time-b.open_time);
-                // dedup by open_time
-                const existing = new Set(all.map(x=>x.open_time));
-                const uniq = candles.filter(c=> !existing.has(c.open_time));
+                const uniq = candles.filter(c => {
+                    if (seenTimes.has(c.open_time)) return false;
+                    seenTimes.add(c.open_time);
+                    return true;
+                });
+                if (!uniq.length) {
+                    this.logger.info(`(${symbol}) server did not honor pagination — history exhausted at ${all.length}`);
+                    break;
+                }
                 all.unshift(...uniq);
-                // prepare next end (earliest candle before current earliest)
                 const earliest = candles[0];
-                if (!earliest || candles.length < batch) break;
+                // Pagination must move strictly backwards; if the server refuses to
+                // honour `end`, there is nothing more to fetch.
+                if (earliestEpoch !== null && earliest.epoch >= earliestEpoch) {
+                    this.logger.info(`(${symbol}) pagination stalled (end=${end}) — history exhausted at ${all.length}`);
+                    break;
+                }
+                earliestEpoch = earliest.epoch;
+                if (candles.length < batch) {
+                    this.logger.info(`(${symbol}) last batch short: ${candles.length}/${batch} — Deriv history exhausted at ${all.length} candles`);
+                    break;
+                }
                 end = earliest.epoch - 1;
                 if (startEpoch && end < startEpoch) break;
-                // rate-limit
-                await new Promise(res=> setTimeout(res, 300));
+                if (all.length < want) {
+                    process.stdout.write(`\r  📡 [${symbol}] ${granularity}s backfill: ${all.length} / ${want} candles...`);
+                    await new Promise(res=> setTimeout(res, delayMs));
+                }
             }
         } finally {
+            if (guard > 0) process.stdout.write('\n');
             try { ws.close(); } catch {}
         }
         // sort ascending and trim to want
@@ -551,22 +650,28 @@ class BacktestEngine {
         let netPL = 0, totalStake = 0;
         const trades = [];
         const streakCounts = {}; let curStreak = 0, maxStreak = 0;
-        const closed = [];
+        // Incremental WPR: sliding N-candle window (avoids O(n²) slice-recompute —
+        // required to backtest tens of thousands to a million+ candles fast).
+        const wprWindow = [];
+        let wprPrev = null;
         // Per-asset guard replica (independent per asset in backtest too).
         const assetPT = cfg.SESSION_PROFIT_TARGET ?? CONFIG.SESSION_PROFIT_TARGET;
         const assetSL = cfg.SESSION_STOP_LOSS ?? CONFIG.SESSION_STOP_LOSS;
         let assetStopped = false;
         for (let i = 0; i < candles.length; i++) {
             const c = candles[i];
-            closed.push(c);
-            if (closed.length > 50000) closed.shift();
             if (assetStopped) continue;
             if (Number.isFinite(assetPT) && netPL >= assetPT) { assetStopped = true; continue; }
             if (Number.isFinite(assetSL) && netPL <= assetSL) { assetStopped = true; continue; }
 
-            // ── WPR computation on closed array (v2FX: no flag arming) ──
-            const wpr = TechnicalIndicators.calculateWPR(closed, period);
-            const prevWpr = closed.length >= 2 ? TechnicalIndicators.calculateWPR(closed.slice(0, -1), period) : null;
+            // ── Incremental WPR (sliding window, O(period)/candle) ──
+            // Mirrors the live MT5 recompute exactly: prevWpr is the WPR of the
+            // window ending at the PREVIOUS candle; wpr ends at the current one.
+            wprWindow.push(c);
+            if (wprWindow.length > period) wprWindow.shift();
+            const wpr = TechnicalIndicators.calculateWPR(wprWindow, period);
+            const prevWpr = wprPrev;
+            wprPrev = wpr;
             // v2FX: EVERY valid confirmed-candle cross trades (no first-cross filter).
             if (!Number.isFinite(wpr) || !Number.isFinite(prevWpr)) continue;
             const buyCross = prevWpr <= CONFIG.WPR_OVERSOLD && wpr > CONFIG.WPR_OVERSOLD;
@@ -2659,7 +2764,7 @@ function parseBacktestArgs(argv) {
 async function runBacktestCLI(opts) {
     const symbols = (!opts.asset || opts.asset.toLowerCase()==='all') ? CONFIG.ACTIVE_ASSETS : [opts.asset];
     const payoutRatio = Number.isFinite(opts.payout) ? opts.payout : 0.90;
-    LOGGER.info(`🧪 BACKTEST standalone: ${symbols.join(', ')} | ${opts.days? opts.days+'d' : opts.candles? opts.candles+' candles' : '30d'} | payout ${(payoutRatio*100).toFixed(0)}%`);
+    LOGGER.info(`🧪 BACKTEST standalone: ${symbols.join(', ')} | ${opts.days && Number(opts.days)>0 ? opts.days+'d' : opts.candles? opts.candles+' candles' : opts.from&&opts.to ? opts.from+':'+opts.to : 'MAX history (as much as Deriv serves)'} | payout ${(payoutRatio*100).toFixed(0)}%`);
     const fetcher = new DerivCandleFetcher(CONFIG.APP_ID, LOGGER);
     const engine = new BacktestEngine();
     const reports=[];
@@ -2728,13 +2833,13 @@ function startTelegramBacktestPolling(){
                 await tbot.sendMessage(chatId, `Unknown asset ${asset}. Active: ${CONFIG.ACTIVE_ASSETS.join(', ')}`);
                 return;
             }
-            await tbot.sendMessage(chatId, `🧪 Backtest started: ${asset} ${days?days+'d': from? from+':'+to : '30d'} ...`);
+            await tbot.sendMessage(chatId, `🧪 Backtest started: ${asset} ${days && Number(days)>0 ? days+'d' : from&&to ? from+':'+to : 'MAX history'} ...`);
             try {
                 const fetcher=new DerivCandleFetcher(CONFIG.APP_ID, LOGGER);
                 const engine=new BacktestEngine();
                 const syms= asset==='all'? CONFIG.ACTIVE_ASSETS : [asset];
                 for(const sym of syms){
-                    const candles=await fetcher.fetchCandles(sym, {days:days||30, from, to, payoutRatio:payoutArg});
+                    const candles=await fetcher.fetchCandles(sym, {days, from, to, payoutRatio:payoutArg});
                     const report=await engine.run(sym,candles,{payoutRatio: payoutArg||0.90});
                     await tbot.sendMessage(chatId, engine.formatReport(report), {parse_mode:'HTML'});
                 }
