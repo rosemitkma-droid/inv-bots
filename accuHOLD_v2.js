@@ -153,7 +153,7 @@ const CONFIG = Object.freeze({
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Open-contract stream watchdog ──
-  tradeWatchdogMs  : parseInt('90000', 10),
+  tradeWatchdogMs  : parseInt('2000', 10),  //90000 check for open-contract stream ticks every 5s
   proposalRefreshMs: parseInt('60000', 10),   // refresh barrier + ticks_stayed_in cache
 
   // ── Scheduled pause/resume (GMT) ──
@@ -171,9 +171,9 @@ const CONFIG = Object.freeze({
   hourlySummary      : true,
 
   // ── Logging / state ──
-  logFile           : 'accuHOLD_v2_005.log',
+  logFile           : 'accuHOLD_v2_006.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD_v2_state_005.json',
+  stateFile         : 'accuHOLD_v2_state_006.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
