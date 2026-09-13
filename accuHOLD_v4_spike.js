@@ -128,7 +128,7 @@ const CONFIG = Object.freeze({
   tierGrowthRate: Object.freeze({ fast: 0.05, slow: 0.05 }), // fast=1% widest barrier (spike-dominant), slow=2% (noise-dominant)
   tierDefaults: Object.freeze({
     fast: { tickCapFraction: 0.70, takeProfitMultiple: 1.40, growthRate: 0.01 }, // BOOM50/CRASH50
-    slow: { tickCapFraction: 0.55, takeProfitMultiple: 1.35, growthRate: 0.02 }, // BOOM/CRASH 500/600/900/1000
+    slow: { tickCapFraction: 0.55, takeProfitMultiple: 1.35, growthRate: 0.01 }, // BOOM/CRASH 500/600/900/1000
   }),
   symbolTiers: Object.freeze({
     fast: ['BOOM50','CRASH50'],
@@ -216,9 +216,9 @@ const CONFIG = Object.freeze({
   }),
 
   // ── Logging / state — FRESH v4 spike ──
-  logFile           : 'accuHOLD4_spike_01.log',
+  logFile           : 'accuHOLD4_spike_02.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD4_spike_state_01.json',
+  stateFile         : 'accuHOLD4_spike_state_02.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
