@@ -127,8 +127,8 @@ const CONFIG = Object.freeze({
   // Per-tier overrides — user #5 (per-tier override) + #1 (include BOOM50/CRASH50 fast tier)
   tierGrowthRate: Object.freeze({ fast: 0.05, slow: 0.05 }), // fast=1% widest barrier (spike-dominant), slow=2% (noise-dominant)
   tierDefaults: Object.freeze({
-    fast: { tickCapFraction: 0.70, takeProfitMultiple: 1.40, growthRate: 0.01 }, // BOOM50/CRASH50
-    slow: { tickCapFraction: 0.55, takeProfitMultiple: 1.35, growthRate: 0.01 }, // BOOM/CRASH 500/600/900/1000
+    fast: { tickCapFraction: 0.01, takeProfitMultiple: 1.40, growthRate: 0.05 }, // BOOM50/CRASH50
+    slow: { tickCapFraction: 0.01, takeProfitMultiple: 1.35, growthRate: 0.05 }, // BOOM/CRASH 500/600/900/1000
   }),
   symbolTiers: Object.freeze({
     fast: ['BOOM50','CRASH50'],
@@ -150,7 +150,7 @@ const CONFIG = Object.freeze({
 
   // ── Risk controls ──
   maxConsecutiveLosses : parseInt('3', 10),      // pause + require manual restart
-  dailyMaxLoss        : parseFloat('500'),         // demo-appropriate cap
+  dailyMaxLoss        : parseFloat('300'),         // demo-appropriate cap
   dailyMaxTrades      : parseInt('120000', 10),      // daily cap
   stopLossPerContract : parseFloat('0'),         // 0 = disabled (rely on knockout)
 
@@ -170,7 +170,7 @@ const CONFIG = Object.freeze({
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Open-contract stream watchdog ──
-  tradeWatchdogMs  : parseInt('2000', 10),//90000' check for open-contract stream ticks every 90s
+  tradeWatchdogMs  : parseInt('5000', 10),
   proposalRefreshMs: parseInt('60000', 10),   // refresh barrier + ticks_stayed_in cache
 
   // ── Scheduled pause/resume (GMT) ──
@@ -197,10 +197,10 @@ const CONFIG = Object.freeze({
   }),
   exploratory: Object.freeze({
     enabled: true,                // keep true so spike detector runs; hazard not used to gate
-    mode: 'hazard',
+    mode: 'hazard',               // 'hazard' = hazardRefractoryBot_v2, 'postSpike' = post-spike Bonferroni, 'relaxed' = mean-derived fallback, both = all three (v4 default)
     logOnly: true,                // hazard only logs, does NOT gate (v4 gates on spike only)
     hazardBuckets: [0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.5,3,4,6,Infinity],
-    hazardMinLift: parseFloat(process.env.HAZARD_MIN_LIFT || '0.60'),
+    hazardMinLift: parseFloat('0.60'),
     hazardP: 0.05,
     postSpikeHorizon: 200,
     postSpikeMaxControl: 8000,
@@ -216,9 +216,9 @@ const CONFIG = Object.freeze({
   }),
 
   // ── Logging / state — FRESH v4 spike ──
-  logFile           : 'accuHOLD4_spike_03.log',
+  logFile           : 'accuHOLD4_spike_05.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD4_spike_state_03.json',
+  stateFile         : 'accuHOLD4_spike_state_05.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
@@ -1064,14 +1064,11 @@ class TradeExecutor extends EventEmitter {
       // Free the local slot so the watchdog doesn't keep retrying forever.
       const msg = String(e.message || e);
       if (/not found among your open positions/i.test(msg) && this.open.has(contractId)) {
-        // User 2026-09-13: unconfirmable contracts are booked as full-stake LOSSES
-        // (conservative: money left the account, outcome unknown → assume lost).
-        const stake = parseFloat(info?.stake ?? 0);
-        logger.warn(`sell #${contractId} missed: already closed on server — booking as LOSS -${stake.toFixed(2)}`);
+        logger.warn(`sell #${contractId} missed: already closed on server — dropping stale local entry`);
         this._finalizeContract(contractId, {
-          profit: -stake, status: 'lost', sellPrice: 0,
+          profit: 0, status: 'unknown', sellPrice: 0,
           sellTime: Date.now() / 1000, currentSpot: info?.entrySpot ?? 0,
-          exitReason: 'already-closed-on-server (unconfirmable, booked as loss)',
+          exitReason: 'already-closed-on-server',
         });
         return null;
       }
@@ -1162,21 +1159,19 @@ class TradeExecutor extends EventEmitter {
         const portfolio = await this.client.portfolio();
         const found = portfolio.find(c => String(c.contract_id) === String(cid));
         if (!found) {
-          // User 2026-09-13: unconfirmable → full-stake loss.
-          const stake = parseFloat(info.stake ?? 0);
-          logger.warn(`reconcileStuck #${cid}: not in portfolio — booking as LOSS -${stake.toFixed(2)} (missed terminal)`);
-          // Try one more POC with longer timeout, else book loss so slot frees
+          logger.warn(`reconcileStuck #${cid}: not in portfolio — forcing settle as unknown (missed terminal)`);
+          // Try one more POC with longer timeout, else force-settle unknown so slot frees
           try {
             const res2 = await this.client._send({ proposal_open_contract: 1, contract_id: cid }, 8000);
             const oc2 = res2?.proposal_open_contract;
             if (oc2 && TERMINAL_STATUSES.has(oc2.status)) { this._onUpdate({ proposal_open_contract: oc2 }, info); return; }
           } catch (_) {}
-          this._finalizeContract(cid, { profit: -stake, status: 'lost', sellPrice: 0, sellTime: Date.now()/1000, currentSpot: info.entrySpot||0, exitReason: 'stuck-not-in-portfolio (unconfirmable, booked as loss)' });
+          this._finalizeContract(cid, { profit: 0, status: 'unknown', sellPrice: 0, sellTime: Date.now()/1000, currentSpot: info.entrySpot||0, exitReason: 'stuck-not-in-portfolio' });
           return;
         }
       } catch (e) { logger.debug(`reconcile portfolio check #${cid}:`, e.message); }
 
-      // 3) Track watchdog attempts — after 5 failed sells, book full-stake loss so slot frees
+      // 3) Track watchdog attempts — after 3 fails, force sell, after 5 force-settle unknown
       info._watchdogAttempts = (info._watchdogAttempts || 0) + 1;
       const attempts = info._watchdogAttempts;
       logger.warn(`reconcileStuck #${cid}: attempt ${attempts} — selling`);
@@ -1191,11 +1186,9 @@ class TradeExecutor extends EventEmitter {
           return;
         }
         if (attempts >= 5) {
-          // User 2026-09-13: unconfirmable → full-stake loss.
-          const stake = parseFloat(info.stake ?? 0);
-          logger.error(`reconcileStuck #${cid}: sell failed ${attempts} times (${msg}) — booking as LOSS -${stake.toFixed(2)} to free slot`);
-          this._finalizeContract(cid, { profit: -stake, status: 'lost', sellPrice: 0, sellTime: Date.now()/1000, currentSpot: info.entrySpot||0, exitReason: `stuck-force-loss-after-${attempts} (unconfirmable, booked as loss)` });
-          telegram.send(`⚠️ <b>Stuck contract force-closed</b> #${cid} ${info.symbol} after ${attempts} watchdog attempts<br/>Last profit=${info.lastBid ?? '?'} — booked as <b>LOSS -${stake.toFixed(2)}</b>.`);
+          logger.error(`reconcileStuck #${cid}: sell failed ${attempts} times (${msg}) — force-settling unknown to free slot`);
+          this._finalizeContract(cid, { profit: 0, status: 'unknown', sellPrice: 0, sellTime: Date.now()/1000, currentSpot: info.entrySpot||0, exitReason: `stuck-force-unknown-after-${attempts}` });
+          telegram.send(`⚠️ <b>Stuck contract force-closed</b> #${cid} ${info.symbol} after ${attempts} watchdog attempts<br/>Last profit=${info.lastBid ?? '?'} — freed slot as <b>unknown</b>.`);
           return;
         }
         throw e;
@@ -1286,14 +1279,15 @@ class StatisticsManager {
     const tsMs = Number(trade.sellTime || trade.buyTime || Date.now() / 1000) * 1000;
     const d = new Date(tsMs);
     const rec = { ...trade, timestamp: tsMs, date: utcDateStr(d), hour: utcHour(d) };
-    // User 2026-09-13: residual 'unknown' (e.g. from old state) is booked as a
-    // full-stake loss so P&L and streaks stay honest.
-    if (rec.status === 'unknown') {
-      rec.status = 'lost';
-      if (!Number(rec.profit)) rec.profit = -(Number(rec.stake) || 0);
-      rec.exitReason = `${rec.exitReason || 'unconfirmable'} (booked as loss)`;
-    }
     this.trades.push(rec);
+    // 'unknown' (unconfirmable/stuck) results are booked as a LOSS of the stake:
+    // they hit P&L below but never advance the loss streak or martingale.
+    if (rec.status === 'unknown') {
+      const stakeLoss = -Number(rec.stake || 0);
+      rec.profit = stakeLoss;
+      this.overallProfit += stakeLoss;
+      return rec;
+    }
     this.overallProfit += Number(rec.profit || 0);
     if (rec.status === 'lost') {
       this.currentLossStreak += 1;
@@ -1585,14 +1579,8 @@ class AccuHoldBot {
     if (this.exec.count() >= this.cfg.maxOpenTrades) return;
     // small delay to let Deriv settle previous contract (2s)
     await new Promise(r=> setTimeout(r, 2000));
-    // Re-check halt AFTER the delay: a halt (risk cap) may have engaged while waiting.
-    // Without this, a re-entry could fire after the halt and look like the halt "didn't stick".
-    if (this.stopped || !this.client.authorized || this.paused || this.manualRestartRequired) {
-      logger.info(`LOSS immediate re-entry ${symbol} cancelled: halt/pause engaged during settle delay (consecLosses=${this.consecutiveLosses}/${this.cfg.maxConsecutiveLosses})`);
-      return;
-    }
     if (this.exec.count() >= this.cfg.maxOpenTrades) return;
-    logger.info(`LOSS immediate re-entry ${symbol} martingale ${this._martingaleLabel()} stake=${this.currentStake.toFixed(2)} (consecLosses=${this.consecutiveLosses}/${this.cfg.maxConsecutiveLosses})`);
+    logger.info(`LOSS immediate re-entry ${symbol} martingale ${this._martingaleLabel()} stake=${this.currentStake.toFixed(2)}`);
     // bypass spike wait — buy immediately on same asset
     const h = this.assetHistory.get(symbol);
     const fakeIdx = h ? (h.spikeIndices[h.spikeIndices.length-1] ?? h.prices.length-1) : 0;
@@ -1705,7 +1693,6 @@ class AccuHoldBot {
     } else {
       logger.info(`martingale: OFF (flat stake ${this.baseStake.toFixed(2)})`);
     }
-    logger.info(`risk halt: maxConsecutiveLosses=${this.cfg.maxConsecutiveLosses} (halt engages at ${this.cfg.maxConsecutiveLosses} consecutive LOSSES incl. unconfirmable-as-loss; set CLEAR_RISK_HALT=1 to clear a persisted halt)`);
 
     if (!this.cfg.apiToken) { logger.error('API token missing'); process.exit(1); }
 
@@ -1977,15 +1964,18 @@ class AccuHoldBot {
   }
 
   _onTradeResult(t) {
-    // User 2026-09-13: UNCONFIRMABLE CONTRACTs are booked as full-stake losses
-    // (P&L, streaks, martingale) instead of being silently excluded.
-    if (t.status === 'unknown') {
-      const stake = Number(t.stake) || 0;
-      t = { ...t, status: 'lost', profit: -stake, wasUnknown: true,
-        exitReason: `${t.exitReason || 'unconfirmable'} (booked as full-stake loss)` };
-      logger.warn(`trade #${t.contractId} unconfirmable — booked as LOSS ${(-stake).toFixed(2)} (P&L + streaks + martingale)`);
-    }
     const rec = this.stats.record(t);
+    if (t.status === 'unknown') {
+      // Unconfirmable / stuck contract — booked as a LOSS of the stake. It
+      // counts in P&L below but never touches the loss streak or martingale.
+      const stakeLoss = -Number(t.stake || 0);
+      this.lastBalance = (this.lastBalance ?? this.balance ?? 0) + stakeLoss;
+      this.overallProfit += stakeLoss;
+      logger.warn(`trade #${t.contractId} unconfirmable — booked as loss of ${(-stakeLoss).toFixed(2)}, excluded from streaks/martingale`);
+      telegram.send(`⚠️ <b>AccuHOLD_v4 UNCONFIRMABLE CONTRACT</b> #${t.contractId} ${t.symbol}\nBooked as a <b>loss</b> of ${(-stakeLoss).toFixed(2)} ${this.currencyStr()} in P&L — excluded from loss streak & martingale.`);
+      this._saveState('after-trade');
+      return;
+    }
     this.lastBalance = (this.lastBalance ?? this.balance ?? 0) + t.profit;
     this.overallProfit += t.profit;
     if (t.status === 'lost') this.consecutiveLosses += 1;
@@ -1997,15 +1987,13 @@ class AccuHoldBot {
     const mg = this._updateMartingaleOnResult(t.status);
 
     // Risk halt: max consecutive losses → require manual restart.
-    // NOTE: 'unknown'/unconfirmable outcomes are booked as LOSSES above, so they
-    // count toward this cap exactly like knockouts.
-    if (Number(this.cfg.maxConsecutiveLosses) > 0 && this.consecutiveLosses >= this.cfg.maxConsecutiveLosses && !this.manualRestartRequired) {
+    if (this.consecutiveLosses >= this.cfg.maxConsecutiveLosses && !this.manualRestartRequired) {
       this.manualRestartRequired = true;
       this.manualRestartReason = `${this.consecutiveLosses} consecutive losses (cap ${this.cfg.maxConsecutiveLosses})`;
-      logger.error(`RISK HALT: ${this.manualRestartReason} — manual restart required (halt engages at exactly ${this.cfg.maxConsecutiveLosses}, not before)`);
+      logger.error(`RISK HALT: ${this.manualRestartReason} — manual restart required`);
       telegram.send(
         `⛔ <b>AccuHOLD_v4 RISK HALT</b>\n${this.manualRestartReason}.\n` +
-        `Trading is paused. Restart with <code>CLEAR_RISK_HALT=1</code> or delete <code>${this.cfg.stateFile}</code> to resume.`,
+        `Trading is paused. Restart the bot to clear the halt.`,
       );
     }
 
@@ -2058,7 +2046,6 @@ class AccuHoldBot {
       `<b>Sell:</b> ${Number(t.sellPrice ?? 0).toFixed(2)} ${this.currencyStr()}\n` +
       `${t.profit >= 0 ? '💚' : '💔'} <b>Profit:</b> ${t.profit >= 0 ? '+' : ''}${t.profit.toFixed(2)} ${this.currencyStr()}\n` +
       `<b>Exit:</b> ${exitLine}\n` +
-      (t.wasUnknown ? `⚠️ <i>Unconfirmable contract — booked as full-stake loss.</i>\n` : '') +
       durationLine +
       `<b>Ticks held:</b> ${t.ticksHeld ?? '?'} (tick-cap was ${t.tickCapTicks ?? '?'})` +
       (t.ticksHeldOpen != null && t.ticksHeld !== t.ticksHeldOpen ? ` · since-sub: ${t.ticksHeldOpen}` : '') +
@@ -2309,18 +2296,7 @@ class AccuHoldBot {
       if (d.lastBalance != null) this.lastBalance = d.lastBalance;
       if (d.overallProfit != null) this.overallProfit = d.overallProfit;
       if (d.consecutiveLosses != null) this.consecutiveLosses = d.consecutiveLosses;
-      if (d.manualRestartRequired) {
-        // Env escape hatch: CLEAR_RISK_HALT=1 clears a halt persisted by a previous
-        // session. Otherwise the halt is honoured — a restart alone must NOT silently
-        // resume trading after a risk halt (that would defeat the halt).
-        if (String(process.env.CLEAR_RISK_HALT || '').trim() === '1') {
-          logger.warn(`CLEAR_RISK_HALT=1 — clearing persisted risk halt ("${d.manualRestartReason || ''}") on boot`);
-          this.manualRestartRequired = false;
-          this.manualRestartReason = '';
-        } else {
-          this.manualRestartRequired = true; this.manualRestartReason = d.manualRestartReason || '';
-        }
-      }
+      if (d.manualRestartRequired) { this.manualRestartRequired = true; this.manualRestartReason = d.manualRestartReason || ''; }
       if (Array.isArray(d.lastEntryBySymbol)) this.lastEntryBySymbol = new Map(d.lastEntryBySymbol);
       // Martingale restore
       if (d.baseStake != null) this.baseStake = Number(d.baseStake);
@@ -2334,29 +2310,12 @@ class AccuHoldBot {
         this.currentStake = this._calcMartingaleStake(this.martingaleStep);
       }
       this.stats = new StatisticsManager(d.stats || {});
-      // Boot-day consistency: the running bot resets consecutiveLosses on day change,
-      // so a counter restored from a previous day must not carry over and cause a
-      // halt after fewer NEW losses than maxConsecutiveLosses.
-      try {
-        const today = utcDateStr();
-        const trades = Array.isArray(this.stats.trades) ? this.stats.trades : [];
-        const lastTrade = trades.length ? trades[trades.length - 1] : null;
-        if (this.consecutiveLosses > 0 && (!lastTrade || lastTrade.date !== today)) {
-          logger.info(`boot-day reset: restored consecLosses=${this.consecutiveLosses} is from ${lastTrade ? lastTrade.date : 'no prior trades'} (today=${today}) → resetting to 0`);
-          this.consecutiveLosses = 0;
-        }
-      } catch (e) { logger.debug('boot-day reset check:', e.message); }
       logger.info(
         `state restored: overallProfit=${this.stats.overallProfit.toFixed(2)} ` +
         `consecLosses=${this.consecutiveLosses} halt=${this.manualRestartRequired} ` +
         `martingale step=${this.martingaleStep} stake=${this.currentStake.toFixed(2)}/${this.baseStake.toFixed(2)} ` +
         `maxStreak=${this.stats.maxLossStreak} ${this.stats.lossStreakLine()}`,
       );
-      if (this.manualRestartRequired) {
-        const haltMsg = `⛔ <b>AccuHOLD_v4 RISK HALT still active from previous session</b>\n${this.manualRestartReason}\nTrading will NOT resume until you restart with <code>CLEAR_RISK_HALT=1</code> or delete <code>${this.cfg.stateFile}</code>.`;
-        logger.error(`RISK HALT restored from state — trading paused. ${this.manualRestartReason}`);
-        telegram.send(haltMsg);
-      }
     } catch (e) { logger.warn('state load:', e.message); }
   }
 
@@ -2442,7 +2401,7 @@ async function runSelfTest() {
   test('settle emits result once', emitted === 1, `emitted=${emitted}`);
   test('settle frees slot', ex.count() === 0);
 
-  // 8. already-closed sell path → booked as full-stake LOSS (user 2026-09-13).
+  // 8. already-closed sell path → 'unknown' finalize (loss-only, no streak hit).
   const stuckClient = {
     forget: () => Promise.resolve(),
     _send: () => Promise.reject(new Error('not found among your open positions')),
@@ -2454,29 +2413,18 @@ async function runSelfTest() {
   let uEmitted = 0, uInfo = null;
   ex2.on('result', (t) => { uEmitted++; uInfo = t; });
   await ex2.sell(888, 0, ex2.open.get(888));
-  test('already-closed → loss emitted (full stake)', uEmitted === 1 && uInfo && uInfo.status === 'lost' && uInfo.profit === -1, `emitted=${uEmitted} status=${uInfo?.status} profit=${uInfo?.profit}`);
+  test('already-closed → unknown emitted', uEmitted === 1 && uInfo && uInfo.status === 'unknown', `emitted=${uEmitted} status=${uInfo?.status}`);
   test('already-closed → local slot freed', ex2.count() === 0);
 
-  // 9. residual 'unknown' records are converted to full-stake losses in P&L/streaks.
+  // 9. unknown (unconfirmable/stuck) is booked as a stake LOSS in P&L, but never touches streaks.
   const s = new StatisticsManager();
   s.record({ contractId: 1, status: 'won',  profit:  2.0, sellTime: Date.now() / 1000 });
   s.record({ contractId: 2, status: 'lost', profit: -1.0, sellTime: Date.now() / 1000 });
-  s.record({ contractId: 3, status: 'unknown', profit: 0, stake: 1.5, sellTime: Date.now() / 1000 });
-  test('unknown booked as loss in P&L', Math.abs(s.overallProfit - (2.0 - 1.0 - 1.5)) < 1e-9, `overallProfit=${s.overallProfit}`);
-  test('unknown increments loss streak', s.currentLossStreak === 2 && s.maxLossStreak === 2, `streak=${s.currentLossStreak} max=${s.maxLossStreak}`);
-
-  // 9b. risk halt engages at EXACTLY maxConsecutiveLosses — never before.
-  {
-    const haltCfg = { stake: 1, martingaleMultiplier: 1.0, martingaleSteps: 0, maxConsecutiveLosses: 3, assets: ['BOOM1000'], currency: 'USD' };
-    const haltBot = new AccuHoldBot(haltCfg);
-    const mkLoss = (id) => ({ contractId: id, symbol: 'BOOM1000', growthRate: 0.02, stake: 1, buyPrice: 1, sellPrice: 0, profit: -1, status: 'lost', sellTime: Date.now()/1000, buyTime: Date.now()/1000 - 60, ticksHeld: 5, exitReason: 'knockout' });
-    haltBot._onTradeResult(mkLoss(201));
-    test('halt NOT engaged after 1st loss (cap 3)', haltBot.manualRestartRequired === false && haltBot.consecutiveLosses === 1, `halt=${haltBot.manualRestartRequired} consec=${haltBot.consecutiveLosses}`);
-    haltBot._onTradeResult(mkLoss(202));
-    test('halt NOT engaged after 2nd loss (cap 3)', haltBot.manualRestartRequired === false && haltBot.consecutiveLosses === 2, `halt=${haltBot.manualRestartRequired} consec=${haltBot.consecutiveLosses}`);
-    haltBot._onTradeResult(mkLoss(203));
-    test('halt engages exactly at 3rd loss (cap 3)', haltBot.manualRestartRequired === true && haltBot.consecutiveLosses === 3, `halt=${haltBot.manualRestartRequired} consec=${haltBot.consecutiveLosses}`);
-  }
+  const streakBeforeUnknown = s.currentLossStreak;
+  s.record({ contractId: 3, status: 'unknown', profit: 0, stake: 0.5, sellTime: Date.now() / 1000 });
+  test('unknown booked as stake loss in P&L', Math.abs(s.overallProfit - 0.5) < 1e-9, `overallProfit=${s.overallProfit}`);
+  test('unknown normalized to negative profit', s.trades[2].profit === -0.5, `profit=${s.trades[2].profit}`);
+  test('unknown does not touch loss streak', s.currentLossStreak === streakBeforeUnknown, `streak=${s.currentLossStreak}`);
 
   // 10. live median from a fake proposal (simulates the buy() path).
   const fakeMarket = new MarketDataManager(new EventEmitter(), CONFIG);
