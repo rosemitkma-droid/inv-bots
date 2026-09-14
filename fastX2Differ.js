@@ -67,7 +67,7 @@ const CONFIG = Object.freeze({
   // ── Speed / throttle ───────────────────────────────────────────────
   tradeCooldownMs: intEnv('TRADE_COOLDOWN_MS', 800), // min gap between buys
   maxOpenTrades:   1,
-  tradeWatchdogMs: intEnv('WATCHDOG_MS', 2000),
+  tradeWatchdogMs: intEnv('WATCHDOG_MS', 20000),
 
   // ── Martingale (optional) ────────────────────────────────────────
   martingaleEnabled:  boolEnv('MARTINGALE_ENABLED', true),
@@ -89,8 +89,8 @@ const CONFIG = Object.freeze({
   notifyTradeOpen: boolEnv('NOTIFY_TRADE_OPEN', false),     // false = silent on open (still logs)
   notifyTradeResult: boolEnv('NOTIFY_TRADE_RESULT', false), // false = silent on result (still logs + saves)
 
-  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_002.json'),
-  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_002.log'),
+  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_003.json'),
+  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_003.log'),
   logLevel:  strEnv('LOG_LEVEL',  'INFO').toUpperCase(),
 
   telegram: {
