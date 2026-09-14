@@ -87,8 +87,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRFv2FX2_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2FX2_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRFv2FX2_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2FX2_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -141,7 +141,7 @@ const CONFIG = {
     // ── Session / daily guards (global aggregates = reporting only) ──
     // Per-asset guards live in DEFAULT_ASSET_CONFIG.SESSION_PROFIT_TARGET/STOP_LOSS.
     SESSION_PROFIT_TARGET: 500000,
-    SESSION_STOP_LOSS: -208,
+    SESSION_STOP_LOSS: -308,
     COOLDOWN_CANDLES: 0,
 
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
@@ -218,8 +218,8 @@ const DEFAULT_ASSET_CONFIG = {
     DURATION_UNIT: 'm',
 
     // Stake Settings
-    INITIAL_STAKE: 0.35,
-    INVESTMENT_AMOUNT: 208,
+    INITIAL_STAKE: 0.50,
+    INVESTMENT_AMOUNT: 308,
 
     // Martingale Settings
     MARTINGALE_MULTIPLIER: 1.48, //1.48
@@ -233,12 +233,12 @@ const DEFAULT_ASSET_CONFIG = {
     COMPOUND_PERCENTAGE: 0.1,
 
     // Risk Management
-    STOP_LOSS: 208,
+    STOP_LOSS: 308,
 
     // Per-asset session guards (independent — one asset hitting these
     // never affects the others; global SESSION_* in CONFIG is report-only)
     SESSION_PROFIT_TARGET: 500000,
-    SESSION_STOP_LOSS: -208,
+    SESSION_STOP_LOSS: -308,
 };
 
 const ASSET_CONFIGS = {
