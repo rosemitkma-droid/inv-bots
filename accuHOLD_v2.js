@@ -171,9 +171,9 @@ const CONFIG = Object.freeze({
   hourlySummary      : true,
 
   // ── Logging / state ──
-  logFile           : 'accuHOLD_v2_006.log',
+  logFile           : 'accuHOLD_v2_007.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD_v2_state_006.json',
+  stateFile         : 'accuHOLD_v2_state_007.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
