@@ -87,8 +87,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRFv2FX_04-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2FX_04-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRFv2FX_05-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2FX_05-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -2237,7 +2237,7 @@ class IndexBot {
         this._processedContracts = new Set();
         // v4: no global trade lock — concurrency is per-asset (1 open/asset).
         // _tradeLocked kept as compat getter (true if any position open).
-        this.tradeWatchdogMs = 150000;
+        this.tradeWatchdogMs = 960000; //16mins
         this._watchdogTimers = new Map(); // contractId -> timeout (also 'req:<reqId>' buy-ack timers)
         // Buy-ack: max wait for a `buy` response before the position is treated
         // as an orphan (no contractId → no settlement will ever arrive).
