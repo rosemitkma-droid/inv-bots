@@ -87,8 +87,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRFv2FX_05-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2FX_05-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRFv2FX_06-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2FX_06-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -2917,7 +2917,7 @@ if (cliArgs.backtest) {
             const a = state.assets[sym];
             (a?.activePositions || []).forEach(pos => {
                 const elapsed = Date.now() - (pos.entryTime || pos.openTime || Date.now());
-                if (elapsed > 420000 && pos.contractId) {
+                if (elapsed > CONFIG.TRADE_WATCHDOG_MS && pos.contractId) {
                     LOGGER.error(`SAFETY: [${sym}] Trade ${pos.contractId} stuck ${Math.round(elapsed / 1000)}s — forcing recovery`);
                     bot._recoverStuckTrade(`safety-timeout-${pos.contractId}`, pos.contractId);
                 }
