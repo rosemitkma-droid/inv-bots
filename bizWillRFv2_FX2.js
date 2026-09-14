@@ -87,8 +87,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRFv2FX2_04-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2FX2_04-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRFv2FX2_05-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2FX2_05-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -199,7 +199,7 @@ const CONFIG = {
     // ── Misc ──────────────────────────────────────────────────
     DEBUG_MODE: true,
     TELEGRAM_ENABLED: true,
-    TELEGRAM_BOT_TOKEN: '8565754902:AAHS6UQWEgLJ0DO-JTpAGQhZLs-UDVVNAQc',
+    TELEGRAM_BOT_TOKEN: '7683695132:AAGA9_4uDcyZWEOAwv1_zj7Nnz5Oy0gVw04',
     TELEGRAM_CHAT_ID: '752497117',
     // Set to true to enable /backtest Telegram polling — keep false if same token used by other bots to avoid 409 Conflict
     TELEGRAM_POLLING_ENABLED: false,
