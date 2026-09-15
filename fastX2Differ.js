@@ -89,8 +89,8 @@ const CONFIG = Object.freeze({
   notifyTradeOpen: boolEnv('NOTIFY_TRADE_OPEN', false),     // false = silent on open (still logs)
   notifyTradeResult: boolEnv('NOTIFY_TRADE_RESULT', false), // false = silent on result (still logs + saves)
 
-  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_004.json'),
-  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_004.log'),
+  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_007.json'),
+  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_007.log'),
   logLevel:  strEnv('LOG_LEVEL',  'INFO').toUpperCase(),
 
   telegram: {
