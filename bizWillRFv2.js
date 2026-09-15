@@ -87,8 +87,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRFv2_02-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2_02-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRFv2_03-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2_03-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -173,7 +173,7 @@ const CONFIG = {
         // 'R_50',
         // 'R_75',
         // 'R_100',
-        '1HZ10V',
+        // '1HZ10V',
         '1HZ25V',
         // '1HZ50V',
         // '1HZ75V',
