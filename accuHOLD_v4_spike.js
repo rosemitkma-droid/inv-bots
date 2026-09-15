@@ -132,7 +132,7 @@ const CONFIG = Object.freeze({
   }),
   symbolTiers: Object.freeze({
     fast: ['BOOM50','CRASH50'],
-    slow: ['BOOM600','BOOM900','BOOM1000'],
+    slow: ['BOOM900','BOOM1000'],
   }),
 
   // ── Martingale (kept per user #2) ───────────────────────────────
@@ -155,7 +155,7 @@ const CONFIG = Object.freeze({
   stopLossPerContract : parseFloat('0'),         // 0 = disabled (rely on knockout)
 
   // ── Instruments — 10 symbols (fast + slow) per user #1 ──
-  assets: ('BOOM600,BOOM900,BOOM1000')
+  assets: ('BOOM900,BOOM1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Telegram (existing hardcoded values) ──
@@ -216,9 +216,9 @@ const CONFIG = Object.freeze({
   }),
 
   // ── Logging / state — FRESH v4 spike ──
-  logFile           : 'accuHOLD4_spike_11.log',
+  logFile           : 'accuHOLD4_spike_12.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD4_spike_state_11.json',
+  stateFile         : 'accuHOLD4_spike_state_12.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
