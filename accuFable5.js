@@ -133,11 +133,11 @@ const CONFIG = Object.freeze({
 //   assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
 //     .split(',').map(s => s.trim()).filter(Boolean),
 
-assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Growth-rate grid. 0.01 measured cheapest; 0.05 measured dearest. ──
-  growthRates: envStr('GROWTH_RATES', '0.01,0.02,0.03') //0.01,0.02,0.03
+  growthRates: envStr('GROWTH_RATES', '0.01,0.02,0.03,0.04,0.05') //0.01,0.02,0.03
     .split(',').map(s => parseFloat(s.trim())).filter(v => v >= 0.01 && v <= 0.05),
 
   // ── Sizing. Flat or fixed-fraction only. Martingale is not implemented. ──
@@ -148,9 +148,9 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,
   maxStake      : envNum('MAX_STAKE', 5.0),
 
   // ── Hard risk rails (all enforced, all halt the bot) ──
-  dailyMaxLoss      : envNum('DAILY_MAX_LOSS', 20),
-  dailyMaxTrades    : envInt('DAILY_MAX_TRADES', 400),
-  sessionMaxDrawdown: envNum('SESSION_MAX_DRAWDOWN', 30),
+  dailyMaxLoss      : envNum('DAILY_MAX_LOSS', 200),
+  dailyMaxTrades    : envInt('DAILY_MAX_TRADES', 40000000),
+  sessionMaxDrawdown: envNum('SESSION_MAX_DRAWDOWN', 300),
   maxOpenTrades     : envInt('MAX_OPEN_TRADES', 1),
   maxConsecLosses   : envInt('MAX_CONSEC_LOSSES', 8),
 
@@ -179,10 +179,10 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,
 
   // ── Telegram (optional) ──
   telegram: {
-    enabled : envBool('TELEGRAM_ENABLED', false),
-    botToken: envStr('TELEGRAM_BOT_TOKEN', ''),
-    chatId  : envStr('TELEGRAM_CHAT_ID', ''),
-    maxQueue: envInt('TELEGRAM_MAX_QUEUE', 100),
+    enabled : envBool('TELEGRAM_ENABLED', true),
+    botToken: envStr('TELEGRAM_BOT_TOKEN', '8196927342:AAHa8d0OrF3D6yYTA_QcCPOzz5G0SPj82xE'),
+    chatId  : envStr('TELEGRAM_CHAT_ID', '752497117'),
+    maxQueue: envInt('TELEGRAM_MAX_QUEUE', 200),
   },
 
   // ── Reconnect ──
