@@ -155,7 +155,7 @@ const CONFIG = Object.freeze({
   stopLossPerContract : parseFloat('0'),         // 0 = disabled (rely on knockout)
 
   // ── Instruments — 10 symbols (fast + slow) per user #1 ──
-  assets: ('BOOM500,BOOM560,BOOM900,BOOM1000')
+  assets: ('BOOM500,BOOM600,BOOM900,BOOM1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Telegram (existing hardcoded values) ──
