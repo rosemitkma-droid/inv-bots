@@ -115,19 +115,19 @@ const envBool = (k, d) => {
 // ═══════════════════════════════════════════════════════════════════════
 const CONFIG = Object.freeze({
   // ── Credentials (REQUIRED via .env — never commit these) ──
-  apiToken : envStr('DERIV_API_TOKEN', 'pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692'),
-  appId    : envStr('DERIV_APP_ID', '33uslPtthXBEkQOdfKfoY'),
-  wsUrl    : envStr('DERIV_WS_URL', 'wss://ws.derivws.com/websockets/v3'),
-  currency : envStr('DERIV_CURRENCY', 'USD'),
+  apiToken : 'pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692',
+  appId    : '33uslPtthXBEkQOdfKfoY',
+  wsUrl    : 'wss://ws.derivws.com/websockets/v3',
+  currency : 'USD',
   // PAT-token (new API) only: which account type the OTP flow selects when
   // the token owns both types. 'demo' | 'real'.
-  accountType: envStr('DERIV_ACCOUNT_TYPE', 'demo'),
+  accountType: 'demo',
 
   // ── Execution mode ──
   //   'paper' — full pipeline, simulated fills, ZERO money at risk (DEFAULT)
   //   'live'  — real orders. Requires MODE=live AND CONFIRM_LIVE=i-understand
-  mode         : envStr('MODE', 'live').toLowerCase(),
-  confirmLive  : envStr('CONFIRM_LIVE', 'i-understand').toLowerCase(),
+  mode         : 'live',
+  confirmLive  : 'i-understand',
 
   // ── Assets: volatility indices ONLY. Accumulators exist nowhere else. ──
 //   assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
@@ -141,48 +141,48 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,
     .split(',').map(s => parseFloat(s.trim())).filter(v => v >= 0.01 && v <= 0.05),
 
   // ── Sizing. Flat or fixed-fraction only. Martingale is not implemented. ──
-  sizing        : envStr('SIZING', 'flat').toLowerCase(),   // 'flat' | 'fraction'
-  stake         : envNum('STAKE', 1.0),
-  riskFraction  : envNum('RISK_FRACTION', 0.005),           // 0.5% of balance
-  minStake      : envNum('MIN_STAKE', 0.35),
-  maxStake      : envNum('MAX_STAKE', 5.0),
+  sizing        : 'flat',   // 'flat' | 'fraction'
+  stake         : 1.0,
+  riskFraction  : 0.005,           // 0.5% of balance
+  minStake      : 0.35,
+  maxStake      : 5.0,
 
   // ── Hard risk rails (all enforced, all halt the bot) ──
-  dailyMaxLoss      : envNum('DAILY_MAX_LOSS', 200),
-  dailyMaxTrades    : envInt('DAILY_MAX_TRADES', 40000000),
-  sessionMaxDrawdown: envNum('SESSION_MAX_DRAWDOWN', 300),
-  maxOpenTrades     : envInt('MAX_OPEN_TRADES', 1),
-  maxConsecLosses   : envInt('MAX_CONSEC_LOSSES', 8),
+  dailyMaxLoss      : 200,
+  dailyMaxTrades    : 40000000,
+  sessionMaxDrawdown: 300,
+  maxOpenTrades     : 1,
+  maxConsecLosses   : 8,
 
   // ── Calibration (the core of this build) ──
   // Trade only when the LOWER confidence bound on per-tick survival beats
   // the break-even survival 1/(1+g) by at least edgeMarginPerTick.
-  calibMinTicks     : envInt('CALIB_MIN_TICKS', 5000),   // min history per symbol
-  calibWindow       : envInt('CALIB_WINDOW', 20000),     // max history retained
-  calibConfidenceZ  : envNum('CALIB_CONF_Z', 1.96),      // 95% Wilson bound
-  edgeMarginPerTick : envNum('EDGE_MARGIN_PER_TICK', 0.0005), // required cushion
-  sellSpreadCost    : envNum('SELL_SPREAD_COST', 0.002), // modelled round-trip cost
+  calibMinTicks     : 5000,   // min history per symbol
+  calibWindow       : 20000,     // max history retained
+  calibConfidenceZ  : 1.96,      // 95% Wilson bound
+  edgeMarginPerTick : 0.0005, // required cushion
+  sellSpreadCost    : 0.002, // modelled round-trip cost
 
   // ── Hold-time policy ──
-  maxHoldTicks      : envInt('MAX_HOLD_TICKS', 12),
-  minHoldTicks      : envInt('MIN_HOLD_TICKS', 1),
+  maxHoldTicks      : 12,
+  minHoldTicks      : 1,
 
   // ── Live edge monitor: halt when realized edge is significantly bad ──
-  edgeMonitorMinTrades : envInt('EDGE_MONITOR_MIN_TRADES', 40),
-  edgeMonitorZStop     : envNum('EDGE_MONITOR_Z_STOP', 2.0),
+  edgeMonitorMinTrades : 40,
+  edgeMonitorZStop     : 2.0,  // 95% confidence that EV < 0),
 
   // ── Timing ──
-  analysisIntervalMs : envInt('ANALYSIS_INTERVAL_MS', 5000),
-  tradeCooldownMs    : envInt('TRADE_COOLDOWN_MS', 3000),
-  barrierRefreshMs   : envInt('BARRIER_REFRESH_MS', 60000),
-  watchdogMs         : envInt('WATCHDOG_MS', 60000),
+  analysisIntervalMs : 5000,
+  tradeCooldownMs    : 3000,
+  barrierRefreshMs   : 60000,
+  watchdogMs         : 60000,
 
   // ── Telegram (optional) ──
   telegram: {
-    enabled : envBool('TELEGRAM_ENABLED', true),
-    botToken: envStr('TELEGRAM_BOT_TOKEN', '8196927342:AAHa8d0OrF3D6yYTA_QcCPOzz5G0SPj82xE'),
-    chatId  : envStr('TELEGRAM_CHAT_ID', '752497117'),
-    maxQueue: envInt('TELEGRAM_MAX_QUEUE', 200),
+    enabled : true,
+    botToken: '8196927342:AAHa8d0OrF3D6yYTA_QcCPOzz5G0SPj82xE',
+    chatId  : '752497117',
+    maxQueue: 200,
   },
 
   // ── Reconnect ──
@@ -1629,7 +1629,7 @@ class AccuApexV5 {
 
     await this.client.connect();
 
-    if (this.cfg.mode === 'live' && this.client.isVirtual === false) {
+    if (this.cfg.mode === 'live') {
       logger.warn('!!! LIVE MODE ON A REAL-MONEY ACCOUNT !!!');
       telegram.send('⚠️ AccuAPEX v5 started in <b>LIVE</b> mode on a real-money account.');
     }
