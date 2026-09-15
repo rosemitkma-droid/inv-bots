@@ -2,13 +2,11 @@
 
 /**
  * ╔══════════════════════════════════════════════════════════════════════════╗
- * ║   DERIV SYNTHETIC INDICES CALLE/PUTE BOT — v4  "TRUE MULTI-ASSET"        ║
- * ║  STRATEGY:                                                               ║
+ * ║   DERIV SYNTHETIC INDICES CALLE/PUTE BOT — v2  "EVERY-CROSS"             ║
+ * ║  STRATEGY (v2 entry — every valid cross trades, NO first-cross filter): ║
  * ║  WPR_PERIOD (default 7, configurable via CONFIG.WPR_PERIOD)              ║
- * ║  BUY:  WPR crosses above -20 (prev <= -20 → cur > -20) — FIRST cross     ║
- * ║        since coming from oversold (-80) → CALLE (Rise)                   ║
- * ║  SELL: WPR crosses below -80 (prev >= -80 → cur < -80) — FIRST cross     ║
- * ║        since coming from overbought (-20) → PUTE (Fall)                  ║
+ * ║  BUY:  WPR crosses above -80 (prev <= -80 → cur > -80) → CALLE (Rise)    ║
+ * ║  SELL: WPR crosses below -20 (prev >= -20 → cur < -20) → PUTE (Fall)     ║
  * ║  MULTI-ASSET: each asset fully independent — own stake, martingale      ║
  * ║  level, x2/x3.. loss counters, investment pool. One asset's win/loss    ║
  * ║  never touches another asset. Concurrent positions allowed (1/asset).   ║
@@ -89,8 +87,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRF_003-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRF_003-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRFv2_03-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2_03-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -172,7 +170,7 @@ const CONFIG = {
     ACTIVE_ASSETS: [
         // 'R_10',
         // 'R_25',
-        'R_50',
+        // 'R_50',
         // 'R_75',
         // 'R_100',
         // '1HZ10V',
@@ -288,7 +286,10 @@ class TechnicalIndicators {
 }
 
 // ============================================================
-// SIGNAL MANAGER — WPR-only signal detection
+// SIGNAL MANAGER v2 — EVERY valid cross trades (no first-cross filter).
+//   BUY  (CALLE): WPR crosses above oversold  (prev <= -80 → cur > -80)
+//   SELL (PUTE):  WPR crosses below overbought (prev >= -20 → cur < -20)
+// No arm/flag requirement: any confirmed-candle cross is a valid entry.
 // ============================================================
 class SignalManager {
     static seedWPRState(symbol) {
@@ -298,48 +299,26 @@ class SignalManager {
         const period = cfg.WPR_PERIOD ?? CONFIG.WPR_PERIOD ?? 14;
         const series = TechnicalIndicators.calculateWPRSeries(a.closedCandles, period);
         if (!series.length) return false;
-        let buyArmed = false;
-        let sellArmed = false;
-        let previous = null;
-        for (const point of series) {
-            const cur = point.value;
-            if (cur <= CONFIG.WPR_OVERSOLD) buyArmed = true;
-            if (cur >= CONFIG.WPR_OVERBOUGHT) sellArmed = true;
-            if (Number.isFinite(previous)) {
-                if (previous <= CONFIG.WPR_OVERBOUGHT && cur > CONFIG.WPR_OVERBOUGHT && buyArmed) {
-                    buyArmed = false;
-                }
-                if (previous >= CONFIG.WPR_OVERSOLD && cur < CONFIG.WPR_OVERSOLD && sellArmed) {
-                    sellArmed = false;
-                }
-            }
-            previous = cur;
-        }
         a.prevWpr = series.length > 1 ? series[series.length - 2].value : null;
         a.wpr = series[series.length - 1].value;
-        a.buyFlagActive = buyArmed;
-        a.sellFlagActive = sellArmed;
+        // Legacy flags kept for state compat — always false in v2 (unused).
+        a.buyFlagActive = false;
+        a.sellFlagActive = false;
         a.indicatorsReady = Number.isFinite(a.prevWpr) && Number.isFinite(a.wpr);
         return true;
     }
 
     static updateWPRState(symbol) {
+        // v2: no arming — every cross trades. Keep flags cleared.
         const a = state.assets[symbol];
-        if (!a || !Number.isFinite(a.wpr)) return false;
-        // Arm flags when entering extremes
-        if (a.wpr <= CONFIG.WPR_OVERSOLD && !a.buyFlagActive) {
-            a.buyFlagActive = true;
-            LOGGER.wpr(`${symbol}: BUY FLAG ARMED — WPR entered oversold (${a.wpr.toFixed(2)})`);
-        }
-        if (a.wpr >= CONFIG.WPR_OVERBOUGHT && !a.sellFlagActive) {
-            a.sellFlagActive = true;
-            LOGGER.wpr(`${symbol}: SELL FLAG ARMED — WPR entered overbought (${a.wpr.toFixed(2)})`);
-        }
+        if (!a) return false;
+        a.buyFlagActive = false;
+        a.sellFlagActive = false;
         return false;
     }
 
     /**
-     * Check BUY signal: WPR crosses above -20, must be FIRST since oversold.
+     * Check BUY signal v2: WPR crosses above oversold (-80). Every valid cross trades.
      * Returns {shouldTrade, direction, reason, details}
      */
     static checkBuySignal(symbol) {
@@ -349,19 +328,16 @@ class SignalManager {
         if (!Number.isFinite(wpr) || !Number.isFinite(prevWpr)) {
             return { shouldTrade: false, reason: `WPR not ready (${String(prevWpr)}→${String(wpr)})`, details: { wpr, prevWpr } };
         }
-        const isCrossingAbove = prevWpr <= CONFIG.WPR_OVERBOUGHT && wpr > CONFIG.WPR_OVERBOUGHT;
+        const isCrossingAbove = prevWpr <= CONFIG.WPR_OVERSOLD && wpr > CONFIG.WPR_OVERSOLD;
         if (!isCrossingAbove) {
-            return { shouldTrade: false, reason: `No BUY cross: ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} (need ≤${CONFIG.WPR_OVERBOUGHT}→>${CONFIG.WPR_OVERBOUGHT})`, details: { wpr, prevWpr } };
-        }
-        if (!a.buyFlagActive) {
-            return { shouldTrade: false, reason: `BUY cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} but BUY flag not armed (never visited ${CONFIG.WPR_OVERSOLD} since last BUY)`, details: { wpr, prevWpr } };
+            return { shouldTrade: false, reason: `No BUY cross: ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} (need ≤${CONFIG.WPR_OVERSOLD}→>${CONFIG.WPR_OVERSOLD})`, details: { wpr, prevWpr } };
         }
         return {
             shouldTrade: true,
             direction: 'CALLE',
             confidence: 1,
-            reason: `WPR BUY cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} above ${CONFIG.WPR_OVERBOUGHT} (first since oversold)`,
-            details: { wpr, prevWpr, buyFlagActive: a.buyFlagActive, sellFlagActive: a.sellFlagActive }
+            reason: `WPR v2 BUY cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} above oversold ${CONFIG.WPR_OVERSOLD}`,
+            details: { wpr, prevWpr }
         };
     }
 
@@ -372,19 +348,16 @@ class SignalManager {
         if (!Number.isFinite(wpr) || !Number.isFinite(prevWpr)) {
             return { shouldTrade: false, reason: `WPR not ready (${String(prevWpr)}→${String(wpr)})`, details: { wpr, prevWpr } };
         }
-        const isCrossingBelow = prevWpr >= CONFIG.WPR_OVERSOLD && wpr < CONFIG.WPR_OVERSOLD;
+        const isCrossingBelow = prevWpr >= CONFIG.WPR_OVERBOUGHT && wpr < CONFIG.WPR_OVERBOUGHT;
         if (!isCrossingBelow) {
-            return { shouldTrade: false, reason: `No SELL cross: ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} (need ≥${CONFIG.WPR_OVERSOLD}→<${CONFIG.WPR_OVERSOLD})`, details: { wpr, prevWpr } };
-        }
-        if (!a.sellFlagActive) {
-            return { shouldTrade: false, reason: `SELL cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} but SELL flag not armed (never visited ${CONFIG.WPR_OVERBOUGHT} since last SELL)`, details: { wpr, prevWpr } };
+            return { shouldTrade: false, reason: `No SELL cross: ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} (need ≥${CONFIG.WPR_OVERBOUGHT}→<${CONFIG.WPR_OVERBOUGHT})`, details: { wpr, prevWpr } };
         }
         return {
             shouldTrade: true,
             direction: 'PUTE',
             confidence: 1,
-            reason: `WPR SELL cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} below ${CONFIG.WPR_OVERSOLD} (first since overbought)`,
-            details: { wpr, prevWpr, buyFlagActive: a.buyFlagActive, sellFlagActive: a.sellFlagActive }
+            reason: `WPR v2 SELL cross ${prevWpr.toFixed(2)}→${wpr.toFixed(2)} below overbought ${CONFIG.WPR_OVERBOUGHT}`,
+            details: { wpr, prevWpr }
         };
     }
 
@@ -399,8 +372,8 @@ class SignalManager {
             shouldTrade: false,
             direction: null,
             confidence: 0,
-            reason: buySig.reason || sellSig.reason || `No WPR signal wpr=${a?.wpr?.toFixed(2) ?? 'n/a'} prev=${a?.prevWpr?.toFixed(2) ?? 'n/a'}`,
-            details: { wpr: a?.wpr, prevWpr: a?.prevWpr, buyFlag: a?.buyFlagActive, sellFlag: a?.sellFlagActive }
+            reason: buySig.reason || sellSig.reason || `No WPR v2 signal wpr=${a?.wpr?.toFixed(2) ?? 'n/a'} prev=${a?.prevWpr?.toFixed(2) ?? 'n/a'}`,
+            details: { wpr: a?.wpr, prevWpr: a?.prevWpr }
         };
     }
 }
@@ -579,7 +552,7 @@ class BacktestEngine {
         let martingaleLevel = 0;
         let lastTradeDirection = null;
         let consecutiveLosses = 0;
-        let buyFlagActive = false, sellFlagActive = false;
+        // v2: no arm flags — every valid cross trades.
         let netPL = 0, totalStake = 0;
         const trades = [];
         const streakCounts = {}; let curStreak = 0, maxStreak = 0;
@@ -596,18 +569,13 @@ class BacktestEngine {
             if (Number.isFinite(assetPT) && netPL >= assetPT) { assetStopped = true; continue; }
             if (Number.isFinite(assetSL) && netPL <= assetSL) { assetStopped = true; continue; }
 
-            // ── WPR computation on closed array ──
+            // ── WPR computation on closed array (v2: no flag arming) ──
             const wpr = TechnicalIndicators.calculateWPR(closed, period);
             const prevWpr = closed.length >= 2 ? TechnicalIndicators.calculateWPR(closed.slice(0, -1), period) : null;
-            // Arm flags when entering extremes (mirror live SignalManager.updateWPRState)
-            if (Number.isFinite(wpr)) {
-                if (wpr <= CONFIG.WPR_OVERSOLD && !buyFlagActive) buyFlagActive = true;
-                if (wpr >= CONFIG.WPR_OVERBOUGHT && !sellFlagActive) sellFlagActive = true;
-            }
-            // v4: EVERY trade (fresh or recovery) needs a fresh WPR cross.
+            // v2: EVERY valid confirmed-candle cross trades (no first-cross filter).
             if (!Number.isFinite(wpr) || !Number.isFinite(prevWpr)) continue;
-            const buyCross = prevWpr <= CONFIG.WPR_OVERBOUGHT && wpr > CONFIG.WPR_OVERBOUGHT && buyFlagActive;
-            const sellCross = prevWpr >= CONFIG.WPR_OVERSOLD && wpr < CONFIG.WPR_OVERSOLD && sellFlagActive;
+            const buyCross = prevWpr <= CONFIG.WPR_OVERSOLD && wpr > CONFIG.WPR_OVERSOLD;
+            const sellCross = prevWpr >= CONFIG.WPR_OVERBOUGHT && wpr < CONFIG.WPR_OVERBOUGHT;
             let direction = null;
             if (buyCross) direction = 'CALLE';
             else if (sellCross) direction = 'PUTE';
@@ -625,9 +593,7 @@ class BacktestEngine {
             const pnl = won ? Number((stake * payoutRatio).toFixed(2)) : -stake;
             netPL = Number((netPL + pnl).toFixed(2));
             trades.push({ idx: i, open_time: c.open_time, close_time: candles[i + 1].open_time, direction, stake, won, pnl, level: martingaleLevel, isRecovery: isRecoveryTrade });
-            // Consume flag on executed signal (first-cross logic) — always, incl. recovery
-            if (direction === 'CALLE') buyFlagActive = false;
-            else sellFlagActive = false;
+            // v2: no flag consumption — every valid cross trades.
             // v4 state update mirrors SessionManager.recordTradeResult
             if (won) {
                 lastTradeDirection = direction;
@@ -672,7 +638,7 @@ class BacktestEngine {
         const streakStr = filtered.map(k=> `${k}:${r.streakCounts[k]}`).join(' ') || 'none';
         const xn = r.maxConsecutiveLosses ? `x2..x${r.maxConsecutiveLosses}` : 'x2..xn';
         return [
-            `🧪 BACKTEST v4 signal-wait — ${r.symbol} (WPR=${r.wprPeriod ?? r.WPR_PERIOD ?? CONFIG.WPR_PERIOD} ${CONFIG.WPR_OVERSOLD}/${CONFIG.WPR_OVERBOUGHT}, ${r.granularity}s, payout ${(r.payoutRatio*100).toFixed(0)}%, stake $${getAssetConfig(r.symbol).INITIAL_STAKE}×${getAssetConfig(r.symbol).MARTINGALE_MULTIPLIER}, pool $${getAssetConfig(r.symbol).INVESTMENT_AMOUNT})`,
+            `🧪 BACKTEST v2 every-cross — ${r.symbol} (WPR=${r.wprPeriod ?? r.WPR_PERIOD ?? CONFIG.WPR_PERIOD} cross >${CONFIG.WPR_OVERSOLD}→CALLE / cross <${CONFIG.WPR_OVERBOUGHT}→PUTE, ${r.granularity}s, payout ${(r.payoutRatio*100).toFixed(0)}%, stake $${getAssetConfig(r.symbol).INITIAL_STAKE}×${getAssetConfig(r.symbol).MARTINGALE_MULTIPLIER}, pool $${getAssetConfig(r.symbol).INVESTMENT_AMOUNT})`,
             `Period: ${r.periodFrom} → ${r.periodTo} (${r.candles} candles)`,
             `Trades: ${r.trades} (${r.wins}W / ${r.losses}L)  WinRate ${r.winRate}% / Loss ${r.lossRate}% (need ≥ ${r.breakevenWinRate}% BE)`,
             `Profit Ratio: ${r.profitRatio}%  Expectancy/trade: ${r.expectancyPerTrade>=0?'+':''}${r.expectancyPerTrade}  Net P/L: $${r.netPL.toFixed(2)} (staked $${r.totalStake.toFixed(2)}, avg $${r.avgStake.toFixed(2)})`,
@@ -1041,13 +1007,13 @@ class TelegramService {
             const wprStr = Number.isFinite(wpr) && Number.isFinite(prevWpr) ? `${prevWpr.toFixed(1)}→${wpr.toFixed(1)}` : 'N/A';
             if (details.isRecovery) {
                 analysisDetails = `
-        🔄 <b>BizWillRF SIGNAL-WAIT RECOVERY L${a?.martingaleLevel ?? 0}</b> (new WPR signal direction, stake multiplier only)
+        🔄 <b>BizWillRFv2 SIGNAL-WAIT RECOVERY L${a?.martingaleLevel ?? 0}</b> (new WPR signal direction, stake multiplier only)
         🧠 <b>WPR(${CONFIG.WPR_PERIOD}) Signal:</b>
         📊 WPR: ${wprStr} (OB ${CONFIG.WPR_OVERBOUGHT} / OS ${CONFIG.WPR_OVERSOLD})
         📊 Signal: ${analysis?.direction || direction} (${analysis?.reason || ''})`;
             } else if (analysis) {
                 analysisDetails = `
-        🧠 <b>BizWillRF WPR(${CONFIG.WPR_PERIOD}) Signal:</b>
+        🧠 <b>BizWillRFv2 WPR(${CONFIG.WPR_PERIOD}) Signal:</b>
         📊 WPR: ${wprStr} (OB ${CONFIG.WPR_OVERBOUGHT} / OS ${CONFIG.WPR_OVERSOLD})
         📊 Signal: ${analysis?.direction || 'N/A'} (${analysis?.reason || ''})`;
             }
@@ -1079,7 +1045,7 @@ class TelegramService {
         const recoveryStatus = (a?.martingaleLevel || 0) > 0 ? `🔄 RECOVERY L${a.martingaleLevel}` : '🎯 NORMAL';
 
         const msg = `
-        ${emoji} <b>${type} BizWillRF TRADE ALERT - ${recoveryStatus}</b>
+        ${emoji} <b>${type} BizWillRFv2 TRADE ALERT - ${recoveryStatus}</b>
 
         📊 Asset: ${symbol} (pool $${(a?.investmentRemaining ?? 0).toFixed(2)})
         📈 Direction: ${direction === 'CALLE' ? 'RISE 📈' : 'FALL 📉'} (signal direction)
@@ -1108,7 +1074,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `⏰ <b>BizWillRF HOURLY SUMMARY (multi-asset independent)</b>`,
+            `⏰ <b>BizWillRFv2 HOURLY SUMMARY (multi-asset independent)</b>`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '\u{1f7e2}' : '\u{1f534}'} $${h.pnl.toFixed(2)}`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
             `Loss Stats: x2:${today.x2Losses || 0} x3:${today.x3Losses || 0} x4:${today.x4Losses || 0} x5:${today.x5Losses || 0} x6:${today.x6Losses || 0} x7:${today.x7Losses || 0} x8:${today.x8Losses || 0} x9:${today.x9Losses || 0}`,
@@ -1136,7 +1102,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `\u{1f4ca} <b>BizWillRF SESSION SUMMARY (independent)</b>`,
+            `\u{1f4ca} <b>BizWillRFv2 SESSION SUMMARY (independent)</b>`,
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
             `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
@@ -1158,14 +1124,14 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `\u{1f916} <b>BizWillRF STARTED — TRUE MULTI-ASSET</b>`,
-            `Strategy: Williams %R(${CONFIG.WPR_PERIOD}) cross ${CONFIG.WPR_OVERBOUGHT}/${CONFIG.WPR_OVERSOLD} → CALLE/PUTE (signal always required)`,
+            `🤖 <b>BizWillRFv2 STARTED — EVERY-CROSS MULTI-ASSET</b>`,
+            `Strategy v2: Williams %R(${CONFIG.WPR_PERIOD}) cross ABOVE ${CONFIG.WPR_OVERSOLD} → CALLE | cross BELOW ${CONFIG.WPR_OVERBOUGHT} → PUTE (every valid cross trades)`,
             `Recovery: SIGNAL-WAIT — after loss wait for NEW signal, trade its direction with x-multiplier until win → reset to default`,
             `Independence: own stake/martingale/x2-x9/pool per asset, concurrent (1 open/asset, ${CONFIG.MAX_TOTAL_POSITIONS} total)`,
             `Pools sum: $${state.capital.toFixed(2)}`,
             TradingSessionManager.getStatusString(),
             ``,
-            `\u{1f4ca} Overall: ${overall.tradesCount} trades | P/L: $${(overall.netPL || 0).toFixed(2)}`,
+            `📊 Overall: ${overall.tradesCount} trades | P/L: $${(overall.netPL || 0).toFixed(2)}`,
             `<b>Active Assets:</b>${pairInfo}`,
         ].join('\n'));
     }
@@ -1230,13 +1196,13 @@ class SessionManager {
         if (Number.isFinite(pt) && a.netPL >= pt) {
             a.stopped = true; a.stoppedReason = 'PROFIT_TARGET';
             LOGGER.trade(`[${symbol}] Per-asset profit target $${a.netPL.toFixed(2)} — asset stopped, others continue`);
-            TelegramService.sendMessage(`🏁 <b>[${symbol}] BizWillRF PROFIT TARGET</b>\nP/L: $${a.netPL.toFixed(2)}\nPool: $${a.investmentRemaining.toFixed(2)} — others continue`);
+            TelegramService.sendMessage(`🏁 <b>[${symbol}] BizWillRFv2 PROFIT TARGET</b>\nP/L: $${a.netPL.toFixed(2)}\nPool: $${a.investmentRemaining.toFixed(2)} — others continue`);
             return true;
         }
         if (Number.isFinite(sl) && a.netPL <= sl) {
             a.stopped = true; a.stoppedReason = 'STOP_LOSS';
             LOGGER.error(`[${symbol}] Per-asset stop-loss $${a.netPL.toFixed(2)} — asset stopped, others continue`);
-            TelegramService.sendMessage(`🛑 <b>[${symbol}] BizWillRF STOP-LOSS</b>\nP/L: $${a.netPL.toFixed(2)}\nPool: $${a.investmentRemaining.toFixed(2)} — others continue`);
+            TelegramService.sendMessage(`🛑 <b>[${symbol}] BizWillRFv2 STOP-LOSS</b>\nP/L: $${a.netPL.toFixed(2)}\nPool: $${a.investmentRemaining.toFixed(2)} — others continue`);
             return true;
         }
         return false;
@@ -1271,7 +1237,7 @@ class SessionManager {
             LOGGER.info(`Day changed: ${state.currentTradeDay} -> ${today}`);
             const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
             TelegramService.sendMessage(
-                `\u{1f319} <b>BizWillRF BOT END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
+                `\u{1f319} <b>BizWillRFv2 END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
             );
             this._resetDailyStats();
             if (!state.session.isActive) {
@@ -1767,7 +1733,7 @@ class ConnectionManager {
             const wasRefunded = bot && bot._refundedReqIds && bot._refundedReqIds.has(String(reqId));
             LOGGER.error(`Buy success for unknown req ${reqId} → contract ${contract.contract_id} has NO tracked position${wasRefunded ? ' (req was ack-timed-out and refunded)' : ''} — NOT tracking. VERIFY/MANAGE ON DERIV MANUALLY.`);
             TelegramService.sendMessage(
-                `🚨 <b>BizWillRF UNTRACKED CONTRACT ${contract.contract_id}</b>\n` +
+                `🚨 <b>BizWillRFv2 UNTRACKED CONTRACT ${contract.contract_id}</b>\n` +
                 `Buy success for unknown req ${reqId} (price $${contract.buy_price})\n` +
                 `Bot is NOT tracking it — manage/close it ON DERIV MANUALLY`
             );
@@ -1804,7 +1770,7 @@ class ConnectionManager {
                     ? `Manually ADD the $${Number(contract.profit).toFixed(2)} payout to ${entry.symbol}'s pool (or reset that asset) to reconcile.`
                     : `Matches the assumed loss — no action needed.`));
             TelegramService.sendMessage(
-                `🚨 <b>BizWillRF LATE SETTLEMENT ${contractIdStr} (${entry.symbol})</b>\n` +
+                `🚨 <b>BizWillRFv2 LATE SETTLEMENT ${contractIdStr} (${entry.symbol})</b>\n` +
                 `Actual: ${actualWon ? `WIN +$${Number(contract.profit).toFixed(2)}` : `LOSS`} | Accounted: assumed LOSS $${entry.stake.toFixed(2)}\n` +
                 (actualWon
                     ? `ACTION: manually add $${Number(contract.profit).toFixed(2)} payout to ${entry.symbol}'s pool.\n`
@@ -2120,7 +2086,7 @@ class ConnectionManager {
             this.reconnectAttempts++;
             const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
             LOGGER.info(`Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts})`);
-            TelegramService.sendMessage(`⚠️ <b>BizWillRF BOT CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
+            TelegramService.sendMessage(`⚠️ <b>BizWillRFv2 BOT CONNECTION LOST</b> — Reconnecting (attempt ${this.reconnectAttempts})`);
 
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null;
@@ -2130,7 +2096,7 @@ class ConnectionManager {
             }, delay);
         } else {
             LOGGER.error('Max reconnection attempts reached — giving up');
-            TelegramService.sendMessage(`\u{1f6d1} <b>BizWillRF BOT STOPPED</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
+            TelegramService.sendMessage(`\u{1f6d1} <b>BizWillRFv2 BOT STOPPED</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -2200,10 +2166,10 @@ class IndexBot {
 
     async start() {
         console.log('\n' + '═'.repeat(74));
-        console.log(' DERIV CALLE/PUTE BOT v4 — TRUE MULTI-ASSET + SIGNAL-WAIT RECOVERY');
+        console.log(' DERIV CALLE/PUTE BOT v2 — EVERY-CROSS + SIGNAL-WAIT RECOVERY');
         console.log('═'.repeat(74));
         console.log(`Assets    : ${CONFIG.ACTIVE_ASSETS.join(', ')} (independent pools/stakes)`);
-        console.log(`WPR       : Period=${CONFIG.WPR_PERIOD} OB=${CONFIG.WPR_OVERBOUGHT} OS=${CONFIG.WPR_OVERSOLD} | BUY: cross >-20 (first since -80) → CALLE | SELL: cross <-80 (first since -20) → PUTE`);
+        console.log(`WPR v2    : Period=${CONFIG.WPR_PERIOD} OB=${CONFIG.WPR_OVERBOUGHT} OS=${CONFIG.WPR_OVERSOLD} | BUY: cross ABOVE -80 → CALLE | SELL: cross BELOW -20 → PUTE (every valid cross)`);
         console.log(`Timeframe : ${CONFIG.TIMEFRAME_LABEL} candles | Duration: ${CONFIG.DURATION}${CONFIG.DURATION_UNIT} | Recovery: wait for NEW signal, stake x-multiplier, reset on win`);
         console.log(`Risk      : Per-asset martingale pools: ${CONFIG.ACTIVE_ASSETS.map(s => `${s}=$${getAssetConfig(s).INVESTMENT_AMOUNT}`).join(', ')}`);
         console.log(`Capital   : $${state.capital.toFixed(2)}`);
@@ -2221,7 +2187,7 @@ class IndexBot {
         TelegramService.startDailyTimer();
         this.startSessionTimeChecker();
 
-        LOGGER.info('WILLRF BOT v1.0 fully started!');
+        LOGGER.info('WILLRFv2 BOT fully started!');
     }
 
     subscribeToCandles(symbol) {
@@ -2354,7 +2320,7 @@ class IndexBot {
             }
             LOGGER.error(`[${symbol}] Buy ACK timeout (req ${reqId}, ${this.buyAckMs / 1000}s, no contractId) — orphan removed, pool refunded $${(pos?.stake || 0).toFixed(2)}. VERIFY on Deriv that no contract was created.`);
             TelegramService.sendMessage(
-                `⚠️ <b>[${symbol}] BizWillRF BUY ACK TIMEOUT</b>\n` +
+                `⚠️ <b>[${symbol}] BizWillRFv2 BUY ACK TIMEOUT</b>\n` +
                 `No buy response in ${this.buyAckMs / 1000}s (req ${reqId})\n` +
                 `Orphan removed, pool refunded $${(pos?.stake || 0).toFixed(2)}\n` +
                 `⚠️ VERIFY ON DERIV that no contract was created for this request`
@@ -2437,11 +2403,9 @@ class IndexBot {
         if (isRecovery) {
             LOGGER.trade(`🔄 [${symbol}] RECOVERY SIGNAL L${assetState.martingaleLevel} WPR(${wprPeriod}) ${analysis.details.prevWpr?.toFixed(2) ?? ''}→${analysis.details.wpr?.toFixed(2) ?? ''} → ${direction} (signal direction, NOT same-direction) | ${analysis.reason}`);
         } else {
-            LOGGER.trade(`🎯 [${symbol}] WPR SIGNAL WPR(${wprPeriod}) ${analysis.details.prevWpr?.toFixed(2) ?? ''}→${analysis.details.wpr?.toFixed(2) ?? ''} → ${direction} | ${analysis.reason}`);
+            LOGGER.trade(`🎯 [${symbol}] WPR v2 SIGNAL WPR(${wprPeriod}) ${analysis.details.prevWpr?.toFixed(2) ?? ''}→${analysis.details.wpr?.toFixed(2) ?? ''} → ${direction} | ${analysis.reason}`);
         }
-        // Consume flag — first-cross logic (only first cross since extreme fires)
-        if (direction === 'CALLE') assetState.buyFlagActive = false;
-        else assetState.sellFlagActive = false;
+        // v2: no flag consumption — every valid cross trades.
 
         this._executeBuy(symbol, direction, isRecovery, analysis);
     }
@@ -2608,7 +2572,7 @@ class IndexBot {
         SessionManager.recalcGlobalCapital();
         const last = contractId != null ? state.stuckTrades[state.stuckTrades.length - 1] : null;
         TelegramService.sendMessage(
-            `⚠️ <b>BizWillRF BOT STUCK TRADE [${reason}]</b>\n` +
+            `⚠️ <b>BizWillRFv2 BOT STUCK TRADE [${reason}]</b>\n` +
             (last
                 ? `Contract: ${last.contractId} (${last.symbol} ${last.direction} $${last.stake.toFixed(2)})\n` +
                   `Accounted as assumed LOSS → ${last.symbol} now L${state.assets[last.symbol]?.martingaleLevel ?? '?'} (next $${(state.assets[last.symbol]?.currentStake || 0).toFixed(2)})\n`
@@ -2716,7 +2680,7 @@ async function runBacktestCLI(opts) {
         const report = await engine.run(sym, candles, {payoutRatio});
         reports.push(report);
         console.log('\n' + engine.formatReport(report) + '\n');
-        const fname = `bizArbitrage2-backtest-${sym}-${new Date().toISOString().slice(0,10).replace(/-/g,'')}.json`;
+        const fname = `bizWillRFv2-backtest-${sym}-${new Date().toISOString().slice(0,10).replace(/-/g,'')}.json`;
         try { fs.writeFileSync(path.join(__dirname, fname), JSON.stringify(report,null,2)); LOGGER.info(`Report saved: ${fname}`);} catch(e){ LOGGER.error(`Save report failed: ${e.message}`);}
         // also per-candle CSV-like detail if needed
     }
@@ -2837,7 +2801,7 @@ if (cliArgs.backtest) {
         process.exit(1);
     }
 
-    console.log('\n\u{1f680} Starting WPR BOT v4.0 TRUE MULTI-ASSET (Williams %R)...\n');
+    console.log('\n\u{1f680} Starting WPR BOT v2 EVERY-CROSS (Williams %R)...\n');
     bot.connection.connect();
     // start Telegram backtest listener in live mode (optional)
     startTelegramBacktestPolling();
