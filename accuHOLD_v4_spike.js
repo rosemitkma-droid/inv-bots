@@ -155,7 +155,7 @@ const CONFIG = Object.freeze({
   stopLossPerContract : parseFloat('0'),         // 0 = disabled (rely on knockout)
 
   // ── Instruments — 10 symbols (fast + slow) per user #1 ──
-  assets: ('BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+  assets: ('BOOM900,BOOM1000,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Telegram (existing hardcoded values) ──
@@ -216,9 +216,9 @@ const CONFIG = Object.freeze({
   }),
 
   // ── Logging / state — FRESH v4 spike ──
-  logFile           : 'accuHOLD4_spike_07.log',
+  logFile           : 'accuHOLD4_spike_08.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD4_spike_state_07.json',
+  stateFile         : 'accuHOLD4_spike_state_08.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
