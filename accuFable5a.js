@@ -135,7 +135,7 @@ const CONFIG = Object.freeze({
 //   assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM900,BOOM1000,CRASH900,CRASH1000')
 //     .split(',').map(s => s.trim()).filter(Boolean),
 
-assets: envStr('ASSETS', 'BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+assets: envStr('ASSETS', 'BOOM600,BOOM900,BOOM1000,CRASH900,CRASH1000')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Growth-rate grid. 0.01 measured cheapest; 0.05 measured dearest. ──
@@ -150,7 +150,7 @@ assets: envStr('ASSETS', 'BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRA
   maxStake      : 15.0,
 
   // Martingale (accuHOLD_v2 semantics) ──
-  martingaleMultiplier : 4.0, // stake × multiplier each loss step
+  martingaleMultiplier : 3.0, // stake × multiplier each loss step
   martingaleSteps      : 4,        // 0 = disabled
   martingaleBaseStake  : 0,   // 0 → use CONFIG.stake
 
@@ -171,7 +171,7 @@ assets: envStr('ASSETS', 'BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRA
   dailyMaxTrades    : 40000000,
   sessionMaxDrawdown: 300,
   maxOpenTrades     : 1,
-  maxConsecLosses   : 8,
+  maxConsecLosses   : 5,
 
   // ── Calibration (the core of this build) ──
   // Trade only when the LOWER confidence bound on per-tick survival beats
@@ -188,7 +188,7 @@ assets: envStr('ASSETS', 'BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRA
   //   • its N most-current values are each < stayMaxValue, AND
   //   • its single most-current value is < stayCurrentMax, AND
   //   • its calibrated evLowerPerTick is <= evLowerGateMax (e.g. -1.4547%).
-  stayWindowN    : 3,     //6 N most-current values to check
+  stayWindowN    : 4,     //6 N most-current values to check
   stayMaxValue   : 10,    //20 every one of those N must be < this
   stayCurrentMax : 1,   //2 the most-current value must be < this
   stayStaleMs    : 240000, // stays older than this are ignored
@@ -225,10 +225,10 @@ assets: envStr('ASSETS', 'BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRA
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Logging / state ──
-  logFile   : envStr('LOG_FILE', 'accuFable5_01.log'),
+  logFile   : envStr('LOG_FILE', 'accuFable5_02.log'),
   logLevel  : envStr('LOG_LEVEL', 'INFO'),
-  stateFile : envStr('STATE_FILE', 'accuFable5-state_01.json'),
-  edgeFile  : envStr('EDGE_FILE', 'accuFable5-edge_01.json'),
+  stateFile : envStr('STATE_FILE', 'accuFable5-state_02.json'),
+  edgeFile  : envStr('EDGE_FILE', 'accuFable5-edge_02.json'),
 });
 
 // ═══════════════════════════════════════════════════════════════════════
