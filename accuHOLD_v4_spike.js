@@ -132,7 +132,7 @@ const CONFIG = Object.freeze({
   }),
   symbolTiers: Object.freeze({
     fast: ['BOOM50','CRASH50'],
-    slow: ['BOOM500','BOOM600','BOOM900','BOOM1000''],
+    slow: ['BOOM500','BOOM600','BOOM900','BOOM1000'],
   }),
 
   // ── Martingale (kept per user #2) ───────────────────────────────
