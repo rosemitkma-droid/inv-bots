@@ -132,7 +132,7 @@ const CONFIG = Object.freeze({
   }),
   symbolTiers: Object.freeze({
     fast: ['BOOM50','CRASH50'],
-    slow: ['BOOM500','BOOM600','BOOM900','BOOM1000','CRASH500','CRASH600','CRASH900','CRASH1000'],
+    slow: ['BOOM900','BOOM1000','CRASH900','CRASH1000'],
   }),
 
   // ── Martingale (kept per user #2) ───────────────────────────────
@@ -216,9 +216,9 @@ const CONFIG = Object.freeze({
   }),
 
   // ── Logging / state — FRESH v4 spike ──
-  logFile           : 'accuHOLD4_spike_06.log',
+  logFile           : 'accuHOLD4_spike_07.log',
   logLevel          : 'INFO',
-  stateFile         : 'accuHOLD4_spike_state_06.json',
+  stateFile         : 'accuHOLD4_spike_state_07.json',
   stateSaveOnTrade  : true,
   stateSaveOnShutdown: true,
 });
