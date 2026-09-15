@@ -159,7 +159,7 @@ assets: envStr('ASSETS', '1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
   // growth rate) on the very next tick, skipping the stay/ev gates. It keeps
   // re-trading that same asset after each loss until a win, then returns to
   // the normal gate-based selection.
-  chaseOnLoss         : envBool('CHASE_ON_LOSS', false),
+  chaseOnLoss         : false,
 
   // ── EOD / hourly summaries (GMT) ──
   eodTimeGmt         : '00:00',
@@ -208,7 +208,7 @@ assets: envStr('ASSETS', '1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
   edgeMonitorZStop     : 2.0,  // 95% confidence that EV < 0),
 
   // ── Timing ──
-  analysisIntervalMs : 5000,
+  analysisIntervalMs : 2000,
   tradeCooldownMs    : 3000,
   barrierRefreshMs   : 60000,
   watchdogMs         : 60000,
@@ -225,10 +225,10 @@ assets: envStr('ASSETS', '1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Logging / state ──
-  logFile   : envStr('LOG_FILE', 'accuapex-v5_01.log'),
+  logFile   : envStr('LOG_FILE', 'accuapex-v5_02.log'),
   logLevel  : envStr('LOG_LEVEL', 'INFO'),
-  stateFile : envStr('STATE_FILE', 'accuapex-v5-state_01.json'),
-  edgeFile  : envStr('EDGE_FILE', 'accuapex-v5-edge_01.json'),
+  stateFile : envStr('STATE_FILE', 'accuapex-v5-state_02.json'),
+  edgeFile  : envStr('EDGE_FILE', 'accuapex-v5-edge_02.json'),
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1433,9 +1433,16 @@ class TradeExecutor extends EventEmitter {
     this.settled = new Set();   // contractIds already accounted for (idempotency)
     this.paper = cfg.mode !== 'live';
     this._paperSeq = 1;
+    this._opening = 0;          // in-flight opens (reserved before any await)
   }
 
   get openCount() { return this.open.size; }
+
+  /** True when a new contract may be opened (respects maxOpenTrades). */
+  canOpenNow() {
+    const max = Number(this.cfg.maxOpenTrades) || 1;
+    return this._opening + this.open.size < max;
+  }
 
   /**
    * Open a position. In paper mode the contract is tracked against the real
@@ -1443,55 +1450,68 @@ class TradeExecutor extends EventEmitter {
    * money.
    */
   async openTrade({ symbol, growthRate, stake, targetTicks, calibration }) {
-    const barrier = this.md.getBarrier(symbol, growthRate)
-      ?? await this.md.refreshBarrier(symbol, growthRate, stake);
-    if (!barrier) throw new Error(`no live barrier for ${symbol}@${growthRate}`);
+    // Reserve the open slot synchronously, BEFORE any await, so two nearly
+    // simultaneous ticks can never both pass maxOpenTrades (openTrade does
+    // proposal + buy round-trips in live mode; without this reservation the
+    // second tick sees openCount=0 and opens a second position on another
+    // asset while the first is still mid-flight).
+    if (!this.canOpenNow()) {
+      throw new Error(`max open trades (${this.cfg.maxOpenTrades}) already reached — skipping`);
+    }
+    this._opening++;
+    try {
+      const barrier = this.md.getBarrier(symbol, growthRate)
+        ?? await this.md.refreshBarrier(symbol, growthRate, stake);
+      if (!barrier) throw new Error(`no live barrier for ${symbol}@${growthRate}`);
 
-    // Take-profit that corresponds to the target hold: stake*((1+g)^K - 1),
-    // capped by the contract's maximum payout.
-    let tp = stake * (Math.pow(1 + growthRate, targetTicks) - 1);
-    if (barrier.maxPayout) tp = Math.min(tp, barrier.maxPayout - stake);
-    tp = Math.max(0.01, +tp.toFixed(2));
+      // Take-profit that corresponds to the target hold: stake*((1+g)^K - 1),
+      // capped by the contract's maximum payout.
+      let tp = stake * (Math.pow(1 + growthRate, targetTicks) - 1);
+      if (barrier.maxPayout) tp = Math.min(tp, barrier.maxPayout - stake);
+      tp = Math.max(0.01, +tp.toFixed(2));
 
-    if (this.paper) return this._openPaper({ symbol, growthRate, stake, targetTicks, barrier, calibration, tp });
+      if (this.paper) return this._openPaper({ symbol, growthRate, stake, targetTicks, barrier, calibration, tp });
 
-    // ── LIVE ──
-    const proposal = await this.client._send({
-      proposal: 1,
-      amount: stake,
-      basis: 'stake',
-      contract_type: 'ACCU',
-      currency: this.cfg.currency,
-      [this.client.symbolKey]: symbol,
-      growth_rate: growthRate,
-      limit_order: { take_profit: tp },
-    }, 20000);
+      // ── LIVE ──
+      const proposal = await this.client._send({
+        proposal: 1,
+        amount: stake,
+        basis: 'stake',
+        contract_type: 'ACCU',
+        currency: this.cfg.currency,
+        [this.client.symbolKey]: symbol,
+        growth_rate: growthRate,
+        limit_order: { take_profit: tp },
+      }, 20000);
 
-    const p = proposal.proposal;
-    if (!p?.id) throw new Error('proposal returned no id');
+      const p = proposal.proposal;
+      if (!p?.id) throw new Error('proposal returned no id');
 
-    const buy = await this.client._send({
-      buy: p.id,
-      price: parseFloat(p.ask_price ?? stake),
-    }, 25000);
+      const buy = await this.client._send({
+        buy: p.id,
+        price: parseFloat(p.ask_price ?? stake),
+      }, 25000);
 
-    const b = buy.buy;
-    if (!b?.contract_id) throw new Error('buy returned no contract_id');
+      const b = buy.buy;
+      if (!b?.contract_id) throw new Error('buy returned no contract_id');
 
-    const trade = this._makeTrade({
-      contractId: String(b.contract_id),
-      symbol, growthRate, stake, targetTicks, barrier, calibration,
-      entrySpot: parseFloat(b.start_time ? (p.spot ?? 0) : (p.spot ?? 0)),
-      takeProfit: tp,
-    });
-    this.open.set(trade.contractId, trade);
-    logger.info(
-      `OPEN ${symbol} g=${(growthRate * 100).toFixed(0)}% stake=${stake} ` +
-      `targetK=${targetTicks} tp=${tp} id=${trade.contractId}`,
-    );
-    this._watchLive(trade);
-    this.emit('opened', trade);
-    return trade;
+      const trade = this._makeTrade({
+        contractId: String(b.contract_id),
+        symbol, growthRate, stake, targetTicks, barrier, calibration,
+        entrySpot: parseFloat(b.start_time ? (p.spot ?? 0) : (p.spot ?? 0)),
+        takeProfit: tp,
+      });
+      this.open.set(trade.contractId, trade);
+      logger.info(
+        `OPEN ${symbol} g=${(growthRate * 100).toFixed(0)}% stake=${stake} ` +
+        `targetK=${targetTicks} tp=${tp} id=${trade.contractId}`,
+      );
+      this._watchLive(trade);
+      this.emit('opened', trade);
+      return trade;
+    } finally {
+      this._opening--;
+    }
   }
 
   _makeTrade(o) {
@@ -1942,11 +1962,10 @@ class AccuApexV5 {
         logger.info(`martingale STEP UP: loss streak → step ${this.martingaleStep}/${maxSteps} stake ${prev.toFixed(2)} → ${this.currentStake.toFixed(2)} (×${this.cfg.martingaleMultiplier})`);
         return { changed: true, reason: 'loss-step-up', prev };
       }
-      logger.warn(`martingale MAX STEPS hit (${this.martingaleStep}/${maxSteps}) on loss — resetting to base stake ${this.martingaleBase.toFixed(2)}`);
-      telegram.send(`⚠️ <b>AccuAPEX v5 Martingale Max Steps Reached</b>\nStep ${this.martingaleStep}/${maxSteps} lost. Resetting stake to base <b>${this.martingaleBase.toFixed(2)} ${this.currencyStr()}</b>.`);
-      this.martingaleStep = 0;
-      this.currentStake = this.martingaleBase;
-      return { changed: true, reason: 'max-reset' };
+      logger.warn(`martingale MAX STEPS hit (${this.martingaleStep}/${maxSteps}) on loss — halting trading`);
+      telegram.send(`⛔ <b>AccuAPEX v5 Martingale Max Steps Reached</b>\nStep ${this.martingaleStep}/${maxSteps} lost. Trading halted.`);
+      this.risk.halt(`martingale max steps reached (${this.martingaleStep}/${maxSteps})`);
+      return { changed: true, reason: 'max-halt' };
     }
     return { changed: false, reason: 'no-op' };
   }
@@ -2003,8 +2022,8 @@ class AccuApexV5 {
       if (t.profit < 0) {
         if (mg.reason === 'loss-step-up') {
           martingaleLine = `♻️ <b>Martingale:</b> STEP UP  ${prevStep}/${this.cfg.martingaleSteps} → ${this.martingaleStep}/${this.cfg.martingaleSteps}  stake ${prevStake.toFixed(2)} → <b>${this.currentStake.toFixed(2)} ${c}</b> (×${this.cfg.martingaleMultiplier})\n`;
-        } else if (mg.reason === 'max-reset') {
-          martingaleLine = `♻️ <b>Martingale:</b> MAX STEPS hit → RESET to base <b>${this.currentStake.toFixed(2)} ${c}</b>\n`;
+        } else if (mg.reason === 'max-halt') {
+          martingaleLine = `⛔ <b>Martingale:</b> MAX STEPS hit (${this.cfg.martingaleSteps}) → TRADING HALTED\n`;
         } else {
           martingaleLine = `♻️ <b>Martingale:</b> ${this._martingaleLabel()}  stake now ${this.currentStake.toFixed(2)} ${c}\n`;
         }
@@ -2369,7 +2388,17 @@ class AccuApexV5 {
   }
 
   async _tick() {
-    if (!this.running || !this.client.authorized) return;
+    if (!this.running || !this.client.authorized || this.risk.halted) return;
+
+    // ── maxOpenTrades enforcement ──
+    // Never open another position while any contract is open (or mid-open).
+    // Each _tick can fire while the previous one is still awaiting a proposal
+    // or buy round-trip, so the guard must also see the reserved in-flight
+    // slot, not just this.open.size.
+    if (!this.exec.canOpenNow()) {
+      if (this.exec.openCount > 0) logger.info(`skip tick — ${this.exec.openCount} open trade(s) (max ${this.cfg.maxOpenTrades})`);
+      return;
+    }
 
     // ── CHASE-ON-LOSS MODE ──
     // After a loss, re-trade the SAME pair immediately. Gates (stay + ev)
