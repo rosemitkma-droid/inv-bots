@@ -192,7 +192,7 @@ assets: envStr('ASSETS', 'BOOM600,BOOM900,BOOM1000,CRASH900,CRASH1000')
   stayMaxValue   : 10,    //20 every one of those N must be < this
   stayCurrentMax : 1,   //2 the most-current value must be < this
   stayStaleMs    : 240000, // stays older than this are ignored
-  evLowerGateMax : -0.010547, //-0.014547 evLower/tick gate: trade only when ≤ this
+  evLowerGateMax : -0.013547, //-0.014547 evLower/tick gate: trade only when ≤ this
 
   // ── Take-profit ──
   // TP exits the trade after takeProfitTicks ticks (the hold target). The
@@ -204,7 +204,7 @@ assets: envStr('ASSETS', 'BOOM600,BOOM900,BOOM1000,CRASH900,CRASH1000')
   minHoldTicks      : 1,
 
   // ── Live edge monitor: halt when realized edge is significantly bad ──
-  edgeMonitorMinTrades : 40,    // 40  minimum trades before edge monitor is active
+  edgeMonitorMinTrades : 400000,    // 40  minimum trades before edge monitor is active
   edgeMonitorZStop     : 2.0,  // 95% confidence that EV < 0),
 
   // ── Timing ──
@@ -225,10 +225,10 @@ assets: envStr('ASSETS', 'BOOM600,BOOM900,BOOM1000,CRASH900,CRASH1000')
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Logging / state ──
-  logFile   : envStr('LOG_FILE', 'accuFable5_02.log'),
+  logFile   : envStr('LOG_FILE', 'accuFable5_03.log'),
   logLevel  : envStr('LOG_LEVEL', 'INFO'),
-  stateFile : envStr('STATE_FILE', 'accuFable5-state_02.json'),
-  edgeFile  : envStr('EDGE_FILE', 'accuFable5-edge_02.json'),
+  stateFile : envStr('STATE_FILE', 'accuFable5-state_03.json'),
+  edgeFile  : envStr('EDGE_FILE', 'accuFable5-edge_03.json'),
 });
 
 // ═══════════════════════════════════════════════════════════════════════
