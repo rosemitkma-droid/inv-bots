@@ -117,7 +117,7 @@ const envBool = (k, d) => {
 // ═══════════════════════════════════════════════════════════════════════
 const CONFIG = Object.freeze({
   // ── Credentials (REQUIRED via .env — never commit these) ──
-  apiToken : 'pat_27a3197287bae3ec6c2c9cbdd68fffaa2a524e3b0a6e1ecf298b5ffb338adb10',
+  apiToken : 'pat_a4392c86309361a50eca82c1ea872127636b84070f6c45295459ffb83de31360',
   appId    : '33uslPtthXBEkQOdfKfoY',
   wsUrl    : 'wss://ws.derivws.com/websockets/v3',
   currency : 'USD',
@@ -176,8 +176,8 @@ assets: envStr('ASSETS', '1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
   // ── Calibration (the core of this build) ──
   // Trade only when the LOWER confidence bound on per-tick survival beats
   // the break-even survival 1/(1+g) by at least edgeMarginPerTick.
-  calibMinTicks     : 1000,   // min history per symbol
-  calibWindow       : 1000,     // max history retained
+  calibMinTicks     : 1001,   // min history per symbol
+  calibWindow       : 1001,     // max history retained
   calibConfidenceZ  : 0.96,      // 95% Wilson bound
   edgeMarginPerTick : -0.6000, // required cushion
   sellSpreadCost    : 0.0002, // modelled round-trip cost
@@ -195,7 +195,7 @@ assets: envStr('ASSETS', '1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
   stayCurrentMax : 1,   //2 the most-current value must be < this
   stayStaleMs    : 240000, // stays older than this are ignored
   evLowerGateMax : -0.013547, //-0.014547 evLower/tick gate: trade only when ≤ this
-  breachMinCount : 68, // trade only when historical single-tick barrier hits ≥ this
+  breachMinCount : 70, // trade only when historical single-tick barrier hits ≥ this
 
   // ── Take-profit ──
   // TP exits the trade after takeProfitTicks ticks (the hold target). The
@@ -228,10 +228,10 @@ assets: envStr('ASSETS', '1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V')
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Logging / state ──
-  logFile   : envStr('LOG_FILE', 'accuFable5_004.log'),
+  logFile   : envStr('LOG_FILE', 'accuFable5_006.log'),
   logLevel  : envStr('LOG_LEVEL', 'INFO'),
-  stateFile : envStr('STATE_FILE', 'accuFable5-state_004.json'),
-  edgeFile  : envStr('EDGE_FILE', 'accuFable5-edge_004.json'),
+  stateFile : envStr('STATE_FILE', 'accuFable5-state_006.json'),
+  edgeFile  : envStr('EDGE_FILE', 'accuFable5-edge_006.json'),
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2459,16 +2459,16 @@ logger.warn(`martingale MAX STEPS hit (${this.martingaleStep}/${maxSteps}) on lo
     // fresh ACCU proposals every tick (not just on the 60s barrier timer).
     await this._refreshStayedIn();
 
-    // ── ONLY TWO GATES: StayedInArray + evLower/tick (≤ evLowerGateMax) ──
+    // ── ONLY THREE GATES: StayedInArray + evLower/tick (≤ evLowerGateMax) + breachCount ─
     const ranked = this._calibrateAll();
 
 const evGate = c => {
       if (c.evLowerPerTick == null) return { pass: false, reason: 'no-ev (uncalibrated)' };
       return c.evLowerPerTick <= this.cfg.evLowerGateMax
-        ? { pass: true, reason: 'ev-ok' }
+        ? { pass: true, reason: `ev-ok: (${(c.evLowerPerTick * 100).toFixed(4)}%<=${(this.cfg.evLowerGateMax * 100).toFixed(4)}%)` }
         : {
             pass: false,
-            reason: `ev-over:${(c.evLowerPerTick * 100).toFixed(4)}%>${(this.cfg.evLowerGateMax * 100).toFixed(4)}%`,
+            reason: `ev-over: ${(c.evLowerPerTick * 100).toFixed(4)}%>${(this.cfg.evLowerGateMax * 100).toFixed(4)}%`,
           };
     };
 
@@ -2476,7 +2476,7 @@ const evGate = c => {
       const bc = c.breaches;
       if (bc == null) return { pass: false, reason: 'no-breach-count' };
       return bc >= this.cfg.breachMinCount
-        ? { pass: true, reason: 'breach-ok' }
+        ? { pass: true, reason: `breach-ok: (${bc}>=${this.cfg.breachMinCount})` }
         : { pass: false, reason: `breach-low:${bc}<${this.cfg.breachMinCount}` };
     };
 
