@@ -117,8 +117,8 @@ const envBool = (k, d) => {
 // ═══════════════════════════════════════════════════════════════════════
 const CONFIG = Object.freeze({
   // ── Credentials (REQUIRED via .env — never commit these) ──
-  apiToken : 'pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692',
-  appId    : '33uslPtthXBEkQOdfKfoY',
+  apiToken : 'pat_e02a554e3b6f9f939c07855fe28c91c68e58ea14f741f45f675f82de96da4289',
+  appId    : '33uslPtthXBEkQOdfKfoY', //1089 | 33uslPtthXBEkQOdfKfoY
   wsUrl    : 'wss://ws.derivws.com/websockets/v3',
   currency : 'USD',
   // PAT-token (new API) only: which account type the OTP flow selects when
@@ -176,10 +176,10 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100')
   // ── Calibration (the core of this build) ──
   // Trade only when the LOWER confidence bound on per-tick survival beats
   // the break-even survival 1/(1+g) by at least edgeMarginPerTick.
-  calibMinTicks     : 1000,   // min history per symbol
-  calibWindow       : 1000,     // max history retained
+  calibMinTicks     : 1001,   // min history per symbol
+  calibWindow       : 1001,     // max history retained
   calibConfidenceZ  : 0.96,      // 95% Wilson bound
-  edgeMarginPerTick : 0.6000, // required cushion
+  edgeMarginPerTick : -0.6000, // required cushion
   sellSpreadCost    : 0.0002, // modelled round-trip cost
 
   // ── Stayed-in array + evLower/tick + breachCount gates ──
@@ -195,7 +195,7 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100')
   stayCurrentMax : 1,   //2 the most-current value must be < this
   stayStaleMs    : 240000, // stays older than this are ignored
   evLowerGateMax : -0.013547, //-0.014547 evLower/tick gate: trade only when ≤ this
-  breachMinCount : 66, // trade only when historical single-tick barrier hits ≥ this
+  breachMinCount : 65, //65 trade only when historical single-tick barrier hits ≥ this
 
   // ── Take-profit ──
   // TP exits the trade after takeProfitTicks ticks (the hold target). The
@@ -207,7 +207,7 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100')
   minHoldTicks      : 1,
 
   // ── Live edge monitor: halt when realized edge is significantly bad ──
-  edgeMonitorMinTrades : 400000,    // 40  minimum trades before edge monitor is active
+  edgeMonitorMinTrades : 4000000000,    // 40  minimum trades before edge monitor is active
   edgeMonitorZStop     : 2.0,  // 95% confidence that EV < 0),
 
   // ── Timing ──
@@ -228,10 +228,10 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100')
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Logging / state ──
-  logFile   : envStr('LOG_FILE', 'accuapex-v5_07.log'),
+  logFile   : envStr('LOG_FILE', 'accuapex-v5_09.log'),
   logLevel  : envStr('LOG_LEVEL', 'INFO'),
-  stateFile : envStr('STATE_FILE', 'accuapex-v5-state_07.json'),
-  edgeFile  : envStr('EDGE_FILE', 'accuapex-v5-edge_07.json'),
+  stateFile : envStr('STATE_FILE', 'accuapex-v5-state_09.json'),
+  edgeFile  : envStr('EDGE_FILE', 'accuapex-v5-edge_09.json'),
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2462,13 +2462,13 @@ class AccuApexV5 {
     // fresh ACCU proposals every tick (not just on the 60s barrier timer).
     await this._refreshStayedIn();
 
-    // ── ONLY TWO GATES: StayedInArray + evLower/tick (≤ evLowerGateMax) ──
+    // ── ONLY THREE GATES: StayedInArray + evLower/tick (≤ evLowerGateMax) + breachCount ──
     const ranked = this._calibrateAll();
 
 const evGate = c => {
       if (c.evLowerPerTick == null) return { pass: false, reason: 'no-ev (uncalibrated)' };
       return c.evLowerPerTick <= this.cfg.evLowerGateMax
-        ? { pass: true, reason: 'ev-ok' }
+        ? { pass: true, reason: `ev-ok: (${(c.evLowerPerTick * 100).toFixed(4)}%<=${(this.cfg.evLowerGateMax * 100).toFixed(4)}%)` }
         : {
             pass: false,
             reason: `ev-over:${(c.evLowerPerTick * 100).toFixed(4)}%>${(this.cfg.evLowerGateMax * 100).toFixed(4)}%`,
@@ -2479,7 +2479,7 @@ const evGate = c => {
       const bc = c.breaches;
       if (bc == null) return { pass: false, reason: 'no-breach-count' };
       return bc >= this.cfg.breachMinCount
-        ? { pass: true, reason: 'breach-ok' }
+        ? { pass: true, reason: `breach-ok: (${bc}>=${this.cfg.breachMinCount})` }
         : { pass: false, reason: `breach-low:${bc}<${this.cfg.breachMinCount}` };
     };
 
