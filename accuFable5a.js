@@ -1958,7 +1958,7 @@ class AccuFable5 {
       return { changed: false, reason: 'win-base' };
     }
     if (status === 'lost') {
-      if (this.martingaleStep <= maxSteps) {
+      if (this.martingaleStep < maxSteps) {
         this.martingaleStep += 1;
         const prev = this.currentStake;
         this.currentStake = this._calcMartingaleStake(this.martingaleStep);
