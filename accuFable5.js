@@ -151,7 +151,7 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100')
 
   // Martingale (accuHOLD_v2 semantics) ──
   martingaleMultiplier : 3.0, // stake × multiplier each loss step
-  martingaleSteps      : 5,        // 0 = disabled
+  martingaleSteps      : 4,        // 0 = disabled
   martingaleBaseStake  : 0,   // 0 → use CONFIG.stake
 
   // ── Chase-on-loss ──
@@ -1958,7 +1958,7 @@ class AccuApexV5 {
       return { changed: false, reason: 'win-base' };
     }
     if (status === 'lost') {
-      if (this.martingaleStep <= maxSteps) {
+      if (this.martingaleStep < maxSteps) {
         this.martingaleStep += 1;
         const prev = this.currentStake;
         this.currentStake = this._calcMartingaleStake(this.martingaleStep);
