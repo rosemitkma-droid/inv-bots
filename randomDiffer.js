@@ -23,7 +23,7 @@ function htmlEscape(s) { return String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;
 
 // ── CONFIG — credentials from randomDigitDifferV2.js ───────────────────
 const CONFIG = Object.freeze({
-    apiToken:    'pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692',
+    apiToken:    'pat_e02a554e3b6f9f939c07855fe28c91c68e58ea14f741f45f675f82de96da4289',
     appId:       '33uslPtthXBEkQOdfKfoY',
     accountId:   '',
     accountType: 'demo',
@@ -46,7 +46,7 @@ const CONFIG = Object.freeze({
 
     telegram: {
         enabled:  true,
-        botToken: '8306232249:AAGMwjFngs68Lcq27oGmqewQgthXTJJRxP0',
+        botToken: '8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8',
         chatId:   '752497117',
     },
     reconnect: {
