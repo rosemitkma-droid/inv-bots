@@ -159,7 +159,7 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100')
   // growth rate) on the very next tick, skipping the stay/ev gates. It keeps
   // re-trading that same asset after each loss until a win, then returns to
   // the normal gate-based selection.
-  chaseOnLoss         : true,
+  chaseOnLoss         : false,
 
   // ── EOD / hourly summaries (GMT) ──
   eodTimeGmt         : '00:00',
@@ -228,10 +228,10 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100')
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Logging / state ──
-  logFile   : envStr('LOG_FILE', 'accuapex-v5_10.log'),
+  logFile   : envStr('LOG_FILE', 'accuapex-v5_11.log'),
   logLevel  : envStr('LOG_LEVEL', 'INFO'),
-  stateFile : envStr('STATE_FILE', 'accuapex-v5-state_10.json'),
-  edgeFile  : envStr('EDGE_FILE', 'accuapex-v5-edge_10.json'),
+  stateFile : envStr('STATE_FILE', 'accuapex-v5-state_11.json'),
+  edgeFile  : envStr('EDGE_FILE', 'accuapex-v5-edge_11.json'),
 });
 
 // ═══════════════════════════════════════════════════════════════════════
