@@ -42,7 +42,7 @@ const CONFIG = Object.freeze({
     takeProfitCooldownMaxMs: intEnv('TAKE_PROFIT_COOLDOWN_MS_MAX', 60 * 60 * 1000), // 60 min
 
     // ── persistence (survive restart / network drop) ───────────────────
-    stateFile: strEnv('STATE_FILE', 'randomDiffer_state_02.json'),
+    stateFile: strEnv('STATE_FILE', 'randomDiffer_state_03.json'),
 
     telegram: {
         enabled:  true,
@@ -1382,17 +1382,16 @@ const bot = new EnhancedDigitDifferTradingBot({
     multiplier: 11.3,
     maxConsecutiveLosses: 3,
     stopLoss: 129,
-    takeProfit: 25,              // per-session profit target (0 = off)
+    takeProfit: 1,              // per-session profit target (0 = off)
     requiredHistoryLength: 1000,
     winProbabilityThreshold: 100,
     minWaitTime: 12000,
     maxWaitTime: 120000,
     minOccurrencesThreshold: 1,
     assets: [
-        // 'R_10','R_25','R_50','R_75', 'RDBULL', 'RDBEAR', 
-        // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 
-        // 'JD10', 'JD25', 'JD50', 'JD75', 'JD100'
-        'R_10','R_25','R_50','R_75', 'RDBULL', 'RDBEAR'
+        'R_10','R_25','R_50','R_75', 'RDBULL', 'RDBEAR', 
+        '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 
+        'JD10', 'JD25', 'JD50', 'JD75', 'JD100'
     ],
     // singleActiveAsset (ONE_ASSET_AT_A_TIME, default true): subscribes to and
     // trades one randomly selected asset per cycle for lowest latency.
