@@ -1389,9 +1389,10 @@ const bot = new EnhancedDigitDifferTradingBot({
     maxWaitTime: 120000,
     minOccurrencesThreshold: 1,
     assets: [
-        'R_10','R_25','R_50','R_75', 'RDBULL', 'RDBEAR', 
-        '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 
-        'JD10', 'JD25', 'JD50', 'JD75', 'JD100'
+        // 'R_10','R_25','R_50','R_75', 'RDBULL', 'RDBEAR', 
+        // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 
+        // 'JD10', 'JD25', 'JD50', 'JD75', 'JD100'
+        'R_10','R_25','R_50','R_75', 'RDBULL', 'RDBEAR'
     ],
     // singleActiveAsset (ONE_ASSET_AT_A_TIME, default true): subscribes to and
     // trades one randomly selected asset per cycle for lowest latency.
