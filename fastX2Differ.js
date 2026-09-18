@@ -77,7 +77,7 @@ const CONFIG = Object.freeze({
   martingaleMaxStake: numEnv('MARTINGALE_MAX_STAKE', 1000),      // hard cap (also limited by maxStake)
   // ── Safety (lightweight, does not slow hot path) ──────────────────
   dailyMaxLoss:   numEnv('DAILY_MAX_LOSS', 2000),  // 0 = off
-  dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0),   // 0 = off
+  dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 10),   // 0 = off
   dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 0),   // 0 = off
 
   // ── Hourly / EOD summaries (GMT, same pattern as newDifferX2.js) ───
@@ -87,10 +87,10 @@ const CONFIG = Object.freeze({
 
   // ── Per-trade telegram notifications (user-toggleable) ────────────
   notifyTradeOpen: boolEnv('NOTIFY_TRADE_OPEN', false),     // false = silent on open (still logs)
-  notifyTradeResult: boolEnv('NOTIFY_TRADE_RESULT', false), // false = silent on result (still logs + saves)
+  notifyTradeResult: boolEnv('NOTIFY_TRADE_RESULT', true), // false = silent on result (still logs + saves)
 
-  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_007.json'),
-  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_007.log'),
+  stateFile: strEnv('STATE_FILE', 'simpleX2Differ_state_008.json'),
+  logFile:   strEnv('LOG_FILE',   'simpleX2Differ_bot_008.log'),
   logLevel:  strEnv('LOG_LEVEL',  'INFO').toUpperCase(),
 
   telegram: {
