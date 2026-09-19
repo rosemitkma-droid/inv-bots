@@ -146,7 +146,7 @@ const CONFIG = {
     // ── Session / daily guards (global aggregates = reporting only) ──
     // Per-asset guards live in DEFAULT_ASSET_CONFIG.SESSION_PROFIT_TARGET/STOP_LOSS.
     SESSION_PROFIT_TARGET: 500000,
-    SESSION_STOP_LOSS: -208,
+    SESSION_STOP_LOSS: -126,
     COOLDOWN_CANDLES: 0,
 
     // ── Candle / Contract Settings (defaults, overridable per asset) ──
