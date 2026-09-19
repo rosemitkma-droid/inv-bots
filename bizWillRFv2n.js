@@ -91,8 +91,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRFv2n_01-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2n_01-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRFv2n_02-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2n_02-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -974,8 +974,10 @@ class StatePersistence {
             LOGGER.info(`Restoring state from ${ageMins.toFixed(1)} minutes ago`);
             // v4: capital is recomputed as sum of pools; ignore saved global.
             state.session = { ...state.session, ...data.session };
+            state.session.tokenStats = state.session.tokenStats || { REGULAR: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 }, MAIN: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 } };
             state.portfolio = { ...state.portfolio, ...data.portfolio };
             state.hourlyStats = data.hourlyStats || state.hourlyStats;
+            state.hourlyStats.tokenStats = state.hourlyStats.tokenStats || { REGULAR: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 }, MAIN: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 } };
             state.currentTradeDay = data.currentTradeDay || TradeHistoryManager.getDateKey();
             state.stuckTrades = Array.isArray(data.stuckTrades) ? data.stuckTrades.slice(-50) : (state.stuckTrades || []);
 
@@ -1137,7 +1139,8 @@ class TelegramService {
 
         📋 <b>Today (all assets):</b>
         Trades: ${today.tradesCount} | W/L: ${today.winsCount || 0}/${today.lossesCount || 0} | P/L: $${(today.netPL || 0).toFixed(2)}
-        ${today.tokenStats ? `💳 REGULAR: ${today.tokenStats.REGULAR.trades}t ${(today.tokenStats.REGULAR.netPL || 0).toFixed(2)} | MAIN: ${today.tokenStats.MAIN.trades}t $${(today.tokenStats.MAIN.netPL || 0).toFixed(2)}` : ''}
+        💳 <b>Today per token:</b> REGULAR ${today.tokenStats?.REGULAR?.trades || 0}t $${(today.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${today.tokenStats?.MAIN?.trades || 0}t $${(today.tokenStats?.MAIN?.netPL || 0).toFixed(2)}
+        💳 <b>Session per token:</b> REGULAR ${state.session.tokenStats?.REGULAR?.trades || 0}t $${(state.session.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${state.session.tokenStats?.MAIN?.trades || 0}t $${(state.session.tokenStats?.MAIN?.netPL || 0).toFixed(2)}
         💰 Pools sum: $${state.capital.toFixed(2)}
 
         📋 <b>Overall:</b>
@@ -1183,6 +1186,7 @@ class TelegramService {
         await this.sendMessage([
             `⏰ <b>BizWillRFv2 HOURLY SUMMARY (multi-asset independent)</b>`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '\u{1f7e2}' : '\u{1f534}'} $${h.pnl.toFixed(2)}`,
+            `💳 Last Hour per token: REGULAR ${h.tokenStats?.REGULAR?.trades || 0}t $${(h.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${h.tokenStats?.MAIN?.trades || 0}t $${(h.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`,
             `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
             `Loss Stats: x2:${today.x2Losses || 0} x3:${today.x3Losses || 0} x4:${today.x4Losses || 0} x5:${today.x5Losses || 0} x6:${today.x6Losses || 0} x7:${today.x7Losses || 0} x8:${today.x8Losses || 0} x9:${today.x9Losses || 0}`,
             `Pools sum: $${state.capital.toFixed(2)}`,
@@ -1191,7 +1195,7 @@ class TelegramService {
             tok,
         ].join('\n'));
 
-        state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getUTCHours() };
+        state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getUTCHours(), tokenStats: { REGULAR: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 }, MAIN: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 } } };
     }
 
     static async sendSessionSummary() {
@@ -1218,9 +1222,11 @@ class TelegramService {
             `Duration: ${stats.duration} | Trades: ${stats.trades}`,
             `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
             `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
+            `💳 Session per token: REGULAR ${stats.tokenStats?.REGULAR?.trades || 0}t $${(stats.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${stats.tokenStats?.MAIN?.trades || 0}t $${(stats.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`,
             `Today P/L: $${(today.netPL || 0).toFixed(2)}`,
             ``,
             `\u{1f4cb} <b>Overall:</b> ${overall.tradesCount} trades | WR: ${wr}% | P/L: $${(overall.netPL || 0).toFixed(2)}`,
+            `💳 Overall per token: REGULAR ${overall.tokenStats?.REGULAR?.trades || 0}t $${(overall.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${overall.tokenStats?.MAIN?.trades || 0}t $${(overall.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`,
             pairBreakdown ? `\n<b>Per-Asset:</b>${pairBreakdown}` : '',
             tok,
             ``,
@@ -1250,6 +1256,8 @@ class TelegramService {
             TradingSessionManager.getStatusString(),
             ``,
             `📊 Overall: ${overall.tradesCount} trades | P/L: $${(overall.netPL || 0).toFixed(2)}`,
+            `💳 Overall per token: REGULAR ${overall.tokenStats?.REGULAR?.trades || 0}t $${(overall.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${overall.tokenStats?.MAIN?.trades || 0}t $${(overall.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`,
+            `💳 Session per token: REGULAR ${state.session.tokenStats?.REGULAR?.trades || 0}t $${(state.session.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${state.session.tokenStats?.MAIN?.trades || 0}t $${(state.session.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`,
             `<b>Active Assets:</b>${pairInfo}`,
         ].join('\n'));
     }
@@ -1346,7 +1354,7 @@ class SessionManager {
         const wr = state.session.tradesCount > 0
             ? ((state.session.winsCount / state.session.tradesCount) * 100).toFixed(1) + '%'
             : '0%';
-        return { duration: `${hrs}h ${mins}m`, trades: state.session.tradesCount, wins: state.session.winsCount, losses: state.session.lossesCount, winRate: wr, netPL: state.session.netPL };
+        return { duration: `${hrs}h ${mins}m`, trades: state.session.tradesCount, wins: state.session.winsCount, losses: state.session.lossesCount, winRate: wr, netPL: state.session.netPL, tokenStats: state.session.tokenStats || null };
     }
 
     static checkDayChange() {
@@ -1355,7 +1363,9 @@ class SessionManager {
             LOGGER.info(`Day changed: ${state.currentTradeDay} -> ${today}`);
             const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
             TelegramService.sendMessage(
-                `\u{1f319} <b>BizWillRFv2 END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\nCapital: $${state.capital.toFixed(2)}`
+                `\u{1f319} <b>BizWillRFv2 END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\n` +
+                `💳 Per token: REGULAR ${dayStats?.tokenStats?.REGULAR?.trades || 0}t $${(dayStats?.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${dayStats?.tokenStats?.MAIN?.trades || 0}t $${(dayStats?.tokenStats?.MAIN?.netPL || 0).toFixed(2)}\n` +
+                `Capital: $${state.capital.toFixed(2)}`
             );
             this._resetDailyStats();
             if (!state.session.isActive) {
@@ -1371,8 +1381,9 @@ class SessionManager {
         s.tradesCount = 0; s.winsCount = 0; s.lossesCount = 0;
         s.profit = 0; s.loss = 0; s.netPL = 0;
         s.startTime = Date.now(); s.startCapital = state.capital;
+        s.tokenStats = { REGULAR: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 }, MAIN: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 } };
         state.portfolio = { dailyProfit: 0, dailyLoss: 0, dailyWins: 0, dailyLosses: 0 };
-        state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getUTCHours() };
+        state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getUTCHours(), tokenStats: { REGULAR: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 }, MAIN: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 } } };
 
         CONFIG.ACTIVE_ASSETS.forEach(sym => {
             const a = state.assets[sym];
@@ -1396,8 +1407,10 @@ class SessionManager {
 
         const hour = new Date().getUTCHours();
         if (hour !== state.hourlyStats.lastHour) {
-            state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: hour };
+            state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: hour, tokenStats: { REGULAR: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 }, MAIN: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 } } };
         }
+
+        const tokenKey = mode === 'MAIN' ? 'MAIN' : 'REGULAR';
 
         state.session.tradesCount++;
         state.hourlyStats.trades++;
@@ -1411,6 +1424,10 @@ class SessionManager {
             state.portfolio.dailyProfit += profit;
             state.portfolio.dailyWins++;
             state.hourlyStats.wins++;
+            const sTok = state.session.tokenStats[tokenKey] || state.session.tokenStats.REGULAR;
+            const hTok = state.hourlyStats.tokenStats[tokenKey] || state.hourlyStats.tokenStats.REGULAR;
+            sTok.trades++; sTok.wins++; sTok.profit += profit; sTok.netPL += profit;
+            hTok.trades++; hTok.wins++; hTok.profit += profit; hTok.netPL += profit;
             a.winsCount++;
             a.profit += profit; a.netPL += profit;
             a.consecutiveWins++;
@@ -1443,6 +1460,10 @@ class SessionManager {
             state.portfolio.dailyLoss += Math.abs(profit);
             state.portfolio.dailyLosses++;
             state.hourlyStats.losses++;
+            const sTok = state.session.tokenStats[tokenKey] || state.session.tokenStats.REGULAR;
+            const hTok = state.hourlyStats.tokenStats[tokenKey] || state.hourlyStats.tokenStats.REGULAR;
+            sTok.trades++; sTok.losses++; sTok.loss += Math.abs(profit); sTok.netPL += profit;
+            hTok.trades++; hTok.losses++; hTok.loss += Math.abs(profit); hTok.netPL += profit;
             a.lossesCount++;
             a.loss += Math.abs(profit);
             a.netPL += profit;
@@ -1514,12 +1535,13 @@ const state = {
         tradesCount: 0, winsCount: 0, lossesCount: 0,
         x2Losses: 0, x3Losses: 0, x4Losses: 0, x5Losses: 0,
         x6Losses: 0, x7Losses: 0, x8Losses: 0, x9Losses: 0,
+        tokenStats: { REGULAR: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 }, MAIN: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 } },
         isActive: true, startTime: Date.now(), startCapital: CONFIG.ACTIVE_ASSETS.length ? getAssetConfig(CONFIG.ACTIVE_ASSETS[0]).INVESTMENT_AMOUNT : DEFAULT_ASSET_CONFIG.INVESTMENT_AMOUNT,
     },
     isConnected: false,
     isAuthorized: false,
     portfolio: { dailyProfit: 0, dailyLoss: 0, dailyWins: 0, dailyLosses: 0 },
-    hourlyStats: { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getUTCHours() },
+    hourlyStats: { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getUTCHours(), tokenStats: { REGULAR: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 }, MAIN: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 } } },
     requestId: 1,
     lastSessionLogTime: 0,
     tradeWatchdogTimer: null,
@@ -2275,7 +2297,7 @@ class ConnectionManager {
                 return;
             }
             LOGGER.error(`[${this.mode}] Max reconnection attempts reached — giving up`);
-            TelegramService.sendMessage(`\u{1f6d1} <b>BizWillRFv2 BOT STOPPED [${this.mode}]</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}`);
+            TelegramService.sendMessage(`\u{1f6d1} <b>BizWillRFv2 BOT STOPPED [${this.mode}]</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}\n💳 Per token: REGULAR ${state.session.tokenStats?.REGULAR?.trades || 0}t $${(state.session.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${state.session.tokenStats?.MAIN?.trades || 0}t $${(state.session.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`);
             process.exit(1);
         }
     }
@@ -3068,7 +3090,9 @@ if (cliArgs.backtest) {
         });
 
         console.log(`\n📊 ${getGMTTime()} | Session: ${status.session.trades}t ${status.session.winRate} $${(status.session.netPL || 0).toFixed(2)} | Pools sum: $${status.capital.toFixed(2)}`);
+        console.log(`💳 Session per token: REGULAR ${status.session.tokenStats?.REGULAR?.trades || 0}t $${(status.session.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${status.session.tokenStats?.MAIN?.trades || 0}t $${(status.session.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`);
         console.log(`\u{1f4cb} Overall: ${status.overall.tradesCount}t | P/L: $${(status.overall.netPL || 0).toFixed(2)} | Days: ${TradeHistoryManager.getAllDays().length}`);
+        console.log(`💳 Overall per token: REGULAR ${status.overall.tokenStats?.REGULAR?.trades || 0}t $${(status.overall.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${status.overall.tokenStats?.MAIN?.trades || 0}t $${(status.overall.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`);
         console.log(`\u{1f555} ${TradingSessionManager.getStatusString()}`);
         console.log(`\u{1f4c8} Assets:${pairLines}`);
 
