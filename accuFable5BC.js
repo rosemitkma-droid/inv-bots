@@ -159,7 +159,7 @@ assets: envStr('ASSETS', 'BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRA
   // growth rate) on the very next tick, skipping the stay/ev gates. It keeps
   // re-trading that same asset after each loss until a win, then returns to
   // the normal gate-based selection.
-  chaseOnLoss         : false,
+  chaseOnLoss         : true,
 
   // ── EOD / hourly summaries (GMT) ──
   eodTimeGmt         : '00:00',
@@ -195,7 +195,7 @@ assets: envStr('ASSETS', 'BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRA
   stayCurrentMax : 1,   //2 the most-current value must be < this
   stayStaleMs    : 240000, // stays older than this are ignored
   evLowerGateMax : -0.013547, //-0.014547 evLower/tick gate: trade only when ≤ this
-  breachMinCount : 73, // trade only when historical single-tick barrier hits ≥ this
+  breachMinCount : 75, // trade only when historical single-tick barrier hits ≥ this
 
   // ── Take-profit ──
   // TP exits the trade after takeProfitTicks ticks (the hold target). The
@@ -228,10 +228,10 @@ assets: envStr('ASSETS', 'BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRA
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Logging / state ──
-  logFile   : envStr('LOG_FILE', 'accuFable5BC_01.log'),
+  logFile   : envStr('LOG_FILE', 'accuFable5BC_02.log'),
   logLevel  : envStr('LOG_LEVEL', 'INFO'),
-  stateFile : envStr('STATE_FILE', 'accuFable5BC-state_01.json'),
-  edgeFile  : envStr('EDGE_FILE', 'accuFable5BC-edge_01.json'),
+  stateFile : envStr('STATE_FILE', 'accuFable5BC-state_02.json'),
+  edgeFile  : envStr('EDGE_FILE', 'accuFable5BC-edge_02.json'),
 });
 
 // ═══════════════════════════════════════════════════════════════════════
