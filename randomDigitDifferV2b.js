@@ -89,59 +89,64 @@ const CONFIG = Object.freeze({
 
   // ── MULTI asset — comma-separated env ASSETS (like newDifferX2.js) ─
   assets: ('R_10,R_25,R_50,R_75,R_100,RDBULL,RDBEAR').split(',').map(s=>s.trim()).filter(Boolean),
+  // Single-active-asset mode (randomDiffer.js ONE_ASSET_AT_A_TIME):
+  // subscribe + trade ONE random asset per cycle, then swap to a fresh
+  // random asset after each result. Fewer live subscriptions = lower
+  // latency (no tick backlog before a 1-tick DIGITDIFF settles).
+  singleActiveAsset: boolEnv('ONE_ASSET_AT_A_TIME', true),
   // Asset rotation lockout + recent-symbol skip — same knobs/semantics
   // as newDifferX2.js. Default = OFF so the symbol pick is pure random.
   assetRotationMs:         intEnv('ASSET_ROTATION_MS', 0),   // lock recently-traded symbol for N ms (0 = off)
   skipRecentTradedSymbols: boolEnv('SKIP_RECENT_TRADED', false),
   recentTradedSymbolsLen:  intEnv('RECENT_TRADED_LEN', 2),   // rolling window of symbols to avoid
-  stake:         numEnv('STAKE', 0.62),
-  durationTicks: intEnv('DURATION_TICKS', 1),
-  minStake:      0.62,
+  stake:         0.61,
+  durationTicks: 1,
+  minStake:      0.61,
   maxStake:      1000,
   // ── Tick history (randomDiffer.js port) ───────────────────────────
   // Digits kept per symbol; the bot only trades once a symbol's history
   // reaches this length (same gate as randomDiffer.js analyzeTicks).
-  requiredHistoryLength: intEnv('REQUIRED_HISTORY_LENGTH', 200),
+  requiredHistoryLength: 200,
 
   // ── TRULY RANDOM throttle (replaces fixed tradeCooldownMs) ─────────
-  ticksBetweenMin:  intEnv('TICKS_BETWEEN_MIN', 1),      // skip N random ticks before next trade
-  ticksBetweenMax:  intEnv('TICKS_BETWEEN_MAX', 1),
-  tradeIntervalMinS: numEnv('TRADE_INTERVAL_MIN_S', 10),  // plus a random seconds delay
-  tradeIntervalMaxS: numEnv('TRADE_INTERVAL_MAX_S', 60),
+  ticksBetweenMin:  1,      // skip N random ticks before next trade
+  ticksBetweenMax:  1,
+  tradeIntervalMinS: 10,  // plus a random seconds delay
+  tradeIntervalMaxS: 60,  // plus a random seconds delay
   maxOpenTrades:   1,
   tradeWatchdogMs: intEnv('WATCHDOG_MS', 20000),
 
   // ── Martingale (optional) ────────────────────────────────────────
-  martingaleEnabled:  boolEnv('MARTINGALE_ENABLED', true),
-  martingaleStep:     numEnv('MARTINGALE_STEP', 11.3),            // multiplier per loss
-  martingaleFilter:   intEnv('MARTINGALE_FILTER', 0),           // losses before multiplier starts
-  martingaleMaxSteps: intEnv('MARTINGALE_MAX_STEPS', 4),        // cap exponent on the scaled steps (0 = uncapped)
-  martingaleMaxStake: numEnv('MARTINGALE_MAX_STAKE', 1000),      // hard cap (also limited by maxStake)
+  martingaleEnabled:  true,
+  martingaleStep:     11.3,            // multiplier per loss
+  martingaleFilter:   0,           // losses before multiplier starts
+  martingaleMaxSteps: 4,        // cap exponent on the scaled steps (0 = uncapped)
+  martingaleMaxStake: 1000,      // hard cap (also limited by maxStake)
   // ── Safety (daily, GMT) ──────────────────────────────────────────
-  dailyMaxLoss:   numEnv('DAILY_MAX_LOSS', 2000),  // 0 = off
-  dailyMaxProfit: numEnv('DAILY_MAX_PROFIT', 0),   // 0 = off (day-based; takeProfit is session-based)
-  dailyMaxTrades: intEnv('DAILY_MAX_TRADES', 0),   // 0 = off
+  dailyMaxLoss:   2000,  // 0 = off
+  dailyMaxProfit: 0,   // 0 = off (day-based; takeProfit is session-based)
+  dailyMaxTrades: 0,   // 0 = off
 
   // ── SESSION takeProfit ────────────────────────────────────────────
   // When the current session's net P/L reaches takeProfit the bot stops
   // trading and waits a RANDOM cooldown drawn uniformly from
   // [TAKE_PROFIT_COOLDOWN_MS_MIN, TAKE_PROFIT_COOLDOWN_MS_MAX] before
   // starting a new session. Overall Net P/L is lifetime and never resets.
-  takeProfit:              numEnv('TAKE_PROFIT', 1),                                // session profit target (0 = off)
-  takeProfitCooldownMinMs: intEnv('TAKE_PROFIT_COOLDOWN_MS_MIN', 15 * 60 * 1000),  // default 15 minutes
-  takeProfitCooldownMaxMs: intEnv('TAKE_PROFIT_COOLDOWN_MS_MAX', 60 * 60 * 1000),  // default 60 minutes
+  takeProfit:              1,                                // session profit target (0 = off)
+  takeProfitCooldownMinMs: 15 * 60 * 1000,  // default 15 minutes
+  takeProfitCooldownMaxMs: 60 * 60 * 1000,  // default 60 minutes
 
   // ── Hourly / EOD summaries (GMT) ───────────────────────────────────
-  hourlySummary: boolEnv('HOURLY_SUMMARY', true),
-  eodTimeGmt: strEnv('EOD_TIME_GMT', '00:00'), // report date = previous UTC day when 00:00
-  eodSendDelaySeconds: intEnv('EOD_SEND_DELAY_S', 10),
+  hourlySummary: true,
+  eodTimeGmt: '00:00', // report date = previous UTC day when 00:00
+  eodSendDelaySeconds: 10,
 
   // ── Per-trade telegram notifications ──────────────────────────────
-  notifyTradeOpen: boolEnv('NOTIFY_TRADE_OPEN', true),
-  notifyTradeResult: boolEnv('NOTIFY_TRADE_RESULT', true),
+  notifyTradeOpen: true,
+  notifyTradeResult: true,
 
-  stateFile: strEnv('STATE_FILE', 'randomDigitDifferb_state_01.json'),
-  logFile:   strEnv('LOG_FILE',   'randomDigitDifferb_bot_01.log'),
+  stateFile: strEnv('STATE_FILE', 'randomDigitDifferb_state_02.json'),
+  logFile:   strEnv('LOG_FILE',   'randomDigitDifferb_bot_02.log'),
   logLevel:  strEnv('LOG_LEVEL',  'INFO').toUpperCase(),
 
   telegram: {
@@ -524,6 +529,17 @@ class MarketDataManager extends EventEmitter{
     if(need.length) await Promise.all(need.map(s=>this.subscribe(s).catch(e=>logger.warn(`subscribe(${s}) failed:`,e.message))));
     return this;
   }
+  // Forget a live tick subscription (used by single-active-asset mode to
+  // drop the previous cycle's asset before subscribing the next one). The
+  // digit history is retained so result rendering/windowSlice still works.
+  async unsubscribe(symbol){
+    const subId=this.subs.get(symbol);
+    if(subId){
+      this.subs.delete(symbol);
+      return this.client.forget(subId).catch(e=>logger.debug(`unsubscribe(${symbol}):`,e.message));
+    }
+    return Promise.resolve();
+  }
   historyOf(symbol){ return (this.digitHistory.get(symbol)||[]).map(h=>h.d); }       // digits (numbers), oldest→newest, up to historyLen
   windowOf(symbol){ return this.digitHistory.get(symbol)||[]; }                      // {d,epoch} objects, newest last
   // Digits up to AND including the exiting tick (removes any post-settlement
@@ -723,6 +739,9 @@ class TradingBot{
     // ── Multi-asset state (random pick + anti-hammer knobs) ──
     this.tradedAsset=null; this.tradedAssetAt=0;
     this.lastTradedSymbols=[];
+    // ── Single-active-asset (randomDiffer.js ONE_ASSET_AT_A_TIME) ──
+    this.activeAsset=null;         // the ONE symbol subscribed + traded this cycle
+    this._swappingAsset=false;     // guard: prevent trades while swapping subs
     // ── Session / takeProfit state ──
     this._sessionNum=1; this._sessionStartAt=Date.now(); this._sessionStartBal=0;
     this._sessionPL=0; this._sessionTrades=0;
