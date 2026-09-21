@@ -90,9 +90,9 @@ const CONFIG = Object.freeze({
   assetRotationMs:         intEnv('ASSET_ROTATION_MS', 0),   // lock recently-traded symbol for N ms (0 = off)
   skipRecentTradedSymbols: boolEnv('SKIP_RECENT_TRADED', false),
   recentTradedSymbolsLen:  intEnv('RECENT_TRADED_LEN', 2),   // rolling window of symbols to avoid
-  stake:         numEnv('STAKE', 0.62),
+  stake:         numEnv('STAKE', 0.61),
   durationTicks: intEnv('DURATION_TICKS', 1),
-  minStake:      0.62,
+  minStake:      0.61,
   maxStake:      1000,
 
   // ── TRULY RANDOM throttle (replaces fixed tradeCooldownMs) ─────────
@@ -132,8 +132,8 @@ const CONFIG = Object.freeze({
   notifyTradeOpen: boolEnv('NOTIFY_TRADE_OPEN', true),
   notifyTradeResult: boolEnv('NOTIFY_TRADE_RESULT', true),
 
-  stateFile: strEnv('STATE_FILE', 'randomDigitDiffer_state_003.json'),
-  logFile:   strEnv('LOG_FILE',   'randomDigitDiffer_bot_003.log'),
+  stateFile: strEnv('STATE_FILE', 'randomDigitDiffer_state_0001.json'),
+  logFile:   strEnv('LOG_FILE',   'randomDigitDiffer_bot_0001.log'),
   logLevel:  strEnv('LOG_LEVEL',  'INFO').toUpperCase(),
 
   telegram: {
