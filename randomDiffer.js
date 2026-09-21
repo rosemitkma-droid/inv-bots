@@ -42,11 +42,11 @@ const CONFIG = Object.freeze({
     takeProfitCooldownMaxMs: intEnv('TAKE_PROFIT_COOLDOWN_MS_MAX', 60 * 60 * 1000), // 60 min
 
     // ── persistence (survive restart / network drop) ───────────────────
-    stateFile: strEnv('STATE_FILE', 'randomDiffer_state_03.json'),
+    stateFile: strEnv('STATE_FILE', 'randomDiffer_state_06.json'),
 
     telegram: {
         enabled:  true,
-        botToken: '8288121368:AAHYRb0Stk5dWUWN1iTYbdO3fyIEwIuZQR8',
+        botToken: '7919033379:AAHluKFMECmhMrBhNr_XVpWvCKEonQPx9_0',
         chatId:   '752497117',
     },
     reconnect: {
@@ -290,7 +290,7 @@ class EnhancedDigitDifferTradingBot {
         this.assets = config.assets || [
             // 'R_10','R_25','R_50','R_75', 'R_100', 
             // 'RDBULL', 'RDBEAR', 
-            'R_10','R_25','R_50','R_75', 'R_100', 'RDBULL', 'RDBEAR', '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 'JD10', 'JD25', 'JD50', 'JD75', 'JD100'
+            'R_10','R_25','R_50','R_75', 'RDBULL', 'RDBEAR', 'JD10', 'JD25', 'JD50', 'JD75', 'JD100'
             // 'JD10', 'JD25', 'JD50', 'JD75', 'JD100',
             // 'R_10','R_25','R_50','R_75', 'R_100', 'RDBULL', 'RDBEAR',
             // 'R_75',
@@ -308,7 +308,7 @@ class EnhancedDigitDifferTradingBot {
             winProbabilityThreshold: config.winProbabilityThreshold || 100,
             randomAssetSelection: config.randomAssetSelection != null ? config.randomAssetSelection : CONFIG.randomAssetSelection,
             suspendAssetAfterTrade: config.suspendAssetAfterTrade != null ? config.suspendAssetAfterTrade : CONFIG.suspendAssetAfterTrade,
-            singleActiveAsset: config.singleActiveAsset != null ? config.singleActiveAsset : CONFIG.singleActiveAsset,
+            singleActiveAsset: config.singleActiveAsset || CONFIG.singleActiveAsset,
             maxReconnectAttempts: config.maxReconnectAttempts || 10000,
             reconnectInterval: config.reconnectInterval || 5000,
             minWaitTime: config.minWaitTime || 200 * 1000,
@@ -1249,7 +1249,7 @@ class EnhancedDigitDifferTradingBot {
         const summaryText =
             '📊 <b>Random Digit Multi-Asset Bot — Summary</b>\n' +
             'Total Trades: ' + this.totalTrades + ' | ✅ ' + this.totalWins + ' | ❌ ' + this.totalLosses + '\n' +
-            'x2 Losses: ' + this.consecutiveLosses2 + ' | x3: ' + this.consecutiveLosses3 +
+            'x2: ' + this.consecutiveLosses2 + ' | x3: ' + this.consecutiveLosses3 +
             ' | x4: ' + this.consecutiveLosses4 + ' | x5: ' + this.consecutiveLosses5 + '\n\n' +
             '📅 Today (UTC ' + this._dayKey() + '): ' + today.trades + ' trades (✅' + today.wins + ' ❌' + today.losses +
             ') | P/L <b>' + today.netPL.toFixed(2) + '</b>\n\n' +
@@ -1287,11 +1287,15 @@ class EnhancedDigitDifferTradingBot {
             'Trade #' + tradeId + '\n' +
             'Asset: <code>' + htmlEscape(asset) + '</code>\n' +
             'Predicted digit: <b>' + this.xDigit + '</b>\n' +
+            'Last 20 digits: <code>' + (lastFewTicks.join(', ') || '—') + '</code>\n\n' +
             'Result P/L: <b>' + (won ? '+' : '') + profit.toFixed(2) + '</b>\n\n' +
+            'Session P/L: <b>$' + this._sessionPL.toFixed(2) + '</b> (target $' + this.config.takeProfit.toFixed(2) + ')\n' +
+            'Trades this session: ' + this._sessionTrades + '\n' +
             'Total Trades: ' + this.totalTrades + ' | ✅ ' + this.totalWins + ' | ❌ ' + this.totalLosses + '\n' +
             'Win Rate: <b>' + winRate + '%</b>\n' +
             'Total P/L: <b>' + this.totalProfitLoss.toFixed(2) + '</b>\n\n' +
-            'Last 20 digits: <code>' + (lastFewTicks.join(', ') || '—') + '</code>\n\n' +
+            'x2: ' + this.consecutiveLosses2 + ' | x3: ' + this.consecutiveLosses3 +
+            ' | x4: ' + this.consecutiveLosses4 + ' | x5: ' + this.consecutiveLosses5 + '\n\n' +
             'Current Stake: <b>$' + this.currentStake.toFixed(2) + '</b>\n' +
             'Waiting for: ' + this.waitTime + ' (' + this.waitSeconds + ' ms)  before next trade...\n' +
             '🕒 ' + utcTs();
@@ -1393,12 +1397,13 @@ const bot = new EnhancedDigitDifferTradingBot({
         // '1HZ10V', '1HZ25V', '1HZ50V', '1HZ75V', '1HZ100V', 
         // 'JD10', 'JD25', 'JD50', 'JD75', 'JD100'
         'R_10','R_25','R_50','R_75', 'RDBULL', 'RDBEAR'
+        // 'JD10', 'JD25', 'JD50', 'JD75'
     ],
-    // singleActiveAsset (ONE_ASSET_AT_A_TIME, default true): subscribes to and
-    // trades one randomly selected asset per cycle for lowest latency.
-    // randomAssetSelection / suspendAssetAfterTrade / cooldown default from
-    // CONFIG (env RANDOM_ASSET_SELECTION, SUSPEND_AFTER_TRADE,
-    // TAKE_PROFIT_COOLDOWN_MS_MIN/MAX). Pass explicit booleans here to override.
+    // singleActiveAsset: ONE random asset subscribed + traded per trade, dropped
+    // on disconnect, re-picked on reconnect (default true; hard-pinned below).
+    // suspendAssetAfterTrade / cooldown default from CONFIG
+    // (env SUSPEND_AFTER_TRADE, TAKE_PROFIT_COOLDOWN_MS_MIN/MAX).
+    singleActiveAsset: true,
 });
 
 bot.start();
