@@ -195,7 +195,7 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100')
   stayCurrentMax : 1,   //2 the most-current value must be < this
   stayStaleMs    : 240000, // stays older than this are ignored
   evLowerGateMax : -0.036000, //-0.014547 evLower/tick gate: trade only when ≤ this
-  breachMinCount : 75, //72 trade only when historical single-tick barrier hits ≥ this
+  breachMinCount : 80, //72 trade only when historical single-tick barrier hits ≥ this
 
   // ── Take-profit ──
   // TP exits the trade after takeProfitTicks ticks (the hold target). The
@@ -228,10 +228,10 @@ assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100')
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Logging / state ──
-  logFile   : envStr('LOG_FILE', 'accuapex-v5_14.log'),
+  logFile   : envStr('LOG_FILE', 'accuapex-v5_15.log'),
   logLevel  : envStr('LOG_LEVEL', 'INFO'),
-  stateFile : envStr('STATE_FILE', 'accuapex-v5-state_14.json'),
-  edgeFile  : envStr('EDGE_FILE', 'accuapex-v5-edge_14.json'),
+  stateFile : envStr('STATE_FILE', 'accuapex-v5-state_15.json'),
+  edgeFile  : envStr('EDGE_FILE', 'accuapex-v5-edge_15.json'),
 });
 
 // ═══════════════════════════════════════════════════════════════════════
