@@ -135,7 +135,7 @@ const CONFIG = Object.freeze({
 //   assets: envStr('ASSETS', 'R_10,R_25,R_50,R_75,R_100,1HZ10V,1HZ25V,1HZ50V,1HZ75V,1HZ100V,BOOM900,BOOM1000,CRASH900,CRASH1000')
 //     .split(',').map(s => s.trim()).filter(Boolean),
 
-assets: envStr('ASSETS', 'BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRASH900,CRASH1000')
+assets: envStr('ASSETS', 'BOOM500,BOOM600,CRASH500,CRASH600')
     .split(',').map(s => s.trim()).filter(Boolean),
 
   // ── Growth-rate grid. 0.01 measured cheapest; 0.05 measured dearest. ──
@@ -228,10 +228,10 @@ assets: envStr('ASSETS', 'BOOM500,BOOM600,BOOM900,BOOM1000,CRASH500,CRASH600,CRA
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Logging / state ──
-  logFile   : envStr('LOG_FILE', 'accuFable5BC_03.log'),
+  logFile   : envStr('LOG_FILE', 'accuFable5BC_04.log'),
   logLevel  : envStr('LOG_LEVEL', 'INFO'),
-  stateFile : envStr('STATE_FILE', 'accuFable5BC-state_03.json'),
-  edgeFile  : envStr('EDGE_FILE', 'accuFable5BC-edge_03.json'),
+  stateFile : envStr('STATE_FILE', 'accuFable5BC-state_04.json'),
+  edgeFile  : envStr('EDGE_FILE', 'accuFable5BC-edge_04.json'),
 });
 
 // ═══════════════════════════════════════════════════════════════════════
