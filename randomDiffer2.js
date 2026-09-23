@@ -22,7 +22,7 @@ function htmlEscape(s) { return String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;
 
 // ── CONFIG — credentials from randomDigitDifferV2.js ───────────────────
 const CONFIG = Object.freeze({
-    apiToken:    'pat_e02a554e3b6f9f939c07855fe28c91c68e58ea14f741f45f675f82de96da4289',
+    apiToken:    'pat_cb2016855b5e6c61ac95f94432192dd6ed86bec7f7454e575d3fe1ed9f617692',
     appId:       '33uslPtthXBEkQOdfKfoY',
     accountId:   '',
     accountType: 'demo',
@@ -45,7 +45,7 @@ const CONFIG = Object.freeze({
 
     telegram: {
         enabled:  true,
-        botToken: '7919033379:AAHluKFMECmhMrBhNr_XVpWvCKEonQPx9_0',
+        botToken: '8306232249:AAGMwjFngs68Lcq27oGmqewQgthXTJJRxP0',
         chatId:   '752497117',
     },
     reconnect: {
@@ -491,7 +491,7 @@ class EnhancedDigitDifferTradingBot {
             : '📊 Assets: <code>' + this.assets.join(', ') + '</code> (' + (this.config.randomAssetSelection ? 'random pick' : 'tick-driven') + ')';
 
         telegram.send(
-            '🤖 <b>Random Digit Multi-Asset Bot — ONLINE</b>\n' +
+            '🤖 <b>Random Digit Multi-Asset Bot2 — ONLINE</b>\n' +
             '👤 <code>' + htmlEscape(this.client.accountInfo?.loginid || '?') + '</code> ' + (this.client.accountInfo?.isVirtual ? '🟡 DEMO' : '🔴 REAL') + '\n' +
             '💰 ' + Number(this.client.balance ?? 0).toFixed(2) + ' ' + this.currency + '\n' +
             assetsLine + '\n' +
@@ -1147,7 +1147,7 @@ class EnhancedDigitDifferTradingBot {
 
         if (!h.trades) {
             telegram.send(
-                '⏰ <b>Random Digit Multi-Asset Bot — Hourly Summary GMT (' + date + ' ' + pad(hour) + ':00-' + pad(hour) + ':59)</b>\n\n' +
+                '⏰ <b>Random Digit Multi-Asset Bot2 — Hourly Summary GMT (' + date + ' ' + pad(hour) + ':00-' + pad(hour) + ':59)</b>\n\n' +
                 'No trades this hour.\n\n' +
                 '📊 Trades: ' + this.totalTrades + ' (✅' + this.totalWins + ' ❌' + this.totalLosses + ') | WR ' + winRateLifetime + '%\n' +
                 sessLine + '\n' +
@@ -1160,7 +1160,7 @@ class EnhancedDigitDifferTradingBot {
 
         const hWR = ((h.wins / h.trades) * 100).toFixed(1);
         let msg =
-            '⏰ <b>Random Digit Multi-Asset Bot — Hourly Summary GMT (' + date + ' ' + pad(hour) + ':00-' + pad(hour) + ':59)</b>\n\n' +
+            '⏰ <b>Random Digit Multi-Asset Bot2 — Hourly Summary GMT (' + date + ' ' + pad(hour) + ':00-' + pad(hour) + ':59)</b>\n\n' +
             '📊 Trades: ' + h.trades + ' (✅' + h.wins + ' ❌' + h.losses + ') | WR ' + hWR + '%\n' +
             '💰 P/L: <b>' + (h.netPL >= 0 ? '+' : '') + h.netPL.toFixed(2) + '</b>\n' +
             sessLine + '\n' +
@@ -1227,7 +1227,7 @@ class EnhancedDigitDifferTradingBot {
         const today = this._todayStats();
 
         const summaryText =
-            '📊 <b>Random Digit Multi-Asset Bot — Summary</b>\n' +
+            '📊 <b>Random Digit Multi-Asset Bot2 — Summary</b>\n' +
             'Total Trades: ' + this.totalTrades + ' | ✅ ' + this.totalWins + ' | ❌ ' + this.totalLosses + '\n' +
             'x2: ' + this.consecutiveLosses2 + ' | x3: ' + this.consecutiveLosses3 +
             ' | x4: ' + this.consecutiveLosses4 + ' | x5: ' + this.consecutiveLosses5 + '\n\n' +
@@ -1246,7 +1246,7 @@ class EnhancedDigitDifferTradingBot {
         const last10 = this.lastOpenDigits && this.lastOpenDigits.length ? this.lastOpenDigits.join(', ') : (this.tickHistories[asset] || []).slice(-10).join(', ') || '—';
 
         telegram.send(
-            '🟢 <b>Random Digit Multi-Asset Bot — OPEN</b>\n' +
+            '🟢 <b>Random Digit Multi-Asset Bot2 — OPEN</b>\n' +
             'Asset: <code>' + htmlEscape(asset) + '</code>\n' +
             'Predicted digit: <b>' + digit + '</b>\n' +
             'Stake: <b>$' + stake.toFixed(2) + '</b> → payout ' + (payout ? payout.toFixed(2) : '—') + '\n\n' +
@@ -1285,7 +1285,7 @@ class EnhancedDigitDifferTradingBot {
 
     sendErrorNotification(errorMessage) {
         telegram.send(
-            '🚨 <b>Random Digit Multi-Asset Bot — Error</b>\n\n' +
+            '🚨 <b>Random Digit Multi-Asset Bot2 — Error</b>\n\n' +
             'An error occurred: ' + errorMessage + '\n' +
             '🕒 ' + utcTs(),
             'high'
