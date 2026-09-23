@@ -42,7 +42,7 @@ const CONFIG = Object.freeze({
     takeProfitCooldownMaxMs: intEnv('TAKE_PROFIT_COOLDOWN_MS_MAX', 60 * 60 * 1000), // 60 min
 
     // ── persistence (survive restart / network drop) ───────────────────
-    stateFile: strEnv('STATE_FILE', 'randomDiffer_state_06.json'),
+    stateFile: strEnv('STATE_FILE', 'randomDiffer_state_07.json'),
 
     telegram: {
         enabled:  true,
@@ -1384,10 +1384,10 @@ class EnhancedDigitDifferTradingBot {
 const bot = new EnhancedDigitDifferTradingBot({
     initialStake: 0.61,
     multiplier: 11.3,
-    maxConsecutiveLosses: 3,
-    stopLoss: 129,
-    takeProfit: 1,              // per-session profit target (0 = off)
-    requiredHistoryLength: 1000,
+    maxConsecutiveLosses: 4,
+    stopLoss: 1000,
+    takeProfit: 1000000,              // per-session profit target (0 = off)
+    requiredHistoryLength: 100,
     winProbabilityThreshold: 100,
     minWaitTime: 12000,
     maxWaitTime: 120000,
