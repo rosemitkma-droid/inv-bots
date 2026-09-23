@@ -195,7 +195,7 @@ assets: envStr('ASSETS', 'BOOM500,BOOM600,CRASH500,CRASH600')
   stayCurrentMax : 1,   //2 the most-current value must be < this
   stayStaleMs    : 240000, // stays older than this are ignored
   evLowerGateMax : -0.013547, //-0.014547 evLower/tick gate: trade only when ≤ this
-  breachMinCount : 78, // trade only when historical single-tick barrier hits ≥ this
+  breachMinCount : 83, // trade only when historical single-tick barrier hits ≥ this
 
   // ── Take-profit ──
   // TP exits the trade after takeProfitTicks ticks (the hold target). The
@@ -228,10 +228,10 @@ assets: envStr('ASSETS', 'BOOM500,BOOM600,CRASH500,CRASH600')
   reconnect: { initialDelayMs: 1000, maxDelayMs: 60000, backoffFactor: 2, jitterMs: 750 },
 
   // ── Logging / state ──
-  logFile   : envStr('LOG_FILE', 'accuFable5BC_04.log'),
+  logFile   : envStr('LOG_FILE', 'accuFable5BC_05.log'),
   logLevel  : envStr('LOG_LEVEL', 'INFO'),
-  stateFile : envStr('STATE_FILE', 'accuFable5BC-state_04.json'),
-  edgeFile  : envStr('EDGE_FILE', 'accuFable5BC-edge_04.json'),
+  stateFile : envStr('STATE_FILE', 'accuFable5BC-state_05.json'),
+  edgeFile  : envStr('EDGE_FILE', 'accuFable5BC-edge_05.json'),
 });
 
 // ═══════════════════════════════════════════════════════════════════════
