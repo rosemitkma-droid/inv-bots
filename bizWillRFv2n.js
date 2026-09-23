@@ -91,8 +91,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRFv2n_03-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2n_03-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRFv2n_001-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2n_001-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -119,9 +119,9 @@ const LOGGER = {
 // ============================================================
 const CONFIG = {
     // ── Deriv API [RETAINED credentials] ─────────────────────
-    REGULAR_TOKEN: 'pat_27a3197287bae3ec6c2c9cbdd68fffaa2a524e3b0a6e1ecf298b5ffb338adb10',
-    MAIN_TOKEN: 'pat_e02a554e3b6f9f939c07855fe28c91c68e58ea14f741f45f675f82de96da4289',
-    API_TOKEN: 'pat_27a3197287bae3ec6c2c9cbdd68fffaa2a524e3b0a6e1ecf298b5ffb338adb10', // legacy alias → REGULAR_TOKEN
+    REGULAR_TOKEN: 'pat_e02a554e3b6f9f939c07855fe28c91c68e58ea14f741f45f675f82de96da4289',
+    MAIN_TOKEN: 'pat_a4392c86309361a50eca82c1ea872127636b84070f6c45295459ffb83de31360',
+    API_TOKEN: 'pat_e02a554e3b6f9f939c07855fe28c91c68e58ea14f741f45f675f82de96da4289', // legacy alias → REGULAR_TOKEN
     APP_ID: '33uslPtthXBEkQOdfKfoY',
     ACCOUNT_TYPE: 'demo',
     WS_URL: 'wss://ws.derivws.com/websockets/v3',
@@ -1110,7 +1110,17 @@ class TelegramService {
         const a = state.assets[symbol];
         const overall = TradeHistoryManager.getOverallStats();
         const today = TradeHistoryManager.getTodayStats();
-        const tokenBadge = details.mode ? `${details.mode === 'MAIN' ? '💳' : '💳'} <b>Token: ${details.mode}</b>` : '';
+        const tokenBadge = details.mode ? `💳 <b>Token: ${details.mode}</b> (${details.mode === 'MAIN' ? 'REAL ACCOUNT' : 'DEMO ACCOUNT'})` : '';
+
+        // ── Per-token stat block builder — used for every notification ──
+        const tokenBlock = (label, ts) => `💳 ${label}\n  REGULAR (DEMO): ${ts?.REGULAR?.trades || 0}t | W/L: ${ts?.REGULAR?.wins || 0}/${ts?.REGULAR?.losses || 0} | P/L: $${(ts?.REGULAR?.netPL || 0).toFixed(2)}\n  MAIN (REAL):   ${ts?.MAIN?.trades || 0}t | W/L: ${ts?.MAIN?.wins || 0}/${ts?.MAIN?.losses || 0} | P/L: $${(ts?.MAIN?.netPL || 0).toFixed(2)}`;
+
+        // ── Dedicated per-token trade-detail section ──
+        const tokenDetails = (label, ts) => {
+            const regPct = (ts?.REGULAR?.trades || 0) > 0 ? (((ts?.REGULAR?.wins || 0) / ts.REGULAR.trades) * 100).toFixed(1) : '0.0';
+            const mainPct = (ts?.MAIN?.trades || 0) > 0 ? (((ts?.MAIN?.wins || 0) / ts.MAIN.trades) * 100).toFixed(1) : '0.0';
+            return `💳 ${label}\n  💵 REGULAR (DEMO): ${ts?.REGULAR?.trades || 0} trades | ${ts?.REGULAR?.wins || 0}W/${ts?.REGULAR?.losses || 0}L (${regPct}%) | P/L: $${(ts?.REGULAR?.netPL || 0).toFixed(2)} | Stake: flat $${CONFIG.INITIAL_STAKE}\n  💰 MAIN (REAL):   ${ts?.MAIN?.trades || 0} trades | ${ts?.MAIN?.wins || 0}W/${ts?.MAIN?.losses || 0}L (${mainPct}%) | P/L: $${(ts?.MAIN?.netPL || 0).toFixed(2)} | Stake: $${CONFIG.MAIN_INITIAL_STAKE}+ladder`;
+        };
 
         // Build analysis details for OPEN trades — v4: EVERY trade has a signal
         let analysisDetails = '';
@@ -1140,7 +1150,7 @@ class TelegramService {
             const isWin = profitNum > 0;
             const a = state.assets[symbol];
             resultDetails = `
-        ${isWin ? '🟢' : '🔴'} <b>Profit: $${profitNum.toFixed(2)}</b>
+        ${isWin ? '🟢' : '🔴'} <b>Profit: $${profitNum.toFixed(2)}</b> (${details.mode || 'N/A'})
 
         📋 <b>${symbol} Stats (independent):</b>
         W/L: ${a?.winsCount ?? 0}/${a?.lossesCount ?? 0} | P/L: $${(a?.netPL ?? 0).toFixed(2)}
@@ -1148,14 +1158,13 @@ class TelegramService {
         📉 ${symbol} x2-x9: ${a?.x2Losses || 0}|${a?.x3Losses || 0}|${a?.x4Losses || 0}|${a?.x5Losses || 0}|${a?.x6Losses || 0}|${a?.x7Losses || 0}|${a?.x8Losses || 0}|${a?.x9Losses || 0}
         ${isWin ? '✅ Stake reset to default (L0)' : `⏳ Waiting for NEW signal (next L${(a?.martingaleLevel ?? 0)})`}
 
-        📋 <b>Today (all assets):</b>
-        Trades: ${today.tradesCount} | W/L: ${today.winsCount || 0}/${today.lossesCount || 0} | P/L: $${(today.netPL || 0).toFixed(2)}
-        💳 <b>Today per token:</b> REGULAR ${today.tokenStats?.REGULAR?.trades || 0}t $${(today.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${today.tokenStats?.MAIN?.trades || 0}t $${(today.tokenStats?.MAIN?.netPL || 0).toFixed(2)}
-        💳 <b>Session per token:</b> REGULAR ${state.session.tokenStats?.REGULAR?.trades || 0}t $${(state.session.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${state.session.tokenStats?.MAIN?.trades || 0}t $${(state.session.tokenStats?.MAIN?.netPL || 0).toFixed(2)}
+        ${tokenDetails('Today (all assets):', today.tokenStats)}
+        ${tokenBlock('Session (all assets):', state.session.tokenStats)}
         💰 Pools sum: $${state.capital.toFixed(2)}
 
         📋 <b>Overall:</b>
-        Trades: ${overall.tradesCount} | W/L: ${overall.winsCount}/${overall.lossesCount} | P/L: $${(overall.netPL || 0).toFixed(2)}`;
+        Trades: ${overall.tradesCount} | W/L: ${overall.winsCount}/${overall.lossesCount} | P/L: $${(overall.netPL || 0).toFixed(2)}
+        ${tokenDetails('Overall (all time):', overall.tokenStats)}`;
         }
 
         const recoveryStatus = (a?.martingaleLevel || 0) > 0 ? `🔄 RECOVERY L${a.martingaleLevel}` : '🎯 NORMAL';
@@ -1166,7 +1175,7 @@ class TelegramService {
 
         📊 Asset: ${symbol} (pools REG $${(a?.poolRegular ?? 0).toFixed(2)} / MAIN $${(a?.poolMain ?? 0).toFixed(2)})
         📈 Direction: ${direction === 'CALLE' ? 'RISE 📈' : 'FALL 📉'} (signal direction)
-        💵 Stake: $${stake.toFixed(2)}
+        💵 Stake: $${stake.toFixed(2)} (${details.mode === 'MAIN' ? 'MAIN pool' : 'REGULAR pool'})
         ⏱ Duration: ${duration}${(durationUnit || 's').toUpperCase()}
         🔢 Martingale Level: ${a ? a.martingaleLevel : 0}
         ${type !== 'OPEN' ? `📉 ${symbol} x2-x9: ${a?.x2Losses || 0}|${a?.x3Losses || 0}|${a?.x4Losses || 0}|${a?.x5Losses || 0}|${a?.x6Losses || 0}|${a?.x7Losses || 0}|${a?.x8Losses || 0}|${a?.x9Losses || 0}` : ''}
@@ -1181,6 +1190,17 @@ class TelegramService {
         if (h.trades === 0) return;
         const wr = h.trades > 0 ? ((h.wins / h.trades) * 100).toFixed(1) : '0.0';
         const today = TradeHistoryManager.getTodayStats();
+        const now = new Date().toUTCString();
+
+        // ── Hourly per-token block (hourly stats) ──
+        const hourlyTok = `⏰ <b>Last Hour per token:</b>
+  💵 REGULAR (DEMO): ${h.tokenStats?.REGULAR?.trades || 0} trades | ${h.tokenStats?.REGULAR?.wins || 0}W/${h.tokenStats?.REGULAR?.losses || 0}L | P/L: $${(h.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | WinRate: ${h.trades > 0 ? ((h.tokenStats?.REGULAR?.wins || 0) / h.tokenStats?.REGULAR?.trades * 100).toFixed(1) : '0.0'}%
+  💰 MAIN (REAL):   ${h.tokenStats?.MAIN?.trades || 0} trades | ${h.tokenStats?.MAIN?.wins || 0}W/${h.tokenStats?.MAIN?.losses || 0}L | P/L: $${(h.tokenStats?.MAIN?.netPL || 0).toFixed(2)} | WinRate: ${h.trades > 0 ? ((h.tokenStats?.MAIN?.wins || 0) / h.tokenStats?.MAIN?.trades * 100).toFixed(1) : '0.0'}%`;
+
+        // ── Daily per-token block (today's cumulative) ──
+        const dailyTok = `💳 <b>Today per token:</b>
+  💵 REGULAR (DEMO): ${today.tokenStats?.REGULAR?.trades || 0} trades | ${today.tokenStats?.REGULAR?.wins || 0}W/${today.tokenStats?.REGULAR?.losses || 0}L | P/L: $${(today.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | WR: ${(today.tokenStats?.REGULAR?.trades || 0) > 0 ? ((today.tokenStats?.REGULAR?.wins || 0) / today.tokenStats?.REGULAR?.trades * 100).toFixed(1) : '0.0'}%
+  💰 MAIN (REAL):   ${today.tokenStats?.MAIN?.trades || 0} trades | ${today.tokenStats?.MAIN?.wins || 0}W/${today.tokenStats?.MAIN?.losses || 0}L | P/L: $${(today.tokenStats?.MAIN?.netPL || 0).toFixed(2)} | WR: ${(today.tokenStats?.MAIN?.trades || 0) > 0 ? ((today.tokenStats?.MAIN?.wins || 0) / today.tokenStats?.MAIN?.trades * 100).toFixed(1) : '0.0'}%`;
 
         let assetInfo = '';
         CONFIG.ACTIVE_ASSETS.forEach(sym => {
@@ -1190,20 +1210,17 @@ class TelegramService {
             }
         });
 
-        const tok = today.tokenStats
-            ? `\n💳 Token split today:\n  REGULAR: ${today.tokenStats.REGULAR.trades}t ${(today.tokenStats.REGULAR.netPL || 0).toFixed(2)} | MAIN: ${today.tokenStats.MAIN.trades}t $${(today.tokenStats.MAIN.netPL || 0).toFixed(2)}`
-            : '';
-
         await this.sendMessage([
             `⏰ <b>BizWillRFv2 HOURLY SUMMARY (multi-asset independent)</b>`,
+            `🕐 ${now}`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '\u{1f7e2}' : '\u{1f534}'} $${h.pnl.toFixed(2)}`,
-            `💳 Last Hour per token: REGULAR ${h.tokenStats?.REGULAR?.trades || 0}t $${(h.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${h.tokenStats?.MAIN?.trades || 0}t $${(h.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`,
-            `Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)}`,
+            hourlyTok,
+            dailyTok,
+            `📊 Total today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)} | W/L: ${today.winsCount || 0}/${today.lossesCount || 0}`,
             `Loss Stats: x2:${today.x2Losses || 0} x3:${today.x3Losses || 0} x4:${today.x4Losses || 0} x5:${today.x5Losses || 0} x6:${today.x6Losses || 0} x7:${today.x7Losses || 0} x8:${today.x8Losses || 0} x9:${today.x9Losses || 0}`,
             `Pools sum: $${state.capital.toFixed(2)}`,
             TradingSessionManager.getStatusString(),
             assetInfo ? `\n<b>Per-Asset:</b>${assetInfo}` : '',
-            tok,
         ].join('\n'));
 
         state.hourlyStats = { trades: 0, wins: 0, losses: 0, pnl: 0, lastHour: new Date().getUTCHours(), tokenStats: { REGULAR: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 }, MAIN: { trades: 0, wins: 0, losses: 0, profit: 0, loss: 0, netPL: 0 } } };
@@ -1214,6 +1231,14 @@ class TelegramService {
         const overall = TradeHistoryManager.getOverallStats();
         const today = TradeHistoryManager.getTodayStats();
         const wr = overall.tradesCount > 0 ? ((overall.winsCount / overall.tradesCount) * 100).toFixed(1) : '0.0';
+        const now = new Date().toUTCString();
+
+        // ── Per-token block builder ──
+        const tokBlock = (label, ts, regStake, mainStake) => {
+            const regWR = (ts?.REGULAR?.trades || 0) > 0 ? (((ts?.REGULAR?.wins || 0) / ts.REGULAR.trades) * 100).toFixed(1) : '0.0';
+            const mainWR = (ts?.MAIN?.trades || 0) > 0 ? (((ts?.MAIN?.wins || 0) / ts.MAIN.trades) * 100).toFixed(1) : '0.0';
+            return `💳 ${label}\n  💵 REGULAR (DEMO): ${ts?.REGULAR?.trades || 0}t | ${ts?.REGULAR?.wins || 0}W/${ts?.REGULAR?.losses || 0}L | WR:${regWR}% | P/L: $${(ts?.REGULAR?.netPL || 0).toFixed(2)} | Stake: flat $${regStake}\n  💰 MAIN (REAL):   ${ts?.MAIN?.trades || 0}t | ${ts?.MAIN?.wins || 0}W/${ts?.MAIN?.losses || 0}L | WR:${mainWR}% | P/L: $${(ts?.MAIN?.netPL || 0).toFixed(2)} | Stake: $${mainStake}+ladder`;
+        };
 
         let pairBreakdown = '';
         CONFIG.ACTIVE_ASSETS.forEach(sym => {
@@ -1224,24 +1249,60 @@ class TelegramService {
             }
         });
 
-        const tok = today.tokenStats
-            ? `\n💳 Token split today:\n  REGULAR: ${today.tokenStats.REGULAR.trades}t ${(today.tokenStats.REGULAR.netPL || 0).toFixed(2)} | MAIN: ${today.tokenStats.MAIN.trades}t $${(today.tokenStats.MAIN.netPL || 0).toFixed(2)}`
-            : '';
-
         await this.sendMessage([
             `\u{1f4ca} <b>BizWillRFv2 SESSION SUMMARY (independent)</b>`,
-            `Duration: ${stats.duration} | Trades: ${stats.trades}`,
-            `W: ${stats.wins} | L: ${stats.losses} | Win Rate: ${stats.winRate}`,
-            `Session P/L: $${(stats.netPL || 0).toFixed(2)}`,
-            `💳 Session per token: REGULAR ${stats.tokenStats?.REGULAR?.trades || 0}t $${(stats.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${stats.tokenStats?.MAIN?.trades || 0}t $${(stats.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`,
-            `Today P/L: $${(today.netPL || 0).toFixed(2)}`,
+            `🕐 ${now} | Duration: ${stats.duration}`,
+            `Session: ${stats.trades} trades | W: ${stats.wins} | L: ${stats.losses} | WR: ${stats.winRate} | P/L: $${(stats.netPL || 0).toFixed(2)}`,
             ``,
-            `\u{1f4cb} <b>Overall:</b> ${overall.tradesCount} trades | WR: ${wr}% | P/L: $${(overall.netPL || 0).toFixed(2)}`,
-            `💳 Overall per token: REGULAR ${overall.tokenStats?.REGULAR?.trades || 0}t $${(overall.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${overall.tokenStats?.MAIN?.trades || 0}t $${(overall.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`,
+            tokBlock('Session per token:', stats.tokenStats, CONFIG.INITIAL_STAKE, CONFIG.MAIN_INITIAL_STAKE),
+            ``,
+            `📊 Today: ${today.tradesCount}t P/L: $${(today.netPL || 0).toFixed(2)} | W/L: ${today.winsCount || 0}/${today.lossesCount || 0}`,
+            tokBlock('Today per token:', today.tokenStats, CONFIG.INITIAL_STAKE, CONFIG.MAIN_INITIAL_STAKE),
+            ``,
+            `\u{1f4cb} <b>Overall (all time):</b> ${overall.tradesCount} trades | WR: ${wr}% | P/L: $${(overall.netPL || 0).toFixed(2)}`,
+            tokBlock('Overall per token:', overall.tokenStats, CONFIG.INITIAL_STAKE, CONFIG.MAIN_INITIAL_STAKE),
             pairBreakdown ? `\n<b>Per-Asset:</b>${pairBreakdown}` : '',
-            tok,
             ``,
             `\u{1f4b0} Pools sum: $${state.capital.toFixed(2)}`,
+        ].join('\n'));
+    }
+
+    static async sendDailySummary() {
+        const today = TradeHistoryManager.getTodayStats();
+        const now = new Date().toUTCString();
+        const regWR = (today.tokenStats?.REGULAR?.trades || 0) > 0 ? (((today.tokenStats?.REGULAR?.wins || 0) / today.tokenStats.REGULAR.trades) * 100).toFixed(1) : '0.0';
+        const mainWR = (today.tokenStats?.MAIN?.trades || 0) > 0 ? (((today.tokenStats?.MAIN?.wins || 0) / today.tokenStats.MAIN.trades) * 100).toFixed(1) : '0.0';
+
+        await this.sendMessage([
+            `📅 <b>BizWillRFv2 DAILY SUMMARY — ${now.slice(0, 10)}</b>`,
+            `📊 Today: ${today.tradesCount || 0} trades | W/L: ${today.winsCount || 0}/${today.lossesCount || 0} | P/L: $${(today.netPL || 0).toFixed(2)}`,
+            ``,
+            `💳 PER-TOKEN BREAKDOWN TODAY:`,
+            `  💵 REGULAR (DEMO): ${today.tokenStats?.REGULAR?.trades || 0} trades | ${today.tokenStats?.REGULAR?.wins || 0}W/${today.tokenStats?.REGULAR?.losses || 0}L | WR:${regWR}% | P/L: $${(today.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | Stake: flat $${CONFIG.INITIAL_STAKE}`,
+            `  💰 MAIN (REAL):   ${today.tokenStats?.MAIN?.trades || 0} trades | ${today.tokenStats?.MAIN?.wins || 0}W/${today.tokenStats?.MAIN?.losses || 0}L | WR:${mainWR}% | P/L: $${(today.tokenStats?.MAIN?.netPL || 0).toFixed(2)} | Stake: $${CONFIG.MAIN_INITIAL_STAKE}+ladder`,
+            ``,
+            `Loss Stats: x2:${today.x2Losses || 0} x3:${today.x3Losses || 0} x4:${today.x4Losses || 0} x5:${today.x5Losses || 0} x6:${today.x6Losses || 0} x7:${today.x7Losses || 0} x8:${today.x8Losses || 0} x9:${today.x9Losses || 0}`,
+            `Pools sum: $${state.capital.toFixed(2)}`,
+            TradingSessionManager.getStatusString(),
+        ].join('\n'));
+    }
+
+    static async sendOverallSummary() {
+        const overall = TradeHistoryManager.getOverallStats();
+        const wr = overall.tradesCount > 0 ? ((overall.winsCount / overall.tradesCount) * 100).toFixed(1) : '0.0';
+        const regWR = (overall.tokenStats?.REGULAR?.trades || 0) > 0 ? (((overall.tokenStats?.REGULAR?.wins || 0) / overall.tokenStats.REGULAR.trades) * 100).toFixed(1) : '0.0';
+        const mainWR = (overall.tokenStats?.MAIN?.trades || 0) > 0 ? (((overall.tokenStats?.MAIN?.wins || 0) / overall.tokenStats.MAIN.trades) * 100).toFixed(1) : '0.0';
+
+        await this.sendMessage([
+            `📊 <b>BizWillRFv2 OVERALL SUMMARY (all time)</b>`,
+            `Total: ${overall.tradesCount} trades | W/L: ${overall.winsCount}/${overall.lossesCount} | WR: ${wr}% | P/L: $${(overall.netPL || 0).toFixed(2)}`,
+            ``,
+            `💳 PER-TOKEN BREAKDOWN (ALL TIME):`,
+            `  💵 REGULAR (DEMO): ${overall.tokenStats?.REGULAR?.trades || 0} trades | ${overall.tokenStats?.REGULAR?.wins || 0}W/${overall.tokenStats?.REGULAR?.losses || 0}L | WR:${regWR}% | P/L: $${(overall.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | Stake: flat $${CONFIG.INITIAL_STAKE}`,
+            `  💰 MAIN (REAL):   ${overall.tokenStats?.MAIN?.trades || 0} trades | ${overall.tokenStats?.MAIN?.wins || 0}W/${overall.tokenStats?.MAIN?.losses || 0}L | WR:${mainWR}% | P/L: $${(overall.tokenStats?.MAIN?.netPL || 0).toFixed(2)} | Stake: $${CONFIG.MAIN_INITIAL_STAKE}+ladder`,
+            ``,
+            `First trade: ${overall.firstTradeDate || 'N/A'} | Last trade: ${overall.lastTradeDate || 'N/A'}`,
+            `Pools sum: $${state.capital.toFixed(2)}`,
         ].join('\n'));
     }
 
@@ -1257,6 +1318,13 @@ class TelegramService {
             ? `Dual token: REGULAR flat $${CONFIG.INITIAL_STAKE} | after ${CONFIG.LOSSES_BEFORE_MAIN_SWITCH} losses → MAIN $${CONFIG.MAIN_INITIAL_STAKE} then ladder (x${getAssetConfig(CONFIG.ACTIVE_ASSETS[0] || '').MARTINGALE_MULTIPLIER ?? CONFIG.MARTINGALE_MULTIPLIER}, max L${getAssetConfig(CONFIG.ACTIVE_ASSETS[0] || '').MAX_MARTINGALE_LEVEL ?? CONFIG.MAX_MARTINGALE_LEVEL})`
             : 'Single-token mode (no MAIN token configured)';
 
+        // ── Per-token block builder ──
+        const tokBlock = (label, ts) => {
+            const regWR = (ts?.REGULAR?.trades || 0) > 0 ? (((ts?.REGULAR?.wins || 0) / ts.REGULAR.trades) * 100).toFixed(1) : '0.0';
+            const mainWR = (ts?.MAIN?.trades || 0) > 0 ? (((ts?.MAIN?.wins || 0) / ts.MAIN.trades) * 100).toFixed(1) : '0.0';
+            return `💳 ${label}\n  💵 REGULAR (DEMO): ${ts?.REGULAR?.trades || 0}t | ${ts?.REGULAR?.wins || 0}W/${ts?.REGULAR?.losses || 0}L | WR:${regWR}% | P/L: $${(ts?.REGULAR?.netPL || 0).toFixed(2)} | Stake: flat $${CONFIG.INITIAL_STAKE}\n  💰 MAIN (REAL):   ${ts?.MAIN?.trades || 0}t | ${ts?.MAIN?.wins || 0}W/${ts?.MAIN?.losses || 0}L | WR:${mainWR}% | P/L: $${(ts?.MAIN?.netPL || 0).toFixed(2)} | Stake: $${CONFIG.MAIN_INITIAL_STAKE}+ladder`;
+        };
+
         await this.sendMessage([
             `🤖 <b>BizWillRFv2 STARTED — DUAL TOKEN (REGULAR + MAIN MARTINGALE)</b>`,
             `Strategy v2: Williams %R(${CONFIG.WPR_PERIOD}) cross ABOVE ${CONFIG.WPR_OVERSOLD} → CALLE | cross BELOW ${CONFIG.WPR_OVERBOUGHT} → PUTE (every valid cross trades)`,
@@ -1267,8 +1335,8 @@ class TelegramService {
             TradingSessionManager.getStatusString(),
             ``,
             `📊 Overall: ${overall.tradesCount} trades | P/L: $${(overall.netPL || 0).toFixed(2)}`,
-            `💳 Overall per token: REGULAR ${overall.tokenStats?.REGULAR?.trades || 0}t $${(overall.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${overall.tokenStats?.MAIN?.trades || 0}t $${(overall.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`,
-            `💳 Session per token: REGULAR ${state.session.tokenStats?.REGULAR?.trades || 0}t $${(state.session.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${state.session.tokenStats?.MAIN?.trades || 0}t $${(state.session.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`,
+            tokBlock('Overall per token:', overall.tokenStats),
+            tokBlock('Session per token:', state.session.tokenStats),
             `<b>Active Assets:</b>${pairInfo}`,
         ].join('\n'));
     }
@@ -1380,10 +1448,15 @@ class SessionManager {
         if (state.currentTradeDay && state.currentTradeDay !== today) {
             LOGGER.info(`Day changed: ${state.currentTradeDay} -> ${today}`);
             const dayStats = TradeHistoryManager.getDayStats(state.currentTradeDay);
+            const regWR = (dayStats?.tokenStats?.REGULAR?.trades || 0) > 0 ? (((dayStats?.tokenStats?.REGULAR?.wins || 0) / dayStats.tokenStats.REGULAR.trades) * 100).toFixed(1) : '0.0';
+            const mainWR = (dayStats?.tokenStats?.MAIN?.trades || 0) > 0 ? (((dayStats?.tokenStats?.MAIN?.wins || 0) / dayStats.tokenStats.MAIN.trades) * 100).toFixed(1) : '0.0';
             TelegramService.sendMessage(
-                `\u{1f319} <b>BizWillRFv2 END OF DAY ${state.currentTradeDay}</b>\nP/L: $${(dayStats?.netPL || 0).toFixed(2)}\n` +
-                `💳 Per token: REGULAR ${dayStats?.tokenStats?.REGULAR?.trades || 0}t $${(dayStats?.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${dayStats?.tokenStats?.MAIN?.trades || 0}t $${(dayStats?.tokenStats?.MAIN?.netPL || 0).toFixed(2)}\n` +
-                `Capital: $${state.capital.toFixed(2)}`
+                `\u{1f319} <b>BizWillRFv2 END OF DAY ${state.currentTradeDay}</b>\n` +
+                `📊 Overall: ${dayStats?.tradesCount || 0}t P/L: $${(dayStats?.netPL || 0).toFixed(2)} | W/L: ${dayStats?.winsCount || 0}/${dayStats?.lossesCount || 0}\n` +
+                `💳 PER-TOKEN BREAKDOWN:\n` +
+                `  💵 REGULAR (DEMO): ${dayStats?.tokenStats?.REGULAR?.trades || 0}t | ${dayStats?.tokenStats?.REGULAR?.wins || 0}W/${dayStats?.tokenStats?.REGULAR?.losses || 0}L | WR:${regWR}% | P/L: $${(dayStats?.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | Stake: flat $${CONFIG.INITIAL_STAKE}\n` +
+                `  💰 MAIN (REAL):   ${dayStats?.tokenStats?.MAIN?.trades || 0}t | ${dayStats?.tokenStats?.MAIN?.wins || 0}W/${dayStats?.tokenStats?.MAIN?.losses || 0}L | WR:${mainWR}% | P/L: $${(dayStats?.tokenStats?.MAIN?.netPL || 0).toFixed(2)} | Stake: $${CONFIG.MAIN_INITIAL_STAKE}+ladder\n` +
+                `💰 Pools sum: $${state.capital.toFixed(2)}`
             );
             this._resetDailyStats();
             if (!state.session.isActive) {
@@ -2325,7 +2398,7 @@ class ConnectionManager {
                 return;
             }
             LOGGER.error(`[${this.mode}] Max reconnection attempts reached — giving up`);
-            TelegramService.sendMessage(`\u{1f6d1} <b>BizWillRFv2 BOT STOPPED [${this.mode}]</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}\n💳 Per token: REGULAR ${state.session.tokenStats?.REGULAR?.trades || 0}t $${(state.session.tokenStats?.REGULAR?.netPL || 0).toFixed(2)} | MAIN ${state.session.tokenStats?.MAIN?.trades || 0}t $${(state.session.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`);
+            TelegramService.sendMessage(`\u{1f6d1} <b>BizWillRFv2 BOT STOPPED [${this.mode}]</b> — Max reconnections\nFinal P/L: $${(state.session.netPL || 0).toFixed(2)}\n💳 Per token:\n  💵 REGULAR (DEMO): ${state.session.tokenStats?.REGULAR?.trades || 0}t | ${state.session.tokenStats?.REGULAR?.wins || 0}W/${state.session.tokenStats?.REGULAR?.losses || 0}L | P/L: $${(state.session.tokenStats?.REGULAR?.netPL || 0).toFixed(2)}\n  💰 MAIN (REAL):   ${state.session.tokenStats?.MAIN?.trades || 0}t | ${state.session.tokenStats?.MAIN?.wins || 0}W/${state.session.tokenStats?.MAIN?.losses || 0}L | P/L: $${(state.session.tokenStats?.MAIN?.netPL || 0).toFixed(2)}`);
             process.exit(1);
         }
     }
