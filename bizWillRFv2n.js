@@ -91,8 +91,8 @@ class RestClient {
 // ============================================================
 // FILE PATHS  [RETAINED]
 // ============================================================
-const STATE_FILE = path.join(__dirname, 'bizWillRFv2n_001-state.json');
-const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2n_001-history.json');
+const STATE_FILE = path.join(__dirname, 'bizWillRFv2n_002-state.json');
+const HISTORY_FILE = path.join(__dirname, 'bizWillRFv2n_002-history.json');
 const STATE_SAVE_INTERVAL = 5000;  // ms
 
 // ============================================================
@@ -131,7 +131,7 @@ const CONFIG = {
     // moves to the MAIN token where it starts at MAIN_INITIAL_STAKE and climbs
     // the martingale ladder per further loss until a win returns it to REGULAR.
     // Leave MAIN_TOKEN empty to fall back to legacy single-token behaviour.
-    LOSSES_BEFORE_MAIN_SWITCH: 2,
+    LOSSES_BEFORE_MAIN_SWITCH: 3,
 
     // ── Recovery Strategy ─────────────────────────────────────
     // TRUE MULTI-ASSET v4: after a loss, WAIT for a new valid WPR signal,
