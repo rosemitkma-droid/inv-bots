@@ -1131,13 +1131,13 @@ class TelegramService {
             const wprStr = Number.isFinite(wpr) && Number.isFinite(prevWpr) ? `${prevWpr.toFixed(1)}→${wpr.toFixed(1)}` : 'N/A';
             if (details.isRecovery) {
                 analysisDetails = `
-        🔄 <b>BizWillRFv2 SIGNAL-WAIT RECOVERY L${a?.martingaleLevel ?? 0}</b> (new WPR signal direction, stake multiplier only)
+        🔄 <b>BizWillRFv2_DualToken SIGNAL-WAIT RECOVERY L${a?.martingaleLevel ?? 0}</b> (new WPR signal direction, stake multiplier only)
         🧠 <b>WPR(${CONFIG.WPR_PERIOD}) Signal:</b>
         📊 WPR: ${wprStr} (OB ${CONFIG.WPR_OVERBOUGHT} / OS ${CONFIG.WPR_OVERSOLD})
         📊 Signal: ${analysis?.direction || direction} (${analysis?.reason || ''})`;
             } else if (analysis) {
                 analysisDetails = `
-        🧠 <b>BizWillRFv2 WPR(${CONFIG.WPR_PERIOD}) Signal:</b>
+        🧠 <b>BizWillRFv2_DualToken WPR(${CONFIG.WPR_PERIOD}) Signal:</b>
         📊 WPR: ${wprStr} (OB ${CONFIG.WPR_OVERBOUGHT} / OS ${CONFIG.WPR_OVERSOLD})
         📊 Signal: ${analysis?.direction || 'N/A'} (${analysis?.reason || ''})`;
             }
@@ -1170,7 +1170,7 @@ class TelegramService {
         const recoveryStatus = (a?.martingaleLevel || 0) > 0 ? `🔄 RECOVERY L${a.martingaleLevel}` : '🎯 NORMAL';
 
         const msg = `
-        ${emoji} <b>${type} BizWillRFv2 TRADE ALERT - ${recoveryStatus}</b>
+        ${emoji} <b>${type} BizWillRFv2_DualToken TRADE ALERT - ${recoveryStatus}</b>
         ${tokenBadge}
 
         📊 Asset: ${symbol} (pools REG $${(a?.poolRegular ?? 0).toFixed(2)} / MAIN $${(a?.poolMain ?? 0).toFixed(2)})
@@ -1211,7 +1211,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `⏰ <b>BizWillRFv2 HOURLY SUMMARY (multi-asset independent)</b>`,
+            `⏰ <b>BizWillRFv2_DualToken HOURLY SUMMARY (multi-asset independent)</b>`,
             `🕐 ${now}`,
             `Last Hour: ${h.trades}t ${h.wins}W/${h.losses}L ${wr}% ${h.pnl >= 0 ? '\u{1f7e2}' : '\u{1f534}'} $${h.pnl.toFixed(2)}`,
             hourlyTok,
@@ -1250,7 +1250,7 @@ class TelegramService {
         });
 
         await this.sendMessage([
-            `\u{1f4ca} <b>BizWillRFv2 SESSION SUMMARY (independent)</b>`,
+            `\u{1f4ca} <b>BizWillRFv2_DualToken SESSION SUMMARY (independent)</b>`,
             `🕐 ${now} | Duration: ${stats.duration}`,
             `Session: ${stats.trades} trades | W: ${stats.wins} | L: ${stats.losses} | WR: ${stats.winRate} | P/L: $${(stats.netPL || 0).toFixed(2)}`,
             ``,
@@ -1274,7 +1274,7 @@ class TelegramService {
         const mainWR = (today.tokenStats?.MAIN?.trades || 0) > 0 ? (((today.tokenStats?.MAIN?.wins || 0) / today.tokenStats.MAIN.trades) * 100).toFixed(1) : '0.0';
 
         await this.sendMessage([
-            `📅 <b>BizWillRFv2 DAILY SUMMARY — ${now.slice(0, 10)}</b>`,
+            `📅 <b>BizWillRFv2_DualToken DAILY SUMMARY — ${now.slice(0, 10)}</b>`,
             `📊 Today: ${today.tradesCount || 0} trades | W/L: ${today.winsCount || 0}/${today.lossesCount || 0} | P/L: $${(today.netPL || 0).toFixed(2)}`,
             ``,
             `💳 PER-TOKEN BREAKDOWN TODAY:`,
@@ -1294,7 +1294,7 @@ class TelegramService {
         const mainWR = (overall.tokenStats?.MAIN?.trades || 0) > 0 ? (((overall.tokenStats?.MAIN?.wins || 0) / overall.tokenStats.MAIN.trades) * 100).toFixed(1) : '0.0';
 
         await this.sendMessage([
-            `📊 <b>BizWillRFv2 OVERALL SUMMARY (all time)</b>`,
+            `📊 <b>BizWillRFv2_DualToken OVERALL SUMMARY (all time)</b>`,
             `Total: ${overall.tradesCount} trades | W/L: ${overall.winsCount}/${overall.lossesCount} | WR: ${wr}% | P/L: $${(overall.netPL || 0).toFixed(2)}`,
             ``,
             `💳 PER-TOKEN BREAKDOWN (ALL TIME):`,
@@ -1326,7 +1326,7 @@ class TelegramService {
         };
 
         await this.sendMessage([
-            `🤖 <b>BizWillRFv2 STARTED — DUAL TOKEN (REGULAR + MAIN MARTINGALE)</b>`,
+            `🤖 <b>BizWillRFv2_DualToken STARTED — DUAL TOKEN (REGULAR + MAIN MARTINGALE)</b>`,
             `Strategy v2: Williams %R(${CONFIG.WPR_PERIOD}) cross ABOVE ${CONFIG.WPR_OVERSOLD} → CALLE | cross BELOW ${CONFIG.WPR_OVERBOUGHT} → PUTE (every valid cross trades)`,
             `Recovery: SIGNAL-WAIT — after loss wait for NEW signal, trade its direction with x-multiplier until win → reset to default`,
             mainInfo,
